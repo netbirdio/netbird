@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -103,4 +104,74 @@ func TestBufferHonorsCallerContext(t *testing.T) {
 
 	_, err := buffer.Get(ctx, "account")
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+func TestSerializedBufferQueuesRequestsDuringFetch(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var fetches, running, maxRunning atomic.Int32
+		buffer := NewSerialized(context.Background(), "test", 10*time.Millisecond,
+			func(ctx context.Context, key string) (int32, error) {
+				n := running.Add(1)
+				defer running.Add(-1)
+				if n > maxRunning.Load() {
+					maxRunning.Store(n)
+				}
+				time.Sleep(time.Second)
+				return fetches.Add(1), nil
+			})
+
+		var wg sync.WaitGroup
+		get := func(want int32) {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				value, err := buffer.Get(context.Background(), "account")
+				assert.NoError(t, err)
+				assert.Equal(t, want, value)
+			}()
+		}
+
+		get(1)
+		time.Sleep(100 * time.Millisecond)
+		synctest.Wait()
+		require.Equal(t, int32(1), running.Load(), "first fetch should be running")
+
+		for range 5 {
+			get(2)
+		}
+		wg.Wait()
+
+		assert.Equal(t, int32(2), fetches.Load(), "requests queued during the fetch should share one fetch")
+		assert.Equal(t, int32(1), maxRunning.Load(), "fetches of a key should not overlap")
+	})
+}
+
+func TestUnserializedBufferOverlapsFetches(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var running, maxRunning atomic.Int32
+		buffer := New(context.Background(), "test", 10*time.Millisecond,
+			func(ctx context.Context, key string) (string, error) {
+				n := running.Add(1)
+				defer running.Add(-1)
+				if n > maxRunning.Load() {
+					maxRunning.Store(n)
+				}
+				time.Sleep(time.Second)
+				return key, nil
+			})
+
+		var wg sync.WaitGroup
+		wg.Go(func() {
+			_, err := buffer.Get(context.Background(), "account")
+			assert.NoError(t, err)
+		})
+		time.Sleep(100 * time.Millisecond)
+		wg.Go(func() {
+			_, err := buffer.Get(context.Background(), "account")
+			assert.NoError(t, err)
+		})
+		wg.Wait()
+
+		assert.Equal(t, int32(2), maxRunning.Load())
+	})
 }

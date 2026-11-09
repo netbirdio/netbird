@@ -186,14 +186,6 @@ func ToProtoNetworkMap(
 	pm.RoutesFirewallRules = routesFirewallRules
 	pm.RoutesFirewallRulesIsEmpty = len(routesFirewallRules) == 0
 
-	if nm.ForwardingRules != nil {
-		forwardingRules := make([]*proto.ForwardingRule, 0, len(nm.ForwardingRules))
-		for _, rule := range nm.ForwardingRules {
-			forwardingRules = append(forwardingRules, rule.ToProto())
-		}
-		pm.ForwardingRules = forwardingRules
-	}
-
 	if nm.AuthorizedUsers != nil {
 		hashedUsers, machineUsers := networkmap.BuildAuthorizedUsersProto(ctx, nm.AuthorizedUsers)
 		userIDClaim := auth.DefaultUserIDClaim

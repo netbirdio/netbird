@@ -552,12 +552,10 @@
         "message": "Error al cambiar el inicio automático"
     },
     "settings.general.keepConnectedOnQuit.label": {
-        "message": "Permanecer conectado al salir",
-        "description": "Toggle label: keep the VPN connection up after quitting the UI."
+        "message": "Permanecer conectado al salir"
     },
     "settings.general.keepConnectedOnQuit.help": {
-        "message": "La conexión sigue activa en segundo plano después de cerrar NetBird. Solo se detiene cuando la desconectas tú.",
-        "description": "Helper text for the stay-connected-after-quitting toggle."
+        "message": "La conexión sigue activa en segundo plano después de cerrar NetBird. Solo se detiene cuando la desconectas tú."
     },
     "settings.general.language.label": {
         "message": "Idioma de la interfaz"
@@ -570,6 +568,21 @@
     },
     "settings.general.language.empty": {
         "message": "Ningún idioma coincide."
+    },
+    "settings.general.theme.label": {
+        "message": "Tema"
+    },
+    "settings.general.theme.help": {
+        "message": "Elija el tema claro u oscuro, o siga la apariencia del sistema."
+    },
+    "settings.general.theme.system": {
+        "message": "Sistema"
+    },
+    "settings.general.theme.light": {
+        "message": "Claro"
+    },
+    "settings.general.theme.dark": {
+        "message": "Oscuro"
     },
     "settings.general.management.label": {
         "message": "Servidor de gestión"
@@ -1348,6 +1361,12 @@
     "error.daemon_unreachable": {
         "message": "El daemon de NetBird no responde. Compruebe que el servicio esté en ejecución."
     },
+    "error.settings_locked": {
+        "message": "La configuración no se puede cambiar en este dispositivo: un administrador la ha bloqueado."
+    },
+    "error.settings_managed_by_mdm": {
+        "message": "Esta configuración está gestionada por su organización y no se puede cambiar."
+    },
     "error.unknown": {
         "message": "La operación falló."
     },
@@ -1374,5 +1393,35 @@
     },
     "settings.ssh.privilege.authorizePending": {
         "message": "Esperando la autorización…"
+    },
+    "profile.ownedByAnother.name": {
+        "message": "Otro usuario"
+    },
+    "profile.ownedByAnother.hint": {
+        "message": "El perfil activo pertenece a otro usuario. Solo su propietario puede modificarlo o desconectarlo."
+    },
+    "error.privilege_required": {
+        "message": "Esta acción requiere privilegios elevados."
+    },
+    "error.session_held": {
+        "message": "Otro usuario tiene esta máquina conectada."
+    },
+    "error.not_profile_owner": {
+        "message": "Este perfil pertenece a otro usuario."
+    },
+    "error.profile_unowned": {
+        "message": "Este perfil aún no tiene propietario."
+    },
+    "tray.status.daemonAccessDenied": {
+        "message": "Sin acceso"
+    },
+    "daemon.accessDenied.title": {
+        "message": "Sin acceso al servicio NetBird"
+    },
+    "daemon.accessDenied.description": {
+        "message": "Su administrador ha restringido el servicio NetBird en este dispositivo a determinados usuarios o grupos, y su cuenta no es uno de ellos. Póngase en contacto con su administrador para obtener acceso."
+    },
+    "error.daemon_access_denied": {
+        "message": "Su cuenta no tiene permiso para usar el servicio NetBird en este dispositivo. Póngase en contacto con su administrador para obtener acceso."
     }
 }

@@ -102,11 +102,11 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 
 	inviterID := userID
 	if initiatorUser.IsServiceUser {
-		createdBy, err := am.Store.GetAccountCreatedBy(ctx, store.LockingStrengthNone, accountID)
+		owner, err := am.Store.GetAccountOwner(ctx, store.LockingStrengthNone, accountID)
 		if err != nil {
 			return nil, err
 		}
-		inviterID = createdBy
+		inviterID = owner.Id
 	}
 
 	var idpUser *idp.UserData
@@ -238,9 +238,10 @@ func (am *DefaultAccountManager) GetUserFromUserAuth(ctx context.Context, userAu
 	// server when user authenticates a device. And we need to separate the Dashboard login event from the Device login event.
 	newLogin := user.LastDashboardLoginChanged(userAuth.LastLogin)
 
-	err = am.Store.SaveUserLastLogin(ctx, userAuth.AccountId, userAuth.UserId, userAuth.LastLogin)
-	if err != nil {
-		log.WithContext(ctx).Debugf("failed to update user last login: %v", err)
+	if userAuth.LastLogin.After(user.GetLastLogin()) {
+		if err := am.Store.SaveUserLastLogin(ctx, userAuth.AccountId, userAuth.UserId, userAuth.LastLogin); err != nil {
+			log.WithContext(ctx).Debugf("failed to update user last login: %v", err)
+		}
 	}
 
 	if newLogin {
@@ -593,8 +594,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		return nil, err
 	}
 
-	var snaps []*affectedpeers.Snapshot
-	var changes []affectedpeers.Change
+	affected := make(affectedPeerSet)
 	var peersToExpire []*nbpeer.Peer
 	var addUserEvents []func()
 	var usersToSave = make([]*types.User, 0, len(updates))
@@ -629,6 +629,8 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			return nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
 		}
 
+		var itemSnap *affectedpeers.Snapshot
+		var itemChange affectedpeers.Change
 		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 			change, updatedUser, userPeersToExpire, userEvents, err := am.processUserUpdate(
 				ctx, transaction, groupsMap, accountID, initiatorUserID, initiatorUser, update, addIfNotExists, settings,
@@ -647,8 +649,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 				return err
 			}
 
-			snaps = append(snaps, snap)
-			changes = append(changes, change)
+			itemSnap, itemChange = snap, change
 			usersToSave = append(usersToSave, updatedUser)
 			addUserEvents = append(addUserEvents, userEvents...)
 			peersToExpire = append(peersToExpire, userPeersToExpire...)
@@ -662,10 +663,18 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			}
 			globalErr = errors.Join(globalErr, err)
 			// continue when updating multiple users
+			continue
 		}
+		affected.add(itemSnap.Expand(ctx, accountID, itemChange))
 	}
 
 	var updatedUsersInfo = make([]*types.UserInfo, 0, len(usersToSave))
+
+	if len(usersToSave) > 0 {
+		if err = am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return nil, fmt.Errorf("increment network serial: %w", err)
+		}
+	}
 
 	userInfos, err := am.GetUsersFromAccount(ctx, accountID, initiatorUserID)
 	if err != nil {
@@ -690,10 +699,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			return nil, err
 		}
 	} else if len(usersToSave) > 0 {
-		if err = am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
-			return nil, fmt.Errorf("failed to increment network serial: %w", err)
-		}
-		go am.dispatchAffected(ctx, accountID, snaps, changes)
+		go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids())
 	}
 
 	return updatedUsersInfo, globalErr
@@ -861,9 +867,11 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 		allGroupChanges := slices.Concat(removedGroups, addedGroups)
 		change.LinkGroups = allGroupChanges
 
-		if err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, allGroupChanges); err != nil {
+		ipv6Changed, err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, allGroupChanges)
+		if err != nil {
 			return change, nil, nil, nil, fmt.Errorf("reconcile IPv6 for group changes: %w", err)
 		}
+		change.ChangedPeerIDs = append(change.ChangedPeerIDs, ipv6Changed...)
 	}
 
 	userEventsToAdd := am.prepareUserUpdateEvents(ctx, updatedUser.AccountID, initiatorUserId, oldUser, updatedUser, transferredOwnerRole, isNewUser, removedGroups, addedGroups, transaction)
@@ -1177,37 +1185,46 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 	dnsDomain := am.networkMapController.GetDNSDomain(settings)
 
 	var peerIDs []string
-	for _, peer := range peers {
+	defer func() {
+		if len(peerIDs) == 0 {
+			return
+		}
+		// this will trigger peer disconnect from the management service
+		log.Debugf("Expiring %d peers for account %s", len(peerIDs), accountID)
+		am.networkMapController.DisconnectPeers(ctx, accountID, peerIDs)
+	}()
+	for _, candidate := range peers {
 		// nolint:staticcheck
-		ctx = context.WithValue(ctx, nbcontext.PeerIDKey, peer.Key)
+		peerCtx := context.WithValue(ctx, nbcontext.PeerIDKey, candidate.Key)
 
-		if peer.UserID == "" {
+		if candidate.UserID == "" {
 			// we do not want to expire peers that are added via setup key
 			continue
 		}
 
-		if peer.Status.LoginExpired {
+		peer, err := am.expirePeerIfStillDue(peerCtx, accountID, candidate.ID, settings, reason)
+		if err != nil {
+			return err
+		}
+		if peer == nil {
 			continue
 		}
 		peerIDs = append(peerIDs, peer.ID)
-		peer.MarkLoginExpired(true)
-
-		if err := am.Store.SavePeerStatus(ctx, accountID, peer.ID, *peer.Status); err != nil {
-			return err
-		}
 		meta := peer.EventMeta(dnsDomain)
 		meta["reason"] = string(reason)
 		am.StoreEvent(
-			ctx,
+			peerCtx,
 			peer.UserID, peer.ID, accountID,
 			activity.PeerLoginExpired, meta,
 		)
 	}
 
-	if len(peerIDs) != 0 {
-		if err := am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
-			return err
-		}
+	if len(peerIDs) == 0 {
+		return nil
+	}
+
+	if err := am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
+		return err
 	}
 
 	affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, peerIDs)
@@ -1215,13 +1232,56 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 	if err != nil {
 		return fmt.Errorf("notify network map controller of peer update: %w", err)
 	}
-
-	if len(peerIDs) != 0 {
-		// this will trigger peer disconnect from the management service
-		log.Debugf("Expiring %d peers for account %s", len(peerIDs), accountID)
-		am.networkMapController.DisconnectPeers(ctx, accountID, peerIDs)
-	}
 	return nil
+}
+
+// expirePeerIfStillDue flags the peer as login-expired and returns its fresh copy, or nil
+// when it no longer qualifies. The candidate list is read without a lock, so a login that
+// landed in between would otherwise be overwritten with a stale expired status. The
+// connection released afterwards is the session read under the lock, so a session
+// established after the commit survives.
+func (am *DefaultAccountManager) expirePeerIfStillDue(ctx context.Context, accountID, peerID string, settings *types.Settings, reason peerExpirationReason) (*nbpeer.Peer, error) {
+	var expired *nbpeer.Peer
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		peer, err := transaction.GetPeerByID(ctx, store.LockingStrengthUpdate, accountID, peerID)
+		if err != nil {
+			if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
+				return nil
+			}
+			return err
+		}
+		if peer.Status.LoginExpired || !peerExpirationDue(peer, settings, reason) {
+			return nil
+		}
+		peer.MarkLoginExpired(true)
+		if err := transaction.SavePeerStatus(ctx, accountID, peer.ID, *peer.Status); err != nil {
+			return err
+		}
+		expired = peer
+		return nil
+	})
+	if err != nil || expired == nil {
+		return nil, err
+	}
+	if err := am.peerLiveness.ReleaseConnection(ctx, accountID, expired.ID, expired.Status.SessionStartedAt); err != nil {
+		log.WithContext(ctx).Warnf("release connection of expired peer %s: %v", expired.ID, err)
+	}
+	return expired, nil
+}
+
+// peerExpirationDue re-evaluates a time-based expiry against the peer's current state.
+// Administrative reasons expire the peer unconditionally.
+func peerExpirationDue(peer *nbpeer.Peer, settings *types.Settings, reason peerExpirationReason) bool {
+	switch reason {
+	case peerExpirationSessionExpired:
+		expired, _ := peer.LoginExpired(settings.PeerLoginExpiration)
+		return settings.PeerLoginExpirationEnabled && expired
+	case peerExpirationInactivity:
+		expired, _ := peer.SessionExpired(settings.PeerInactivityExpiration)
+		return settings.PeerInactivityExpirationEnabled && expired
+	default:
+		return true
+	}
 }
 
 func (am *DefaultAccountManager) deleteUserFromIDP(ctx context.Context, targetUserID, accountID string) error {
@@ -1337,6 +1397,10 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 			return fmt.Errorf("failed to get user to delete: %w", err)
 		}
 
+		if targetUser.Role == types.UserRoleOwner && targetUser.Id != initiatorUserID {
+			return status.NewOwnerDeletePermissionError()
+		}
+
 		settings, err = transaction.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to get account settings: %w", err)
@@ -1371,6 +1435,10 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 			return fmt.Errorf("failed to delete user: %s %w", targetUserInfo.ID, err)
 		}
 
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return fmt.Errorf("increment network serial: %w", err)
+		}
+
 		return nil
 	})
 	if err != nil {
@@ -1397,6 +1465,25 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 	am.StoreEvent(ctx, initiatorUserID, targetUser.Id, accountID, activity.UserDeleted, meta)
 
 	return updateAccountPeers, nil
+}
+
+// pendingApprovalError refuses a user awaiting approval, naming the owner who
+// can approve them when their address resolves. Failing to resolve one is not a
+// reason to withhold the refusal, so the lookup is best effort.
+func (am *DefaultAccountManager) pendingApprovalError(ctx context.Context, accountID string) error {
+	owner, err := am.GetOwnerInfo(ctx, accountID)
+	if err != nil {
+		log.WithContext(ctx).Debugf("pending approval refusal: owner of account %s did not resolve: %v", accountID, err)
+		return status.NewUserPendingApprovalError()
+	}
+
+	masked := types.MaskEmail(owner.Email)
+	if masked == "" {
+		log.WithContext(ctx).Debugf("pending approval refusal: no address found for the owner of account %s", accountID)
+		return status.NewUserPendingApprovalError()
+	}
+
+	return status.NewUserPendingApprovalByOwnerError(masked)
 }
 
 // GetOwnerInfo retrieves the owner information for a given account ID.
@@ -1454,6 +1541,14 @@ func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, userAut
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
 		return nil, err
+	}
+
+	// A user pending approval is blocked too, and the dashboard needs to tell
+	// the two apart: one is a dead end, the other resolves by itself once the
+	// owner acts. Naming that owner needs the address the IdP holds, which is
+	// why this is answered here rather than in the permission gate.
+	if user.IsBlocked() && user.PendingApproval {
+		return nil, am.pendingApprovalError(ctx, user.AccountID)
 	}
 
 	if user.IsBlocked() {

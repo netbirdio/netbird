@@ -5,65 +5,78 @@ import (
 	"testing"
 )
 
-func Test_freePort(t *testing.T) {
-	tests := []struct {
-		name        string
-		port        int
-		want        int
-		shouldMatch bool
-	}{
-		{
-			name:        "when port is 0 use random port",
-			port:        0,
-			want:        0,
-			shouldMatch: false,
-		},
-		{
-			name:        "provided and available",
-			port:        51821,
-			want:        51821,
-			shouldMatch: true,
-		},
-		{
-			name:        "provided and not available",
-			port:        51830,
-			want:        51830,
-			shouldMatch: false,
-		},
-	}
-	c1, err := net.ListenUDP("udp", &net.UDPAddr{Port: 0})
+// probeFreePort asks the OS for a free UDP port and immediately releases it.
+// The returned number is only a hint: nothing stops another process from
+// grabbing the same port before the caller gets a chance to bind it.
+//
+// A hardcoded port number is not an option here: any fixed number can fall
+// inside the ephemeral range and be held by an unrelated process on the test
+// runner.
+func probeFreePort(t *testing.T) int {
+	t.Helper()
+
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{Port: 0})
 	if err != nil {
-		t.Errorf("freePort error = %v", err)
+		t.Fatalf("failed to bind probe port: %v", err)
 	}
-	defer func(c1 *net.UDPConn) {
-		_ = c1.Close()
-	}(c1)
-
-	if tests[1].port == c1.LocalAddr().(*net.UDPAddr).Port {
-		tests[1].port++
-		tests[1].want++
+	port := conn.LocalAddr().(*net.UDPAddr).Port
+	if err := conn.Close(); err != nil {
+		t.Fatalf("failed to close probe port: %v", err)
 	}
+	return port
+}
 
-	tests[2].port = c1.LocalAddr().(*net.UDPAddr).Port
-	tests[2].want = c1.LocalAddr().(*net.UDPAddr).Port
+func Test_freePort(t *testing.T) {
+	t.Run("when port is 0 use random port", func(t *testing.T) {
+		got, err := freePort(0)
+		if err != nil {
+			t.Fatalf("got an error while getting free port: %v", err)
+		}
+		if got == 0 {
+			t.Errorf("got port 0, want a non-zero random port")
+		}
+	})
 
-	for _, tt := range tests {
+	t.Run("provided and available", func(t *testing.T) {
+		const maxAttempts = 5
 
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := freePort(tt.port)
+		// The probed port is released before freePort binds it, so an
+		// unrelated process on the test runner can grab it in between,
+		// making freePort fall back to a different port. Retry with a
+		// freshly probed port instead of failing on a lost race.
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			candidate := probeFreePort(t)
 
+			got, err := freePort(candidate)
 			if err != nil {
-				t.Errorf("got an error while getting free port: %v", err)
+				t.Fatalf("got an error while getting free port: %v", err)
 			}
 
-			if tt.shouldMatch && got != tt.want {
-				t.Errorf("got a different port %v, want %v", got, tt.want)
+			if got == candidate {
+				return
 			}
+			t.Logf("attempt %d: freePort returned %d instead of the requested %d, retrying", attempt, got, candidate)
+		}
 
-			if !tt.shouldMatch && got == tt.want {
-				t.Errorf("got the same port %v, want a different port", tt.want)
-			}
+		t.Fatalf("freePort did not return the requested free port after %d attempts", maxAttempts)
+	})
+
+	t.Run("provided and not available", func(t *testing.T) {
+		busy, err := net.ListenUDP("udp", &net.UDPAddr{Port: 0})
+		if err != nil {
+			t.Fatalf("failed to bind busy port: %v", err)
+		}
+		t.Cleanup(func() {
+			_ = busy.Close()
 		})
+		busyPort := busy.LocalAddr().(*net.UDPAddr).Port
 
-	}
+		got, err := freePort(busyPort)
+		if err != nil {
+			t.Fatalf("got an error while getting free port: %v", err)
+		}
+		if got == busyPort {
+			t.Errorf("got the same port %v, want a different port", busyPort)
+		}
+	})
 }

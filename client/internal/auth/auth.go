@@ -112,7 +112,7 @@ func (a *Auth) IsSSOSupported(ctx context.Context) (bool, error) {
 
 	err := a.withRetry(ctx, func(client *mgm.GrpcClient) error {
 		// Try PKCE flow first
-		_, err := a.getPKCEFlow(client)
+		_, err := a.getPKCEFlow(client, false)
 		if err == nil {
 			supportsSSO = true
 			return nil
@@ -145,9 +145,13 @@ func (a *Auth) IsSSOSupported(ctx context.Context) (bool, error) {
 	return supportsSSO, err
 }
 
-// GetOAuthFlow returns an OAuth flow (PKCE or Device) using the existing management connection
-// This avoids creating a new connection to the management server
-func (a *Auth) GetOAuthFlow(ctx context.Context, forceDeviceAuth bool, hint string) (OAuthFlow, error) {
+// GetOAuthFlow returns an OAuth flow (PKCE or Device) using the existing management connection.
+// This avoids creating a new connection to the management server.
+//
+// sessionExtend marks the flow as renewing an existing peer's session rather than
+// logging one in; the server needs it to rule out a silent authorization that the
+// IdP could answer from another account. See PKCEAuthorizationFlowRequest.
+func (a *Auth) GetOAuthFlow(ctx context.Context, forceDeviceAuth bool, sessionExtend bool, hint string) (OAuthFlow, error) {
 	var flow OAuthFlow
 
 	// the connection is owned by a and outlives this call, so a later fallback reuses it
@@ -157,7 +161,7 @@ func (a *Auth) GetOAuthFlow(ctx context.Context, forceDeviceAuth bool, hint stri
 
 	err := a.withRetry(ctx, func(client *mgm.GrpcClient) error {
 		var err error
-		flow, err = oauthFlowWithFallback(a, client, flowOrder(forceDeviceAuth, true), hint, newAuth)
+		flow, err = oauthFlowWithFallback(a, client, flowOrder(forceDeviceAuth, true, sessionExtend), hint, newAuth)
 
 		if IsSSOUnavailable(err) {
 			return backoff.Permanent(err)
@@ -233,8 +237,8 @@ func (a *Auth) Login(ctx context.Context, setupKey string, jwtToken string) (err
 }
 
 // getPKCEFlow retrieves PKCE authorization flow configuration and creates a flow instance
-func (a *Auth) getPKCEFlow(client *mgm.GrpcClient) (*PKCEAuthorizationFlow, error) {
-	protoFlow, err := client.GetPKCEAuthorizationFlow()
+func (a *Auth) getPKCEFlow(client *mgm.GrpcClient, sessionExtend bool) (*PKCEAuthorizationFlow, error) {
+	protoFlow, err := client.GetPKCEAuthorizationFlow(sessionExtend)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 			log.Warnf("server couldn't find pkce flow, contact admin: %v", err)

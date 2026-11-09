@@ -6,13 +6,8 @@ import (
 	"context"
 	"fmt"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
-	"github.com/netbirdio/netbird/client/internal/auth/sessionwatch"
-	"github.com/netbirdio/netbird/client/internal/peer"
-	cProto "github.com/netbirdio/netbird/client/proto"
 )
 
 // StateChangeListener receives client state notifications.
@@ -21,16 +16,11 @@ import (
 // changed: connection state, the run-loop status label (e.g. NeedsLogin) or
 // the session deadline. It mirrors the daemon's SubscribeStatus stream
 // trigger — on each signal the consumer pulls the fresh values via
-// Status() / SessionExpiresAtUnix().
-//
-// OnSessionExpiring forwards the engine's session-expiry warnings, fired at
-// sessionwatch.WarningLead before the deadline and again at FinalWarningLead
-// (finalWarning true). The second one is suppressed when the user dismissed
-// the first via DismissSessionWarning. The daemon turns the same events into
-// its tray notification.
+// Status() / SessionExpiresAtUnix(). The engine arms no expiry-warning
+// timers on Android; the app schedules the warnings from the deadline it
+// reads here.
 type StateChangeListener interface {
 	OnStateChanged()
-	OnSessionExpiring(expiresAtUnix int64, leadMinutes int64, finalWarning bool)
 }
 
 // Status returns the connect run-loop's status label — the same value the
@@ -110,11 +100,11 @@ func (c *Client) SetStateChangeListener(listener StateChangeListener) {
 		return
 	}
 
-	// Both subscriptions are buffered (one pending tick, ten pending events),
-	// so unsubscribing is not enough to stop callbacks: the loops would drain
-	// what is already queued and deliver it to a listener the caller has
-	// already removed or replaced. Gate every callback on this registration's
-	// own signal, which is closed before unsubscribing.
+	// The subscription is buffered (one pending tick), so unsubscribing is
+	// not enough to stop callbacks: the loop would drain what is already
+	// queued and deliver it to a listener the caller has already removed or
+	// replaced. Gate every callback on this registration's own signal, which
+	// is closed before unsubscribing.
 	done := make(chan struct{})
 	c.stateChangeDone = done
 
@@ -133,9 +123,6 @@ func (c *Client) SetStateChangeListener(listener StateChangeListener) {
 			listener.OnStateChanged()
 		}
 	}()
-
-	c.eventSub = c.recorder.SubscribeToEvents()
-	go watchSessionWarnings(c.eventSub, listener, done)
 }
 
 // RemoveStateChangeListener unregisters the state notification listener.
@@ -143,21 +130,6 @@ func (c *Client) RemoveStateChangeListener() {
 	c.stateChangeMu.Lock()
 	defer c.stateChangeMu.Unlock()
 	c.stopStateChangeWatchLocked()
-}
-
-// DismissSessionWarning records the user's "Dismiss" on the first expiry
-// warning and suppresses the final one for the current deadline. A refreshed
-// deadline re-arms both. No-op while the engine is not running.
-func (c *Client) DismissSessionWarning() {
-	cc := c.getConnectClient()
-	if cc == nil {
-		return
-	}
-	engine := cc.Engine()
-	if engine == nil {
-		return
-	}
-	engine.DismissSessionWarning()
 }
 
 // ExtendAuthSession runs the interactive SSO flow to obtain a fresh JWT and
@@ -201,8 +173,8 @@ func (c *Client) CancelExtendAuthSession() {
 }
 
 func (c *Client) stopStateChangeWatchLocked() {
-	// Signal first, unsubscribe second: closing the channels only stops new
-	// items, and the loops would still hand whatever is buffered to a listener
+	// Signal first, unsubscribe second: closing the channel only stops new
+	// items, and the loop would still hand whatever is buffered to a listener
 	// that is no longer registered.
 	if c.stateChangeDone != nil {
 		close(c.stateChangeDone)
@@ -211,49 +183,6 @@ func (c *Client) stopStateChangeWatchLocked() {
 	if c.stateChangeSubID != "" {
 		c.recorder.UnsubscribeFromStateChanges(c.stateChangeSubID)
 		c.stateChangeSubID = ""
-	}
-	if c.eventSub != nil {
-		// Closes the channel, which ends watchSessionWarnings.
-		c.recorder.UnsubscribeFromEvents(c.eventSub)
-		c.eventSub = nil
-	}
-}
-
-// watchSessionWarnings forwards the engine's session-expiry warnings to the
-// listener. The event stream also carries unrelated traffic — network-map
-// updates on every sync, DNS and route errors — so everything but an
-// AUTHENTICATION event carrying the session-warning marker is dropped. Exits
-// when the subscription is closed by UnsubscribeFromEvents, or earlier when
-// done is closed — the stream buffers up to ten events, and a deregistered
-// listener must not receive the ones already queued.
-func watchSessionWarnings(sub *peer.EventSubscription, listener StateChangeListener, done <-chan struct{}) {
-	for ev := range sub.Events() {
-		select {
-		case <-done:
-			return
-		default:
-		}
-		if ev.GetCategory() != cProto.SystemEvent_AUTHENTICATION {
-			continue
-		}
-		meta := ev.GetMetadata()
-		if meta[sessionwatch.MetaSessionWarning] != "true" {
-			// Other AUTHENTICATION events exist (e.g. a deadline rejected as
-			// out of range); they carry no warning marker.
-			continue
-		}
-		deadline, err := sessionwatch.ParseExpiresAt(meta[sessionwatch.MetaSessionExpiresAt])
-		if err != nil {
-			log.Warnf("session warning event with unparsable deadline: %v", err)
-			continue
-		}
-		lead, err := sessionwatch.ParseLeadMinutes(meta[sessionwatch.MetaSessionLeadMinutes])
-		if err != nil {
-			// Informational only — the deadline above is what drives the UI.
-			lead = 0
-		}
-		listener.OnSessionExpiring(deadline.Unix(), int64(lead),
-			meta[sessionwatch.MetaSessionFinal] == "true")
 	}
 }
 
@@ -293,11 +222,13 @@ func (c *Client) extendAuthSession(ctx context.Context, urlOpener URLOpener, isA
 	}
 	defer authClient.Close()
 
-	// Passing the config path makes the flow pick up the login_hint: an extend
-	// renews the session of the account already signed in, so it must not stop to
-	// offer a choice.
+	// Passing the config path makes the flow pick up the login_hint. That alone
+	// cannot keep the IdP on this profile's account though — a hint is only a
+	// suggestion, and a silent authorization is answered from whatever session the
+	// IdP already has, which need not be this peer's when several accounts are
+	// signed in. Marking the flow as an extend lets the server rule that out.
 	a := NewAuthWithConfig(ctx, cfg, cfgPath)
-	tokenInfo, err := a.foregroundGetTokenInfo(authClient, urlOpener, isAndroidTV)
+	tokenInfo, err := a.foregroundGetTokenInfoFlow(authClient, urlOpener, isAndroidTV, true)
 	if err != nil {
 		return fmt.Errorf("interactive sso login failed: %v", err)
 	}

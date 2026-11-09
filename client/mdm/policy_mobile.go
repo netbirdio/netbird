@@ -2,13 +2,14 @@
 
 package mdm
 
-// loadPlatformPolicy is unused on mobile: the native layer (Swift on iOS,
-// Kotlin/Java on Android) reads the OS managed-config store and pushes the
-// resulting dictionary in-process via a gomobile entry point that lands in
-// Phase 5 / Phase 6. The stub keeps the package compilable for mobile
-// builds and returns (nil, nil) — the platform-absent sentinel that
-// LoadPolicy in policy.go treats as "no MDM source present".
-func loadPlatformPolicy() (map[string]any, error) {
-	//nolint:nilnil // (nil, nil) is the documented platform-absent sentinel; see LoadPolicy.
-	return nil, nil
+// loadPlatform reads the OS-managed configuration via the native
+// PolicyFetcher injected at Loader construction. Returns
+// (nil, nil) — the platform-absent sentinel that Loader.Load treats as
+// "no MDM source present" — when no fetcher was provided.
+func (l *Loader) loadPlatform() (map[string]any, error) {
+	if l == nil || l.fetcher == nil {
+		//nolint:nilnil // (nil, nil) is the documented platform-absent sentinel; see Loader.Load.
+		return nil, nil
+	}
+	return l.fetcher.Fetch(), nil
 }

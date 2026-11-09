@@ -26,8 +26,8 @@ import (
 // branch at all), construct the MultiTransport via NewDirectOnly.
 type MultiTransport struct {
 	embedded http.RoundTripper
-	direct   *http.Transport
-	insecure *http.Transport
+	direct   *upstreamTransport
+	insecure *upstreamTransport
 }
 
 // errNoEmbeddedTransport is returned when a request reaches the
@@ -41,7 +41,9 @@ var errNoEmbeddedTransport = errors.New("multitransport: embedded roundtripper n
 // MultiTransport that only ever uses the direct branch. The direct
 // branches honour the same NB_PROXY_* tuning env vars as the embedded
 // transport (see loadTransportConfig) plus a dial-timeout wrapper that
-// respects types.WithDialTimeout.
+// respects types.WithDialTimeout. With NB_PROXY_DIRECT_UPSTREAM_BLOCK_PRIVATE
+// set, the direct branches refuse addresses that are not globally reachable
+// (see guardUpstreamDial).
 func NewMultiTransport(embedded http.RoundTripper, logger *log.Logger) *MultiTransport {
 	if logger == nil {
 		logger = log.StandardLogger()
@@ -51,9 +53,11 @@ func NewMultiTransport(embedded http.RoundTripper, logger *log.Logger) *MultiTra
 		Timeout:   30 * time.Second,
 		KeepAlive: 30 * time.Second,
 	}
+	if cfg.blockPrivateUpstreams {
+		dialer.ControlContext = guardUpstreamDial
+	}
 	direct := &http.Transport{
 		DialContext:           dialWithTimeout(dialer.DialContext),
-		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          cfg.maxIdleConns,
 		MaxIdleConnsPerHost:   cfg.maxIdleConnsPerHost,
 		MaxConnsPerHost:       cfg.maxConnsPerHost,
@@ -65,13 +69,16 @@ func NewMultiTransport(embedded http.RoundTripper, logger *log.Logger) *MultiTra
 		ReadBufferSize:        cfg.readBufferSize,
 		DisableCompression:    cfg.disableCompression,
 	}
+	// Clone runs the transport's one-time protocol setup, so the HTTP
+	// version must be applied first or the source loses HTTP/2 for good.
+	applyUpstreamHTTPVersion(direct, cfg.upstreamHTTPVersion)
 	insecure := direct.Clone()
 	insecure.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // matches the embedded NetBird transport's per-target opt-in
 
 	return &MultiTransport{
 		embedded: embedded,
-		direct:   direct,
-		insecure: insecure,
+		direct:   newUpstreamTransport(direct, cfg.upstreamHTTPVersion, logger),
+		insecure: newUpstreamTransport(insecure, cfg.upstreamHTTPVersion, logger),
 	}
 }
 

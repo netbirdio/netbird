@@ -1,0 +1,19 @@
+# Environment for the netbird client service (netbird.service).
+# Every "netbird up" flag has an NB_* equivalent; see
+# https://docs.netbird.io/get-started/cli#environment-variables
+#
+# Red Hat Enterprise Linux 9 ships the in-kernel WireGuard module as a
+# Technology Preview and taints the kernel when it loads. For a fully
+# supported RHEL 9 configuration run the client with userspace WireGuard:
+#NB_WG_KERNEL_DISABLED=true
+#
+# Self-hosted management server:
+#NB_MANAGEMENT_URL=https://netbird.example.com
+#
+# Peer name shown in the dashboard (defaults to the system hostname):
+#NB_HOSTNAME=
+#
+# Certificate posture checks:
+#NB_CERT_STORE_DIR=/etc/netbird/certs
+#NB_CERT_PKCS11_URI=pkcs11:token=netbird?module-path=/usr/lib64/pkcs11/libtpm2_pkcs11.so
+#NB_TPM_PIN=

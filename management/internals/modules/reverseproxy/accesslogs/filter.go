@@ -46,7 +46,7 @@ type AccessLogFilter struct {
 	SortOrder string // Sort order: asc or desc (default: desc)
 
 	// Filtering parameters
-	Search     *string    // General search across log ID, host, path, source IP, and user fields
+	Search     *string    // General search across log ID, host, path, and source IP
 	SourceIP   *string    // Filter by source IP address
 	Host       *string    // Filter by host header
 	Path       *string    // Filter by request path (supports LIKE pattern)

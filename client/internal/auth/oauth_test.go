@@ -304,7 +304,7 @@ func flowNames(flows []oauthFlowInit) []string {
 func TestFlowOrder(t *testing.T) {
 	const pkce, device = "pkce authorization flow", "device code flow"
 
-	assert.Equal(t, []string{pkce, device}, flowNames(flowOrder(false, true)),
+	assert.Equal(t, []string{pkce, device}, flowNames(flowOrder(false, true, false)),
 		"a device with a browser tries PKCE first and keeps the device code flow as a fallback")
 
 	// only a unix host without a graphical session lacks a browser; the other platforms have one
@@ -312,13 +312,13 @@ func TestFlowOrder(t *testing.T) {
 	if runtime.GOOS == "linux" || runtime.GOOS == "freebsd" {
 		headless = []string{device, pkce}
 	}
-	assert.Equal(t, headless, flowNames(flowOrder(false, false)), "on %s", runtime.GOOS)
+	assert.Equal(t, headless, flowNames(flowOrder(false, false, false)), "on %s", runtime.GOOS)
 
 	// Android TV and tvOS have no browser, so PKCE cannot complete there even from another
 	// device: the redirect must reach the loopback listener of the device being enrolled.
-	assert.Equal(t, []string{device}, flowNames(flowOrder(true, false)),
+	assert.Equal(t, []string{device}, flowNames(flowOrder(true, false, false)),
 		"a forced device code flow must not fall back to PKCE")
-	assert.Equal(t, []string{device}, flowNames(flowOrder(true, true)),
+	assert.Equal(t, []string{device}, flowNames(flowOrder(true, true, false)),
 		"force wins over a reported graphical session")
 }
 

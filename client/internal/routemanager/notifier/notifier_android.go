@@ -4,8 +4,6 @@ package notifier
 
 import (
 	"net/netip"
-	"slices"
-	"sort"
 	"sync"
 
 	"github.com/netbirdio/netbird/client/internal/listener"
@@ -74,20 +72,4 @@ func (n *Notifier) notifyLocked() {
 
 func (n *Notifier) Close() {
 	// unused
-}
-
-func routesToStrings(routes []*route.Route) []string {
-	nets := make([]string, 0, len(routes))
-	for _, r := range routes {
-		nets = append(nets, r.NetString())
-	}
-	return nets
-}
-
-func hasRouteDiff(a []*route.Route, b []*route.Route) bool {
-	as := routesToStrings(a)
-	bs := routesToStrings(b)
-	sort.Strings(as)
-	sort.Strings(bs)
-	return !slices.Equal(as, bs)
 }

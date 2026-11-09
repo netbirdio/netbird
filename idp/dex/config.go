@@ -14,9 +14,9 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
 
-	"github.com/dexidp/dex/server"
-	"github.com/dexidp/dex/storage"
-	"github.com/dexidp/dex/storage/sql"
+	"github.com/netbirdio/dex/server"
+	"github.com/netbirdio/dex/storage"
+	"github.com/netbirdio/dex/storage/sql"
 
 	"github.com/netbirdio/netbird/idp/dex/web"
 )

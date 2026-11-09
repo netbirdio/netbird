@@ -1,4 +1,4 @@
-FROM golang:1.26.7-bookworm
+FROM golang:1.26.10-bookworm
 
 RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
     && apt-get -y install --no-install-recommends\

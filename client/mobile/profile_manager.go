@@ -4,13 +4,16 @@
 package mobile
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 )
 
 const (
@@ -21,6 +24,9 @@ const (
 	// Subdirectory of configDir holding non-default profiles.
 	profilesSubdir = "profiles"
 )
+
+// ErrProfilesDisabled marks a profile mutation rejected by MDM policy.
+var ErrProfilesDisabled = errors.New("profile management is disabled by MDM policy")
 
 /*
 
@@ -52,15 +58,18 @@ type Profile struct {
 // All profile identity is ID-based; the human-readable name lives inside the
 // profile config's Name field.
 type ProfileManager struct {
-	configDir  string
-	username   string
+	configDir string
+	username  string
+	// identity is this app process, which every profile call is made as. Mobile
+	// records no owners, see ipcauth.ProfileOwnershipDisabled.
+	identity   ipcauth.Identity
 	serviceMgr *profilemanager.ServiceManager
+	mdmLoader  *mdm.Loader
 }
 
 // NewProfileManager creates a profile manager rooted at configDir, the
 // app-writable directory that every process of the app can reach. username is
-// the platform's fixed single-user context (a non-empty username is required
-// by ServiceManager for non-default profiles).
+// the platform's fixed single-user context.
 func NewProfileManager(configDir, username string) *ProfileManager {
 	// The default profile is stored in the root configDir, not under profiles/.
 	defaultConfigPath := filepath.Join(configDir, defaultConfigFilename)
@@ -76,9 +85,18 @@ func NewProfileManager(configDir, username string) *ProfileManager {
 	profilesDir := filepath.Join(configDir, profilesSubdir)
 	serviceMgr := profilemanager.NewServiceManagerWithProfilesDir(defaultConfigPath, profilesDir)
 
+	// A failed read leaves the zero Identity, which is not Known and therefore
+	// owns nothing: profile access fails closed rather than falling back to
+	// something permissive.
+	identity, err := ipcauth.CurrentProcessIdentity()
+	if err != nil {
+		log.Errorf("failed to read this process's identity, profiles will be inaccessible: %v", err)
+	}
+
 	return &ProfileManager{
 		configDir:  configDir,
 		username:   username,
+		identity:   identity,
 		serviceMgr: serviceMgr,
 	}
 }
@@ -86,7 +104,7 @@ func NewProfileManager(configDir, username string) *ProfileManager {
 // ListProfiles returns all available profiles, including the default profile,
 // with their active status set.
 func (pm *ProfileManager) ListProfiles() ([]Profile, error) {
-	internalProfiles, err := pm.serviceMgr.ListProfiles(pm.username)
+	internalProfiles, err := pm.serviceMgr.ListProfiles(pm.identity)
 	if err != nil {
 		return nil, fmt.Errorf("list profiles: %w", err)
 	}
@@ -112,7 +130,7 @@ func (pm *ProfileManager) GetActiveProfile() (*Profile, error) {
 		return nil, fmt.Errorf("get active profile: %w", err)
 	}
 
-	prof, err := pm.serviceMgr.ResolveProfile(activeState.ID.String(), pm.username)
+	prof, err := pm.serviceMgr.ProfileByID(activeState.ID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve active profile %q: %w", activeState.ID, err)
 	}
@@ -127,6 +145,9 @@ func (pm *ProfileManager) GetActiveProfile() (*Profile, error) {
 // SwitchProfile records the given profile ID as the active profile. The caller
 // must stop the VPN tunnel before switching.
 func (pm *ProfileManager) SwitchProfile(id string) error {
+	if err := pm.checkProfilesAllowed(); err != nil {
+		return err
+	}
 	if err := pm.serviceMgr.SetActiveProfileState(&profilemanager.ActiveProfileState{
 		ID:       profilemanager.ID(id),
 		Username: pm.username,
@@ -141,7 +162,10 @@ func (pm *ProfileManager) SwitchProfile(id string) error {
 // AddProfile creates a new profile with the given display name and a
 // generated ID. It returns the created profile so the caller learns the ID.
 func (pm *ProfileManager) AddProfile(displayName string) (*Profile, error) {
-	profile, err := pm.serviceMgr.AddProfile(displayName, pm.username)
+	if err := pm.checkProfilesAllowed(); err != nil {
+		return nil, err
+	}
+	profile, err := pm.serviceMgr.AddProfile(displayName, nil)
 	if err != nil {
 		return nil, fmt.Errorf("add profile: %w", err)
 	}
@@ -153,7 +177,10 @@ func (pm *ProfileManager) AddProfile(displayName string) (*Profile, error) {
 // RenameProfile changes the display name of the profile identified by id. The
 // on-disk filename (the ID) is left unchanged.
 func (pm *ProfileManager) RenameProfile(id string, newName string) error {
-	if err := pm.serviceMgr.RenameProfile(profilemanager.ID(id), pm.username, newName); err != nil {
+	if err := pm.checkProfilesAllowed(); err != nil {
+		return err
+	}
+	if err := pm.serviceMgr.RenameProfile(profilemanager.ID(id), newName); err != nil {
 		return fmt.Errorf("rename profile: %w", err)
 	}
 
@@ -165,6 +192,9 @@ func (pm *ProfileManager) RenameProfile(id string, newName string) error {
 // private key and SSH key from the config, forcing a re-login. The management
 // URL and other settings are preserved.
 func (pm *ProfileManager) LogoutProfile(id string) error {
+	if err := pm.checkProfileLogoutAllowed(id); err != nil {
+		return err
+	}
 	configPath, err := pm.getProfileConfigPath(id)
 	if err != nil {
 		return err
@@ -174,7 +204,10 @@ func (pm *ProfileManager) LogoutProfile(id string) error {
 		return fmt.Errorf("profile %q does not exist", id)
 	}
 
-	config, err := profilemanager.ReadConfig(configPath)
+	// The existing-file reader, not the generating one: the check above is not
+	// atomic with this read, so a profile removed in between would otherwise be
+	// resolved from the defaults here and recreated by the write below.
+	config, err := profilemanager.GetExistingConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("read profile config: %w", err)
 	}
@@ -196,12 +229,15 @@ func (pm *ProfileManager) LogoutProfile(id string) error {
 // RemoveProfile deletes a profile. The default profile and the active profile
 // cannot be removed.
 func (pm *ProfileManager) RemoveProfile(id string) error {
+	if err := pm.checkProfilesAllowed(); err != nil {
+		return err
+	}
 	configPath, err := pm.getProfileConfigPath(id)
 	if err != nil {
 		return err
 	}
 
-	if err := pm.serviceMgr.RemoveProfile(profilemanager.ID(id), pm.username); err != nil {
+	if err := pm.serviceMgr.RemoveProfile(profilemanager.ID(id)); err != nil {
 		return fmt.Errorf("remove profile: %w", err)
 	}
 
@@ -265,6 +301,27 @@ func (pm *ProfileManager) GetActiveStateFilePath() (string, error) {
 		return "", fmt.Errorf("get active profile: %w", err)
 	}
 	return pm.GetStateFilePath(activeProfile.ID)
+}
+
+// SetMDMLoader registers the MDM policy source consulted before profile
+// mutations; a nil loader disables enforcement.
+func (pm *ProfileManager) SetMDMLoader(loader *mdm.Loader) {
+	pm.mdmLoader = loader
+}
+
+func (pm *ProfileManager) checkProfilesAllowed() error {
+	if v, ok := pm.mdmLoader.Load().GetBool(mdm.KeyDisableProfiles); ok && v {
+		return ErrProfilesDisabled
+	}
+	return nil
+}
+
+func (pm *ProfileManager) checkProfileLogoutAllowed(id string) error {
+	active, err := pm.serviceMgr.GetActiveProfileState()
+	if err == nil && active.ID.String() == id {
+		return nil
+	}
+	return pm.checkProfilesAllowed()
 }
 
 // profileEmail returns the account email recorded for a profile. Display-only,

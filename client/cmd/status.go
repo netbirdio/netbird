@@ -15,10 +15,12 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/version"
 )
 
 var (
 	detailFlag           bool
+	tableFlag            bool
 	ipv4Flag             bool
 	ipv6Flag             bool
 	jsonFlag             bool
@@ -43,11 +45,12 @@ func init() {
 	ipsFilterMap = make(map[string]struct{})
 	prefixNamesFilterMap = make(map[string]struct{})
 	statusCmd.PersistentFlags().BoolVarP(&detailFlag, "detail", "d", false, "display detailed status information in human-readable format")
+	statusCmd.PersistentFlags().BoolVarP(&tableFlag, "table", "t", false, "display peers in a table, supports the --filter-by-* flags")
 	statusCmd.PersistentFlags().BoolVarP(&jsonFlag, "json", "j", false, "display detailed status information in json format")
 	statusCmd.PersistentFlags().BoolVarP(&yamlFlag, "yaml", "y", false, "display detailed status information in yaml format")
 	statusCmd.PersistentFlags().BoolVarP(&ipv4Flag, "ipv4", "4", false, "display only NetBird IPv4 of this peer, e.g., --ipv4 will output 100.64.0.33")
 	statusCmd.PersistentFlags().BoolVarP(&ipv6Flag, "ipv6", "6", false, "display only NetBird IPv6 of this peer")
-	statusCmd.MarkFlagsMutuallyExclusive("detail", "json", "yaml", "ipv4", "ipv6")
+	statusCmd.MarkFlagsMutuallyExclusive("detail", "table", "json", "yaml", "ipv4", "ipv6")
 	statusCmd.PersistentFlags().StringSliceVarP(&ipsFilter, "filter-by-ips", "I", []string{}, "filters the detailed output by a list of one or more IPs (v4 or v6), e.g., --filter-by-ips 100.64.0.100,fd00::1")
 	statusCmd.PersistentFlags().StringSliceVarP(&prefixNamesFilter, "filter-by-names", "N", []string{}, "filters the detailed output by a list of one or more peer FQDN or hostnames, e.g., --filter-by-names peer-a,peer-b.netbird.cloud")
 	statusCmd.PersistentFlags().StringVarP(&statusFilter, "filter-by-status", "S", "", "filters the detailed output by connection status(idle|connecting|connected), e.g., --filter-by-status connected")
@@ -98,6 +101,34 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	if resp.GetFullStatus() == nil {
+		output := nbstatus.OutputOverview{
+			DaemonVersion: resp.GetDaemonVersion(),
+			CliVersion:    version.NetbirdVersion(),
+			DaemonStatus:  nbstatus.DaemonStatus(status),
+		}
+		var outputString string
+		var err error
+		switch {
+		case jsonFlag:
+			outputString, err = output.JSON()
+		case yamlFlag:
+			outputString, err = output.YAML()
+		default:
+			outputString = fmt.Sprintf("Daemon status: %s\n"+
+				"Daemon version: %s\nCLI version: %s\n\n"+
+				"Detailed status is unavailable: the connection belongs to another user.\n",
+				status, resp.GetDaemonVersion(), version.NetbirdVersion())
+		}
+
+		if err != nil {
+			return err
+		}
+
+		cmd.Print(outputString)
+		return nil
+	}
+
 	if ipv4Flag {
 		cmd.Print(parseInterfaceIP(resp.GetFullStatus().GetLocalPeerState().GetIP()))
 		return nil
@@ -143,6 +174,8 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 	switch {
 	case detailFlag:
 		statusOutputString = outputInformationHolder.FullDetailSummary()
+	case tableFlag:
+		statusOutputString = outputInformationHolder.PeersTable()
 	case jsonFlag:
 		statusOutputString, err = outputInformationHolder.JSON()
 	case yamlFlag:
@@ -163,10 +196,7 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 func getStatus(ctx context.Context, fullPeerStatus bool, shouldRunProbes bool) (*proto.StatusResponse, error) {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
-		//nolint
-		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
-			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
+		return nil, daemonConnectError(err)
 	}
 	defer conn.Close()
 
@@ -238,7 +268,7 @@ func parseFilters() error {
 }
 
 func enableDetailFlagWhenFilterFlag() {
-	if !detailFlag && !jsonFlag && !yamlFlag {
+	if !detailFlag && !jsonFlag && !yamlFlag && !tableFlag {
 		detailFlag = true
 	}
 }

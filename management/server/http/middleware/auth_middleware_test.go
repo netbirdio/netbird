@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/util"
 	nbauth "github.com/netbirdio/netbird/shared/auth"
 	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
+	"github.com/netbirdio/netbird/shared/ratelimit"
 )
 
 const (
@@ -103,7 +104,7 @@ func mockMarkPATUsed(_ context.Context, token string) error {
 }
 
 func mockEnsureUserAccessByJWTGroups(_ context.Context, userAuth nbauth.UserAuth, token *jwt.Token) (nbauth.UserAuth, error) {
-	if userAuth.IsChild || userAuth.IsPAT {
+	if userAuth.IsPAT {
 		return userAuth, nil
 	}
 
@@ -196,7 +197,7 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 		GetPATInfoFunc:                  mockGetAccountInfoFromPAT,
 	}
 
-	disabledLimiter := NewAPIRateLimiter(nil)
+	disabledLimiter := ratelimit.NewAPIRateLimiter(nil)
 	disabledLimiter.SetEnabled(false)
 	authMiddleware := NewAuthMiddleware(
 		mockAuth,
@@ -211,7 +212,6 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 		},
 		disabledLimiter,
 		nil,
-		func(_ context.Context, _, _, _ string) bool { return false },
 	)
 
 	handlerToTest := authMiddleware.Handler(nextHandler)
@@ -260,7 +260,7 @@ func TestAuthMiddleware_SyncUserJWTGroupsDetachedFromRequestCancellation(t *test
 		GetPATInfoFunc:                  mockGetAccountInfoFromPAT,
 	}
 
-	disabledLimiter := NewAPIRateLimiter(nil)
+	disabledLimiter := ratelimit.NewAPIRateLimiter(nil)
 	disabledLimiter.SetEnabled(false)
 
 	authMiddleware := NewAuthMiddleware(
@@ -278,7 +278,6 @@ func TestAuthMiddleware_SyncUserJWTGroupsDetachedFromRequestCancellation(t *test
 		},
 		disabledLimiter,
 		nil,
-		func(_ context.Context, _, _, _ string) bool { return false },
 	)
 
 	handlerToTest := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
@@ -311,7 +310,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 
 	t.Run("PAT Token Rate Limiting - Burst Works", func(t *testing.T) {
 		// Configure rate limiter: 10 requests per minute with burst of 5
-		rateLimitConfig := &RateLimiterConfig{
+		rateLimitConfig := &ratelimit.RateLimiterConfig{
 			RequestsPerMinute: 10,
 			Burst:             5,
 			CleanupInterval:   5 * time.Minute,
@@ -329,9 +328,8 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			NewAPIRateLimiter(rateLimitConfig),
+			ratelimit.NewAPIRateLimiter(rateLimitConfig),
 			nil,
-			func(_ context.Context, _, _, _ string) bool { return false },
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -364,7 +362,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 
 	t.Run("PAT Token Rate Limiting - Rate Limit Enforced", func(t *testing.T) {
 		// Configure very low rate limit: 1 request per minute
-		rateLimitConfig := &RateLimiterConfig{
+		rateLimitConfig := &ratelimit.RateLimiterConfig{
 			RequestsPerMinute: 1,
 			Burst:             1,
 			CleanupInterval:   5 * time.Minute,
@@ -382,9 +380,8 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			NewAPIRateLimiter(rateLimitConfig),
+			ratelimit.NewAPIRateLimiter(rateLimitConfig),
 			nil,
-			func(_ context.Context, _, _, _ string) bool { return false },
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -408,7 +405,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 
 	t.Run("Bearer Token Not Rate Limited", func(t *testing.T) {
 		// Configure strict rate limit
-		rateLimitConfig := &RateLimiterConfig{
+		rateLimitConfig := &ratelimit.RateLimiterConfig{
 			RequestsPerMinute: 1,
 			Burst:             1,
 			CleanupInterval:   5 * time.Minute,
@@ -426,9 +423,8 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			NewAPIRateLimiter(rateLimitConfig),
+			ratelimit.NewAPIRateLimiter(rateLimitConfig),
 			nil,
-			func(_ context.Context, _, _, _ string) bool { return false },
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -453,7 +449,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 
 	t.Run("PAT Token Rate Limiting Per Token", func(t *testing.T) {
 		// Configure rate limiter
-		rateLimitConfig := &RateLimiterConfig{
+		rateLimitConfig := &ratelimit.RateLimiterConfig{
 			RequestsPerMinute: 1,
 			Burst:             1,
 			CleanupInterval:   5 * time.Minute,
@@ -471,9 +467,8 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			NewAPIRateLimiter(rateLimitConfig),
+			ratelimit.NewAPIRateLimiter(rateLimitConfig),
 			nil,
-			func(_ context.Context, _, _, _ string) bool { return false },
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -518,7 +513,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 
 	t.Run("Rate Limiter Cleanup", func(t *testing.T) {
 		// Configure rate limiter with short cleanup interval and TTL for testing
-		rateLimitConfig := &RateLimiterConfig{
+		rateLimitConfig := &ratelimit.RateLimiterConfig{
 			RequestsPerMinute: 60,
 			Burst:             1,
 			CleanupInterval:   100 * time.Millisecond,
@@ -536,9 +531,8 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			NewAPIRateLimiter(rateLimitConfig),
+			ratelimit.NewAPIRateLimiter(rateLimitConfig),
 			nil,
-			func(_ context.Context, _, _, _ string) bool { return false },
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -578,7 +572,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 	})
 
 	t.Run("Terraform User Agent Not Rate Limited", func(t *testing.T) {
-		rateLimitConfig := &RateLimiterConfig{
+		rateLimitConfig := &ratelimit.RateLimiterConfig{
 			RequestsPerMinute: 1,
 			Burst:             1,
 			CleanupInterval:   5 * time.Minute,
@@ -596,9 +590,8 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			NewAPIRateLimiter(rateLimitConfig),
+			ratelimit.NewAPIRateLimiter(rateLimitConfig),
 			nil,
-			func(_ context.Context, _, _, _ string) bool { return false },
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -634,7 +627,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 	})
 
 	t.Run("Non-Terraform User Agent With PAT Is Rate Limited", func(t *testing.T) {
-		rateLimitConfig := &RateLimiterConfig{
+		rateLimitConfig := &ratelimit.RateLimiterConfig{
 			RequestsPerMinute: 1,
 			Burst:             1,
 			CleanupInterval:   5 * time.Minute,
@@ -652,9 +645,8 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			NewAPIRateLimiter(rateLimitConfig),
+			ratelimit.NewAPIRateLimiter(rateLimitConfig),
 			nil,
-			func(_ context.Context, _, _, _ string) bool { return false },
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -740,7 +732,7 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 		GetPATInfoFunc:                  mockGetAccountInfoFromPAT,
 	}
 
-	disabledLimiter := NewAPIRateLimiter(nil)
+	disabledLimiter := ratelimit.NewAPIRateLimiter(nil)
 	disabledLimiter.SetEnabled(false)
 	authMiddleware := NewAuthMiddleware(
 		mockAuth,
@@ -755,7 +747,6 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 		},
 		disabledLimiter,
 		nil,
-		func(_ context.Context, _, _, _ string) bool { return false },
 	)
 
 	for _, tc := range tt {
@@ -784,6 +775,69 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 				assert.Equal(t, 200, result.StatusCode)
 			} else {
 				assert.Equal(t, 401, result.StatusCode)
+			}
+		})
+	}
+}
+
+func TestAuthMiddleware_MarkPATUsedThrottled(t *testing.T) {
+	tt := []struct {
+		name       string
+		lastUsed   *time.Time
+		expectMark bool
+	}{
+		{name: "never used", lastUsed: nil, expectMark: true},
+		{name: "used just now", lastUsed: util.ToPtr(time.Now().UTC()), expectMark: false},
+		{name: "used before the update interval", lastUsed: util.ToPtr(time.Now().UTC().Add(-2 * types.PATLastUsedUpdateInterval)), expectMark: true},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			pat := &types.PersonalAccessToken{
+				ID:             tokenID,
+				ExpirationDate: util.ToPtr(time.Now().UTC().AddDate(0, 0, 7)),
+				LastUsed:       tc.lastUsed,
+			}
+
+			marked := 0
+			mockAuth := &auth.MockManager{
+				GetPATInfoFunc: func(_ context.Context, _ string) (*types.User, *types.PersonalAccessToken, string, string, error) {
+					return testAccount.Users[userID], pat, testAccount.Domain, testAccount.DomainCategory, nil
+				},
+				MarkPATUsedFunc: func(_ context.Context, _ string) error {
+					marked++
+					return nil
+				},
+			}
+
+			disabledLimiter := ratelimit.NewAPIRateLimiter(nil)
+			disabledLimiter.SetEnabled(false)
+			authMiddleware := NewAuthMiddleware(
+				mockAuth,
+				func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
+					return userAuth.AccountId, userAuth.UserId, nil
+				},
+				func(ctx context.Context, userAuth nbauth.UserAuth) error {
+					return nil
+				},
+				func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
+					return &types.User{}, nil
+				},
+				disabledLimiter,
+				nil,
+			)
+
+			handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+			req := httptest.NewRequest("GET", "http://testing/test", nil)
+			req.Header.Set("Authorization", "Token "+PAT)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+			if tc.expectMark {
+				assert.Equal(t, 1, marked, "MarkPATUsed must be called")
+			} else {
+				assert.Equal(t, 0, marked, "MarkPATUsed must be skipped")
 			}
 		})
 	}

@@ -21,7 +21,8 @@ import (
 )
 
 type Listener interface {
-	Listen(func(conn listener.Conn)) error
+	Bind() error
+	Serve(func(conn listener.Conn)) error
 	Shutdown(ctx context.Context) error
 	Protocol() protocol.Protocol
 }
@@ -122,6 +123,9 @@ func (r *Relay) Accept(conn listener.Conn) {
 	r.closeMu.RLock()
 	defer r.closeMu.RUnlock()
 	if r.closed {
+		if err := conn.Close(); err != nil {
+			log.Debugf("failed to close connection after shutdown, %s: %s", conn.RemoteAddr(), err)
+		}
 		return
 	}
 
@@ -146,8 +150,17 @@ func (r *Relay) Accept(conn listener.Conn) {
 		return
 	}
 
-	peer := NewPeer(r.metrics, *peerID, conn, r.store, r.notifier)
-	peer.log.Infof("peer connected from: %s", conn.RemoteAddr())
+	if err := h.handshakeResponse(hsCtx); err != nil {
+		log.Errorf("failed to send handshake response, close connection: %s", err)
+		if cErr := conn.Close(); cErr != nil {
+			log.Errorf("failed to close connection, %s: %s", conn.RemoteAddr(), cErr)
+		}
+		return
+	}
+	r.metrics.RecordAuthenticationTime(time.Since(acceptTime))
+
+	peer := NewPeer(r.metrics, *peerID, h.selectedVersion, conn, r.store, r.notifier)
+	peer.log.Infof("peer connected from: %s, advertised protocol version: %d, selected: %d", conn.RemoteAddr(), h.advertisedVersion, h.selectedVersion)
 	storeTime := time.Now()
 	if isReconnection := r.store.AddPeer(peer); isReconnection {
 		r.metrics.RecordPeerReconnection()
@@ -157,6 +170,7 @@ func (r *Relay) Accept(conn listener.Conn) {
 	transport := conn.Protocol()
 	r.metrics.RecordPeerStoreTime(time.Since(storeTime))
 	r.metrics.PeerConnected(peer.String(), transport)
+	r.metrics.RecordProtocolVersion(h.advertisedVersion, h.selectedVersion)
 	go func() {
 		peer.Work()
 		if deleted := r.store.DeletePeer(peer); deleted {
@@ -165,12 +179,6 @@ func (r *Relay) Accept(conn listener.Conn) {
 		peer.log.Debugf("relay connection closed")
 		r.metrics.PeerDisconnected(peer.String(), transport)
 	}()
-
-	if err := h.handshakeResponse(hsCtx); err != nil {
-		log.Errorf("failed to send handshake response, close peer: %s", err)
-		peer.Close()
-	}
-	r.metrics.RecordAuthenticationTime(time.Since(acceptTime))
 }
 
 // Shutdown closes the relay server

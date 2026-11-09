@@ -57,6 +57,7 @@ func (jm *Manager) CreateJobChannel(ctx context.Context, accountID, peerID strin
 	if ch, ok := jm.jobChannels[peerID]; ok {
 		ch.Close()
 		delete(jm.jobChannels, peerID)
+		jm.failPendingLocked(ctx, accountID, peerID, "Pending job cleanup: job stream replaced by a newer stream")
 	}
 
 	ch := NewChannel()
@@ -127,24 +128,35 @@ func (jm *Manager) HandleResponse(ctx context.Context, resp *proto.JobResponse, 
 	return nil
 }
 
-// CloseChannel closes a peer’s channel and cleans up its jobs
-func (jm *Manager) CloseChannel(ctx context.Context, accountID, peerID string) {
+// CloseChannel closes the peer's job channel session and fails its pending jobs. It does nothing
+// when a newer job stream has registered a different channel for the peer.
+func (jm *Manager) CloseChannel(ctx context.Context, accountID, peerID string, session *Channel) {
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
 
 	if ch, ok := jm.jobChannels[peerID]; ok {
+		if ch != session {
+			log.WithContext(ctx).Debugf("skipped closing job channel: peer %s is owned by a newer job stream", peerID)
+			return
+		}
 		ch.Close()
 		delete(jm.jobChannels, peerID)
 	}
 
+	jm.failPendingLocked(ctx, accountID, peerID, "Time out peer disconnected")
+}
+
+// failPendingLocked marks the peer's pending jobs as failed and drops them from memory. The caller
+// must hold jm.mu.
+func (jm *Manager) failPendingLocked(ctx context.Context, accountID, peerID, reason string) {
 	for jobID, ev := range jm.pending {
-		if ev.PeerID == peerID {
-			// if the client disconnect and there is pending job then mark it as failed
-			if err := jm.Store.MarkPendingJobsAsFailed(ctx, accountID, peerID, jobID, "Time out peer disconnected"); err != nil {
-				log.WithContext(ctx).Errorf("failed to mark pending jobs as failed: %v", err)
-			}
-			delete(jm.pending, jobID)
+		if ev.PeerID != peerID {
+			continue
 		}
+		if err := jm.Store.MarkPendingJobsAsFailed(ctx, accountID, peerID, jobID, reason); err != nil {
+			log.WithContext(ctx).Errorf("failed to mark pending jobs as failed: %v", err)
+		}
+		delete(jm.pending, jobID)
 	}
 }
 

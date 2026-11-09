@@ -6,7 +6,7 @@ import { ToggleSwitch } from "@/components/switches/ToggleSwitch.tsx";
 import { useStatus } from "@/contexts/StatusContext.tsx";
 import { useProfile } from "@/contexts/ProfileContext.tsx";
 import { cn } from "@/lib/cn.ts";
-import { errorDialog, formatErrorMessage } from "@/lib/errors.ts";
+import { errorDialogFor } from "@/lib/errors.ts";
 import {
     startConnection,
     EVENT_BROWSER_LOGIN_CANCEL,
@@ -20,6 +20,7 @@ import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { Check as CheckIcon, ChevronDownIcon, Copy as CopyIcon } from "lucide-react";
 import * as Popover from "@radix-ui/react-popover";
 import netbirdFullLogo from "@/assets/logos/netbird-full.svg";
+import netbirdFullLogoLight from "@/assets/logos/netbird-full-light.svg";
 
 enum ConnectionState {
     Disconnected = "disconnected",
@@ -39,8 +40,6 @@ const NEEDS_LOGIN_STATES = new Set(["NeedsLogin", "SessionExpired", "LoginFailed
 
 const FORCE_TOGGLE_DELAY_MS = 7000;
 
-const errorMessage = formatErrorMessage;
-
 export const MainConnectionStatusSwitch = () => {
     const { t } = useTranslation();
     const { status, refresh } = useStatus();
@@ -48,7 +47,7 @@ export const MainConnectionStatusSwitch = () => {
 
     const daemonState = status?.status ?? "Idle";
     const needsLogin = NEEDS_LOGIN_STATES.has(daemonState);
-    const unreachable = daemonState === "DaemonUnavailable";
+    const unreachable = daemonState === "DaemonUnavailable" || daemonState === "DaemonAccessDenied";
 
     type Action = "connect" | "logging-in" | "disconnect" | null;
     const [action, setAction] = useState<Action>(null);
@@ -82,6 +81,7 @@ export const MainConnectionStatusSwitch = () => {
             case "LoginFailed":
             case "SessionExpired":
             case "DaemonUnavailable":
+            case "DaemonAccessDenied":
                 return ConnectionState.Disconnected;
             default:
                 return ConnectionState.Disconnected;
@@ -99,10 +99,7 @@ export const MainConnectionStatusSwitch = () => {
         } catch (e) {
             setAction(null);
             await refresh();
-            await errorDialog({
-                Title: t("connect.error.connectTitle"),
-                Message: errorMessage(e),
-            });
+            await errorDialogFor(t("connect.error.connectTitle"), e);
         }
     };
 
@@ -114,10 +111,7 @@ export const MainConnectionStatusSwitch = () => {
         } catch (e) {
             setAction(null);
             await refresh();
-            await errorDialog({
-                Title: t("connect.error.disconnectTitle"),
-                Message: errorMessage(e),
-            });
+            await errorDialogFor(t("connect.error.disconnectTitle"), e);
         }
     };
 
@@ -208,10 +202,7 @@ export const MainConnectionStatusSwitch = () => {
         } catch (e) {
             setAction(null);
             await refresh();
-            await errorDialog({
-                Title: t("connect.error.disconnectTitle"),
-                Message: errorMessage(e),
-            });
+            await errorDialogFor(t("connect.error.disconnectTitle"), e);
         }
     };
     const show = connState === ConnectionState.Connected;
@@ -225,9 +216,15 @@ export const MainConnectionStatusSwitch = () => {
             style={{ top: contentTop("11.7rem") }}
         >
             <img
+                src={netbirdFullLogoLight}
+                alt={"NetBird"}
+                className={"wails-no-draggable mb-4 h-7 w-auto select-none dark:hidden"}
+                draggable={false}
+            />
+            <img
                 src={netbirdFullLogo}
                 alt={"NetBird"}
-                className={"wails-no-draggable mb-4 h-7 w-auto select-none"}
+                className={"wails-no-draggable mb-4 hidden h-7 w-auto select-none dark:block"}
                 draggable={false}
             />
 
@@ -248,7 +245,7 @@ export const MainConnectionStatusSwitch = () => {
                     role={"status"}
                     aria-live={"polite"}
                     className={
-                        "wails-no-draggable mb-1 select-none text-sm font-medium tracking-wide text-nb-gray-200 transition-colors duration-300"
+                        "wails-no-draggable mb-1 text-sm font-medium tracking-wide text-nb-gray-200 transition-colors duration-300 select-none"
                     }
                 >
                     {t(STATUS_KEY[connState])}
@@ -260,12 +257,13 @@ export const MainConnectionStatusSwitch = () => {
                     tabIndex={show && fqdn ? 0 : -1}
                     className={cn(
                         "mt-1 max-h-[1em] min-h-[1em] max-w-full transition-opacity duration-300",
-                        "relative left-[0.55rem]",
+                        "relative inset-s-[0.55rem]",
                         show && fqdn ? "opacity-100" : "pointer-events-none opacity-0",
                     )}
                 >
                     <TruncatedText
                         text={shortenDns(fqdn) || " "}
+                        dir={"ltr"}
                         className={
                             "block h-[18px] max-w-[310px] truncate font-mono text-[0.8rem] leading-tight text-nb-gray-300"
                         }
@@ -291,7 +289,7 @@ const LocalIpLine = ({ ip, ipv6, show }: { ip: string; ipv6: string; show: boole
                 tabIndex={show && ip ? 0 : -1}
                 className={cn(
                     "mt-1 max-h-[1em] min-h-[1em] transition-opacity duration-300",
-                    "relative left-[0.55rem]",
+                    "relative inset-s-[0.55rem]",
                     show && ip ? "opacity-100" : "pointer-events-none opacity-0",
                 )}
             >
@@ -319,9 +317,9 @@ const LocalIpLine = ({ ip, ipv6, show }: { ip: string; ipv6: string; show: boole
                         aria-haspopup={"dialog"}
                         aria-expanded={open}
                         className={cn(
-                            "group relative inline-flex cursor-default items-center rounded-sm outline-none",
+                            "group relative inline-flex cursor-default items-center rounded-xs outline-hidden",
                             isFocusVisible &&
-                                "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                                "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                             "transition-colors",
                         )}
                     >
@@ -338,7 +336,7 @@ const LocalIpLine = ({ ip, ipv6, show }: { ip: string; ipv6: string; show: boole
                             size={14}
                             aria-hidden={"true"}
                             className={cn(
-                                "absolute -right-5 top-1/2 -translate-y-1/2",
+                                "absolute -inset-e-5 top-1/2 -translate-y-1/2",
                                 "shrink-0 text-nb-gray-300 transition-colors",
                                 "group-hover:text-nb-gray-200",
                                 "group-data-[state=open]:text-nb-gray-200",
@@ -353,9 +351,9 @@ const LocalIpLine = ({ ip, ipv6, show }: { ip: string; ipv6: string; show: boole
                         sideOffset={6}
                         onOpenAutoFocus={(e) => e.preventDefault()}
                         className={cn(
-                            "z-50 min-w-64 max-w-[280px] overflow-hidden",
+                            "z-50 max-w-[280px] min-w-64 overflow-hidden",
                             "rounded-lg border border-nb-gray-900 bg-nb-gray-935",
-                            "p-1 text-nb-gray-200 shadow-lg outline-none",
+                            "p-1 text-nb-gray-200 shadow-lg outline-hidden",
                             "flex flex-col",
                         )}
                     >
@@ -391,11 +389,11 @@ const IpRow = ({ value }: { value: string }) => {
             aria-label={`${t("common.copy")} ${value}`}
             className={cn(
                 "group/iprow relative flex items-center justify-between gap-3",
-                "rounded-md px-2 py-1.5 text-left",
+                "rounded-md px-2 py-1.5 text-start",
                 "text-nb-gray-200 hover:bg-nb-gray-900 hover:text-nb-gray-50",
-                "cursor-default outline-none transition-colors",
+                "cursor-default outline-hidden transition-colors",
                 isFocusVisible &&
-                    "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",
+                    "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-inset",
             )}
         >
             <span className={"min-w-0 truncate font-mono text-[0.75rem]"}>{value}</span>

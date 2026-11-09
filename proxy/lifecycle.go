@@ -89,6 +89,9 @@ type Config struct {
 	// WireguardPort is the UDP port for the embedded NetBird tunnel.
 	// Zero asks the OS for a random port.
 	WireguardPort uint16
+	// NATExternalIPs are external IPs advertised as ICE candidates by the
+	// embedded tunnel. Requires a fixed WireguardPort forwarded on the NAT.
+	NATExternalIPs []string
 	// ProxyProtocol enables PROXY protocol (v1/v2) on TCP listeners.
 	ProxyProtocol bool
 	// PreSharedKey is the WireGuard pre-shared key used between the
@@ -160,6 +163,7 @@ func New(ctx context.Context, cfg Config) *Server {
 		ForwardedProto:           cfg.ForwardedProto,
 		TrustedProxies:           cfg.TrustedProxies,
 		WireguardPort:            cfg.WireguardPort,
+		NATExternalIPs:           cfg.NATExternalIPs,
 		ProxyProtocol:            cfg.ProxyProtocol,
 		PreSharedKey:             cfg.PreSharedKey,
 		Performance:              cfg.Performance,

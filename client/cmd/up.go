@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/netip"
 	"runtime"
 	"strings"
@@ -21,18 +20,14 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/shared/externalipmap"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/util"
-)
-
-const (
-	invalidInputType int = iota
-	ipInputType
-	interfaceInputType
 )
 
 const (
@@ -105,7 +100,7 @@ func upFunc(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed initializing log %v", err)
 	}
 
-	err = validateNATExternalIPs(natExternalIPs)
+	err = externalipmap.Validate(natExternalIPs)
 	if err != nil {
 		return err
 	}
@@ -135,7 +130,7 @@ func upFunc(cmd *cobra.Command, args []string) error {
 	if profileName != "" {
 		activeProf, err = switchOrCreateProfile(cmd.Context(), pm, profileName, username.Username)
 		if err != nil {
-			return fmt.Errorf("switch profile: %v", err)
+			return fmt.Errorf("switch profile: %w", err)
 		}
 		profileSwitched = true
 	} else {
@@ -189,10 +184,7 @@ func switchOrCreateProfile(ctx context.Context, pm *profilemanager.ProfileManage
 func createProfile(ctx context.Context, profileName, username string) (profilemanager.ID, error) {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
-		//nolint
-		return "", fmt.Errorf("failed to connect to daemon error: %v\n"+
-			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
+		return "", daemonConnectError(err)
 	}
 	defer conn.Close()
 
@@ -234,6 +226,10 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 	if err != nil {
 		return fmt.Errorf("get config file: %v", err)
 	}
+	// CLI foreground path runs without the daemon Server: layer in the
+	// active MDM policy explicitly so a forced ManagementURL / PSK /
+	// other managed key actually takes effect on this run.
+	config.ApplyMDMPolicy(mdm.NewLoader(nil).Load())
 
 	_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configFilePath)
 
@@ -286,10 +282,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
-		//nolint
-		return fmt.Errorf("failed to connect to daemon error: %v\n"+
-			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
+		return daemonConnectError(err)
 	}
 	defer func() {
 		err := conn.Close()
@@ -301,27 +294,25 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 
 	client := proto.NewDaemonServiceClient(conn)
 
+	// The peer detail is asked for because of what its absence means, not
+	// because it is read: the daemon strips it from a caller who does not hold
+	// the session, which is how the check below tells the holder apart. Without
+	// the flag the daemon never fills it in for anyone and that check is always
+	// true.
 	status, err := client.Status(ctx, &proto.StatusRequest{
-		WaitForReady: func() *bool { b := true; return &b }(),
+		WaitForReady:      func() *bool { b := true; return &b }(),
+		GetFullPeerStatus: true,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to get daemon status: %v", err)
 	}
 
 	// Under sudo the invoking user's local active-profile mirror is never
-	// written (the SwitchProfile write is a no-op), and plain root has no
-	// invoking user at all — so the mirror read into activeProf above is stale
-	// or defaulted and must not drive the daemon. With no --profile to make the
-	// choice explicit, take the profile the daemon already holds for this user
-	// instead: it stays on the user's current profile rather than silently
-	// switching to the mirror's default, and refuses when the daemon is on
-	// another user's profile.
+	// written, and plain root has no invoking user at all, so the mirror read
+	// into activeProf above is stale or defaulted. With no --profile, bring up
+	// the profile the daemon already has active, whoever owns it.
 	if profileName == "" && !profilemanager.MirrorIsAuthoritative() {
-		u, err := profilemanager.InvokingUser()
-		if err != nil {
-			return fmt.Errorf("get current user: %v", err)
-		}
-		resolved, err := daemonActiveProfileForUser(ctx, client, u.Username)
+		resolved, err := daemonActiveProfile(ctx, client)
 		switch {
 		case errors.Is(err, errDaemonActiveProfileUnsupported):
 			log.Warnf("keeping the locally resolved profile: %v", err)
@@ -333,14 +324,18 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 	}
 
 	if status.Status == string(internal.StatusConnected) {
+		if status.GetFullStatus() == nil {
+			cmd.Println("Already connected and the connection belongs to another user.")
+			cmd.Println("Run 'netbird down' as a privileged user to be able to claim the session with this user.")
+			return nil
+		}
 		if !profileSwitched {
 			cmd.Println("Already connected")
 			return nil
 		}
 
 		if _, err := client.Down(ctx, &proto.DownRequest{}); err != nil {
-			log.Errorf("call service down method: %v", err)
-			return err
+			return daemonCallError("call service down method", err)
 		}
 	}
 
@@ -352,9 +347,17 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 	// set the new config
 	req := setupSetConfigReq(customDNSAddressConverted, cmd, activeProf.ID.String(), username.Username)
 	if _, err := client.SetConfig(ctx, req); err != nil {
-		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Unavailable {
-			log.Warnf("setConfig method is not available in the daemon: %s", st.Message())
-		} else {
+		switch reason, refused := refusedSettingsUpdate(err); {
+		case refused:
+			// Failing here is the point: carrying on would connect while
+			// silently dropping the settings the caller asked for, since
+			// nothing further down the line applies them.
+			return fmt.Errorf("the daemon refused the settings update: %s", reason)
+		case gstatus.Code(err) == codes.Unavailable:
+			// The daemon cannot serve the method at all, which is what this
+			// code means; an older daemon without it lands here.
+			log.Warnf("the daemon did not apply the settings update: %s", gstatus.Convert(err).Message())
+		default:
 			return daemonCallError("call service setConfig method", err)
 		}
 	}
@@ -395,10 +398,7 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 	err = WithBackOff(func() error {
 		var backOffErr error
 		loginResp, backOffErr = client.Login(ctx, loginRequest)
-		if s, ok := gstatus.FromError(backOffErr); ok && (s.Code() == codes.InvalidArgument ||
-			s.Code() == codes.PermissionDenied ||
-			s.Code() == codes.NotFound ||
-			s.Code() == codes.Unimplemented) {
+		if terminalLoginError(backOffErr) {
 			loginErr = backOffErr
 			return nil
 		}
@@ -467,13 +467,28 @@ func setSSHSetConfigFields(req *proto.SetConfigRequest, cmd *cobra.Command) {
 	}
 }
 
+// refusedSettingsUpdate reports whether err is the daemon refusing the settings
+// a request carried — the update-settings kill switch, or a field an MDM policy
+// manages — and returns the reason it gave.
+//
+// The distinction that matters is against codes.Unavailable, which means the
+// daemon cannot serve the call: that one is worth a warning, because an older
+// daemon without the method lands there and the rest of `netbird up` still
+// works. A refusal is not, because the settings would be silently dropped.
+func refusedSettingsUpdate(err error) (string, bool) {
+	st, ok := gstatus.FromError(err)
+	if !ok || st.Code() != codes.FailedPrecondition {
+		return "", false
+	}
+	return st.Message(), true
+}
+
 func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, profileName, username string) *proto.SetConfigRequest {
 	var req proto.SetConfigRequest
 	req.ProfileName = profileName
 	req.Username = username
 
 	req.ManagementUrl = managementURL
-	req.AdminURL = adminURL
 	req.NatExternalIPs = natExternalIPs
 	req.CustomDNSAddress = customDNSAddressConverted
 	req.ExtraIFaceBlacklist = extraIFaceBlackList
@@ -810,36 +825,6 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 	return &loginRequest, nil
 }
 
-func validateNATExternalIPs(list []string) error {
-	for _, element := range list {
-		if element == "" {
-			return fmt.Errorf("empty string is not a valid input for %s", externalIPMapFlag)
-		}
-
-		subElements := strings.Split(element, "/")
-		if len(subElements) > 2 {
-			return fmt.Errorf("%s is not a valid input for %s. it should be formatted as \"String\" or \"String/String\"", element, externalIPMapFlag)
-		}
-
-		if len(subElements) == 1 && !isValidIP(subElements[0]) {
-			return fmt.Errorf("%s is not a valid input for %s. it should be formatted as \"IP\" or \"IP/IP\", or \"IP/Interface Name\"", element, externalIPMapFlag)
-		}
-
-		last := 0
-		for _, singleElement := range subElements {
-			inputType, err := validateElement(singleElement)
-			if err != nil {
-				return fmt.Errorf("%s is not a valid input for %s. it should be an IP string or a network name", singleElement, externalIPMapFlag)
-			}
-			if last == interfaceInputType && inputType == interfaceInputType {
-				return fmt.Errorf("%s is not a valid input for %s. it should not contain two interface names", element, externalIPMapFlag)
-			}
-			last = inputType
-		}
-	}
-	return nil
-}
-
 func parseInterfaceName(name string) error {
 	if runtime.GOOS != "darwin" {
 		return nil
@@ -850,39 +835,6 @@ func parseInterfaceName(name string) error {
 	}
 
 	return fmt.Errorf("invalid interface name %s. Please use the prefix utun followed by a number on MacOS. e.g., utun1 or utun199", name)
-}
-
-func validateElement(element string) (int, error) {
-	if isValidIP(element) {
-		return ipInputType, nil
-	}
-	validIface, err := isValidInterface(element)
-	if err != nil {
-		return invalidInputType, fmt.Errorf("unable to validate the network interface name, error: %s", err)
-	}
-
-	if validIface {
-		return interfaceInputType, nil
-	}
-
-	return interfaceInputType, fmt.Errorf("invalid IP or network interface name not found")
-}
-
-func isValidIP(ip string) bool {
-	return net.ParseIP(ip) != nil
-}
-
-func isValidInterface(name string) (bool, error) {
-	netInterfaces, err := net.Interfaces()
-	if err != nil {
-		return false, err
-	}
-	for _, iface := range netInterfaces {
-		if iface.Name == name {
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 func parseCustomDNSAddress(modified bool) ([]byte, error) {
@@ -926,16 +878,13 @@ func isValidAddrPort(input string) bool {
 	return err == nil
 }
 
-// daemonActiveProfileForUser returns the profile the daemon currently holds for
-// username, for the no --profile case where the local mirror is not
-// authoritative (sudo or plain root). It returns that profile when the daemon
-// owns it for this user or when the profile is unowned (empty username, as on a
-// fresh install), so the caller acts on the daemon's real state instead of the
-// stale mirror. It denies with a --profile hint when the daemon is on another
-// user's profile, when the lookup fails, or when the daemon reports no active
+// daemonActiveProfile returns the profile the daemon currently holds, for the
+// no --profile case where the local mirror is not authoritative (sudo or plain
+// root). Root brings up whatever profile is active, whoever owns it. It denies
+// with a --profile hint when the lookup fails or the daemon reports no active
 // profile. Returns errDaemonActiveProfileUnsupported when the daemon predates
 // the RPC; the caller keeps the mirror-derived profile in that case.
-func daemonActiveProfileForUser(ctx context.Context, client proto.DaemonServiceClient, username string) (*profilemanager.Profile, error) {
+func daemonActiveProfile(ctx context.Context, client proto.DaemonServiceClient) (*profilemanager.Profile, error) {
 	active, err := client.GetActiveProfile(ctx, &proto.GetActiveProfileRequest{})
 	if err != nil {
 		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Unimplemented {
@@ -945,11 +894,6 @@ func daemonActiveProfileForUser(ctx context.Context, client proto.DaemonServiceC
 	}
 	if active.GetId() == "" {
 		return nil, fmt.Errorf("pass --profile to choose the profile explicitly: the daemon reported no active profile")
-	}
-	if active.GetUsername() != "" && active.GetUsername() != username {
-		return nil, fmt.Errorf(
-			"pass --profile to choose the profile explicitly: the daemon's active profile is %q (user %q) but this invocation runs for %q",
-			active.GetProfileName(), active.GetUsername(), username)
 	}
 	return &profilemanager.Profile{ID: profilemanager.ID(active.GetId())}, nil
 }

@@ -11,37 +11,18 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/daemonaddr"
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
-type MDMFields struct {
-	ManagementURL            string `json:"managementURL"`
-	PreSharedKey             bool   `json:"preSharedKey"`
-	WireguardPort            bool   `json:"wireguardPort"`
-	RosenpassEnabled         bool   `json:"rosenpassEnabled"`
-	RosenpassPermissive      bool   `json:"rosenpassPermissive"`
-	DisableClientRoutes      bool   `json:"disableClientRoutes"`
-	DisableServerRoutes      bool   `json:"disableServerRoutes"`
-	AllowServerSSH           *bool  `json:"allowServerSSH"`
-	DisableAutoConnect       bool   `json:"disableAutoConnect"`
-	DisableAutostart         bool   `json:"disableAutostart"`
-	BlockInbound             bool   `json:"blockInbound"`
-	DisableMetricsCollection bool   `json:"disableMetricsCollection"`
-	SplitTunnelMode          bool   `json:"splitTunnelMode"`
-	SplitTunnelApps          bool   `json:"splitTunnelApps"`
-	DisableAdvancedView      bool   `json:"disableAdvancedView"`
-}
+// MDMFields is the shared per-key MDM enforcement snapshot; see mdm.Fields.
+type MDMFields = mdm.Fields
 
-type Features struct {
-	DisableProfiles       bool `json:"disableProfiles"`
-	DisableNetworks       bool `json:"disableNetworks"`
-	DisableUpdateSettings bool `json:"disableUpdateSettings"`
-}
+// Features is the shared feature-gate snapshot; see mdm.Features.
+type Features = mdm.Features
 
-type Restrictions struct {
-	MDM      MDMFields `json:"mdm"`
-	Features Features  `json:"features"`
-}
+// Restrictions is the shared UI enforcement snapshot; see mdm.Restrictions.
+type Restrictions = mdm.Restrictions
 
 // Privilege tells the frontend whether this process may perform the changes the
 // daemon restricts to root/administrator, whether it can ask the operating
@@ -70,7 +51,6 @@ type ConfigParams struct {
 
 type Config struct {
 	ManagementURL                 string `json:"managementUrl"`
-	AdminURL                      string `json:"adminUrl"`
 	ConfigFile                    string `json:"configFile"`
 	LogFile                       string `json:"logFile"`
 	PreSharedKeySet               bool   `json:"preSharedKeySet"`
@@ -103,7 +83,6 @@ type SetConfigParams struct {
 	ProfileName                   string  `json:"profileName"`
 	Username                      string  `json:"username"`
 	ManagementURL                 string  `json:"managementUrl"`
-	AdminURL                      string  `json:"adminUrl"`
 	InterfaceName                 *string `json:"interfaceName,omitempty"`
 	WireguardPort                 *int64  `json:"wireguardPort,omitempty"`
 	MTU                           *int64  `json:"mtu,omitempty"`
@@ -152,18 +131,19 @@ func NewSettings(conn DaemonConn, translator ErrorTranslator, prefs LanguagePref
 func (s *Settings) GetConfig(ctx context.Context, p ConfigParams) (Config, error) {
 	cli, err := s.conn.Client()
 	if err != nil {
-		return Config{}, err
+		return Config{}, s.classifier.classify(err)
 	}
 	resp, err := cli.GetConfig(ctx, &proto.GetConfigRequest{
 		ProfileName: p.ProfileName,
 		Username:    p.Username,
 	})
 	if err != nil {
-		return Config{}, err
+		// Reading another user's profile is refused here, and the settings
+		// screen puts the result straight in front of the user.
+		return Config{}, s.classifier.classify(err)
 	}
 	return Config{
 		ManagementURL:                 resp.GetManagementUrl(),
-		AdminURL:                      resp.GetAdminURL(),
 		ConfigFile:                    resp.GetConfigFile(),
 		LogFile:                       resp.GetLogFile(),
 		PreSharedKeySet:               resp.GetPreSharedKey() != "",
@@ -194,13 +174,12 @@ func (s *Settings) GetConfig(ctx context.Context, p ConfigParams) (Config, error
 func (s *Settings) SetConfig(ctx context.Context, p SetConfigParams) (SaveOutcome, error) {
 	cli, err := s.conn.Client()
 	if err != nil {
-		return SaveOutcome{}, err
+		return SaveOutcome{}, s.classifier.classify(err)
 	}
 	req := &proto.SetConfigRequest{
 		ProfileName:                   p.ProfileName,
 		Username:                      p.Username,
 		ManagementUrl:                 p.ManagementURL,
-		AdminURL:                      p.AdminURL,
 		InterfaceName:                 p.InterfaceName,
 		WireguardPort:                 p.WireguardPort,
 		Mtu:                           p.MTU,
@@ -226,7 +205,7 @@ func (s *Settings) SetConfig(ctx context.Context, p SetConfigParams) (SaveOutcom
 		SshJWTCacheTTL:                p.SSHJWTCacheTTL,
 	}
 	if _, err := cli.SetConfig(ctx, req); err != nil {
-		if _, refused := privilegeErrorInfo(err); refused {
+		if privilegeRefused(err) {
 			return s.setConfigElevated(ctx, p, req, err)
 		}
 		// Classified so the frontend gets the daemon's guidance instead of the
@@ -270,7 +249,7 @@ func (s *Settings) setConfigElevated(ctx context.Context, p SetConfigParams, req
 
 	cli, err := s.conn.Client()
 	if err != nil {
-		return SaveOutcome{}, err
+		return SaveOutcome{}, s.classifier.classify(err)
 	}
 	if _, err := cli.SetConfig(ctx, req); err != nil {
 		return SaveOutcome{}, s.classifier.classify(err)
@@ -383,7 +362,7 @@ func (s *Settings) GetRestrictions(ctx context.Context) (Restrictions, error) {
 		},
 	}
 	applyMDMRestrictions(&r.MDM, cfgResp)
-	r.MDM.DisableAdvancedView = featResp.GetDisableAdvancedView()
+	r.MDM.DisableAdvancedView = featResp.DisableAdvancedView
 	return r, nil
 }
 
@@ -409,9 +388,6 @@ func applyMDMRestrictions(mdm *MDMFields, cfgResp *proto.GetConfigResponse) {
 	t := v.Type()
 	for i := 0; i < t.NumField(); i++ {
 		if v.Field(i).Kind() != reflect.Bool {
-			continue
-		}
-		if t.Field(i).Name == "DisableAdvancedView" {
 			continue
 		}
 		if _, ok := set[t.Field(i).Tag.Get("json")]; ok {

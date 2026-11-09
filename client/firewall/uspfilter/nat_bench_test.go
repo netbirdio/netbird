@@ -64,9 +64,11 @@ func BenchmarkDNATTranslation(b *testing.B) {
 
 	for _, sc := range scenarios {
 		b.Run(sc.name, func(b *testing.B) {
-			manager, err := Create(&IFaceMock{
-				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger, iface.DefaultMTU)
+			manager, err := Create(Config{
+				IFace: &IFaceMock{
+					SetFilterFunc: func(device.PacketFilter) error { return nil },
+				},
+				FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 			require.NoError(b, err)
 			defer func() {
 				require.NoError(b, manager.Close(nil))
@@ -124,9 +126,11 @@ func BenchmarkDNATTranslation(b *testing.B) {
 
 // BenchmarkDNATConcurrency tests DNAT performance under concurrent load
 func BenchmarkDNATConcurrency(b *testing.B) {
-	manager, err := Create(&IFaceMock{
-		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{
+		IFace: &IFaceMock{
+			SetFilterFunc: func(device.PacketFilter) error { return nil },
+		},
+		FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(b, err)
 	defer func() {
 		require.NoError(b, manager.Close(nil))
@@ -196,9 +200,11 @@ func BenchmarkDNATScaling(b *testing.B) {
 
 	for _, count := range mappingCounts {
 		b.Run(fmt.Sprintf("mappings_%d", count), func(b *testing.B) {
-			manager, err := Create(&IFaceMock{
-				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger, iface.DefaultMTU)
+			manager, err := Create(Config{
+				IFace: &IFaceMock{
+					SetFilterFunc: func(device.PacketFilter) error { return nil },
+				},
+				FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 			require.NoError(b, err)
 			defer func() {
 				require.NoError(b, manager.Close(nil))
@@ -308,9 +314,11 @@ func BenchmarkChecksumUpdate(b *testing.B) {
 
 // BenchmarkDNATMemoryAllocations checks for memory allocations in DNAT operations
 func BenchmarkDNATMemoryAllocations(b *testing.B) {
-	manager, err := Create(&IFaceMock{
-		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{
+		IFace: &IFaceMock{
+			SetFilterFunc: func(device.PacketFilter) error { return nil },
+		},
+		FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(b, err)
 	defer func() {
 		require.NoError(b, manager.Close(nil))
@@ -481,9 +489,11 @@ func BenchmarkPortDNAT(b *testing.B) {
 
 	for _, sc := range scenarios {
 		b.Run(sc.name, func(b *testing.B) {
-			manager, err := Create(&IFaceMock{
-				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger, iface.DefaultMTU)
+			manager, err := Create(Config{
+				IFace: &IFaceMock{
+					SetFilterFunc: func(device.PacketFilter) error { return nil },
+				},
+				FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 			require.NoError(b, err)
 			defer func() {
 				require.NoError(b, manager.Close(nil))

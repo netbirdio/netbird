@@ -64,7 +64,7 @@ func assertGetAccountLoadsCustomDomains(t *testing.T, store Store) {
 
 	_, err := store.CreateCustomDomain(ctx, accountID, "example.com", "eu.proxy.netbird.io", true)
 	require.NoError(t, err, "creating the first custom domain must succeed")
-	_, err = store.CreateCustomDomain(ctx, accountID, "apps.acme.io", "us.proxy.netbird.io", false)
+	pending, err := store.CreateCustomDomain(ctx, accountID, "apps.acme.io", "us.proxy.netbird.io", false)
 	require.NoError(t, err, "creating the second custom domain must succeed")
 
 	account, err := store.GetAccount(ctx, accountID)
@@ -75,6 +75,10 @@ func assertGetAccountLoadsCustomDomains(t *testing.T, store Store) {
 	for _, d := range account.Domains {
 		require.NotNil(t, d)
 		byDomain[d.Domain] = d.TargetCluster
+		if d.ID == pending.ID {
+			require.NotNil(t, d.ValidationExpiresAt)
+			assert.WithinDuration(t, *pending.ValidationExpiresAt, *d.ValidationExpiresAt, time.Millisecond, "both account loaders must preserve the validation deadline")
+		}
 	}
 	assert.Equal(t, "eu.proxy.netbird.io", byDomain["example.com"], "custom domain must carry its target cluster")
 	assert.Equal(t, "us.proxy.netbird.io", byDomain["apps.acme.io"], "custom domain must carry its target cluster")
@@ -229,7 +233,7 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 			SystemManufacturer: "Dell Inc.",
 		},
 		Status: &nbpeer.PeerStatus{
-			LastSeen:         now.Add(-5 * time.Minute),
+			LastSeen:         now.Add(-1 * time.Minute),
 			Connected:        true,
 			LoginExpired:     false,
 			RequiresApproval: false,
@@ -678,6 +682,13 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 	// Save the account to the database
 	err = store.SaveAccount(ctx, account)
 	require.NoError(t, err, "Failed to save comprehensive test account")
+
+	require.NoError(t, store.RegisterInstance(ctx, "instance-1", "host"))
+	for _, id := range []string{peerID1, peerID3} {
+		applied, connectErr := store.ConnectPeer(ctx, accountID, id, "instance-1", 1)
+		require.NoError(t, connectErr)
+		require.True(t, applied)
+	}
 
 	// Retrieve the account from the database
 	retrievedAccount, err := store.GetAccount(ctx, accountID)

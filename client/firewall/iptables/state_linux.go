@@ -29,17 +29,13 @@ type ShutdownState struct {
 
 	InterfaceState *InterfaceState `json:"interface_state,omitempty"`
 
-	RouteRules        routeRules    `json:"route_rules,omitempty"`
-	RouteIPsetCounter *ipsetCounter `json:"route_ipset_counter,omitempty"`
-
-	ACLEntries    aclEntries  `json:"acl_entries,omitempty"`
-	ACLIPsetStore *ipsetStore `json:"acl_ipset_store,omitempty"`
-
-	// IPv6 counterparts
+	RouteRules         routeRules    `json:"route_rules,omitempty"`
 	RouteRules6        routeRules    `json:"route_rules_v6,omitempty"`
+	RouteIPsetCounter  *ipsetCounter `json:"route_ipset_counter,omitempty"`
 	RouteIPsetCounter6 *ipsetCounter `json:"route_ipset_counter_v6,omitempty"`
-	ACLEntries6        aclEntries    `json:"acl_entries_v6,omitempty"`
-	ACLIPsetStore6     *ipsetStore   `json:"acl_ipset_store_v6,omitempty"`
+
+	ACLEntries  aclEntries `json:"acl_entries,omitempty"`
+	ACLEntries6 aclEntries `json:"acl_entries_v6,omitempty"`
 }
 
 func (s *ShutdownState) Name() string {
@@ -57,17 +53,14 @@ func (s *ShutdownState) Cleanup() error {
 	}
 
 	if s.RouteRules != nil {
-		ipt.router.rules = s.RouteRules
+		ipt.family4.rules = s.RouteRules
 	}
 	if s.RouteIPsetCounter != nil {
-		ipt.router.ipsetCounter.LoadData(s.RouteIPsetCounter)
+		ipt.family4.ipsetCounter.LoadData(s.RouteIPsetCounter)
 	}
 
 	if s.ACLEntries != nil {
-		ipt.aclMgr.entries = s.ACLEntries
-	}
-	if s.ACLIPsetStore != nil {
-		ipt.aclMgr.ipsetStore = s.ACLIPsetStore
+		ipt.family4.entries = s.ACLEntries
 	}
 
 	// Clean up v6 state even if the current run has no IPv6.
@@ -79,16 +72,13 @@ func (s *ShutdownState) Cleanup() error {
 	}
 	if ipt.hasIPv6() {
 		if s.RouteRules6 != nil {
-			ipt.router6.rules = s.RouteRules6
+			ipt.family6.rules = s.RouteRules6
 		}
 		if s.RouteIPsetCounter6 != nil {
-			ipt.router6.ipsetCounter.LoadData(s.RouteIPsetCounter6)
+			ipt.family6.ipsetCounter.LoadData(s.RouteIPsetCounter6)
 		}
 		if s.ACLEntries6 != nil {
-			ipt.aclMgr6.entries = s.ACLEntries6
-		}
-		if s.ACLIPsetStore6 != nil {
-			ipt.aclMgr6.ipsetStore = s.ACLIPsetStore6
+			ipt.family6.entries = s.ACLEntries6
 		}
 	}
 

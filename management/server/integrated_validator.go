@@ -100,7 +100,7 @@ func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountI
 		return nil, nil, err
 	}
 
-	peers, err = am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	peers, err = am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "", "")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -164,6 +164,10 @@ func (MockIntegratedValidator) PeerDeleted(_ context.Context, _, _ string, extra
 }
 
 func (MockIntegratedValidator) SetPeerInvalidationListener(func(accountID string, peerIDs []string)) {
+	// just a dummy
+}
+
+func (MockIntegratedValidator) SetPeerValidationChangeListener(func(accountID string, peerIDs []string)) {
 	// just a dummy
 }
 

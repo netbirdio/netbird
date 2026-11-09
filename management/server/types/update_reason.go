@@ -34,4 +34,7 @@ const (
 	UpdateOperationCreate UpdateOperation = "create"
 	UpdateOperationUpdate UpdateOperation = "update"
 	UpdateOperationDelete UpdateOperation = "delete"
+	// UpdateOperationRefresh is a periodic push that carries no change of its own, so
+	// it stays out of the counters that track what an administrator actually edited.
+	UpdateOperationRefresh UpdateOperation = "refresh"
 )

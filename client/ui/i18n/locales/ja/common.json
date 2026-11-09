@@ -552,12 +552,10 @@
         "message": "自動起動の変更に失敗しました"
     },
     "settings.general.keepConnectedOnQuit.label": {
-        "message": "終了後も接続を維持",
-        "description": "Toggle label: keep the VPN connection up after quitting the UI."
+        "message": "終了後も接続を維持"
     },
     "settings.general.keepConnectedOnQuit.help": {
-        "message": "NetBird を閉じたあとも接続はバックグラウンドで維持されます。自分で切断したときにだけ停止します。",
-        "description": "Helper text for the stay-connected-after-quitting toggle."
+        "message": "NetBird を閉じたあとも接続はバックグラウンドで維持されます。自分で切断したときにだけ停止します。"
     },
     "settings.general.language.label": {
         "message": "表示言語"
@@ -570,6 +568,21 @@
     },
     "settings.general.language.empty": {
         "message": "一致する言語がありません。"
+    },
+    "settings.general.theme.label": {
+        "message": "テーマ"
+    },
+    "settings.general.theme.help": {
+        "message": "ライト、ダーク、またはシステムの外観に従います。"
+    },
+    "settings.general.theme.system": {
+        "message": "システム"
+    },
+    "settings.general.theme.light": {
+        "message": "ライト"
+    },
+    "settings.general.theme.dark": {
+        "message": "ダーク"
     },
     "settings.general.management.label": {
         "message": "管理サーバー"
@@ -1348,6 +1361,12 @@
     "error.daemon_unreachable": {
         "message": "NetBird デーモンが応答していません。サービスが実行されているか確認してください。"
     },
+    "error.settings_locked": {
+        "message": "この端末では設定を変更できません。管理者によってロックされています。"
+    },
+    "error.settings_managed_by_mdm": {
+        "message": "この設定は組織によって管理されているため、変更できません。"
+    },
     "error.unknown": {
         "message": "操作に失敗しました。"
     },
@@ -1374,5 +1393,35 @@
     },
     "settings.ssh.privilege.authorizePending": {
         "message": "承認を待っています…"
+    },
+    "profile.ownedByAnother.name": {
+        "message": "別のユーザー"
+    },
+    "profile.ownedByAnother.hint": {
+        "message": "アクティブなプロファイルは別のユーザーのものです。変更や切断はその所有者のみが行えます。"
+    },
+    "error.privilege_required": {
+        "message": "この操作には昇格した権限が必要です。"
+    },
+    "error.session_held": {
+        "message": "別のユーザーがこのマシンを接続しています。"
+    },
+    "error.not_profile_owner": {
+        "message": "このプロファイルは別のユーザーのものです。"
+    },
+    "error.profile_unowned": {
+        "message": "このプロファイルにはまだ所有者がいません。"
+    },
+    "tray.status.daemonAccessDenied": {
+        "message": "アクセス権なし"
+    },
+    "daemon.accessDenied.title": {
+        "message": "NetBird サービスへのアクセス権がありません"
+    },
+    "daemon.accessDenied.description": {
+        "message": "管理者がこのデバイスの NetBird サービスを特定のユーザーまたはグループに制限しており、お使いのアカウントは含まれていません。アクセスについては管理者にお問い合わせください。"
+    },
+    "error.daemon_access_denied": {
+        "message": "お使いのアカウントには、このデバイスで NetBird サービスを使用する権限がありません。アクセスについては管理者にお問い合わせください。"
     }
 }
