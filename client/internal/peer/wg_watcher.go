@@ -33,6 +33,7 @@ type WGWatcher struct {
 
 	// initialHandshake is not thread-safe; never call PrepareInitialHandshake and EnableWgWatcher concurrently.
 	initialHandshake time.Time
+	continueSession  bool
 
 	resetCh chan struct{}
 }
@@ -57,6 +58,11 @@ func (w *WGWatcher) PrepareInitialHandshake() {
 	w.initialHandshake = handshake
 }
 
+func (w *WGWatcher) PrepareSessionContinue() {
+	w.PrepareInitialHandshake()
+	w.continueSession = true
+}
+
 // EnableWgWatcher runs the WireGuard watcher loop using the handshake baseline captured by
 // PrepareInitialHandshake. The watcher runs until ctx is cancelled. Caller is responsible
 // for context lifecycle management. onHandshakeSuccessFn is called only for the first
@@ -79,7 +85,7 @@ func (w *WGWatcher) Reset() {
 func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, onDisconnectedFn func(), onHandshakeSuccessFn func(when time.Time), onCheckSuccessFn func(), enabledTime time.Time, initialHandshake time.Time) {
 	w.log.Infof("WireGuard watcher started")
 
-	timer := time.NewTimer(wgHandshakeOvertime)
+	timer := time.NewTimer(w.firstCheckDelay(initialHandshake))
 	defer timer.Stop()
 
 	lastHandshake := initialHandshake
@@ -157,6 +163,17 @@ func (w *WGWatcher) handshakeCheck(lastHandshake time.Time) (*time.Time, bool) {
 	}
 
 	return &handshake, true
+}
+
+func (w *WGWatcher) firstCheckDelay(initialHandshake time.Time) time.Duration {
+	if !w.continueSession {
+		return wgHandshakeOvertime
+	}
+	delay := time.Until(initialHandshake.Add(checkPeriod))
+	if delay < wgHandshakeOvertime {
+		return wgHandshakeOvertime
+	}
+	return delay
 }
 
 func (w *WGWatcher) wgState() (time.Time, error) {

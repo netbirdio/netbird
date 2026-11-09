@@ -520,6 +520,7 @@ func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
 		// todo consider to move after the ConfigureWGEndpoint
 		conn.wgProxyRelay.Work()
 
+		conn.restartWgWatcherForRelay(time.Now())
 		presharedKey := conn.presharedKey(conn.rosenpassRemoteKey)
 		if err := conn.endpointUpdater.SwitchWGEndpoint(conn.wgProxyRelay.EndpointAddr(), presharedKey); err != nil {
 			conn.Log.Errorf("failed to switch to relay conn: %v", err)
@@ -864,9 +865,21 @@ func (conn *Conn) enableWgWatcherIfNeeded(enabledTime time.Time) {
 	if conn.wgWatcher != nil {
 		return
 	}
+	conn.startWgWatcher(enabledTime, conn.currentConnPriority == conntype.Relay)
+}
 
+func (conn *Conn) restartWgWatcherForRelay(enabledTime time.Time) {
+	conn.stopWgWatcher()
+	conn.startWgWatcher(enabledTime, true)
+}
+
+func (conn *Conn) startWgWatcher(enabledTime time.Time, continueSession bool) {
 	watcher := NewWGWatcher(conn.Log, conn.config.WgConfig.WgInterface, conn.config.Key, conn.dumpState)
-	watcher.PrepareInitialHandshake()
+	if continueSession {
+		watcher.PrepareSessionContinue()
+	} else {
+		watcher.PrepareInitialHandshake()
+	}
 
 	wgWatcherCtx, wgWatcherCancel := context.WithCancel(conn.ctx)
 	conn.wgWatcher = watcher
@@ -876,7 +889,8 @@ func (conn *Conn) enableWgWatcherIfNeeded(enabledTime time.Time) {
 	go func() {
 		defer conn.wgWatcherWg.Done()
 		onDisconnected := func() { conn.onWGDisconnected(wgWatcherCtx) }
-		watcher.EnableWgWatcher(wgWatcherCtx, enabledTime, onDisconnected, conn.onWGHandshakeSuccess, conn.onWGCheckSuccess)
+		onCheckSuccess := func() { conn.onWGCheckSuccess(wgWatcherCtx) }
+		watcher.EnableWgWatcher(wgWatcherCtx, enabledTime, onDisconnected, conn.onWGHandshakeSuccess, onCheckSuccess)
 	}()
 }
 
@@ -884,7 +898,14 @@ func (conn *Conn) enableWgWatcherIfNeeded(enabledTime time.Time) {
 // waits for the goroutine: the timeout path reentrantly calls back here under conn.mu, so
 // blocking would deadlock. Caller must hold conn.mu.
 func (conn *Conn) disableWgWatcherIfNeeded() {
-	if conn.currentConnPriority != conntype.None || conn.wgWatcher == nil {
+	if conn.currentConnPriority != conntype.None {
+		return
+	}
+	conn.stopWgWatcher()
+}
+
+func (conn *Conn) stopWgWatcher() {
+	if conn.wgWatcher == nil {
 		return
 	}
 	conn.wgWatcherCancel()
@@ -966,10 +987,25 @@ func (conn *Conn) onWGHandshakeSuccess(when time.Time) {
 // onWGCheckSuccess is called for every watcher check that observed a fresh
 // handshake, including handshakes of connections that were already up when
 // the watcher started.
-func (conn *Conn) onWGCheckSuccess() {
+func (conn *Conn) onWGCheckSuccess(watcherCtx context.Context) {
 	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
 	conn.wgTimeouts = 0
-	conn.mu.Unlock()
+	conn.stopRelayWatchAfterHandshakeLocked(watcherCtx)
+}
+
+func (conn *Conn) stopRelayWatchAfterHandshakeLocked(watcherCtx context.Context) {
+	if conn.ctx.Err() != nil || watcherCtx.Err() != nil || conn.currentConnPriority != conntype.Relay || conn.wgWatcher == nil {
+		return
+	}
+
+	if err := conn.endpointUpdater.DisableKeepAlive(); err != nil {
+		conn.Log.Errorf("failed to disable WireGuard keepalive on relay connection: %v", err)
+		return
+	}
+	conn.Log.Infof("relay connection: WireGuard handshake done, keepalive disabled, WireGuard watcher stopped")
+	conn.stopWgWatcher()
 }
 
 // recordConnectionMetrics records connection stage timestamps as metrics

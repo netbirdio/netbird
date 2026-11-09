@@ -375,7 +375,7 @@ func TestConn_onWGDisconnected_CheckSuccessResetsEscalation(t *testing.T) {
 	for i := 0; i < wgTimeoutEscalationThreshold-1; i++ {
 		conn.onWGDisconnected(conn.ctx)
 	}
-	conn.onWGCheckSuccess()
+	conn.onWGCheckSuccess(conn.ctx)
 
 	for i := 0; i < wgTimeoutEscalationThreshold-1; i++ {
 		conn.onWGDisconnected(conn.ctx)

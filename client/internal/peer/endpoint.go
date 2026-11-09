@@ -73,6 +73,20 @@ func (e *EndpointUpdater) RemoveEndpointAddress() error {
 	return e.wgConfig.WgInterface.RemoveEndpointAddress(e.wgConfig.RemoteKey)
 }
 
+func (e *EndpointUpdater) DisableKeepAlive() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.waitForCloseTheDelayedUpdate()
+	return e.wgConfig.WgInterface.UpdatePeer(
+		e.wgConfig.RemoteKey,
+		e.wgConfig.AllowedIps,
+		0,
+		nil,
+		nil,
+	)
+}
+
 func (e *EndpointUpdater) configureAsInitiator(addr *net.UDPAddr, presharedKey *wgtypes.Key) error {
 	if err := e.updateWireGuardPeer(addr, presharedKey); err != nil {
 		return err
