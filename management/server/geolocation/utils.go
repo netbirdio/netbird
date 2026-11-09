@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -15,6 +16,14 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
+)
+
+// A stalled connection must not block management startup, so every request is bounded.
+// Filename lookups only read response headers, downloads move tens of megabytes.
+var (
+	headRequestTimeout = 30 * time.Second
+	downloadTimeout    = 10 * time.Minute
 )
 
 // decompressTarGzFile decompresses a .tar.gz file.
@@ -150,8 +159,15 @@ func verifyChecksum(filepath, expectedChecksum string) error {
 }
 
 // downloadFile downloads a file from a URL and saves it to a local file path.
-func downloadFile(url, filepath string) error {
-	resp, err := http.Get(url)
+func downloadFile(ctx context.Context, url, filepath string) error {
+	ctx, cancel := context.WithTimeout(ctx, downloadTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -176,8 +192,15 @@ func downloadFile(url, filepath string) error {
 	return err
 }
 
-func getFilenameFromURL(url string) (string, error) {
-	resp, err := http.Head(url)
+func getFilenameFromURL(ctx context.Context, url string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, headRequestTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", err
 	}

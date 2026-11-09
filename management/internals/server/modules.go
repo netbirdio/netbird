@@ -47,7 +47,9 @@ func (s *BaseServer) GeoLocationManager() geolocation.Geolocation {
 	return Create(s, func() geolocation.Geolocation {
 		geo, err := geolocation.NewGeolocation(context.Background(), s.Config.Datadir, !s.disableGeoliteUpdate)
 		if err != nil {
-			log.Fatalf("could not initialize geolocation service: %v", err)
+			log.Warnf("geolocation is unavailable until the next restart, location-based posture checks deny peers: %v "+
+				"(see https://docs.netbird.io/selfhosted/maintenance/geo-support)", err)
+			return nil
 		}
 
 		log.Infof("geolocation service has been initialized from %s", s.Config.Datadir)
