@@ -38,6 +38,30 @@ func (e AccessRestrictionsCrowdsecMode) Valid() bool {
 	}
 }
 
+// Defines values for AgentNetworkAccessLogErrorSource.
+const (
+	AgentNetworkAccessLogErrorSourceAuth     AgentNetworkAccessLogErrorSource = "auth"
+	AgentNetworkAccessLogErrorSourcePolicy   AgentNetworkAccessLogErrorSource = "policy"
+	AgentNetworkAccessLogErrorSourceProvider AgentNetworkAccessLogErrorSource = "provider"
+	AgentNetworkAccessLogErrorSourceProxy    AgentNetworkAccessLogErrorSource = "proxy"
+)
+
+// Valid indicates whether the value is a known member of the AgentNetworkAccessLogErrorSource enum.
+func (e AgentNetworkAccessLogErrorSource) Valid() bool {
+	switch e {
+	case AgentNetworkAccessLogErrorSourceAuth:
+		return true
+	case AgentNetworkAccessLogErrorSourcePolicy:
+		return true
+	case AgentNetworkAccessLogErrorSourceProvider:
+		return true
+	case AgentNetworkAccessLogErrorSourceProxy:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AgentNetworkCatalogProviderKind.
 const (
 	AgentNetworkCatalogProviderKindCustom   AgentNetworkCatalogProviderKind = "custom"
@@ -1717,6 +1741,9 @@ type AccountSettings struct {
 
 // AgentNetworkAccessLog One per-request agent-network (LLM) access log entry with flattened, queryable LLM dimensions.
 type AgentNetworkAccessLog struct {
+	// BlockedBy ID of the policy (llm_policy.* deny reasons) or account budget rule (llm_account.* deny reasons) whose cap blocked the request.
+	BlockedBy *string `json:"blocked_by,omitempty"`
+
 	// CacheCostUsd Portion of cost_usd billed for prompt-cache usage.
 	CacheCostUsd float64 `json:"cache_cost_usd"`
 
@@ -1743,6 +1770,12 @@ type AgentNetworkAccessLog struct {
 
 	// DurationMs Duration of the request in milliseconds.
 	DurationMs int `json:"duration_ms"`
+
+	// ErrorDetail Admin-facing explanation of the failure, such as the proxy's transport error or which cap was exhausted and by how much. Returned only to callers with the account-wide agent network logs permission; callers limited to their own requests never receive it.
+	ErrorDetail *string `json:"error_detail,omitempty"`
+
+	// ErrorSource Who produced a failed (status >= 400) response. provider is the upstream LLM API, proxy is the NetBird reverse proxy failing to reach it, policy is a NetBird policy or guardrail denial, auth is a proxy authentication rejection. Empty for successful requests.
+	ErrorSource *AgentNetworkAccessLogErrorSource `json:"error_source,omitempty"`
 
 	// GroupIds NetBird group ids that authorised the request (the caller's groups intersected with the policy's source groups).
 	GroupIds *[]string `json:"group_ids,omitempty"`
@@ -1813,6 +1846,9 @@ type AgentNetworkAccessLog struct {
 	// UserId NetBird user id of the authenticated caller, if applicable.
 	UserId *string `json:"user_id,omitempty"`
 }
+
+// AgentNetworkAccessLogErrorSource Who produced a failed (status >= 400) response. provider is the upstream LLM API, proxy is the NetBird reverse proxy failing to reach it, policy is a NetBird policy or guardrail denial, auth is a proxy authentication rejection. Empty for successful requests.
+type AgentNetworkAccessLogErrorSource string
 
 // AgentNetworkAccessLogSession A session-grouped view of agent-network access logs — all requests sharing a session id (or a single session-less request) folded into one summary plus its ordered entries.
 type AgentNetworkAccessLogSession struct {

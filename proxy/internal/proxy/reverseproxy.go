@@ -201,6 +201,13 @@ func (p *ReverseProxy) serveDirect(w http.ResponseWriter, r *http.Request, ctx c
 	if result.rewriteRedirects {
 		rp.ModifyResponse = p.rewriteLocationFunc(pt.URL, rewriteMatchedPath, r) //nolint:bodyclose
 	}
+	// The request is handed to the backend from here, so an error status it
+	// answers with is the backend's; an earlier stage (header auth stamps
+	// OriginAuth on success) must not claim it. proxyErrorHandler overrides
+	// this when the backend could not be reached.
+	if cd := CapturedDataFromContext(ctx); cd != nil {
+		cd.SetOrigin(OriginBackend)
+	}
 	rp.ServeHTTP(w, r.WithContext(ctx))
 }
 
@@ -225,6 +232,9 @@ func (p *ReverseProxy) serveWithChain(w http.ResponseWriter, r *http.Request, ct
 		}
 	}
 	if denyOutput != nil {
+		if capturedData != nil {
+			capturedData.SetOrigin(OriginMiddleware)
+		}
 		p.serveDeny(w, denyOutput, result, middlewareIDs)
 		return
 	}
@@ -399,6 +409,13 @@ func (p *ReverseProxy) forwardUpstream(respWriter http.ResponseWriter, r *http.R
 	}
 	if upstreamRewrite != nil && len(upstreamRewrite.DiscoveryModels) > 0 {
 		rp.ModifyResponse = modelDiscoveryFilter(upstreamRewrite.DiscoveryModels, rp.ModifyResponse) //nolint:bodyclose // the hook replaces the body and closes the original
+	}
+	// The request is handed to the backend from here, so an error status it
+	// answers with is the backend's; an earlier stage (header auth stamps
+	// OriginAuth on success) must not claim it. proxyErrorHandler overrides
+	// this when the backend could not be reached.
+	if cd := CapturedDataFromContext(ctx); cd != nil {
+		cd.SetOrigin(OriginBackend)
 	}
 	rp.ServeHTTP(respWriter, r.WithContext(ctx))
 }
@@ -783,12 +800,13 @@ func extractForwardedPort(host, resolvedProto string) string {
 // proxyErrorHandler handles errors from the reverse proxy and serves
 // user-friendly error pages instead of raw error responses.
 func (p *ReverseProxy) proxyErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
+	title, message, code, status := classifyProxyError(err)
 	if cd := CapturedDataFromContext(r.Context()); cd != nil {
 		cd.SetOrigin(OriginProxyError)
+		cd.SetMetadata(MetaKeyProxyError, title+": "+err.Error())
 	}
 	requestID := getRequestID(r)
 	clientIP := getClientIP(r)
-	title, message, code, status := classifyProxyError(err)
 
 	p.logger.Warnf("proxy error: request_id=%s client_ip=%s method=%s host=%s path=%s status=%d title=%q err=%v",
 		requestID, clientIP, r.Method, r.Host, r.URL.Path, code, title, err)

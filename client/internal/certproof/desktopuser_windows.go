@@ -23,6 +23,7 @@ const (
 type DesktopUser struct {
 	Session uint32
 	Name    string
+	SID     string
 	Token   windows.Token
 }
 
@@ -34,7 +35,8 @@ func (u DesktopUser) Close() {
 }
 
 // currentDesktopUser returns a token for the session whose certificate store should be
-// asked: a session of owner, the account the active profile belongs to, with the
+// asked: a session of owner, the account the active profile belongs to, named by SID or
+// by account name, with the
 // physical console preferred over remote sessions. With no owner only the console user
 // counts. Picking any signed-in user instead would let whoever else is logged in to a
 // terminal server or VDI host decide the result. The second return is false when no
@@ -61,7 +63,7 @@ func currentDesktopUser(owner string) (DesktopUser, bool) {
 			continue
 		}
 		switch {
-		case !sameAccountName(user.Name, owner):
+		case !ownsSession(user, owner):
 			user.Close()
 		case !ok:
 			found, ok = user, true
@@ -95,6 +97,19 @@ func consoleUser(console uint32) (DesktopUser, bool) {
 	return user, ok
 }
 
+// ownsSession reports whether owner, a SID or an account name, is the account signed
+// into the session.
+func ownsSession(user DesktopUser, owner string) bool {
+	if isSID(owner) {
+		return strings.EqualFold(user.SID, owner)
+	}
+	return sameAccountName(user.Name, owner)
+}
+
+func isSID(owner string) bool {
+	return len(owner) > 2 && strings.EqualFold(owner[:2], "S-")
+}
+
 // sameAccountName compares DOMAIN\account names case-insensitively, as Windows does, and an
 // owner given without a domain against the account part alone. The session side comes from
 // the session token's own SID, which Windows resolves from its cache of signed-in users.
@@ -118,7 +133,7 @@ func desktopUser(session uint32) (DesktopUser, bool) {
 		return DesktopUser{}, false
 	}
 
-	name, err := tokenAccount(token)
+	name, sid, err := tokenAccount(token)
 	if err != nil {
 		log.Debugf("session %d token has no readable account: %v", session, err)
 		if closeErr := token.Close(); closeErr != nil {
@@ -126,22 +141,23 @@ func desktopUser(session uint32) (DesktopUser, bool) {
 		}
 		return DesktopUser{}, false
 	}
-	return DesktopUser{Session: session, Name: name, Token: token}, true
+	return DesktopUser{Session: session, Name: name, SID: sid, Token: token}, true
 }
 
-func tokenAccount(token windows.Token) (string, error) {
+func tokenAccount(token windows.Token) (string, string, error) {
 	user, err := token.GetTokenUser()
 	if err != nil {
-		return "", fmt.Errorf("read token user: %w", err)
+		return "", "", fmt.Errorf("read token user: %w", err)
 	}
+	sid := user.User.Sid.String()
 	account, domain, _, err := user.User.Sid.LookupAccount("")
 	if err != nil {
-		return "", fmt.Errorf("look up account: %w", err)
+		return "", "", fmt.Errorf("look up account: %w", err)
 	}
 	if domain == "" {
-		return account, nil
+		return account, sid, nil
 	}
-	return domain + `\` + account, nil
+	return domain + `\` + account, sid, nil
 }
 
 // userSessions lists the sessions a user can be signed in to, console first, then

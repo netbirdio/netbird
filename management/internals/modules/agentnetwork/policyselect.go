@@ -183,20 +183,16 @@ func (m *managerImpl) SelectPolicyForRequest(ctx context.Context, in PolicySelec
 	// independently of policy selection (they bind even for catch-all-allow
 	// policies or requests that match no policy). All applicable rules must
 	// pass — this is where min-wins lives.
-	if deny, code, reason := checkAccountBudget(in, rules, cache, now); deny {
-		return &PolicySelectionResult{Allow: false, DenyCode: code, DenyReason: reason}, nil
+	if denied := checkAccountBudget(in, rules, cache, now); denied != nil {
+		return denied, nil
 	}
 
 	if len(candidates) == 0 {
 		return &PolicySelectionResult{Allow: true}, nil
 	}
-	scored, lastDenyCode, lastDenyReason := scoreCandidates(in, candidates, cache, now)
+	scored, lastDenied := scoreCandidates(in, candidates, cache, now)
 	if len(scored) == 0 {
-		return &PolicySelectionResult{
-			Allow:      false,
-			DenyCode:   lastDenyCode,
-			DenyReason: lastDenyReason,
-		}, nil
+		return lastDenied, nil
 	}
 
 	sort.SliceStable(scored, func(i, j int) bool {
@@ -438,28 +434,31 @@ type candidate struct {
 
 // scoreCandidates evaluates every applicable policy against the
 // caller's current consumption. Exhausted policies are filtered out
-// of the returned slice; the most recent exhaustion's deny code +
-// human reason is returned alongside so the caller can surface it
-// when no candidate survives.
+// of the returned slice; the most recent exhaustion is returned
+// alongside as a deny result naming that policy (SelectedPolicyID) so
+// the caller can surface it when no candidate survives.
 func scoreCandidates(
 	in PolicySelectionInput,
 	candidates []*types.Policy,
 	cache consumptionCache,
 	now time.Time,
-) ([]candidate, string, string) {
+) ([]candidate, *PolicySelectionResult) {
 	out := make([]candidate, 0, len(candidates))
-	var lastDenyCode, lastDenyReason string
+	var lastDenied *PolicySelectionResult
 
 	for _, p := range candidates {
 		c, exhausted, denyCode, denyReason := scoreOne(in, p, cache, now)
 		if exhausted {
-			lastDenyCode = denyCode
-			lastDenyReason = denyReason
+			lastDenied = &PolicySelectionResult{
+				SelectedPolicyID: p.ID,
+				DenyCode:         denyCode,
+				DenyReason:       denyReason,
+			}
 			continue
 		}
 		out = append(out, c)
 	}
-	return out, lastDenyCode, lastDenyReason
+	return out, lastDenied
 }
 
 // scoreOne checks a single policy for cap exhaustion. Returns the
@@ -557,10 +556,11 @@ func evalBudgetCap(
 // checkAccountBudget evaluates every applicable account-level budget rule as an
 // all-must-pass ceiling. A rule applies when the caller is in its TargetUsers,
 // one of its TargetGroups, or it has no targets at all (account-wide). Returns
-// deny=true with an llm_account.* code on the first exhausted rule. Group caps
+// a deny result with an llm_account.* code naming the first exhausted rule in
+// SelectedPolicyID, or nil when every rule has headroom. Group caps
 // attribute to the lowest intersecting group (the same model policies use), so
 // multi-group behavior is unchanged.
-func checkAccountBudget(in PolicySelectionInput, rules []*types.AccountBudgetRule, cache consumptionCache, now time.Time) (bool, string, string) {
+func checkAccountBudget(in PolicySelectionInput, rules []*types.AccountBudgetRule, cache consumptionCache, now time.Time) *PolicySelectionResult {
 	for _, r := range rules {
 		if r == nil || !r.Enabled || !budgetRuleApplies(r, in) {
 			continue
@@ -570,18 +570,18 @@ func checkAccountBudget(in PolicySelectionInput, rules []*types.AccountBudgetRul
 
 		if r.Limits.TokenLimit.Enabled && r.Limits.TokenLimit.WindowSeconds > 0 {
 			if exhausted, reason := evalTokenCap(cache, in.AccountID, in.UserID, attrGroup, r.Limits.TokenLimit, now, label); exhausted {
-				return true, denyCodeAccountTokenCapExceeded, reason
+				return &PolicySelectionResult{SelectedPolicyID: r.ID, DenyCode: denyCodeAccountTokenCapExceeded, DenyReason: reason}
 			}
 		}
 
 		if r.Limits.BudgetLimit.Enabled && r.Limits.BudgetLimit.WindowSeconds > 0 {
 			if exhausted, reason := evalBudgetCap(cache, in.AccountID, in.UserID, attrGroup, r.Limits.BudgetLimit, now, label); exhausted {
-				return true, denyCodeAccountBudgetCapExceeded, reason
+				return &PolicySelectionResult{SelectedPolicyID: r.ID, DenyCode: denyCodeAccountBudgetCapExceeded, DenyReason: reason}
 			}
 		}
 	}
 
-	return false, "", ""
+	return nil
 }
 
 // budgetRuleApplies reports whether an account budget rule binds the caller:

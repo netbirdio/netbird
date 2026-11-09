@@ -1219,10 +1219,12 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 		)
 	}
 
-	if len(peerIDs) != 0 {
-		if err := am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
-			return err
-		}
+	if len(peerIDs) == 0 {
+		return nil
+	}
+
+	if err := am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
+		return err
 	}
 
 	affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, peerIDs)
