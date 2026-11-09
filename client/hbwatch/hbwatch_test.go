@@ -574,3 +574,151 @@ func TestDefaultEnabledAfterEarlyDisabledCall(t *testing.T) {
 	restore()
 	require.Same(t, w, def())
 }
+
+func checkPending(w *Watcher) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.pending
+}
+
+// toNextPhase moves the clock from a whole tick plus d to the next tick plus
+// to, running timers on the way.
+func toNextPhase(clk *fakeClock, from, to time.Duration) {
+	clk.advance(30*time.Second - from + to)
+}
+
+// assertCheckAt asserts that the pending check runs at the current time plus
+// d, not earlier.
+func assertCheckAt(t *testing.T, clk *fakeClock, w *Watcher, d time.Duration) {
+	t.Helper()
+	clk.advance(d - time.Millisecond)
+	assert.True(t, checkPending(w), "check must not run before the expected time")
+	clk.advance(time.Millisecond)
+	assert.False(t, checkPending(w), "check must run at the expected time")
+}
+
+// A wake (here a path update) just before the tick starts the check. The
+// heartbeats of the tick join it, and relay, due 0.6 s after the phase, must
+// still land before the check. Night 23 had the wake 1.95 s before the
+// first heartbeat, inside the grace of the wake.
+func TestWakeBeforeTickWaitsForTick(t *testing.T) {
+	for _, wake := range []time.Duration{-2 * time.Second, -1800 * time.Millisecond} {
+		t.Run(wake.String(), func(t *testing.T) {
+			clk := newFakeClock()
+			w := newTickWatcher(clk)
+			var c counter
+			registerAll(w, &c)
+
+			clk.advance(30 * time.Second)
+			tick(clk, w, Relay, Management, Signal)
+
+			toNextPhase(clk, Grace+900*time.Millisecond, wake)
+			w.CheckNow()
+			clk.advance(100*time.Millisecond - wake)
+			w.Seen(Management)
+			w.Seen(Signal)
+			clk.advance(500 * time.Millisecond)
+			w.Seen(Relay)
+			// Now at P + 0.6 s; the check runs at P + 2 s.
+			assertCheckAt(t, clk, w, 1400*time.Millisecond)
+			for _, svc := range services {
+				assert.Equal(t, 0, c.get(svc), "no stale action: %s", svc)
+			}
+		})
+	}
+}
+
+// A heartbeat 1.8 s early starts the tick check. Relay arrives 2.3 s later,
+// after the grace from the early heartbeat, and must still count (22c Part D).
+func TestEarlyHeartbeatWaitsForTick(t *testing.T) {
+	clk := newFakeClock()
+	w := newTickWatcher(clk)
+	var c counter
+	registerAll(w, &c)
+
+	clk.advance(30 * time.Second)
+	tick(clk, w, Relay, Management, Signal)
+
+	toNextPhase(clk, Grace+900*time.Millisecond, -1800*time.Millisecond)
+	w.Seen(Management)
+	clk.advance(1900 * time.Millisecond)
+	w.Seen(Signal)
+	clk.advance(400 * time.Millisecond)
+	w.Seen(Relay)
+	assertCheckAt(t, clk, w, 1500*time.Millisecond)
+	for _, svc := range services {
+		assert.Equal(t, 0, c.get(svc), "no stale action: %s", svc)
+	}
+}
+
+// A wake 3.5 s before the phase is no tick and schedules its check at T +
+// grace. An early heartbeat joins it and moves the check to the tick.
+func TestJoinMovesCheckLater(t *testing.T) {
+	clk := newFakeClock()
+	w := newTickWatcher(clk)
+	var c counter
+	registerAll(w, &c)
+
+	clk.advance(30 * time.Second)
+	tick(clk, w, Relay, Management, Signal)
+
+	toNextPhase(clk, Grace+900*time.Millisecond, -3500*time.Millisecond)
+	w.CheckNow()
+	clk.advance(1700 * time.Millisecond)
+	w.Seen(Management)
+	clk.advance(1900 * time.Millisecond)
+	w.Seen(Signal)
+	clk.advance(400 * time.Millisecond)
+	w.Seen(Relay)
+	assertCheckAt(t, clk, w, 1500*time.Millisecond)
+	for _, svc := range services {
+		assert.Equal(t, 0, c.get(svc), "no stale action: %s", svc)
+	}
+}
+
+// A real missed tick still gives exactly one action, within 3 s of the phase.
+func TestMissedTickStillActsAfterTickGrace(t *testing.T) {
+	clk := newFakeClock()
+	w := newTickWatcher(clk)
+	var c counter
+	registerAll(w, &c)
+
+	clk.advance(30 * time.Second)
+	tick(clk, w, Relay, Management, Signal)
+
+	toNextPhase(clk, Grace+900*time.Millisecond, 100*time.Millisecond)
+	w.Seen(Management)
+	clk.advance(200 * time.Millisecond)
+	w.Seen(Signal)
+	// Now at P + 0.3 s.
+	clk.advance(Grace - 300*time.Millisecond - time.Millisecond)
+	require.Equal(t, 0, c.get(Relay), "no action before P + grace")
+	clk.advance(time.Millisecond)
+	assert.Equal(t, 1, c.get(Relay), "missed relay tick acts at P + grace")
+	clk.advance(5 * time.Second)
+	assert.Equal(t, 1, c.get(Relay), "exactly one action")
+	assert.Equal(t, 0, c.get(Management), "management sent its heartbeat")
+	assert.Equal(t, 0, c.get(Signal), "signal sent its heartbeat")
+}
+
+// A wake far from the phase checks at T + grace with tick=false.
+func TestWakeFarFromPhaseKeepsGrace(t *testing.T) {
+	clk := newFakeClock()
+	w := newTickWatcher(clk)
+	var c counter
+	registerAll(w, &c)
+
+	clk.advance(30 * time.Second)
+	tick(clk, w, Relay, Management, Signal)
+
+	clk.advance(10*time.Second - Grace - 900*time.Millisecond)
+	w.CheckNow()
+	w.mu.Lock()
+	tickSet := w.tick
+	w.mu.Unlock()
+	assert.False(t, tickSet, "a wake at P + 10 s is no tick")
+	assertCheckAt(t, clk, w, Grace)
+	for _, svc := range services {
+		assert.Equal(t, 0, c.get(svc), "no stale action: %s", svc)
+	}
+}

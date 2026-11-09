@@ -1,7 +1,8 @@
 // Package hbwatch is a local test helper (aligned keepalive test, never push).
 // It keeps the wall time of the last inbound frame per service and, on each
-// trigger (a received frame or an explicit CheckNow), waits a short grace and
-// runs the dead path of every connected service whose wall-clock gap exceeds
+// trigger (a received frame or an explicit CheckNow), waits a short grace,
+// counted from the client phase when the trigger is near it, and runs the dead
+// path of every connected service whose wall-clock gap exceeds
 // the heartbeat period plus a tolerance. When a heartbeat near the client
 // phase triggered the check (a tick), a service with no frame since the
 // previous tick is stale already. A heartbeat far from the client phase comes
@@ -114,6 +115,11 @@ type Watcher struct {
 	// triggerAt is when the pending check was triggered. Gaps are measured
 	// there, so the grace does not eat into the tolerance.
 	triggerAt time.Time
+	// deadline is when the pending check may run. A trigger near the client
+	// phase moves it to phase + grace, so the whole tick lands first.
+	deadline time.Time
+	// armed is the deadline the pending timer was set for.
+	armed time.Time
 
 	phaseMu     sync.Mutex
 	phaseKnown  bool
@@ -225,25 +231,47 @@ func (w *Watcher) CheckNow() {
 	w.schedule(triggerWake)
 }
 
-// schedule starts one grace timer; triggers that land while it is pending
-// collapse into that check. The log label keeps the highest of wake,
-// heartbeat, frame.
+// schedule starts one check; triggers that land while it is pending collapse
+// into that check. The log label keeps the highest of wake, heartbeat, frame.
 func (w *Watcher) schedule(trigger string) {
+	now := w.now()
+	tickAt, nearTick := w.nearestTick(now)
 	w.mu.Lock()
 	if w.pending {
 		if triggerRank[trigger] > triggerRank[w.trigger] {
 			w.trigger = trigger
 		}
 		w.tick = w.tick || trigger == triggerHeartbeat
+		// Only a trigger near the phase moves the check, so steady traffic
+		// cannot hold it off.
+		if nearTick && tickAt.Add(Grace).After(w.deadline) {
+			w.deadline = tickAt.Add(Grace)
+		}
 		w.mu.Unlock()
 		return
 	}
 	w.pending = true
 	w.trigger = trigger
 	w.tick = trigger == triggerHeartbeat
-	w.triggerAt = w.now()
+	w.triggerAt = now
+	w.deadline = now.Add(Grace)
+	if nearTick {
+		w.deadline = tickAt.Add(Grace)
+	}
+	w.armed = w.deadline
+	wait := max(w.deadline.Sub(now), 0)
 	w.mu.Unlock()
-	w.clk.AfterFunc(Grace, w.check)
+	w.clk.AfterFunc(wait, w.check)
+}
+
+// nearestTick returns the client phase nearest to t, ok false when the phase
+// is unknown or t is more than tickWindow from it.
+func (w *Watcher) nearestTick(t time.Time) (tickAt time.Time, ok bool) {
+	off, known := w.phaseOffset(t)
+	if !known || off < -tickWindow || off > tickWindow {
+		return time.Time{}, false
+	}
+	return t.Add(-off), true
 }
 
 // Register marks svc connected with its dead-path action and its reconnect
@@ -285,11 +313,19 @@ func (w *Watcher) Reset(svc Service) {
 
 func (w *Watcher) check() {
 	w.mu.Lock()
+	now := w.now()
+	if w.deadline.After(w.armed) {
+		// A later trigger moved the check.
+		w.armed = w.deadline
+		wait := max(w.deadline.Sub(now), 0)
+		w.mu.Unlock()
+		w.clk.AfterFunc(wait, w.check)
+		return
+	}
 	w.pending = false
 	trigger := w.trigger
 	tick := w.tick
 	at := w.triggerAt
-	now := w.now()
 	limit := w.period + Tolerance
 	if tick {
 		// The heartbeat of another service marks the tick. A service with no
@@ -330,7 +366,8 @@ func (w *Watcher) check() {
 	}
 	w.mu.Unlock()
 
-	log.Infof("hbwatch: check trigger=%s gaps=%s tick=%t", trigger, strings.Join(gaps, ","), tick)
+	log.Infof("hbwatch: check trigger=%s gaps=%s tick=%t wait=%d",
+		trigger, strings.Join(gaps, ","), tick, now.Sub(at).Milliseconds())
 	for _, f := range fires {
 		log.Infof("hbwatch: stale svc=%s gap=%d action=%s", f.svc, f.gap.Milliseconds(), f.kind)
 		f.action()
