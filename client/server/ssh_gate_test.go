@@ -38,24 +38,32 @@ var unprivUID = uint32(os.Geteuid() + 1)
 
 // The fabricated identities have to be shaped like the platform's: a uid says
 // nothing on Windows, and a zero uid there would read as root and be privileged.
+// withTarget is a request context as the gate leaves it: carrying the profile
+// the gate resolved and authorized out of the request's handle. A test that
+// calls a target-scoped handler directly supplies it, since the interceptor
+// that normally would is not in play.
+func withTarget(ctx context.Context, profilePath string) context.Context {
+	return ipcauth.ContextWithTarget(ctx, profilePath)
+}
+
 func rootCtx() context.Context { return ctxWithIdentity(privilegedIdentity()) }
 func userCtx() context.Context { return ctxWithIdentity(unprivilegedIdentity()) }
 
 func privilegedIdentity() ipcauth.Identity {
 	if runtime.GOOS == "windows" {
 		// LocalSystem, which is what the Windows service account is.
-		return ipcauth.Identity{SID: "S-1-5-18"}
+		return ipcauth.KnownForTest(ipcauth.Identity{SID: "S-1-5-18"})
 	}
-	return ipcauth.Identity{UID: 0}
+	return ipcauth.KnownForTest(ipcauth.Identity{UID: 0})
 }
 
 func unprivilegedIdentity() ipcauth.Identity {
 	if runtime.GOOS == "windows" {
 		// A plain user SID: no groups, so no BUILTIN\Administrators, and not
 		// elevated.
-		return ipcauth.Identity{SID: "S-1-5-21-1-2-3-1001"}
+		return ipcauth.KnownForTest(ipcauth.Identity{SID: "S-1-5-21-1-2-3-1001"})
 	}
-	return ipcauth.Identity{UID: unprivUID, GID: unprivUID}
+	return ipcauth.KnownForTest(ipcauth.Identity{UID: unprivUID, GID: unprivUID})
 }
 func noIdentityCtx() context.Context { return context.Background() }
 
