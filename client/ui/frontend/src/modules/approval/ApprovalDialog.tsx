@@ -176,7 +176,7 @@ export default function ApprovalDialog() {
                 </dl>
             )}
 
-            <div className={"text-sm tabular-nums text-nb-gray-400"} aria-live={"polite"}>
+            <div className={"text-sm text-nb-gray-400 tabular-nums"} aria-live={"polite"}>
                 {t("approval.countdown", { seconds: remaining })}
             </div>
 
