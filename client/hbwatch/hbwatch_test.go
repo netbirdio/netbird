@@ -823,3 +823,30 @@ func TestGateOpenFirstMissedTickBothMuted(t *testing.T) {
 	tick(clk, w, Relay)
 	assert.Equal(t, 0, c.get(Relay), "relay sent every heartbeat")
 }
+
+// A frame just after a tick (outside the tick window) starts a check, and the
+// phone sleeps before its timer runs. At the next tick the heartbeats join
+// that old check. A service that misses this tick must still be flagged at
+// this tick, so gaps are measured at the tick, not at the old trigger.
+func TestSleptCheckMeasuresAtNextTick(t *testing.T) {
+	clk := newFakeClock()
+	w := newTickWatcher(clk)
+	var c counter
+	registerAll(w, &c)
+
+	clk.advance(30 * time.Second)
+	tick(clk, w, Relay, Management, Signal)
+
+	// P + 3.4 s: a relay data frame, then the phone sleeps to P1 + 0.1 s.
+	clk.advance(3400*time.Millisecond - Grace - 900*time.Millisecond)
+	w.Touch(Relay)
+	clk.jump(30*time.Second - 3400*time.Millisecond + 100*time.Millisecond)
+	w.Seen(Management)
+	clk.advance(200 * time.Millisecond)
+	w.Seen(Signal)
+	// Now at P1 + 0.3 s; relay is silent at this tick.
+	clk.advance(Grace - 300*time.Millisecond)
+	assert.Equal(t, 1, c.get(Relay), "relay missed this tick and must be flagged by P1 + grace")
+	assert.Equal(t, 0, c.get(Management), "management sent its heartbeat")
+	assert.Equal(t, 0, c.get(Signal), "signal sent its heartbeat")
+}

@@ -255,6 +255,11 @@ func (w *Watcher) schedule(trigger string) {
 		if nearTick && tickAt.Add(Grace).After(w.deadline) {
 			w.deadline = tickAt.Add(Grace)
 		}
+		// The check is pending from before this tick (the phone slept past its
+		// timer). Measure gaps here, so a service that misses this tick shows it.
+		if nearTick && w.triggerAt.Before(tickAt.Add(-tickWindow)) {
+			w.triggerAt = now
+		}
 		w.mu.Unlock()
 		return
 	}
