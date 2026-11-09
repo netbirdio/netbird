@@ -204,6 +204,19 @@
       </elements>
     </policy>
 
+    <policy name="AllowGroups"
+            class="Machine"
+            displayName="$(string.AllowGroups_Name)"
+            explainText="$(string.AllowGroups_Help)"
+            key="Software\Policies\NetBird"
+            presentation="$(presentation.AllowGroups_Pres)">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <elements>
+        <text id="AllowGroups_Text" valueName="AllowGroups" required="false" />
+      </elements>
+    </policy>
+
     <!-- ============================================================ -->
     <!-- UI: visibility / UX kill switches                             -->
     <!-- ============================================================ -->

@@ -214,16 +214,18 @@ func (s *Server) createExecutorCommand(logger *log.Entry, session ssh.Session, l
 	if err != nil {
 		return nil, nil, fmt.Errorf("parse user credentials: %w", err)
 	}
+	_, isSftp := session.(sftpSession)
 	privilegeDropper := NewPrivilegeDropper(WithLogger(logger))
 	config := ExecutorConfig{
-		Username:   localUser.Username,
-		UID:        uid,
-		GID:        gid,
-		Groups:     groups,
-		WorkingDir: localUser.HomeDir,
-		Shell:      getUserShell(localUser.Uid),
-		Command:    session.RawCommand(),
-		PTY:        hasPty,
+		NoLoginShell: isSftp,
+		Username:     localUser.Username,
+		UID:          uid,
+		GID:          gid,
+		Groups:       groups,
+		WorkingDir:   localUser.HomeDir,
+		Shell:        getUserShell(localUser.Uid),
+		Command:      session.RawCommand(),
+		PTY:          hasPty,
 	}
 
 	cmd, err := privilegeDropper.CreateExecutorCommand(session.Context(), config)

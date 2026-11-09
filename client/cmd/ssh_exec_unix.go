@@ -20,6 +20,7 @@ var (
 	sshExecShell      string
 	sshExecCommand    string
 	sshExecPTY        bool
+	sshExecNoLogin    bool
 )
 
 // sshExecCmd represents the hidden ssh exec subcommand for privilege dropping
@@ -38,6 +39,7 @@ func init() {
 	sshExecCmd.Flags().StringVar(&sshExecWorkingDir, "working-dir", "", "Working directory")
 	sshExecCmd.Flags().StringVar(&sshExecShell, "shell", "/bin/sh", "Shell to execute")
 	sshExecCmd.Flags().BoolVar(&sshExecPTY, "pty", false, "Request PTY (will fail as executor doesn't support PTY)")
+	sshExecCmd.Flags().BoolVar(&sshExecNoLogin, "no-login-shell", false, "Start the shell without login shell semantics")
 	sshExecCmd.Flags().StringVar(&sshExecCommand, "cmd", "", "Command to execute")
 
 	if err := sshExecCmd.MarkFlagRequired("uid"); err != nil {
@@ -70,6 +72,8 @@ func runSSHExec(cmd *cobra.Command, _ []string) error {
 		Shell:      sshExecShell,
 		Command:    sshExecCommand,
 		PTY:        sshExecPTY,
+
+		NoLoginShell: sshExecNoLogin,
 	}
 
 	privilegeDropper.ExecuteWithPrivilegeDrop(cmd.Context(), config)
