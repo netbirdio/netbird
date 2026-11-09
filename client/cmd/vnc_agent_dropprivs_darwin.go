@@ -7,7 +7,8 @@ import (
 	"os"
 	"os/user"
 	"strconv"
-	"syscall"
+
+	sshserver "github.com/netbirdio/netbird/client/ssh/server"
 )
 
 // dropAgentPrivileges drops the vnc-agent process from root (its
@@ -40,23 +41,12 @@ func dropAgentPrivileges(targetUID uint32) error {
 	if err != nil {
 		return err
 	}
-	// Drop supplementary groups first: setgid alone doesn't touch the
-	// auxiliary group list, leaving root's groups attached would let the
-	// dropped process write to root-only group-writable files.
-	if err := syscall.Setgroups([]int{}); err != nil {
-		return fmt.Errorf("setgroups([]): %w", err)
-	}
-	if err := syscall.Setgid(targetGID); err != nil {
-		return fmt.Errorf("setgid(%d): %w", targetGID, err)
-	}
-	if os.Getgid() != targetGID || os.Getegid() != targetGID {
-		return fmt.Errorf("setgid verification: gid=%d egid=%d, expected %d", os.Getgid(), os.Getegid(), targetGID)
-	}
-	if err := syscall.Setuid(int(targetUID)); err != nil {
-		return fmt.Errorf("setuid(%d): %w", targetUID, err)
-	}
-	if uint32(os.Getuid()) != targetUID || uint32(os.Geteuid()) != targetUID {
-		return fmt.Errorf("setuid verification: uid=%d euid=%d, expected %d", os.Getuid(), os.Geteuid(), targetUID)
+	// The shared dropper replaces the supplementary groups with only the
+	// target's primary group, so root's groups cannot let the dropped process
+	// write to root-only group-writable files. It then drops the gid and the
+	// uid and verifies the drop cannot be undone.
+	if err := sshserver.NewPrivilegeDropper().DropPrivileges(targetUID, targetGID, nil); err != nil {
+		return fmt.Errorf("drop to uid %d: %w", targetUID, err)
 	}
 	return nil
 }
@@ -64,14 +54,14 @@ func dropAgentPrivileges(targetUID uint32) error {
 // primaryGroupID resolves the real primary group id of the user with the
 // given uid. Fails closed: a lookup or parse error returns an error so the
 // caller never falls back to using uid as the gid.
-func primaryGroupID(targetUID uint32) (int, error) {
-	u, err := user.LookupId(strconv.Itoa(int(targetUID)))
+func primaryGroupID(targetUID uint32) (uint32, error) {
+	u, err := user.LookupId(strconv.FormatUint(uint64(targetUID), 10))
 	if err != nil {
 		return 0, fmt.Errorf("look up uid %d: %w", targetUID, err)
 	}
-	gid, err := strconv.Atoi(u.Gid)
+	gid, err := strconv.ParseUint(u.Gid, 10, 32)
 	if err != nil {
 		return 0, fmt.Errorf("parse gid %q for uid %d: %w", u.Gid, targetUID, err)
 	}
-	return gid, nil
+	return uint32(gid), nil
 }
