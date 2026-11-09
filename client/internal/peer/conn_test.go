@@ -396,6 +396,26 @@ func TestConn_onWGDisconnected_NoEscalationWithoutRosenpass(t *testing.T) {
 	assert.Empty(t, disconnected, "escalation must be limited to rosenpass connections")
 }
 
+// TestConn_onWGDisconnected_DropsWatcherOnICETimeout: the watcher goroutine
+// exits after reporting the timeout, so the connection must drop its reference.
+// Otherwise the relay fallback sees a watcher that "exists" and never starts a
+// new one, leaving the relay connection unsupervised.
+func TestConn_onWGDisconnected_DropsWatcherOnICETimeout(t *testing.T) {
+	var disconnected []string
+	conn := newWGTimeoutTestConn(false, &disconnected)
+	conn.currentConnPriority = conntype.ICEP2P
+	conn.workerICE = &WorkerICE{}
+
+	cancelled := false
+	conn.wgWatcher = &WGWatcher{}
+	conn.wgWatcherCancel = func() { cancelled = true }
+
+	conn.onWGDisconnected(conn.ctx)
+
+	assert.Nil(t, conn.wgWatcher, "watcher reference must be dropped after a timeout")
+	assert.True(t, cancelled, "watcher context must be cancelled")
+}
+
 func TestMetricsConnType(t *testing.T) {
 	tests := []struct {
 		name     string
