@@ -89,10 +89,12 @@ func TestStaleSyncStreamCancelsAndRetries(t *testing.T) {
 	<-fake.opened
 
 	// Registration happens right after the stream opens; keep jumping past
-	// period + tolerance and waking until the stale action runs.
+	// period + tolerance and waking until the stale action runs. A Signal
+	// test heartbeat marks a test mode, so the stale check acts.
 	var got error
 	require.Eventually(t, func() bool {
 		clk.jump(60 * time.Second)
+		hbwatch.Seen(hbwatch.Signal)
 		hbwatch.CheckNow()
 		select {
 		case got = <-done:

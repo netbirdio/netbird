@@ -173,8 +173,9 @@ func TestGraceCollapsesOneTick(t *testing.T) {
 }
 
 // One silent service fires once, not again within the same period, and a
-// reconnect (Register) resets its timestamp. Other frames (not heartbeats)
-// trigger the checks, so the period plus tolerance rule applies.
+// reconnect (Register) resets its timestamp. Without a known phase no
+// heartbeat is a tick, so the period plus tolerance rule applies. Management
+// heartbeats keep the stale check on.
 func TestStaleFiresOncePerPeriodAndResetsOnReconnect(t *testing.T) {
 	clk := newFakeClock()
 	w := New(clk, 30*time.Second)
@@ -182,7 +183,7 @@ func TestStaleFiresOncePerPeriodAndResetsOnReconnect(t *testing.T) {
 	registerAll(w, &c)
 
 	beat := func() {
-		w.Touch(Management)
+		w.Seen(Management)
 		w.Touch(Relay)
 		clk.advance(Grace)
 	}
@@ -518,12 +519,14 @@ func TestUnregisterOnlyRemovesOwnRegistration(t *testing.T) {
 	oldUnregister()
 
 	clk.jump(60 * time.Second)
+	w.Seen(Management)
 	w.CheckNow()
 	clk.advance(Grace)
 	assert.Equal(t, 1, c.get(Relay), "the newer registration must stay active")
 
 	newUnregister()
 	clk.jump(60 * time.Second)
+	w.Seen(Management)
 	w.CheckNow()
 	clk.advance(Grace)
 	assert.Equal(t, 1, c.get(Relay), "an unregistered service is not checked")
@@ -721,4 +724,102 @@ func TestWakeFarFromPhaseKeepsGrace(t *testing.T) {
 	for _, svc := range services {
 		assert.Equal(t, 0, c.get(svc), "no stale action: %s", svc)
 	}
+}
+
+func totalActions(c *counter) int {
+	n := 0
+	for _, svc := range services {
+		n += c.get(svc)
+	}
+	return n
+}
+
+// relayTickAndWake sends one on-phase relay heartbeat and a wake 10 s later,
+// then moves to the next tick.
+func relayTickAndWake(clk *fakeClock, w *Watcher) {
+	tick(clk, w, Relay)
+	clk.advance(10*time.Second - Grace - 300*time.Millisecond)
+	w.CheckNow()
+	clk.advance(Grace)
+	clk.advance(20*time.Second - Grace)
+}
+
+// Against a server that sends no test heartbeats (mode off, old server,
+// rollback) only the relay health check and wakes arrive. No stale action.
+func TestGateNoTestHeartbeatNoAction(t *testing.T) {
+	clk := newFakeClock()
+	w := newTickWatcher(clk)
+	var c counter
+	registerAll(w, &c)
+
+	clk.advance(30 * time.Second)
+	for i := 0; i < 10; i++ {
+		relayTickAndWake(clk, w)
+	}
+	assert.Equal(t, 0, totalActions(&c), "no test heartbeat: no stale action")
+}
+
+// Test heartbeats for 3 periods, then mode off. The first missed tick may
+// act once per service, then nothing for 10 periods.
+func TestGateClosesAfterModeOff(t *testing.T) {
+	clk := newFakeClock()
+	w := newTickWatcher(clk)
+	var c counter
+	registerAll(w, &c)
+
+	clk.advance(30 * time.Second)
+	for i := 0; i < 3; i++ {
+		tick(clk, w, Relay, Management, Signal)
+		untilNextTick(clk, 3)
+	}
+	require.Equal(t, 0, totalActions(&c), "steady ticks")
+
+	relayTickAndWake(clk, w)
+	relayTickAndWake(clk, w)
+	for _, svc := range services {
+		assert.LessOrEqual(t, c.get(svc), 1, "at most one action after mode off: %s", svc)
+	}
+	first := totalActions(&c)
+	for i := 0; i < 10; i++ {
+		relayTickAndWake(clk, w)
+	}
+	assert.Equal(t, first, totalActions(&c), "no action once the gate is closed")
+}
+
+// With test heartbeats arriving the gate is open: a relay that misses one
+// tick still gets its action.
+func TestGateOpenRelayMissedTickActs(t *testing.T) {
+	clk := newFakeClock()
+	w := newTickWatcher(clk)
+	var c counter
+	registerAll(w, &c)
+
+	clk.advance(30 * time.Second)
+	tick(clk, w, Relay, Management, Signal)
+	untilNextTick(clk, 3)
+	tick(clk, w, Management, Signal)
+	assert.Equal(t, 1, c.get(Relay), "relay missed a tick with the gate open")
+	assert.Equal(t, 0, c.get(Management), "management sent its heartbeat")
+	assert.Equal(t, 0, c.get(Signal), "signal sent its heartbeat")
+}
+
+// Management and Signal both muted while relay ticks: the first missed tick
+// still acts, the last test heartbeat is under 2 periods old.
+func TestGateOpenFirstMissedTickBothMuted(t *testing.T) {
+	clk := newFakeClock()
+	w := newTickWatcher(clk)
+	var c counter
+	registerAll(w, &c)
+
+	clk.advance(30 * time.Second)
+	tick(clk, w, Relay, Management, Signal)
+	untilNextTick(clk, 3)
+	tick(clk, w, Relay)
+	assert.Equal(t, 1, c.get(Management), "first missed management tick acts")
+	assert.Equal(t, 1, c.get(Signal), "first missed signal tick acts")
+	untilNextTick(clk, 1)
+	tick(clk, w, Relay)
+	untilNextTick(clk, 1)
+	tick(clk, w, Relay)
+	assert.Equal(t, 0, c.get(Relay), "relay sent every heartbeat")
 }

@@ -74,8 +74,10 @@ func TestStaleRelayTakesHealthCheckTimeoutPath(t *testing.T) {
 	}
 	assert.True(t, relayClient.Ready(), "relay client must stay connected within the period")
 
-	// The phone slept past period + tolerance with no health check.
+	// The phone slept past period + tolerance with no health check. A Signal
+	// test heartbeat marks a test mode, so the stale check acts.
 	clk.jump(60 * time.Second)
+	hbwatch.Seen(hbwatch.Signal)
 	hbwatch.CheckNow()
 	select {
 	case <-disconnected:

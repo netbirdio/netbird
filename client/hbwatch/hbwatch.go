@@ -9,6 +9,8 @@
 // from a stream with a wrong server skew; that stream is reconnected so the
 // server takes a new skew.
 // The gap is measured on the wall clock so time the phone spent asleep counts.
+// No action runs while no Management or Signal test heartbeat came within 2
+// periods.
 // Enabled by NB_TEST_HB_STALE=1.
 package hbwatch
 
@@ -187,8 +189,7 @@ func (w *Watcher) reconnectOffPhase(svc Service, off time.Duration) {
 	w.mu.Lock()
 	s := w.svcs[svc]
 	now := w.now()
-	if s.reconnect == nil || s.offPhaseReg == s.regID ||
-		w.lastTestHB.IsZero() || now.Sub(w.lastTestHB) > 2*w.period ||
+	if s.reconnect == nil || s.offPhaseReg == s.regID || !w.testHBActive(now) ||
 		!s.lastReconnect.IsZero() && now.Sub(s.lastReconnect) < w.period-Tolerance {
 		w.mu.Unlock()
 		return
@@ -201,6 +202,13 @@ func (w *Watcher) reconnectOffPhase(svc Service, off time.Duration) {
 
 	log.Infof("hbwatch: offphase svc=%s off=%d action=%s", svc, off.Milliseconds(), ActionReconnect)
 	reconnect()
+}
+
+// testHBActive reports whether a Management or Signal test heartbeat came
+// within 2 periods. Without them the server runs stock (mode off, old server)
+// and gaps say nothing. Caller holds w.mu.
+func (w *Watcher) testHBActive(now time.Time) bool {
+	return !w.lastTestHB.IsZero() && now.Sub(w.lastTestHB) <= 2*w.period
 }
 
 // phaseOffset returns how far t is from the nearest client phase, in
@@ -326,6 +334,7 @@ func (w *Watcher) check() {
 	trigger := w.trigger
 	tick := w.tick
 	at := w.triggerAt
+	gateOpen := w.testHBActive(now)
 	limit := w.period + Tolerance
 	if tick {
 		// The heartbeat of another service marks the tick. A service with no
@@ -350,7 +359,7 @@ func (w *Watcher) check() {
 		// A frame that landed during the grace counts as no gap.
 		gap := max(at.Sub(s.last), 0)
 		gaps = append(gaps, fmt.Sprintf("%s:%d", name, gap.Milliseconds()))
-		if gap <= limit {
+		if gap <= limit || !gateOpen {
 			continue
 		}
 		// One action per period. Tick arrival jitters, so the next tick may
@@ -366,8 +375,12 @@ func (w *Watcher) check() {
 	}
 	w.mu.Unlock()
 
-	log.Infof("hbwatch: check trigger=%s gaps=%s tick=%t wait=%d",
-		trigger, strings.Join(gaps, ","), tick, now.Sub(at).Milliseconds())
+	gate := ""
+	if !gateOpen {
+		gate = " gate=closed"
+	}
+	log.Infof("hbwatch: check trigger=%s gaps=%s tick=%t wait=%d%s",
+		trigger, strings.Join(gaps, ","), tick, now.Sub(at).Milliseconds(), gate)
 	for _, f := range fires {
 		log.Infof("hbwatch: stale svc=%s gap=%d action=%s", f.svc, f.gap.Milliseconds(), f.kind)
 		f.action()
