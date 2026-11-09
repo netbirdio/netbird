@@ -1,0 +1,105 @@
+name: Discord Release Webhook
+
+on:
+  release:
+    types: [published]
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  notify-discord:
+    name: Send to Discord
+    # Releases published with GITHUB_TOKEN do not trigger release workflows.
+    if: >-
+      (github.event_name == 'release' && github.event.release.prerelease == false) ||
+      (github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'v') &&
+      !contains(github.event.workflow_run.head_branch, '-'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Prepare notification
+        id: notification
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.workflow_run.head_branch }}
+          RELEASE_ROLE_ID: "1347365508034330726"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_EVENT_NAME" == "release" ]]; then
+            release=$(jq '.release' "$GITHUB_EVENT_PATH")
+          else
+            if ! release=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" 2>gh.err); then
+              if grep -q 'HTTP 404' gh.err; then
+                echo "No release for ${TAG}, nothing to announce"
+                exit 0
+              fi
+              cat gh.err >&2
+              exit 1
+            fi
+
+            # Human-published releases are handled by the release event.
+            if [[ "$(jq -r '.author.login' <<<"$release")" != "github-actions[bot]" ]]; then
+              exit 0
+            fi
+          fi
+
+          if ! jq -e '.draft == false and .prerelease == false' <<<"$release" >/dev/null; then
+            exit 0
+          fi
+
+          jq --arg role_id "$RELEASE_ROLE_ID" '
+            def shorten($limit):
+              if length > $limit then .[:($limit - 1)] + "…" else . end;
+
+            (if (.name // "") == "" then .tag_name else .name end | shorten(256)) as $name |
+            "<@&\($role_id)>\n🚀 **New Stable Release!**\n**\($name)**" as $header |
+            ("\n\nFull release notes: " + .html_url) as $footer |
+            "\n\n**Release notes**\n" as $notes_heading |
+            (.body // "" | gsub("\r\n"; "\n") | gsub("^\\s+|\\s+$"; "")) as $notes |
+            ([1200, 2000 - (($header + $notes_heading + $footer) | length)] | min) as $limit |
+            {
+              content: ($header +
+                (if $notes != "" and $limit > 0 then
+                  $notes_heading + ($notes | shorten($limit))
+                else "" end) + $footer),
+              allowed_mentions: {parse: [], roles: [$role_id]}
+            } |
+            if (.content | length) > 2000 then
+              error("release announcement exceeds Discord message limit")
+            else . end
+          ' <<<"$release" >discord-payload.json
+          echo "send=true" >>"$GITHUB_OUTPUT"
+
+      - name: Send webhook
+        if: steps.notification.outputs.send == 'true'
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK }}
+        shell: bash
+        run: |
+          : "${WEBHOOK_URL:?DISCORD_WEBHOOK secret is not set}"
+
+          # Discord can report success without saving the message unless wait is true.
+          webhook_url=$(node -e '
+            try {
+              const url = new URL(process.env.WEBHOOK_URL);
+              url.searchParams.set("wait", "true");
+              process.stdout.write(url.href);
+            } catch {
+              console.error("DISCORD_WEBHOOK is not a valid URL");
+              process.exit(1);
+            }
+          ')
+
+          curl --fail --silent --show-error --max-time 30 \
+            --header "Content-Type: application/json" \
+            --data-binary @discord-payload.json \
+            "$webhook_url"
