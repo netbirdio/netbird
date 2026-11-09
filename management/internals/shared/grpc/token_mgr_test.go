@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
@@ -225,6 +226,58 @@ func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 	}
 	if _, ok := tested.relayCancelMap[peer]; ok {
 		t.Errorf("expecting peer to be not present in relay cancel map, got present")
+	}
+}
+
+// A standalone management.json can carry a Relay or time-based TURN block without
+// CredentialsTTL. SetupRefresh must not start a refresh goroutine whose ticker is built
+// from the unset TTL, since time.NewTicker panics on a non-positive interval.
+func TestTimeBasedAuthSecretsManager_SetupRefreshWithoutTTL(t *testing.T) {
+	ttls := map[string]util.Duration{
+		"zero":     {Duration: 0},
+		"negative": {Duration: -time.Second},
+	}
+
+	for name, ttl := range ttls {
+		t.Run(name, func(t *testing.T) {
+			secret := "some_secret"
+			peer := "some_peer"
+			peersManager := update_channel.NewPeersUpdateManager(nil)
+
+			ctrl := gomock.NewController(t)
+			t.Cleanup(ctrl.Finish)
+			settingsMockManager := settings.NewMockManager(ctrl)
+			groupsManager := groups.NewManagerMock()
+
+			rc := &config.Relay{
+				Addresses:      []string{"localhost:0"},
+				CredentialsTTL: ttl,
+				Secret:         secret,
+			}
+			tc := &config.TURNConfig{
+				CredentialsTTL:       ttl,
+				Secret:               secret,
+				Turns:                []*config.Host{TurnTestHost},
+				TimeBasedCredentials: true,
+			}
+
+			tested, err := NewTimeBasedAuthSecretsManager(peersManager, tc, rc, settingsMockManager, groupsManager)
+			require.NoError(t, err)
+
+			tested.SetupRefresh(context.Background(), "someAccountID", peer)
+			t.Cleanup(func() { tested.CancelRefresh(peer) })
+
+			// The refresh goroutines build their tickers as their first step. Give them
+			// time to run so a non-positive interval panics inside this test.
+			time.Sleep(200 * time.Millisecond)
+
+			tested.mux.Lock()
+			_, turnRunning := tested.turnCancelMap[peer]
+			_, relayRunning := tested.relayCancelMap[peer]
+			tested.mux.Unlock()
+			assert.True(t, turnRunning, "TURN refresh should be scheduled for the peer")
+			assert.True(t, relayRunning, "relay refresh should be scheduled for the peer")
+		})
 	}
 }
 
