@@ -242,6 +242,15 @@
     "event.update.failed": {
         "message": "Échec de la mise à jour automatique : {reason}"
     },
+    "event.certPosture.proven": {
+        "message": "Un certificat exigé par la politique d'appareil de votre organisation est de nouveau disponible."
+    },
+    "event.certPosture.lost": {
+        "message": "NetBird n'a pas pu utiliser un certificat exigé par la politique d'appareil de votre organisation. L'accès à certaines ressources peut être bloqué tant qu'aucun n'est disponible."
+    },
+    "event.certPosture.storeStuck": {
+        "message": "NetBird ne peut pas lire les certificats exigés par la politique d'appareil de votre organisation, car le magasin de certificats a cessé de répondre. Si le problème persiste, redémarrez le service NetBird."
+    },
     "common.cancel": {
         "message": "Annuler"
     },

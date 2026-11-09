@@ -887,7 +887,7 @@ func (r *blockingRecorder) PublishEvent(
 	severity cProto.SystemEvent_Severity,
 	category cProto.SystemEvent_Category,
 	message string,
-	userMessage string,
+	userMessage *cProto.UserMessage,
 	metadata map[string]string,
 ) {
 	select {

@@ -242,6 +242,15 @@
     "event.update.failed": {
         "message": "Automatisches Update fehlgeschlagen: {reason}"
     },
+    "event.certPosture.proven": {
+        "message": "Ein von der Geräterichtlinie Ihrer Organisation gefordertes Zertifikat ist wieder verfügbar."
+    },
+    "event.certPosture.lost": {
+        "message": "NetBird konnte kein von der Geräterichtlinie Ihrer Organisation gefordertes Zertifikat verwenden. Der Zugriff auf einige Ressourcen kann blockiert sein, bis eines verfügbar ist."
+    },
+    "event.certPosture.storeStuck": {
+        "message": "NetBird kann die von der Geräterichtlinie Ihrer Organisation geforderten Zertifikate nicht lesen, weil der Zertifikatspeicher nicht mehr antwortet. Starten Sie den NetBird-Dienst neu, falls das Problem weiterhin besteht."
+    },
     "common.cancel": {
         "message": "Abbrechen"
     },

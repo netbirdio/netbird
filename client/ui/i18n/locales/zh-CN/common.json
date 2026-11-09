@@ -242,6 +242,15 @@
     "event.update.failed": {
         "message": "自动更新失败：{reason}"
     },
+    "event.certPosture.proven": {
+        "message": "贵组织设备策略所要求的证书已再次可用。"
+    },
+    "event.certPosture.lost": {
+        "message": "NetBird 无法使用贵组织设备策略所要求的证书。在有可用证书之前，对某些资源的访问可能会被阻止。"
+    },
+    "event.certPosture.storeStuck": {
+        "message": "由于证书存储区停止响应，NetBird 无法读取贵组织设备策略所要求的证书。如果问题持续存在，请重启 NetBird 服务。"
+    },
     "common.cancel": {
         "message": "取消"
     },

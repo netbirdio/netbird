@@ -242,6 +242,15 @@
     "event.update.failed": {
         "message": "自動更新に失敗しました: {reason}"
     },
+    "event.certPosture.proven": {
+        "message": "組織のデバイスポリシーで必要とされる証明書が再び利用可能になりました。"
+    },
+    "event.certPosture.lost": {
+        "message": "NetBird は、組織のデバイスポリシーで必要とされる証明書を使用できませんでした。使用可能な証明書が見つかるまで、一部のリソースへのアクセスがブロックされる場合があります。"
+    },
+    "event.certPosture.storeStuck": {
+        "message": "証明書ストアが応答しなくなったため、NetBird は組織のデバイスポリシーで必要とされる証明書を読み取れません。この状態が続く場合は、NetBird サービスを再起動してください。"
+    },
     "common.cancel": {
         "message": "キャンセル"
     },

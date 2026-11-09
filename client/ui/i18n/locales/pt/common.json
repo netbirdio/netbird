@@ -242,6 +242,15 @@
     "event.update.failed": {
         "message": "Falha na atualização automática: {reason}"
     },
+    "event.certPosture.proven": {
+        "message": "Um certificado exigido pela política de dispositivos da sua organização voltou a estar disponível."
+    },
+    "event.certPosture.lost": {
+        "message": "O NetBird não conseguiu utilizar um certificado exigido pela política de dispositivos da sua organização. O acesso a alguns recursos pode ficar bloqueado até existir um disponível."
+    },
+    "event.certPosture.storeStuck": {
+        "message": "O NetBird não consegue ler os certificados exigidos pela política de dispositivos da sua organização porque o repositório de certificados deixou de responder. Se o problema persistir, reinicie o serviço do NetBird."
+    },
     "common.cancel": {
         "message": "Cancelar"
     },

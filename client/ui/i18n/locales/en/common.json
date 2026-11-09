@@ -327,6 +327,18 @@
         "message": "Auto-update failed: {reason}",
         "description": "Notification body when an automatic client update failed. {reason} is an untranslated technical error string; keep your locale's colon spacing."
     },
+    "event.certPosture.proven": {
+        "message": "A certificate required by your organization's device policy is available again.",
+        "description": "Notification body when a certificate required by the organization's device policy can be used again."
+    },
+    "event.certPosture.lost": {
+        "message": "NetBird could not use a certificate required by your organization's device policy. Access to some resources may be blocked until one is available.",
+        "description": "Notification body when none of the certificates required by the organization's device policy could be used. \"Resources\" are networks and services behind NetBird."
+    },
+    "event.certPosture.storeStuck": {
+        "message": "NetBird cannot read the certificates required by your organization's device policy because the certificate store stopped responding. If this persists, restart the NetBird service.",
+        "description": "Notification body when the operating system's certificate store stopped answering. \"Service\" is the NetBird background service (daemon)."
+    },
     "common.cancel": {
         "message": "Cancel",
         "description": "Generic Cancel button label, reused across dialogs. Keep short."

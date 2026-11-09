@@ -242,6 +242,15 @@
     "event.update.failed": {
         "message": "Aggiornamento automatico non riuscito: {reason}"
     },
+    "event.certPosture.proven": {
+        "message": "Un certificato richiesto dai criteri per i dispositivi dell'organizzazione è di nuovo disponibile."
+    },
+    "event.certPosture.lost": {
+        "message": "NetBird non è riuscito a usare un certificato richiesto dai criteri per i dispositivi dell'organizzazione. L'accesso ad alcune risorse potrebbe essere bloccato finché non ne sarà disponibile uno."
+    },
+    "event.certPosture.storeStuck": {
+        "message": "NetBird non riesce a leggere i certificati richiesti dai criteri per i dispositivi dell'organizzazione perché l'archivio dei certificati ha smesso di rispondere. Se il problema persiste, riavviare il servizio NetBird."
+    },
     "common.cancel": {
         "message": "Annulla"
     },

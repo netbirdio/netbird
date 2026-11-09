@@ -242,6 +242,15 @@
     "event.update.failed": {
         "message": "Az automatikus frissítés sikertelen: {reason}"
     },
+    "event.certPosture.proven": {
+        "message": "Egy, a szervezete eszközszabályzata által megkövetelt tanúsítvány ismét elérhető."
+    },
+    "event.certPosture.lost": {
+        "message": "A NetBird nem tudott használni egy, a szervezete eszközszabályzata által megkövetelt tanúsítványt. Egyes erőforrásokhoz való hozzáférés blokkolva lehet, amíg nem áll rendelkezésre egy."
+    },
+    "event.certPosture.storeStuck": {
+        "message": "A NetBird nem tudja olvasni a szervezete eszközszabályzata által megkövetelt tanúsítványokat, mert a tanúsítványtároló nem válaszol. Ha a probléma továbbra is fennáll, indítsa újra a NetBird szolgáltatást."
+    },
     "common.cancel": {
         "message": "Mégse"
     },

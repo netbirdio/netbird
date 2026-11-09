@@ -51,6 +51,12 @@ const (
 	UserMsgSessionExpiresIn      UserMessageKey = "notify.sessionWarning.body"
 	UserMsgSessionExpiresSoon    UserMessageKey = "notify.sessionWarning.bodyGeneric"
 	UserMsgSessionDeadlineReject UserMessageKey = "notify.sessionDeadlineRejected.body"
+
+	// Certificate posture events: a required certificate is usable again, none
+	// could be used, or the certificate store stopped answering.
+	UserMsgCertPostureProven     UserMessageKey = "event.certPosture.proven"
+	UserMsgCertPostureLost       UserMessageKey = "event.certPosture.lost"
+	UserMsgCertPostureStoreStuck UserMessageKey = "event.certPosture.storeStuck"
 )
 
 // Notification-title keys. An event without one leaves titleKey empty and the UI
@@ -101,6 +107,9 @@ var UserMessageTexts = map[UserMessageKey]string{
 	UserMsgSessionExpiresIn:            "Your NetBird session expires in {remaining}. Click Extend now to renew.",
 	UserMsgSessionExpiresSoon:          "Your NetBird session is about to expire. Click Extend now to renew.",
 	UserMsgSessionDeadlineReject:       "The server sent an invalid session deadline. Please sign in again.",
+	UserMsgCertPostureProven:           "A certificate required by your organization's device policy is available again.",
+	UserMsgCertPostureLost:             "NetBird could not use a certificate required by your organization's device policy. Access to some resources may be blocked until one is available.",
+	UserMsgCertPostureStoreStuck:       "NetBird cannot read the certificates required by your organization's device policy because the certificate store stopped responding. If this persists, restart the NetBird service.",
 }
 
 // UserMessage is a localizable user-facing event message: a stable body key, an

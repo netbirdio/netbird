@@ -179,6 +179,78 @@
     "notify.mdm.policyApplied.body": {
         "message": "הגדרות ה־NetBird שלך עודכנו על ידי מדיניות צוות המחשוב שלך."
     },
+    "event.title": {
+        "message": "{severity}: {category}"
+    },
+    "event.severity.info": {
+        "message": "מידע"
+    },
+    "event.severity.warning": {
+        "message": "אזהרה"
+    },
+    "event.severity.error": {
+        "message": "שגיאה"
+    },
+    "event.severity.critical": {
+        "message": "קריטי"
+    },
+    "event.category.network": {
+        "message": "רשת"
+    },
+    "event.category.dns": {
+        "message": "DNS"
+    },
+    "event.category.authentication": {
+        "message": "אימות"
+    },
+    "event.category.connectivity": {
+        "message": "קישוריות"
+    },
+    "event.category.system": {
+        "message": "מערכת"
+    },
+    "event.panic": {
+        "message": "שירות NetBird קרס. יש להפעיל מחדש את השירות ולשלוח דוח באג עם יומני הלקוח."
+    },
+    "event.dns.recovered": {
+        "message": "שרתי ה־DNS זמינים שוב."
+    },
+    "event.dns.unreachable": {
+        "message": "לא ניתן להגיע לשרת DNS אחד או יותר. הדבר עלול להשפיע על היכולת להתחבר לשירותים מסוימים."
+    },
+    "event.exitNode.connected": {
+        "message": "נקודת היציאה מחוברת."
+    },
+    "event.exitNode.disconnected": {
+        "message": "החיבור לנקודת היציאה נותק."
+    },
+    "event.exitNode.connectionLost": {
+        "message": "החיבור לנקודת היציאה אבד. הגישה שלך לאינטרנט עלולה להיפגע."
+    },
+    "event.exitNode.haChange": {
+        "message": "נקודת היציאה נותקה עקב שינוי בזמינות גבוהה."
+    },
+    "event.exitNode.disconnectedUnknown": {
+        "message": "נקודת היציאה נותקה מסיבה לא ידועה."
+    },
+    "event.update.installing": {
+        "message": "העדכון מותקן כעת."
+    },
+    "event.update.completed": {
+        "message": "לקוח ה־NetBird שלך עודכן אוטומטית לגרסה {version}."
+    },
+    "event.update.failed": {
+        "message": "העדכון האוטומטי נכשל: {reason}"
+    },
+    "event.certPosture.proven": {
+        "message": "אישור שנדרש על ידי מדיניות ההתקנים של הארגון שלך זמין שוב."
+    },
+    "event.certPosture.lost": {
+        "message": "NetBird לא הצליח להשתמש באישור שנדרש על ידי מדיניות ההתקנים של הארגון שלך. הגישה לחלק מהמשאבים עלולה להיחסם עד שיהיה זמין אישור."
+    },
+    "event.certPosture.storeStuck": {
+        "message": "NetBird אינו מצליח לקרוא את האישורים שנדרשים על ידי מדיניות ההתקנים של הארגון שלך, מפני שמאגר האישורים הפסיק להגיב. אם הבעיה נמשכת, יש להפעיל מחדש את שירות NetBird."
+    },
     "common.cancel": {
         "message": "ביטול"
     },

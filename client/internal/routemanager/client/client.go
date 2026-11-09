@@ -908,7 +908,7 @@ func (w *Watcher) routingPeerSwitchEvent(previous, next *route.Route) {
 		proto.SystemEvent_WARNING,
 		proto.SystemEvent_NETWORK,
 		"Routing peer changed",
-		"",
+		nil,
 		map[string]string{
 			"network":       w.handler.String(),
 			"id":            string(next.NetID),
@@ -930,7 +930,7 @@ func (w *Watcher) routingPeerLostEvent(previous *route.Route) {
 		proto.SystemEvent_WARNING,
 		proto.SystemEvent_NETWORK,
 		"No routing peer available",
-		"",
+		nil,
 		map[string]string{
 			"network":       w.handler.String(),
 			"id":            string(previous.NetID),
