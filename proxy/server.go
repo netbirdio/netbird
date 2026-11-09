@@ -2220,7 +2220,7 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	s.warnIfGeoUnavailable(mapping.GetDomain(), mapping.GetAccessRestrictions())
 
 	maxSessionAge := time.Duration(mapping.GetAuth().GetMaxSessionAgeSeconds()) * time.Second
-	config, err := auth.NewDomainConfig(mapping.GetDomain(), schemes, mapping.GetAuth().GetSessionKey(), maxSessionAge, accountID, svcID, ipRestrictions, mapping.GetPrivate(), mapping.GetAuth().GetAllowedGroupIds(), auth.WithTargetResolver(resolver), auth.WithAppSecMode(s.appSecMode(mapping)))
+	config, err := auth.NewDomainConfig(mapping.GetDomain(), schemes, mapping.GetAuth().GetSessionKey(), maxSessionAge, accountID, svcID, ipRestrictions, mapping.GetPrivate(), mapping.GetAuth().GetAllowedGroupIds(), auth.WithTargetResolver(resolver), auth.WithAppSecMode(s.appSecMode(mapping)), auth.WithAgentNetwork(m.AgentNetworkFlags()))
 	if err != nil {
 		return fmt.Errorf("auth setup for domain %s: %w", mapping.GetDomain(), err)
 	}
