@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
@@ -16,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/monotime"
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
 func TestResolveLazyForce(t *testing.T) {
@@ -138,4 +141,154 @@ func TestInactivityThresholdEnv(t *testing.T) {
 	}
 }
 
+func TestPeerLazyDefault(t *testing.T) {
+	tests := []struct {
+		name          string
+		force         lazyForce
+		remoteEnabled bool
+		state         mgmProto.LazyState
+		want          bool
+	}{
+		{name: "force on wins over eager state", force: lazyForceOn, state: mgmProto.LazyState_LazyStateEager, want: true},
+		{name: "force off wins over lazy state", force: lazyForceOff, remoteEnabled: true, state: mgmProto.LazyState_LazyStateLazy, want: false},
+		{name: "none, default, account off -> active", force: lazyForceNone, state: mgmProto.LazyState_LazyStateDefault, want: false},
+		{name: "none, default, account on -> lazy", force: lazyForceNone, remoteEnabled: true, state: mgmProto.LazyState_LazyStateDefault, want: true},
+		{name: "none, lazy state, account off -> lazy", force: lazyForceNone, state: mgmProto.LazyState_LazyStateLazy, want: true},
+		{name: "none, eager state, account on -> active", force: lazyForceNone, remoteEnabled: true, state: mgmProto.LazyState_LazyStateEager, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := &ConnMgr{force: tt.force, remoteLazyEnabled: tt.remoteEnabled}
+			if got := e.PeerLazyDefault(tt.state); got != tt.want {
+				t.Fatalf("PeerLazyDefault(%v) = %v, want %v", tt.state, got, tt.want)
+			}
+		})
+	}
+}
+
 func durPtr(d time.Duration) *time.Duration { return &d }
+
+// TestToExcludedLazyPeers covers the per-peer lazy classification (proxy vs
+// normal, across the force/account-flag matrix). Forwarder-target exclusion is
+// covered by TestToExcludedLazyPeers_ForwardTarget.
+func TestToExcludedLazyPeers(t *testing.T) {
+	const (
+		normalKey = "normal"
+		lazyKey   = "lazy-state"
+		eagerKey  = "eager-state"
+	)
+
+	peers := []*mgmProto.RemotePeerConfig{
+		{WgPubKey: normalKey, AllowedIps: []string{"100.64.0.1/32"}},
+		{WgPubKey: lazyKey, AllowedIps: []string{"100.64.0.2/32"}, LazyState: mgmProto.LazyState_LazyStateLazy},
+		{WgPubKey: eagerKey, AllowedIps: []string{"100.64.0.3/32"}, LazyState: mgmProto.LazyState_LazyStateEager},
+	}
+
+	tests := []struct {
+		name          string
+		force         lazyForce
+		remoteEnabled bool
+		want          map[string]bool
+	}{
+		{
+			name:  "account off: lazy-state peer lazy, normal + eager active",
+			force: lazyForceNone, remoteEnabled: false,
+			want: map[string]bool{normalKey: true, eagerKey: true},
+		},
+		{
+			name:  "account on: only eager-state peer active",
+			force: lazyForceNone, remoteEnabled: true,
+			want: map[string]bool{eagerKey: true},
+		},
+		{
+			name:  "force off: everything active",
+			force: lazyForceOff, remoteEnabled: true,
+			want: map[string]bool{normalKey: true, lazyKey: true, eagerKey: true},
+		},
+		{
+			name:  "force on: nothing active",
+			force: lazyForceOn, remoteEnabled: false,
+			want: map[string]bool{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := &Engine{connMgr: &ConnMgr{force: tt.force, remoteLazyEnabled: tt.remoteEnabled}}
+			got := e.toExcludedLazyPeers(peers)
+
+			if len(got) != len(tt.want) {
+				t.Fatalf("toExcludedLazyPeers() = %v, want %v", got, tt.want)
+			}
+			for k := range tt.want {
+				if !got[k] {
+					t.Fatalf("expected peer %s excluded, got %v", k, got)
+				}
+			}
+		})
+	}
+}
+
+// recordingLazyWGIface keeps the set of peers a ConnMgr leaves on the interface.
+type recordingLazyWGIface struct {
+	mockLazyWGIface
+	mu    sync.Mutex
+	peers map[string]struct{}
+}
+
+func (r *recordingLazyWGIface) UpdatePeer(key string, _ []netip.Prefix, _ time.Duration, _ *net.UDPAddr, _ *wgtypes.Key) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.peers == nil {
+		r.peers = map[string]struct{}{}
+	}
+	r.peers[key] = struct{}{}
+	return nil
+}
+
+func (r *recordingLazyWGIface) RemovePeer(key string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.peers, key)
+	return nil
+}
+
+func (r *recordingLazyWGIface) has(key string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, ok := r.peers[key]
+	return ok
+}
+
+// An idle lazy peer sits on the interface through its activity listener without its
+// connection ever having been opened, so closing the connection does not remove it.
+// Removing the peer from the network map has to take it off the interface anyway.
+func TestConnMgr_RemovePeerConnRemovesIdleLazyPeer(t *testing.T) {
+	t.Setenv(lazyconn.EnvLazyConn, "on")
+
+	const key = "idle-peer"
+	iface := &recordingLazyWGIface{}
+	connMgr := NewConnMgr(&EngineConfig{}, peer.NewRecorder("https://mgm"), peerstore.NewConnStore(), iface)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	connMgr.Start(ctx)
+	t.Cleanup(connMgr.Close)
+
+	conn, err := peer.NewConn(peer.ConnConfig{
+		Key:          key,
+		LocalKey:     "local",
+		AgentVersion: "development",
+		WgConfig: peer.WgConfig{
+			AllowedIps: []netip.Prefix{netip.MustParsePrefix("100.64.0.1/32")},
+		},
+	}, peer.ServiceDependencies{})
+	require.NoError(t, err)
+
+	connMgr.AddPeerConn(ctx, key, conn, false)
+	require.True(t, iface.has(key), "the idle lazy peer should be on the interface through its listener")
+
+	connMgr.RemovePeerConn(key)
+	assert.False(t, iface.has(key), "a peer removed from the network map must not stay on the interface")
+}

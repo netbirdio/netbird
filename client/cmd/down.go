@@ -2,11 +2,11 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/netbirdio/netbird/util"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/client/proto"
@@ -21,10 +21,8 @@ var downCmd = &cobra.Command{
 
 		cmd.SetOut(cmd.OutOrStdout())
 
-		err := util.InitLog(logLevel, util.LogConsole)
-		if err != nil {
-			log.Errorf("failed initializing log %v", err)
-			return err
+		if err := util.InitLog(logLevel, util.LogConsole); err != nil {
+			return fmt.Errorf("initialize log: %w", err)
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
@@ -32,16 +30,14 @@ var downCmd = &cobra.Command{
 
 		conn, err := DialClientGRPCServer(ctx, daemonAddr)
 		if err != nil {
-			log.Errorf("failed to connect to service CLI interface %v", err)
-			return err
+			return fmt.Errorf("connect to service CLI interface: %w", err)
 		}
 		defer conn.Close()
 
 		daemonClient := proto.NewDaemonServiceClient(conn)
 
 		if _, err := daemonClient.Down(ctx, &proto.DownRequest{}); err != nil {
-			log.Errorf("call service down method: %v", err)
-			return err
+			return daemonCallError("call service down method", err)
 		}
 
 		cmd.Println("Disconnected")

@@ -5,17 +5,17 @@ import (
 	"net/netip"
 	"testing"
 
-	"go.uber.org/mock/gomock"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/stretchr/testify/require"
-	wgdevice "golang.zx2c4.com/wireguard/device"
+	"go.uber.org/mock/gomock"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/mocks"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
@@ -32,7 +32,7 @@ func TestPeerACLFiltering(t *testing.T) {
 		},
 	}
 
-	manager, err := Create(ifaceMock, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(t, err)
 	require.NotNil(t, manager)
 
@@ -496,40 +496,32 @@ func TestPeerACLFiltering(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.ruleAction == fw.ActionDrop {
 				// add general accept rule for the same IP to test drop rule precedence
-				rules, err := manager.AddPeerFiltering(
+				rules, err := manager.AddFilterRule(
 					nil,
-					net.ParseIP(tc.ruleIP),
+					pfx(net.ParseIP(tc.ruleIP)), fw.Network{},
 					fw.ProtocolALL,
 					nil,
 					nil,
-					fw.ActionAccept,
-					"",
-				)
+					fw.ActionAccept)
 				require.NoError(t, err)
-				require.NotEmpty(t, rules)
+				require.NotNil(t, rules)
 				t.Cleanup(func() {
-					for _, rule := range rules {
-						require.NoError(t, manager.DeletePeerRule(rule))
-					}
+					require.NoError(t, manager.DeleteFilterRule(rules))
 				})
 			}
 
-			rules, err := manager.AddPeerFiltering(
+			rules, err := manager.AddFilterRule(
 				nil,
-				net.ParseIP(tc.ruleIP),
+				pfx(net.ParseIP(tc.ruleIP)), fw.Network{},
 				tc.ruleProto,
 				tc.ruleSrcPort,
 				tc.ruleDstPort,
-				tc.ruleAction,
-				"",
-			)
+				tc.ruleAction)
 			require.NoError(t, err)
-			require.NotEmpty(t, rules)
+			require.NotNil(t, rules)
 
 			t.Cleanup(func() {
-				for _, rule := range rules {
-					require.NoError(t, manager.DeletePeerRule(rule))
-				}
+				require.NoError(t, manager.DeleteFilterRule(rules))
 			})
 
 			packet := createTestPacket(t, tc.srcIP, tc.dstIP, tc.proto, tc.srcPort, tc.dstPort)
@@ -557,7 +549,7 @@ func TestPeerACLFilteringIPv6(t *testing.T) {
 		},
 	}
 
-	manager, err := Create(ifaceMock, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, manager.Close(nil)) })
 
@@ -652,14 +644,24 @@ func TestPeerACLFilteringIPv6(t *testing.T) {
 			shouldBeBlocked: false,
 		},
 		{
-			name:            "IPv6: v4 wildcard ICMP rule matches ICMPv6 via protoLayerMatches",
+			name:            "IPv6: v4 wildcard ICMP rule does not match ICMPv6",
 			srcIP:           "fd00::1",
 			dstIP:           "fd00::100",
 			proto:           fw.ProtocolICMP,
 			ruleIP:          "0.0.0.0",
 			ruleProto:       fw.ProtocolICMP,
 			ruleAction:      fw.ActionAccept,
-			shouldBeBlocked: false,
+			shouldBeBlocked: true,
+		},
+		{
+			name:            "IPv4: v6 wildcard ICMP rule does not match ICMPv4",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolICMP,
+			ruleIP:          "::",
+			ruleProto:       fw.ProtocolICMP,
+			ruleAction:      fw.ActionAccept,
+			shouldBeBlocked: true,
 		},
 	}
 
@@ -672,22 +674,18 @@ func TestPeerACLFilteringIPv6(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.ruleAction == fw.ActionDrop {
-				rules, err := manager.AddPeerFiltering(nil, net.ParseIP(tc.ruleIP), fw.ProtocolALL, nil, nil, fw.ActionAccept, "")
+				rules, err := manager.AddFilterRule(nil, pfx(net.ParseIP(tc.ruleIP)), fw.Network{}, fw.ProtocolALL, nil, nil, fw.ActionAccept)
 				require.NoError(t, err)
 				t.Cleanup(func() {
-					for _, rule := range rules {
-						require.NoError(t, manager.DeletePeerRule(rule))
-					}
+					require.NoError(t, manager.DeleteFilterRule(rules))
 				})
 			}
 
-			rules, err := manager.AddPeerFiltering(nil, net.ParseIP(tc.ruleIP), tc.ruleProto, nil, tc.ruleDstPort, tc.ruleAction, "")
+			rules, err := manager.AddFilterRule(nil, pfx(net.ParseIP(tc.ruleIP)), fw.Network{}, tc.ruleProto, nil, tc.ruleDstPort, tc.ruleAction)
 			require.NoError(t, err)
-			require.NotEmpty(t, rules)
+			require.NotNil(t, rules)
 			t.Cleanup(func() {
-				for _, rule := range rules {
-					require.NoError(t, manager.DeletePeerRule(rule))
-				}
+				require.NoError(t, manager.DeleteFilterRule(rules))
 			})
 
 			packet := createTestPacket(t, tc.srcIP, tc.dstIP, tc.proto, tc.srcPort, tc.dstPort)
@@ -793,14 +791,14 @@ func setupRoutedManager(tb testing.TB, network string) *Manager {
 			}
 		},
 		GetDeviceFunc: func() *device.FilteredDevice {
-			return &device.FilteredDevice{Device: dev}
+			return &device.FilteredDevice{TUN: dev}
 		},
-		GetWGDeviceFunc: func() *wgdevice.Device {
-			return &wgdevice.Device{}
+		GetWGDeviceFunc: func() *wgbackend.Device {
+			return &wgbackend.Device{}
 		},
 	}
 
-	manager, err := Create(ifaceMock, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(tb, err)
 	require.NoError(tb, manager.EnableRouting())
 	require.NotNil(tb, manager)
@@ -1405,7 +1403,7 @@ func TestRouteACLFiltering(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.rule.action == fw.ActionDrop {
 				// add general accept rule to test drop rule
-				rule, err := manager.AddRouteFiltering(
+				rule, err := manager.AddFilterRule(
 					nil,
 					[]netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
 					fw.Network{Prefix: netip.MustParsePrefix("0.0.0.0/0")},
@@ -1415,13 +1413,13 @@ func TestRouteACLFiltering(t *testing.T) {
 					fw.ActionAccept,
 				)
 				require.NoError(t, err)
-				require.NotNil(t, rule)
+				require.NotEmpty(t, rule)
 				t.Cleanup(func() {
-					require.NoError(t, manager.DeleteRouteRule(rule))
+					require.NoError(t, manager.DeleteFilterRule(rule))
 				})
 			}
 
-			rule, err := manager.AddRouteFiltering(
+			rule, err := manager.AddFilterRule(
 				nil,
 				tc.rule.sources,
 				tc.rule.dest,
@@ -1431,10 +1429,10 @@ func TestRouteACLFiltering(t *testing.T) {
 				tc.rule.action,
 			)
 			require.NoError(t, err)
-			require.NotNil(t, rule)
+			require.NotEmpty(t, rule)
 
 			t.Cleanup(func() {
-				require.NoError(t, manager.DeleteRouteRule(rule))
+				require.NoError(t, manager.DeleteFilterRule(rule))
 			})
 
 			srcIP := netip.MustParseAddr(tc.srcIP)
@@ -1446,6 +1444,52 @@ func TestRouteACLFiltering(t *testing.T) {
 			require.Equal(t, tc.shouldPass, isAllowed)
 		})
 	}
+}
+
+// TestUnspecifiedDestinationNotRouted verifies that a packet addressed to 0.0.0.0 is
+// decided by the peer ACLs, not the route ACLs, even when a route rule would accept it.
+// Dialing 0.0.0.0 resolves to loopback on the host, so it must be treated like any other
+// local address rather than handed to the forwarder.
+func TestUnspecifiedDestinationNotRouted(t *testing.T) {
+	manager := setupRoutedManager(t, "10.10.0.100/16")
+
+	// An accept-all route rule, matching a real exit node's default route: a bug
+	// that still matches 0.0.0.0 against the route ACLs would let it through here.
+	routeRule, err := manager.AddFilterRule(
+		nil,
+		[]netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
+		fw.Network{Prefix: netip.MustParsePrefix("0.0.0.0/0")},
+		fw.ProtocolALL,
+		nil,
+		nil,
+		fw.ActionAccept,
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.DeleteFilterRule(routeRule)) })
+
+	peerRule, err := manager.AddFilterRule(
+		nil,
+		[]netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
+		fw.Network{},
+		fw.ProtocolALL,
+		nil,
+		nil,
+		fw.ActionAccept,
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.DeleteFilterRule(peerRule)) })
+
+	packet := createTestPacket(t, "100.10.0.1", "0.0.0.0", fw.ProtocolUDP, 12345, 53)
+
+	// If the packet were still matched against the route ACLs, the accept-all rule
+	// above would hand it to the forwarder, which has no peer registered to forward
+	// it to, so it would end up dropped regardless of the peer rule. With the fix,
+	// it is evaluated against the peer ACLs instead, which the rule above permits,
+	// and local forwarding is off by default, so it is delivered to the local stack
+	// and not dropped. The peer rule is what makes this assertion discriminating:
+	// without it, both the fixed and unfixed paths end up dropped.
+	require.False(t, manager.FilterInbound(packet, 0),
+		"a packet to 0.0.0.0 permitted by a peer rule must not be dropped")
 }
 
 func TestRouteACLOrder(t *testing.T) {
@@ -1602,9 +1646,9 @@ func TestRouteACLOrder(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			var rules []fw.Rule
+			var addedRules []fw.Rule
 			for _, r := range tc.rules {
-				rule, err := manager.AddRouteFiltering(
+				rule, err := manager.AddFilterRule(
 					nil,
 					r.sources,
 					r.dest,
@@ -1615,12 +1659,12 @@ func TestRouteACLOrder(t *testing.T) {
 				)
 				require.NoError(t, err)
 				require.NotNil(t, rule)
-				rules = append(rules, rule)
+				addedRules = append(addedRules, rule)
 			}
 
 			t.Cleanup(func() {
-				for _, rule := range rules {
-					require.NoError(t, manager.DeleteRouteRule(rule))
+				for _, rule := range addedRules {
+					require.NoError(t, manager.DeleteFilterRule(rule))
 				}
 			})
 
@@ -1646,7 +1690,7 @@ func TestRouteACLSet(t *testing.T) {
 		},
 	}
 
-	manager, err := Create(ifaceMock, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, manager.Close(nil))
@@ -1655,7 +1699,7 @@ func TestRouteACLSet(t *testing.T) {
 	set := fw.NewDomainSet(domain.List{"example.org"})
 
 	// Add rule that uses the set (initially empty)
-	rule, err := manager.AddRouteFiltering(
+	rule, err := manager.AddFilterRule(
 		nil,
 		[]netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
 		fw.Network{Set: set},
@@ -1689,7 +1733,7 @@ func TestRouteACLFilteringIPv6(t *testing.T) {
 	manager := setupRoutedManager(t, "10.10.0.100/16")
 
 	v6Dst := netip.MustParsePrefix("fd00:dead:beef::/48")
-	_, err := manager.AddRouteFiltering(
+	_, err := manager.AddFilterRule(
 		nil,
 		[]netip.Prefix{netip.MustParsePrefix("fd00::/16")},
 		fw.Network{Prefix: v6Dst},
@@ -1700,7 +1744,7 @@ func TestRouteACLFilteringIPv6(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = manager.AddRouteFiltering(
+	_, err = manager.AddFilterRule(
 		nil,
 		[]netip.Prefix{netip.MustParsePrefix("fd00::/16")},
 		fw.Network{Prefix: netip.MustParsePrefix("fd00:dead:beef:1::/64")},

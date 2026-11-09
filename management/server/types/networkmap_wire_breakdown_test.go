@@ -45,7 +45,7 @@ func TestNetworkMapWireBreakdown(t *testing.T) {
 	dnsCache := &cache.DNSConfigCache{}
 	settings := &types.Settings{}
 
-	legacyResp := mgmtgrpc.ToSyncResponse(ctx, nil, nil, nil, peer, nil, nil, networkMap, "netbird.cloud", nil, dnsCache, settings, nil, nil, 0)
+	legacyResp := mgmtgrpc.ToSyncResponse(ctx, nil, nil, nil, types.TwinPeer(peer), nil, nil, networkMap, "netbird.cloud", nil, dnsCache, types.TwinAccountSettings(settings), nil, nil, 0)
 	legacyTotal := mustMarshalSize(t, legacyResp.NetworkMap)
 
 	envelope := mgmtgrpc.EncodeNetworkMapEnvelope(mgmtgrpc.ComponentsEnvelopeInput{

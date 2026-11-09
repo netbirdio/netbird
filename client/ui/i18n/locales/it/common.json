@@ -464,9 +464,6 @@
     "networks.bulk.label": {
         "message": "Attiva/disattiva tutte le risorse visibili"
     },
-    "settings.nav.label": {
-        "message": "Sezioni delle impostazioni"
-    },
     "profile.switch.title": {
         "message": "Passare al profilo «{name}»?"
     },
@@ -560,6 +557,9 @@
     "settings.error.debugBundleTitle": {
         "message": "Pacchetto di debug non riuscito"
     },
+    "settings.nav.label": {
+        "message": "Sezioni delle impostazioni"
+    },
     "settings.tabs.general": {
         "message": "Generale"
     },
@@ -615,12 +615,10 @@
         "message": "Modifica avvio automatico non riuscita"
     },
     "settings.general.keepConnectedOnQuit.label": {
-        "message": "Resta connesso dopo la chiusura",
-        "description": "Toggle label: keep the VPN connection up after quitting the UI."
+        "message": "Resta connesso dopo la chiusura"
     },
     "settings.general.keepConnectedOnQuit.help": {
-        "message": "La connessione resta attiva in background dopo la chiusura di NetBird. Si interrompe solo quando la disconnetti tu.",
-        "description": "Helper text for the stay-connected-after-quitting toggle."
+        "message": "La connessione resta attiva in background dopo la chiusura di NetBird. Si interrompe solo quando la disconnetti tu."
     },
     "settings.general.language.label": {
         "message": "Lingua dell'interfaccia"
@@ -633,6 +631,21 @@
     },
     "settings.general.language.empty": {
         "message": "Nessuna lingua corrisponde."
+    },
+    "settings.general.theme.label": {
+        "message": "Tema"
+    },
+    "settings.general.theme.help": {
+        "message": "Scelga il tema chiaro o scuro, oppure segua l'aspetto del sistema."
+    },
+    "settings.general.theme.system": {
+        "message": "Sistema"
+    },
+    "settings.general.theme.light": {
+        "message": "Chiaro"
+    },
+    "settings.general.theme.dark": {
+        "message": "Scuro"
     },
     "settings.general.management.label": {
         "message": "Server di gestione"
@@ -1411,16 +1424,67 @@
     "error.daemon_unreachable": {
         "message": "Il daemon NetBird non risponde. Verifichi che il servizio sia in esecuzione."
     },
+    "error.settings_locked": {
+        "message": "Le impostazioni non possono essere modificate su questo dispositivo: un amministratore le ha bloccate."
+    },
+    "error.settings_managed_by_mdm": {
+        "message": "Questa impostazione è gestita dalla sua organizzazione e non può essere modificata."
+    },
     "error.unknown": {
         "message": "Operazione non riuscita."
+    },
+    "error.elevation_unavailable": {
+        "message": "NetBird non ha potuto richiedere a questo sistema i privilegi necessari. Esegua invece questo:"
+    },
+    "error.elevation_failed": {
+        "message": "Non è stato possibile applicare la modifica con privilegi elevati. Esegua invece questo:"
+    },
+    "settings.ssh.privilege.actorRoot": {
+        "message": "i privilegi di root"
+    },
+    "settings.ssh.privilege.actorAdministrator": {
+        "message": "i privilegi di amministratore"
     },
     "settings.ssh.privilege.hint": {
         "message": "Richiede {actor}. Esegua invece questo:"
     },
     "settings.ssh.privilege.oneWay": {
-        "message": "Può disabilitarlo, ma riabilitarlo richiede {actor}:"
+        "message": "Può disabilitarlo, ma riabilitarlo richiede {actor}."
     },
     "settings.ssh.privilege.oneWayInverted": {
-        "message": "Può abilitarlo, ma disabilitarlo di nuovo richiede {actor}:"
+        "message": "Può abilitarlo, ma disabilitarlo di nuovo richiede {actor}."
+    },
+    "settings.ssh.privilege.authorizePending": {
+        "message": "In attesa dell'autorizzazione…"
+    },
+    "profile.ownedByAnother.name": {
+        "message": "Altro utente"
+    },
+    "profile.ownedByAnother.hint": {
+        "message": "Il profilo attivo appartiene a un altro utente. Solo il suo proprietario può modificarlo o disconnetterlo."
+    },
+    "error.privilege_required": {
+        "message": "Questa azione richiede privilegi elevati."
+    },
+    "error.session_held": {
+        "message": "Un altro utente è già connesso su questa macchina."
+    },
+    "error.not_profile_owner": {
+        "message": "Questo profilo appartiene a un altro utente."
+    },
+    "error.profile_unowned": {
+        "message": "Questo profilo non ha ancora un proprietario."
+    },
+    "tray.status.daemonAccessDenied": {
+        "message": "Nessun accesso"
+    },
+    "daemon.accessDenied.title": {
+        "message": "Nessun accesso al servizio NetBird"
+    },
+    "daemon.accessDenied.description": {
+        "message": "L’amministratore ha limitato il servizio NetBird su questo dispositivo ad alcuni utenti o gruppi, e il tuo account non è tra questi. Contatta l’amministratore per ottenere l’accesso."
+    },
+    "error.daemon_access_denied": {
+        "message": "Il Suo account non è autorizzato a usare il servizio NetBird su questo dispositivo. Contatti l'amministratore per ottenere l'accesso."
     }
 }

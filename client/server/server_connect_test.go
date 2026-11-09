@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
 )
@@ -18,6 +19,11 @@ func newTestServer() *Server {
 	return &Server{
 		rootCtx:        context.Background(),
 		statusRecorder: peer.NewRecorder(""),
+		// New always populates the SSH JWT cache and the logout and
+		// profile-switch paths call into it unconditionally, so a Server
+		// assembled field by field has to populate it too.
+		jwtCache:              newJWTCache(),
+		extendAuthSessionFlow: auth.NewPendingFlow(),
 	}
 }
 

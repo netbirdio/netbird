@@ -16,6 +16,7 @@ Usage:
 Flags:
   -h, --help                        help for run
       --letsencrypt-domain string   a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS
+      --letsencrypt-listen-address string   address of the separate Let's Encrypt challenge listener, used when --port is not 443. Set it empty when public port 443 is forwarded to --port, which answers the challenges itself (default ":443")
       --port int                    Server port to listen on (e.g. 10000) (default 10000)
       --ssl-dir string              server ssl directory location. *Required only for Let's Encrypt certificates. (default "/var/lib/netbird/")
       --cert-file string            Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect

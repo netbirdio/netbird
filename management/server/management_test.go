@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	pb "github.com/golang/protobuf/proto" //nolint
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/mock/gomock"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness/peerlivenesstest"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/internals/server/config"
@@ -30,7 +31,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/groups"
-	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -204,7 +204,8 @@ func startServer(
 		AnyTimes()
 
 	permissionsManager := permissions.NewManager(str)
-	peersManager := peers.NewManager(str, permissionsManager)
+	peerLiveness := peerlivenesstest.NewStarted(t, str)
+	peersManager := peers.NewManager(str, permissionsManager, peerLiveness)
 	jobManager := job.NewJobManager(nil, str, peersManager)
 
 	ctx := context.Background()
@@ -216,7 +217,7 @@ func startServer(
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := server.NewAccountRequestBuffer(ctx, str)
-	networkMapController := controller.NewController(ctx, str, metrics, updateManager, requestBuffer, server.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(str, peers.NewManager(str, permissionsManager)), config)
+	networkMapController := controller.NewController(ctx, str, metrics, updateManager, requestBuffer, server.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", ephemeral_manager.NewEphemeralManager(str, peers.NewManager(str, permissionsManager, peerLiveness)), config, nil)
 
 	accountManager, err := server.BuildManager(
 		context.Background(),
@@ -231,11 +232,10 @@ func startServer(
 		false,
 		server.MockIntegratedValidator{},
 		metrics,
-		port_forwarding.NewControllerMock(),
 		settingsMockManager,
 		permissionsManager,
 		false,
-		cacheStore)
+		cacheStore, peerLiveness)
 	if err != nil {
 		t.Fatalf("failed creating an account manager: %v", err)
 	}

@@ -1,0 +1,31 @@
+{
+  "Network": {"Serial": 5},
+  "AccountSettings": {"RoutingPeerDNSResolutionEnabled": true},
+  "Peers": {
+    "peer-a": {"IP": "100.64.0.1", "Meta": {"WtVersion": "0.60.0"}},
+    "peer-b": {"IP": "100.64.0.2", "Meta": {"WtVersion": "0.60.0"}},
+    "peer-c": {"IP": "100.64.0.3", "SSHEnabled": true, "SSHKey": "ssh-peer-c", "Meta": {"WtVersion": "0.60.0"}}
+  },
+  "Groups": {
+    "grp-dev": {"Peers": ["peer-a", "peer-b"]},
+    "grp-ops": {"Peers": ["peer-c"]}
+  },
+  "Policies": [
+    {
+      "ID": "pol-all",
+      "PublicID": "pol-all-pub",
+      "Enabled": true,
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "all",
+          "Bidirectional": true,
+          "Sources": ["grp-dev"],
+          "Destinations": ["grp-ops"]
+        }
+      ]
+    }
+  ],
+  "AllowedUserIDs": {"user-ops": {}}
+}

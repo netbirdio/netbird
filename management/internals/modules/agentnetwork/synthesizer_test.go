@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/catalog"
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
@@ -495,6 +495,55 @@ func TestSynthesizeServices_IdentityInject_LiteLLM(t *testing.T) {
 	assert.Equal(t, "x-litellm-end-user-id", entry.HeaderPair.EndUserIDHeader,
 		"end-user-id header must come from the catalog entry's IdentityInjection block")
 	assert.Equal(t, "x-litellm-tags", entry.HeaderPair.TagsHeader)
+}
+
+func TestBuildIdentityInjectConfigJSON_Agentgateway(t *testing.T) {
+	provider := &types.Provider{
+		ID:         "prov-agentgateway",
+		ProviderID: "agentgateway",
+	}
+
+	raw, err := buildIdentityInjectConfigJSON(
+		[]*types.Provider{provider},
+		map[string][]string{provider.ID: []string{"grp-eng"}},
+	)
+	require.NoError(t, err)
+
+	var cfg identityInjectConfig
+	require.NoError(t, json.Unmarshal(raw, &cfg))
+	require.Len(t, cfg.Providers, 1)
+
+	rule := cfg.Providers[0]
+	assert.Equal(t, provider.ID, rule.ProviderID)
+	require.NotNil(t, rule.HeaderPair)
+	assert.Nil(t, rule.JSONMetadata)
+	assert.Equal(t, "x-netbird-user-id", rule.HeaderPair.EndUserIDHeader)
+	assert.Equal(t, "x-netbird-groups", rule.HeaderPair.TagsHeader)
+	assert.False(t, rule.HeaderPair.EndUserIDInBody)
+	assert.False(t, rule.HeaderPair.TagsInBody)
+}
+
+func TestBuildRouterConfigJSON_AgentgatewayVendors(t *testing.T) {
+	provider := &types.Provider{
+		ID:          "prov-agentgateway",
+		ProviderID:  "agentgateway",
+		UpstreamURL: "https://gateway.example.com",
+		APIKey:      "virtual-key",
+	}
+
+	raw, err := buildRouterConfigJSON(
+		[]*types.Provider{provider},
+		map[string][]string{provider.ID: {"grp-eng"}},
+		nil,
+	)
+	require.NoError(t, err)
+
+	var cfg routerConfig
+	require.NoError(t, json.Unmarshal(raw, &cfg))
+	require.Len(t, cfg.Providers, 1)
+	assert.Empty(t, cfg.Providers[0].Vendor,
+		"the singular vendor remains empty for a multi-surface gateway")
+	assert.Equal(t, []string{"openai", "anthropic"}, cfg.Providers[0].Vendors)
 }
 
 // TestSynthesizeServices_IdentityInject_Bifrost_OperatorOverrides

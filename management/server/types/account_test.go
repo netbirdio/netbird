@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
 	"testing"
 
 	"github.com/miekg/dns"
@@ -13,13 +14,12 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
-	"github.com/netbirdio/netbird/management/internals/modules/zones"
-	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 func setupTestAccount() *Account {
@@ -666,7 +666,7 @@ func Test_ExpandPortsAndRanges_SSHRuleExpansion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := ExpandPortsAndRanges(tt.base, tt.rule, tt.peer.ToComponent())
+			result := ExpandPortsAndRanges(tt.base, tt.rule, tt.peer)
 
 			var ports []string
 			for _, fr := range result {
@@ -1040,518 +1040,6 @@ func Test_FilterZoneRecordsForPeers(t *testing.T) {
 	}
 }
 
-func Test_filterPeerAppliedZones(t *testing.T) {
-	ctx := context.Background()
-
-	tests := []struct {
-		name         string
-		accountZones []*zones.Zone
-		peerGroups   LookupMap
-		expected     []nbdns.CustomZone
-	}{
-		{
-			name:         "empty peer groups returns empty custom zones",
-			accountZones: []*zones.Zone{},
-			peerGroups:   LookupMap{},
-			expected:     []nbdns.CustomZone{},
-		},
-		{
-			name: "peer has access to zone with A record",
-			accountZones: []*zones.Zone{
-				{
-					ID:                 "zone1",
-					Domain:             "example.com",
-					Enabled:            true,
-					EnableSearchDomain: false,
-					DistributionGroups: []string{"group1"},
-					Records: []*records.Record{
-						{
-							ID:      "record1",
-							Name:    "www.example.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.1",
-							TTL:     300,
-						},
-					},
-				},
-			},
-			peerGroups: LookupMap{"group1": struct{}{}},
-			expected: []nbdns.CustomZone{
-				{
-					Domain: "example.com.",
-					Records: []nbdns.SimpleRecord{
-						{
-							Name:  "www.example.com.",
-							Type:  int(dns.TypeA),
-							Class: nbdns.DefaultClass,
-							TTL:   300,
-							RData: "192.168.1.1",
-						},
-					},
-					SearchDomainDisabled: true,
-				},
-			},
-		},
-		{
-			name: "peer has access to zone with search domain enabled",
-			accountZones: []*zones.Zone{
-				{
-					ID:                 "zone1",
-					Domain:             "internal.local",
-					Enabled:            true,
-					EnableSearchDomain: true,
-					DistributionGroups: []string{"group1"},
-					Records: []*records.Record{
-						{
-							ID:      "record1",
-							Name:    "api.internal.local",
-							Type:    records.RecordTypeA,
-							Content: "10.0.0.1",
-							TTL:     600,
-						},
-					},
-				},
-			},
-			peerGroups: LookupMap{"group1": struct{}{}},
-			expected: []nbdns.CustomZone{
-				{
-					Domain: "internal.local.",
-					Records: []nbdns.SimpleRecord{
-						{
-							Name:  "api.internal.local.",
-							Type:  int(dns.TypeA),
-							Class: nbdns.DefaultClass,
-							TTL:   600,
-							RData: "10.0.0.1",
-						},
-					},
-					SearchDomainDisabled: false,
-				},
-			},
-		},
-		{
-			name: "peer has no access to zone",
-			accountZones: []*zones.Zone{
-				{
-					ID:                 "zone1",
-					Domain:             "private.com",
-					Enabled:            true,
-					EnableSearchDomain: false,
-					DistributionGroups: []string{"group2"},
-					Records: []*records.Record{
-						{
-							ID:      "record1",
-							Name:    "secret.private.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.1",
-							TTL:     300,
-						},
-					},
-				},
-			},
-			peerGroups: LookupMap{"group1": struct{}{}},
-			expected:   []nbdns.CustomZone{},
-		},
-		{
-			name: "disabled zone is filtered out",
-			accountZones: []*zones.Zone{
-				{
-					ID:                 "zone1",
-					Domain:             "disabled.com",
-					Enabled:            false,
-					EnableSearchDomain: false,
-					DistributionGroups: []string{"group1"},
-					Records: []*records.Record{
-						{
-							ID:      "record1",
-							Name:    "www.disabled.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.1",
-							TTL:     300,
-						},
-					},
-				},
-			},
-			peerGroups: LookupMap{"group1": struct{}{}},
-			expected:   []nbdns.CustomZone{},
-		},
-		{
-			name: "zone with no records is filtered out",
-			accountZones: []*zones.Zone{
-				{
-					ID:                 "zone1",
-					Domain:             "empty.com",
-					Enabled:            true,
-					EnableSearchDomain: false,
-					DistributionGroups: []string{"group1"},
-					Records:            []*records.Record{},
-				},
-			},
-			peerGroups: LookupMap{"group1": struct{}{}},
-			expected:   []nbdns.CustomZone{},
-		},
-		{
-			name: "peer has access via multiple groups",
-			accountZones: []*zones.Zone{
-				{
-					ID:                 "zone1",
-					Domain:             "multi.com",
-					Enabled:            true,
-					EnableSearchDomain: false,
-					DistributionGroups: []string{"group1", "group2", "group3"},
-					Records: []*records.Record{
-						{
-							ID:      "record1",
-							Name:    "www.multi.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.1",
-							TTL:     300,
-						},
-					},
-				},
-			},
-			peerGroups: LookupMap{"group2": struct{}{}},
-			expected: []nbdns.CustomZone{
-				{
-					Domain: "multi.com.",
-					Records: []nbdns.SimpleRecord{
-						{
-							Name:  "www.multi.com.",
-							Type:  int(dns.TypeA),
-							Class: nbdns.DefaultClass,
-							TTL:   300,
-							RData: "192.168.1.1",
-						},
-					},
-					SearchDomainDisabled: true,
-				},
-			},
-		},
-		{
-			name: "multiple zones with mixed access",
-			accountZones: []*zones.Zone{
-				{
-					ID:                 "zone1",
-					Domain:             "allowed.com",
-					Enabled:            true,
-					EnableSearchDomain: false,
-					DistributionGroups: []string{"group1"},
-					Records: []*records.Record{
-						{
-							ID:      "record1",
-							Name:    "www.allowed.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.1",
-							TTL:     300,
-						},
-					},
-				},
-				{
-					ID:                 "zone2",
-					Domain:             "denied.com",
-					Enabled:            true,
-					EnableSearchDomain: false,
-					DistributionGroups: []string{"group2"},
-					Records: []*records.Record{
-						{
-							ID:      "record2",
-							Name:    "www.denied.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.2",
-							TTL:     300,
-						},
-					},
-				},
-			},
-			peerGroups: LookupMap{"group1": struct{}{}},
-			expected: []nbdns.CustomZone{
-				{
-					Domain: "allowed.com.",
-					Records: []nbdns.SimpleRecord{
-						{
-							Name:  "www.allowed.com.",
-							Type:  int(dns.TypeA),
-							Class: nbdns.DefaultClass,
-							TTL:   300,
-							RData: "192.168.1.1",
-						},
-					},
-					SearchDomainDisabled: true,
-				},
-			},
-		},
-		{
-			name: "zone with multiple record types",
-			accountZones: []*zones.Zone{
-				{
-					ID:                 "zone1",
-					Domain:             "mixed.com",
-					Enabled:            true,
-					EnableSearchDomain: false,
-					DistributionGroups: []string{"group1"},
-					Records: []*records.Record{
-						{
-							ID:      "record1",
-							Name:    "www.mixed.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.1",
-							TTL:     300,
-						},
-						{
-							ID:      "record2",
-							Name:    "ipv6.mixed.com",
-							Type:    records.RecordTypeAAAA,
-							Content: "2001:db8::1",
-							TTL:     600,
-						},
-						{
-							ID:      "record3",
-							Name:    "alias.mixed.com",
-							Type:    records.RecordTypeCNAME,
-							Content: "www.mixed.com",
-							TTL:     900,
-						},
-					},
-				},
-			},
-			peerGroups: LookupMap{"group1": struct{}{}},
-			expected: []nbdns.CustomZone{
-				{
-					Domain: "mixed.com.",
-					Records: []nbdns.SimpleRecord{
-						{
-							Name:  "www.mixed.com.",
-							Type:  int(dns.TypeA),
-							Class: nbdns.DefaultClass,
-							TTL:   300,
-							RData: "192.168.1.1",
-						},
-						{
-							Name:  "ipv6.mixed.com.",
-							Type:  int(dns.TypeAAAA),
-							Class: nbdns.DefaultClass,
-							TTL:   600,
-							RData: "2001:db8::1",
-						},
-						{
-							Name:  "alias.mixed.com.",
-							Type:  int(dns.TypeCNAME),
-							Class: nbdns.DefaultClass,
-							TTL:   900,
-							RData: "www.mixed.com.",
-						},
-					},
-					SearchDomainDisabled: true,
-				},
-			},
-		},
-		{
-			name: "multiple zones both accessible",
-			accountZones: []*zones.Zone{
-				{
-					ID:                 "zone1",
-					Domain:             "first.com",
-					Enabled:            true,
-					EnableSearchDomain: true,
-					DistributionGroups: []string{"group1"},
-					Records: []*records.Record{
-						{
-							ID:      "record1",
-							Name:    "www.first.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.1",
-							TTL:     300,
-						},
-					},
-				},
-				{
-					ID:                 "zone2",
-					Domain:             "second.com",
-					Enabled:            true,
-					EnableSearchDomain: false,
-					DistributionGroups: []string{"group1"},
-					Records: []*records.Record{
-						{
-							ID:      "record2",
-							Name:    "www.second.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.2",
-							TTL:     600,
-						},
-					},
-				},
-			},
-			peerGroups: LookupMap{"group1": struct{}{}},
-			expected: []nbdns.CustomZone{
-				{
-					Domain: "first.com.",
-					Records: []nbdns.SimpleRecord{
-						{
-							Name:  "www.first.com.",
-							Type:  int(dns.TypeA),
-							Class: nbdns.DefaultClass,
-							TTL:   300,
-							RData: "192.168.1.1",
-						},
-					},
-					SearchDomainDisabled: false,
-				},
-				{
-					Domain: "second.com.",
-					Records: []nbdns.SimpleRecord{
-						{
-							Name:  "www.second.com.",
-							Type:  int(dns.TypeA),
-							Class: nbdns.DefaultClass,
-							TTL:   600,
-							RData: "192.168.1.2",
-						},
-					},
-					SearchDomainDisabled: true,
-				},
-			},
-		},
-		{
-			name: "zone with multiple records of same type",
-			accountZones: []*zones.Zone{
-				{
-					ID:                 "zone1",
-					Domain:             "multi-a.com",
-					Enabled:            true,
-					EnableSearchDomain: false,
-					DistributionGroups: []string{"group1"},
-					Records: []*records.Record{
-						{
-							ID:      "record1",
-							Name:    "www.multi-a.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.1",
-							TTL:     300,
-						},
-						{
-							ID:      "record2",
-							Name:    "www.multi-a.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.2",
-							TTL:     300,
-						},
-					},
-				},
-			},
-			peerGroups: LookupMap{"group1": struct{}{}},
-			expected: []nbdns.CustomZone{
-				{
-					Domain: "multi-a.com.",
-					Records: []nbdns.SimpleRecord{
-						{
-							Name:  "www.multi-a.com.",
-							Type:  int(dns.TypeA),
-							Class: nbdns.DefaultClass,
-							TTL:   300,
-							RData: "192.168.1.1",
-						},
-						{
-							Name:  "www.multi-a.com.",
-							Type:  int(dns.TypeA),
-							Class: nbdns.DefaultClass,
-							TTL:   300,
-							RData: "192.168.1.2",
-						},
-					},
-					SearchDomainDisabled: true,
-				},
-			},
-		},
-		{
-			name: "peer in multiple groups accessing different zones",
-			accountZones: []*zones.Zone{
-				{
-					ID:                 "zone1",
-					Domain:             "zone1.com",
-					Enabled:            true,
-					EnableSearchDomain: false,
-					DistributionGroups: []string{"group1"},
-					Records: []*records.Record{
-						{
-							ID:      "record1",
-							Name:    "www.zone1.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.1",
-							TTL:     300,
-						},
-					},
-				},
-				{
-					ID:                 "zone2",
-					Domain:             "zone2.com",
-					Enabled:            true,
-					EnableSearchDomain: false,
-					DistributionGroups: []string{"group2"},
-					Records: []*records.Record{
-						{
-							ID:      "record2",
-							Name:    "www.zone2.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.2",
-							TTL:     300,
-						},
-					},
-				},
-			},
-			peerGroups: LookupMap{"group1": struct{}{}, "group2": struct{}{}},
-			expected: []nbdns.CustomZone{
-				{
-					Domain: "zone1.com.",
-					Records: []nbdns.SimpleRecord{
-						{
-							Name:  "www.zone1.com.",
-							Type:  int(dns.TypeA),
-							Class: nbdns.DefaultClass,
-							TTL:   300,
-							RData: "192.168.1.1",
-						},
-					},
-					SearchDomainDisabled: true,
-				},
-				{
-					Domain: "zone2.com.",
-					Records: []nbdns.SimpleRecord{
-						{
-							Name:  "www.zone2.com.",
-							Type:  int(dns.TypeA),
-							Class: nbdns.DefaultClass,
-							TTL:   300,
-							RData: "192.168.1.2",
-						},
-					},
-					SearchDomainDisabled: true,
-				},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := filterPeerAppliedZones(ctx, tt.accountZones, tt.peerGroups)
-			require.Equal(t, len(tt.expected), len(result), "number of custom zones should match")
-
-			for i, expectedZone := range tt.expected {
-				assert.Equal(t, expectedZone.Domain, result[i].Domain, "domain should match")
-				assert.Equal(t, expectedZone.SearchDomainDisabled, result[i].SearchDomainDisabled, "search domain disabled flag should match")
-				assert.Equal(t, len(expectedZone.Records), len(result[i].Records), "number of records should match")
-
-				for j, expectedRecord := range expectedZone.Records {
-					assert.Equal(t, expectedRecord.Name, result[i].Records[j].Name, "record name should match")
-					assert.Equal(t, expectedRecord.Type, result[i].Records[j].Type, "record type should match")
-					assert.Equal(t, expectedRecord.Class, result[i].Records[j].Class, "record class should match")
-					assert.Equal(t, expectedRecord.TTL, result[i].Records[j].TTL, "record TTL should match")
-					assert.Equal(t, expectedRecord.RData, result[i].Records[j].RData, "record RData should match")
-				}
-			}
-		})
-	}
-}
-
 func TestInjectPrivateServicePolicies_ProxyPeerGetsInboundRule(t *testing.T) {
 	ctx := context.Background()
 
@@ -1564,6 +1052,7 @@ func TestInjectPrivateServicePolicies_ProxyPeerGetsInboundRule(t *testing.T) {
 			Identifier: "net-1",
 			Net:        net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.CIDRMask(10, 32)},
 		},
+		Settings: &Settings{},
 		Peers: map[string]*nbpeer.Peer{
 			"user-peer": {
 				ID:        "user-peer",
@@ -1614,41 +1103,25 @@ func TestInjectPrivateServicePolicies_ProxyPeerGetsInboundRule(t *testing.T) {
 		},
 	}
 
-	account.InjectProxyPolicies(ctx)
-
-	var found *Policy
-	for _, p := range account.Policies {
-		if p != nil && p.ID == "private-access-svc-1-proxy-peer" {
-			found = p
-			break
-		}
-	}
-	require.NotNil(t, found, "expected synthesised private-access policy in account.Policies")
+	found := findPolicy(injectedPolicies(account), "private-access-svc-1-proxy-peer")
+	require.NotNil(t, found, "expected synthesised private-access policy in the twin store")
 	require.Len(t, found.Rules, 1, "policy should have exactly one rule")
 	rule := found.Rules[0]
 	assert.Equal(t, []string{"grp-admins"}, rule.Sources, "sources should be group IDs verbatim")
 	assert.Equal(t, "proxy-peer", rule.DestinationResource.ID, "destination resource should be the proxy peer ID")
-	assert.Equal(t, ResourceTypePeer, rule.DestinationResource.Type, "destination resource type should be peer")
+	assert.Equal(t, string(ResourceTypePeer), rule.DestinationResource.Type, "destination resource type should be peer")
 
 	validatedPeersMap := map[string]struct{}{
 		"user-peer":  {},
 		"proxy-peer": {},
 	}
 
-	proxyPeer := account.Peers["proxy-peer"]
-	aclPeers, firewallRules, _, _ := account.GetPeerConnectionResources(ctx, proxyPeer, validatedPeersMap, nil)
+	nm := account.GetPeerNetworkMapFromComponents(ctx, "proxy-peer", nbdns.CustomZone{}, nil, validatedPeersMap, nil, nil, nil, nil)
 
-	var sawUserAsAclPeer bool
-	for _, p := range aclPeers {
-		if p.ID == "user-peer" {
-			sawUserAsAclPeer = true
-			break
-		}
-	}
-	assert.True(t, sawUserAsAclPeer, "proxy peer should see the user peer as an ACL peer")
+	assert.Contains(t, netmapPeerIDs(nm.Peers), "user-peer", "proxy peer should see the user peer as an ACL peer")
 
 	var inboundRules []*FirewallRule
-	for _, r := range firewallRules {
+	for _, r := range nm.FirewallRules {
 		if r.Direction == FirewallRuleDirectionIN && r.PeerIP == userPeerIP.String() {
 			inboundRules = append(inboundRules, r)
 		}
@@ -1657,29 +1130,23 @@ func TestInjectPrivateServicePolicies_ProxyPeerGetsInboundRule(t *testing.T) {
 }
 
 func TestInjectPrivateServicePolicies_NotPrivate_NoPolicy(t *testing.T) {
-	ctx := context.Background()
 	account := privateServiceTestAccount(t)
 	account.Services[0].Private = false
 
-	account.InjectProxyPolicies(ctx)
 	assert.False(t, hasPrivateAccessPolicy(account, "svc-1"), "non-private service must not synthesise an access policy")
 }
 
 func TestInjectPrivateServicePolicies_EmptyAccessGroups_NoPolicy(t *testing.T) {
-	ctx := context.Background()
 	account := privateServiceTestAccount(t)
 	account.Services[0].AccessGroups = nil
 
-	account.InjectProxyPolicies(ctx)
 	assert.False(t, hasPrivateAccessPolicy(account, "svc-1"), "private service with no access groups must not synthesise a policy")
 }
 
 func TestInjectPrivateServicePolicies_NoProxyPeers_NoPolicy(t *testing.T) {
-	ctx := context.Background()
 	account := privateServiceTestAccount(t)
 	delete(account.Peers, "proxy-peer")
 
-	account.InjectProxyPolicies(ctx)
 	assert.False(t, hasPrivateAccessPolicy(account, "svc-1"), "policy must not synthesise when the cluster has no proxy peers")
 }
 
@@ -1742,10 +1209,27 @@ func privateServiceTestAccount(t *testing.T) *Account {
 	}
 }
 
+// injectedPolicies returns the twin's policies with the synthesised proxy ACLs
+// already in place, the way the per-peer computation sees them.
+func injectedPolicies(account *Account) []*nmdata.Policy {
+	nmd := account.toNetworkMapData(nil, nil, nil, nil, nil)
+	nmd.InjectProxyPolicies()
+	return nmd.Policies
+}
+
+func findPolicy(policies []*nmdata.Policy, id string) *nmdata.Policy {
+	for _, p := range policies {
+		if p != nil && p.ID == id {
+			return p
+		}
+	}
+	return nil
+}
+
 func hasPrivateAccessPolicy(account *Account, serviceID string) bool {
 	prefix := "private-access-" + serviceID + "-"
-	for _, p := range account.Policies {
-		if p != nil && len(p.ID) > len(prefix) && p.ID[:len(prefix)] == prefix {
+	for _, p := range injectedPolicies(account) {
+		if p != nil && strings.HasPrefix(p.ID, prefix) {
 			return true
 		}
 	}
@@ -1781,41 +1265,45 @@ func TestForcesRoutingPeerDNSResolution(t *testing.T) {
 		return buildAccountRes(serviceEnabled, targetEnabled, resourceEnabled, targetType, resourceTypes.Domain)
 	}
 
+	forced := func(account *Account, peerID string) bool {
+		nmd := account.toNetworkMapData(nil, nil, nil, account.GetResourceRoutersMap(), nil)
+		return nmd.GetPeerNetworkMapComponents(peerID, nmdata.CustomZone{}).ForceRoutingPeerDNSResolution
+	}
+
 	t.Run("router peer for RP-targeted domain resource is forced", func(t *testing.T) {
 		account := buildAccount(true, true, true, service.TargetTypeDomain)
-		routers := account.GetResourceRoutersMap()
-		assert.True(t, account.forcesRoutingPeerDNSResolution("router-peer", routers), "direct router peer should be forced")
-		assert.True(t, account.forcesRoutingPeerDNSResolution("router-peer-grp", routers), "group-member router peer should be forced")
+		assert.True(t, forced(account, "router-peer"), "direct router peer should be forced")
+		assert.True(t, forced(account, "router-peer-grp"), "group-member router peer should be forced")
 	})
 
 	t.Run("non-router peer is not forced", func(t *testing.T) {
 		account := buildAccount(true, true, true, service.TargetTypeDomain)
-		assert.False(t, account.forcesRoutingPeerDNSResolution("other-peer", account.GetResourceRoutersMap()))
+		assert.False(t, forced(account, "other-peer"))
 	})
 
 	t.Run("not forced when service disabled", func(t *testing.T) {
 		account := buildAccount(false, true, true, service.TargetTypeDomain)
-		assert.False(t, account.forcesRoutingPeerDNSResolution("router-peer", account.GetResourceRoutersMap()))
+		assert.False(t, forced(account, "router-peer"))
 	})
 
 	t.Run("not forced when target disabled", func(t *testing.T) {
 		account := buildAccount(true, false, true, service.TargetTypeDomain)
-		assert.False(t, account.forcesRoutingPeerDNSResolution("router-peer", account.GetResourceRoutersMap()))
+		assert.False(t, forced(account, "router-peer"))
 	})
 
 	t.Run("not forced when resource disabled", func(t *testing.T) {
 		account := buildAccount(true, true, false, service.TargetTypeDomain)
-		assert.False(t, account.forcesRoutingPeerDNSResolution("router-peer", account.GetResourceRoutersMap()))
+		assert.False(t, forced(account, "router-peer"))
 	})
 
 	t.Run("not forced for non-domain target type", func(t *testing.T) {
 		account := buildAccount(true, true, true, service.TargetTypePeer)
-		assert.False(t, account.forcesRoutingPeerDNSResolution("router-peer", account.GetResourceRoutersMap()))
+		assert.False(t, forced(account, "router-peer"))
 	})
 
 	t.Run("not forced when targeted resource is not a domain", func(t *testing.T) {
 		account := buildAccountRes(true, true, true, service.TargetTypeDomain, resourceTypes.Host)
-		assert.False(t, account.forcesRoutingPeerDNSResolution("router-peer", account.GetResourceRoutersMap()),
+		assert.False(t, forced(account, "router-peer"),
 			"a domain target pointing at a non-domain resource must not force resolution")
 	})
 }

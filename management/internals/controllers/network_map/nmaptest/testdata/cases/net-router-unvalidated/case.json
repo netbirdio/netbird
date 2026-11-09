@@ -1,0 +1,4 @@
+{
+  "description": "The routing peer for the resource is not in ValidatedPeers — an unapproved peer, which the integrated validator withholds. peer-a must therefore receive no route through it and must not see it as a peer at all: traffic may not be routed through a peer the account has not approved. THE ENVELOPE EXPECTATION CURRENTLY FAILS, and should: component selection puts every routing peer into RouterPeers without checking validation, the encoder indexes them into the envelope's peer table, and the client decoder puts every peer it finds back into its peer map, so the unapproved router reappears client-side with a working route. The full path drops it correctly. Fix the component/encoder path, do not weaken this expectation.",
+  "peers": ["peer-a"]
+}

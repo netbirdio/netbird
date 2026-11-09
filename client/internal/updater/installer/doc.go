@@ -109,6 +109,10 @@
 //   - Does NOT remove result.json (cleaned by ResultHandler after read)
 //   - Does NOT remove msi.log (kept for debugging)
 //
+// On Windows the updater copy is often still locked when the daemon it restarted
+// runs cleanup, so removing it is retried briefly and otherwise left in place for
+// the next update to overwrite rather than reported as a failure.
+//
 // # Dry-Run Mode
 //
 // Dry-run mode allows testing the update process without actually installing:

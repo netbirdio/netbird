@@ -8,6 +8,7 @@ import (
 	"flag"
 	"io/fs"
 	"log"
+	"os"
 	"runtime"
 	"strings"
 
@@ -76,9 +77,18 @@ func init() {
 	application.RegisterEvent[authsession.Warning](services.EventSessionWarning)
 	application.RegisterEvent[updater.State](updater.EventStateChanged)
 	application.RegisterEvent[preferences.UIPreferences](preferences.EventPreferencesChanged)
+	application.RegisterEvent[services.SystemTheme](services.EventSystemThemeChanged)
 }
 
 func main() {
+	// The one-shot that applies the settings the daemon restricts to
+	// root/administrator, which this binary runs itself as under the platform's
+	// elevation prompt. Handled before anything GUI so no window, tray or
+	// single-instance lock is involved.
+	if services.IsPrivilegedSettingsRun(os.Args[1:]) {
+		os.Exit(runPrivilegedSettings(os.Args[1:]))
+	}
+
 	daemonAddr, userSetLogFile := parseFlagsAndInitLog()
 	conn := NewConn(daemonAddr)
 
@@ -91,15 +101,13 @@ func main() {
 	var tray *Tray
 	app := newApplication(func() {
 		if tray != nil {
-			tray.ShowWindow()
+			go tray.ShowWindow()
 		}
 	})
 
-	profiles := services.NewProfiles(conn)
 	// updater.Holder owns the typed update State; DaemonFeed feeds it and the
 	// Update service is a thin Wails-bound facade over it plus the install RPCs.
 	updaterHolder := updater.NewHolder(app.Event)
-	update := services.NewUpdate(conn, updaterHolder)
 	daemonFeed := services.NewDaemonFeed(conn, app.Event, updaterHolder, debugLog)
 	notifier := newNotifier()
 	compat := services.NewCompat(conn)
@@ -114,7 +122,12 @@ func main() {
 
 	bundle, prefStore, localizer := buildI18n(app)
 
+	// Before any window exists so creation-time backgrounds are already themed.
+	app.RegisterService(application.NewService(services.NewTheme(app, prefStore)))
+
 	// After bundle + prefStore: both are used to localise daemon errors.
+	profiles := services.NewProfiles(conn, bundle, prefStore)
+	update := services.NewUpdate(conn, updaterHolder, bundle, prefStore)
 	settings := services.NewSettings(conn, bundle, prefStore, daemonAddr)
 	connection := services.NewConnection(conn, bundle, prefStore)
 	profileSwitcher := services.NewProfileSwitcher(profiles, connection, daemonFeed)
@@ -229,7 +242,7 @@ func requestNotificationAuthorization(notifier *Notifier) {
 // "no flag" and an explicit "--log-file console" stay distinguishable; empty
 // falls back to console for InitLog.
 func parseFlagsAndInitLog() (string, bool) {
-	daemonAddr := flag.String("daemon-addr", DaemonAddr(), "Daemon gRPC address: unix:///path or tcp://host:port")
+	daemonAddr := flag.String("daemon-addr", DaemonAddr(), "Daemon gRPC address: unix:///path, npipe://name or tcp://host:port (deprecated)")
 	logFiles := &stringList{}
 	flag.Var(logFiles, "log-file", "Log destination. Repeat to log to multiple targets at once, e.g. `--log-file console --log-file Y:/netbird-ui.log`. Each value is one of: console, syslog, or a file path. File destinations are rotated by lumberjack (same as the daemon). Defaults to console. Passing any value disables the daemon-debug-driven gui-client.log.")
 	logLevel := flag.String("log-level", "info", "Log level: trace|debug|info|warn|error.")
@@ -323,9 +336,8 @@ func registerServices(app *application.App, conn *Conn, s registeredServices) {
 	app.RegisterService(application.NewService(services.NewSession(s.authSession, s.bundle, s.prefStore)))
 	app.RegisterService(application.NewService(s.settings))
 	app.RegisterService(application.NewService(s.networks))
-	app.RegisterService(application.NewService(services.NewForwarding(conn)))
 	app.RegisterService(application.NewService(s.profiles))
-	app.RegisterService(application.NewService(services.NewDebug(conn)))
+	app.RegisterService(application.NewService(services.NewDebug(conn, s.bundle, s.prefStore)))
 	app.RegisterService(application.NewService(s.update))
 	app.RegisterService(application.NewService(s.daemonFeed))
 	app.RegisterService(application.NewService(s.notifier))
@@ -345,6 +357,7 @@ func newMainWindow(app *application.App, prefStore *preferences.Store, wm *servi
 	if prefStore.Get().ViewMode == preferences.ViewModeAdvanced {
 		initialWidth = 900
 	}
+	appearance := services.CurrentAppearance()
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:   "main",
 		Title:  "NetBird",
@@ -354,13 +367,13 @@ func newMainWindow(app *application.App, prefStore *preferences.Store, wm *servi
 		// drop new windows top-left unless asked.
 		InitialPosition:     application.WindowCentered,
 		Hidden:              true,
-		BackgroundColour:    services.WindowBackgroundColour,
+		BackgroundColour:    services.WindowBackgroundColour(appearance),
 		URL:                 startURL,
 		DisableResize:       true,
 		MinimiseButtonState: application.ButtonHidden,
 		MaximiseButtonState: application.ButtonHidden,
-		Mac:                 services.AppleMacOSAppearanceOptions(),
-		Windows:             services.MicrosoftWindowsAppearanceOptions(),
+		Mac:                 services.AppleMacOSAppearanceOptions(appearance),
+		Windows:             services.MicrosoftWindowsAppearanceOptions(appearance),
 		Linux: application.LinuxWindow{
 			Icon: iconWindow,
 		},

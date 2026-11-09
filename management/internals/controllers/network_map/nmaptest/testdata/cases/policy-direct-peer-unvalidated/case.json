@@ -1,0 +1,5 @@
+{
+  "description": "A peer named directly as a rule source or destination is subject to approval exactly like a group member: unvalidated peer-b is neither a source for peer-c nor a destination for peer-a, while the validated direct source peer-a reaches peer-c. Legacy mode is excluded: the frozen legacynmap copy still carries the direct-peer bypass.",
+  "peers": ["peer-a", "peer-c"],
+  "modes": ["full", "envelope"]
+}

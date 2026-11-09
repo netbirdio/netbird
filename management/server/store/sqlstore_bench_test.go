@@ -22,6 +22,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	nbdb "github.com/netbirdio/netbird/management/internals/shared/db"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -71,6 +72,10 @@ func (s *SqlStore) GetAccountSlow(ctx context.Context, accountID string) (*types
 		account.SetupKeys[key.Key] = key.Copy()
 	}
 	account.SetupKeysG = nil
+
+	if err := s.attachAccountPeerConnections(ctx, accountID, account.PeersG); err != nil {
+		return nil, status.NewGetAccountFromStoreError(err)
+	}
 
 	account.Peers = make(map[string]*nbpeer.Peer, len(account.PeersG))
 	for _, peer := range account.PeersG {
@@ -164,6 +169,10 @@ func (s *SqlStore) GetAccountGormOpt(ctx context.Context, accountID string) (*ty
 		account.SetupKeys[key.Key] = &key
 	}
 	account.SetupKeysG = nil
+
+	if err := s.attachAccountPeerConnections(ctx, accountID, account.PeersG); err != nil {
+		return nil, status.NewGetAccountFromStoreError(err)
+	}
 
 	account.Peers = make(map[string]*nbpeer.Peer, len(account.PeersG))
 	for _, peer := range account.PeersG {
@@ -266,7 +275,7 @@ func setupBenchmarkDB(b testing.TB) (*SqlStore, func(), string) {
 		&nbdns.NameServerGroup{}, &posture.Checks{}, &networkTypes.Network{},
 		&routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{},
 		&types.AccountOnboarding{}, &service.Service{}, &service.Target{},
-		&domain.Domain{},
+		&domain.Domain{}, &nbpeer.ManagementInstance{}, &nbpeer.Connection{},
 	}
 
 	for i := len(models) - 1; i >= 0; i-- {
@@ -281,10 +290,11 @@ func setupBenchmarkDB(b testing.TB) (*SqlStore, func(), string) {
 		b.Fatalf("failed to migrate database: %v", err)
 	}
 
-	store := &SqlStore{
-		db:   db,
-		pool: pool,
+	conn, err := nbdb.NewConn(context.Background(), db, nbdb.PostgresStoreEngine, pool)
+	if err != nil {
+		b.Fatalf("failed to create connection: %v", err)
 	}
+	store := &SqlStore{conn: conn, db: conn.DB(nil)}
 
 	const (
 		accountID           = "benchmark-account-id"
@@ -347,11 +357,28 @@ func setupBenchmarkDB(b testing.TB) (*SqlStore, func(), string) {
 			IP:        netip.MustParseAddr(fmt.Sprintf("100.64.0.%d", i+1)),
 			IPv6:      netip.MustParseAddr(fmt.Sprintf("fd00::%d", i+1)),
 			Name:      fmt.Sprintf("peer-name-%d", i),
-			Status:    &nbpeer.PeerStatus{Connected: i%2 == 0, LastSeen: time.Now()},
+			Status:    &nbpeer.PeerStatus{},
 		})
 	}
 	if err := db.Create(&peers).Error; err != nil {
 		b.Fatalf("create peers: %v", err)
+	}
+
+	if err := db.Create(&nbpeer.ManagementInstance{ID: "benchmark-instance", LastSeen: time.Now()}).Error; err != nil {
+		b.Fatalf("create instance: %v", err)
+	}
+	instanceID := "benchmark-instance"
+	lastSeen := time.Now()
+	var connections []nbpeer.Connection
+	for i := 0; i < numPeers; i++ {
+		conn := nbpeer.Connection{PeerID: fmt.Sprintf("peer-%d", i), AccountID: accountID, SessionStartedAt: 1, LastSeen: &lastSeen}
+		if i%2 == 0 {
+			conn.InstanceID = &instanceID
+		}
+		connections = append(connections, conn)
+	}
+	if err := db.Create(&connections).Error; err != nil {
+		b.Fatalf("create connections: %v", err)
 	}
 
 	for i := 0; i < numUsers; i++ {
@@ -527,7 +554,7 @@ func BenchmarkGetAccount(b *testing.B) {
 			}
 		}
 	})
-	store.pool.Close()
+	_ = store.Close(ctx)
 }
 
 func TestAccountEquivalence(t *testing.T) {

@@ -4,15 +4,21 @@ package NetBirdSDK
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"os"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	nbAnonymize "github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal"
@@ -22,8 +28,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
-	"github.com/netbirdio/netbird/client/netstate"
-	"github.com/netbirdio/netbird/client/netsweep"
+	"github.com/netbirdio/netbird/client/netevents"
+	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/route"
@@ -37,6 +43,8 @@ const (
 	AnonymizeLevelDefault = nbAnonymize.LevelDefaultString
 	AnonymizeLevelStrict  = nbAnonymize.LevelStrictString
 )
+
+var errClientAlreadyRunning = errors.New("client is already running")
 
 // RouteListener export internal RouteListener for mobile
 type NetworkChangeListener interface {
@@ -75,31 +83,41 @@ type Client struct {
 	cacheDir              string
 	logFilePath           string
 	recorder              *peer.Status
-	ctxCancel             context.CancelFunc
-	ctxCancelLock         *sync.Mutex
 	deviceName            string
 	osName                string
 	osVersion             string
 	networkChangeListener listener.NetworkChangeListener
 	onHostDnsFn           func([]string)
 	dnsManager            dns.IosDnsManager
-	loginComplete         bool
-	// netState outlives engine restarts: it mirrors the OS connectivity, not
-	// the engine lifecycle. Run injects it into each new ConnectClient, which
-	// distributes it to every reconnection loop.
-	netState *netstate.State
-	// sweeper also outlives engine restarts; NotifyNetworkChange sweeps it.
-	sweeper *netsweep.Sweeper
-	// preloadedConfig holds config loaded from JSON (used on tvOS where file writes are blocked)
-	preloadedConfig *profilemanager.Config
+	loginComplete         atomic.Bool
+	// netMgr outlives engine restarts: it mirrors the OS connectivity, not
+	// the engine lifecycle. Run injects its state and sweeper into each new
+	// ConnectClient.
+	netMgr              *netevents.Manager
+	preloadedConfigJSON atomic.Pointer[string]
 
+	// mdmSource holds the per-Client MDM policy source and its change
+	// detector as one unit. Set by SetMDMPolicyFetcher (called from the
+	// Swift side at extension init). Each Run passes the loader to the
+	// resolved Config so applyMDMPolicy picks up the active overlay. Nil
+	// means "MDM enforcement off for this Client".
+	mdmSource atomic.Pointer[mdmSource]
+
+	// stateMu guards the run lifecycle as one unit: the cancel installed by
+	// the current run, the channel it closes on exit, and the state it
+	// published. One run at a time: startRun refuses a second Run while the
+	// previous one has not exited, and the platform serializes Stop before
+	// Start, so no generation tracking is needed.
 	stateMu       sync.RWMutex
 	connectClient *internal.ConnectClient
 	config        *profilemanager.Config
+	runDone       chan struct{}
+	ctxCancel     context.CancelFunc
 }
 
 // NewClient instantiate a new Client
 func NewClient(cfgFile, stateFile, cacheDir, logFilePath, deviceName string, osVersion string, osName string, networkChangeListener NetworkChangeListener, dnsManager DnsManager) *Client {
+	recorder := peer.NewRecorder("")
 	return &Client{
 		cfgFile:               cfgFile,
 		stateFile:             stateFile,
@@ -108,27 +126,41 @@ func NewClient(cfgFile, stateFile, cacheDir, logFilePath, deviceName string, osV
 		deviceName:            deviceName,
 		osName:                osName,
 		osVersion:             osVersion,
-		recorder:              peer.NewRecorder(""),
-		ctxCancelLock:         &sync.Mutex{},
+		recorder:              recorder,
 		networkChangeListener: networkChangeListener,
 		dnsManager:            dnsManager,
-		netState:              netstate.New(),
-		sweeper:               netsweep.New(),
+		netMgr:                netevents.NewManager(recorder),
 	}
 }
 
-// SetConfigFromJSON loads config from a JSON string into memory.
-// This is used on tvOS where file writes to App Group containers are blocked.
-// When set, IsLoginRequired() and Run() will use this preloaded config instead of reading from file.
+// SetConfigFromJSON stores the JSON config that later loads resolve instead of the config file (tvOS).
 func (c *Client) SetConfigFromJSON(jsonStr string) error {
-	cfg, err := profilemanager.ConfigFromJSON(jsonStr)
-	if err != nil {
+	// Parsed only to reject an unreadable document early; the JSON itself is
+	// what is stored, and every load re-parses it. A document carrying no peer
+	// identity is readable and accepted: that is a logged-out profile, and the
+	// login that follows provisions the keys.
+	if _, err := profilemanager.ConfigFromJSON(jsonStr); err != nil {
 		log.Errorf("SetConfigFromJSON: failed to parse config JSON: %v", err)
 		return err
 	}
-	c.preloadedConfig = cfg
+	c.preloadedConfigJSON.Store(&jsonStr)
 	log.Infof("SetConfigFromJSON: config loaded successfully from JSON")
 	return nil
+}
+
+func (c *Client) loadConfig(input profilemanager.ConfigInput) (*profilemanager.Config, error) {
+	var cfg *profilemanager.Config
+	var err error
+	if preloaded := c.preloadedConfigJSON.Load(); preloaded != nil {
+		cfg, err = profilemanager.ConfigFromJSON(*preloaded)
+	} else {
+		cfg, err = profilemanager.DirectUpdateOrCreateConfig(input)
+	}
+	if err != nil {
+		return nil, err
+	}
+	c.applyMDMOverlay(cfg)
+	return cfg, nil
 }
 
 // Run start the internal client. It is a blocker function
@@ -137,39 +169,31 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 	log.Infof("Starting NetBird client")
 	log.Debugf("Tunnel uses interface: %s", interfaceName)
 
-	var cfg *profilemanager.Config
-	var err error
-
-	// Use preloaded config if available (tvOS where file writes are blocked)
-	if c.preloadedConfig != nil {
-		log.Infof("Run: using preloaded config from memory")
-		cfg = c.preloadedConfig
-	} else {
-		log.Infof("Run: loading config from file")
-		// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
-		// which are blocked by the tvOS sandbox in App Group containers
-		cfg, err = profilemanager.DirectUpdateOrCreateConfig(profilemanager.ConfigInput{
-			ConfigPath:    c.cfgFile,
-			StateFilePath: c.stateFile,
-		})
-		if err != nil {
-			return err
-		}
+	cfg, err := c.loadConfig(profilemanager.ConfigInput{
+		ConfigPath:    c.cfgFile,
+		StateFilePath: c.stateFile,
+	})
+	if err != nil {
+		return err
 	}
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
 	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
 
-	var ctx context.Context
 	//nolint
 	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
 	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsNameCtxKey, c.osName)
 	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsVersionCtxKey, c.osVersion)
-	c.ctxCancelLock.Lock()
-	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
-	defer c.ctxCancel()
-	c.ctxCancelLock.Unlock()
+	runCtx, runCancel := context.WithCancel(ctxWithValues)
+	defer runCancel()
+
+	done, err := c.startRun(runCancel)
+	if err != nil {
+		return err
+	}
+	defer c.finishRun(done)
+	ctx := runCtx
 
 	// No login pre-flight here. The engine's own loginToManagement (connect.go) performs
 	// the authoritative Login immediately before the first Sync, so a LoginSync() call at
@@ -190,7 +214,7 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 	cfg.WgIface = interfaceName
 
 	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder,
-		internal.WithNetworkState(c.netState), internal.WithSweeper(c.sweeper))
+		internal.WithNetEvents(c.netMgr))
 	c.setState(cfg, connectClient)
 	// Persist the latest sync response so DebugBundle can include the network
 	// map. On iOS this is backed by disk to keep it out of the constrained
@@ -203,10 +227,11 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 // (e.g. from NWPathMonitor). While unavailable, the internal reconnect loops
 // suspend their attempts and the connection listener reports NoNetwork
 // instead of Connecting; when availability returns, the loops resume
-// immediately with a fresh backoff.
+// immediately with a fresh backoff. Losing the last network also sweeps the
+// registered connections, so the client does not keep reporting Connected
+// over stale sockets with no network at all.
 func (c *Client) SetNetworkAvailable(available bool) {
-	c.netState.Set(available)
-	c.recorder.SetNetworkAvailable(available)
+	c.netMgr.SetNetworkAvailable(available)
 }
 
 // NotifyNetworkChange marks the management, signal and relay connections
@@ -214,20 +239,43 @@ func (c *Client) SetNetworkAvailable(available bool) {
 // whatever has not redialed on the new network by then. The engine and the
 // TUN device stay untouched.
 func (c *Client) NotifyNetworkChange() {
-	c.sweeper.MarkNetworkChange()
-	log.Infof("network change: connections marked stale")
+	c.netMgr.NotifyNetworkChange()
 }
 
-// Stop the internal client and free the resources
+// Stop cancels the running client and waits for the run loop to exit, so a
+// caller that restarts immediately cannot race the outgoing teardown.
 func (c *Client) Stop() {
-	c.ctxCancelLock.Lock()
-	defer c.ctxCancelLock.Unlock()
-	if c.ctxCancel == nil {
+	done := c.cancelRun()
+	if done == nil {
 		return
 	}
 
-	c.ctxCancel()
-	c.setState(nil, nil)
+	select {
+	case <-done:
+	case <-time.After(stopRunWaitTimeout):
+		log.Warnf("Stop: timed out waiting for the run loop to exit")
+	}
+}
+
+// StopWithoutWait cancels the running client without waiting for the run loop.
+// Use it where the caller is on a deadline the wait could overrun, such as
+// NEPacketTunnelProvider.stopTunnel, which iOS gives only a few seconds
+// before it kills the extension.
+func (c *Client) StopWithoutWait() {
+	c.cancelRun()
+}
+
+func (c *Client) cancelRun() chan struct{} {
+	c.stateMu.RLock()
+	done := c.runDone
+	cancel := c.ctxCancel
+	c.stateMu.RUnlock()
+
+	if cancel != nil {
+		cancel()
+	}
+
+	return done
 }
 
 // DebugBundle generates a debug bundle, uploads it and returns the upload key.
@@ -241,19 +289,13 @@ func (c *Client) DebugBundle(anonymize bool, anonymizeLevel string) (string, err
 
 	// If the engine hasn't been started, load config so we can reach management.
 	if cfg == nil {
-		if c.preloadedConfig != nil {
-			cfg = c.preloadedConfig
-		} else {
-			var err error
-			// Use DirectUpdateOrCreateConfig to avoid atomic file operations
-			// (temp file + rename) blocked by the tvOS sandbox.
-			cfg, err = profilemanager.DirectUpdateOrCreateConfig(profilemanager.ConfigInput{
-				ConfigPath:    c.cfgFile,
-				StateFilePath: c.stateFile,
-			})
-			if err != nil {
-				return "", fmt.Errorf("load config: %w", err)
-			}
+		var err error
+		cfg, err = c.loadConfig(profilemanager.ConfigInput{
+			ConfigPath:    c.cfgFile,
+			StateFilePath: c.stateFile,
+		})
+		if err != nil {
+			return "", fmt.Errorf("load config: %w", err)
 		}
 	}
 
@@ -318,6 +360,15 @@ func (c *Client) SetTraceLogLevel() {
 	log.SetLevel(log.TraceLevel)
 }
 
+// RefreshWireGuardStats updates handshake times and transfer counters for the next
+// GetStatusDetails call. The recorder only caches them and nothing refreshes them on its own.
+func (c *Client) RefreshWireGuardStats() error {
+	if err := c.recorder.RefreshWireGuardStats(); err != nil {
+		return fmt.Errorf("refresh wireguard stats: %w", err)
+	}
+	return nil
+}
+
 // GetStatusDetails return with the list of the PeerInfos
 func (c *Client) GetStatusDetails() *StatusDetails {
 
@@ -378,75 +429,109 @@ func (c *Client) IsLoginRequiredCached() bool {
 	return c.recorder.IsLoginRequired()
 }
 
+// IsLoginRequired reports whether login is needed, including when local config
+// or keys cannot be loaded. A transport failure for an existing valid profile
+// returns false so Run can retry with its credentials; it does not confirm login.
 func (c *Client) IsLoginRequired() bool {
-	var ctx context.Context
 	//nolint
 	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
 	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsNameCtxKey, c.osName)
 	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsVersionCtxKey, c.osVersion)
-	c.ctxCancelLock.Lock()
-	defer c.ctxCancelLock.Unlock()
-	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
+	ctx, cancel := context.WithCancel(ctxWithValues)
+	defer cancel()
 
-	var cfg *profilemanager.Config
-	var err error
+	return c.isLoginRequired(ctx)
+}
 
-	// Use preloaded config if available (tvOS where file writes are blocked)
-	if c.preloadedConfig != nil {
-		log.Infof("IsLoginRequired: using preloaded config from memory")
-		cfg = c.preloadedConfig
+func (c *Client) isLoginRequired(ctx context.Context) bool {
+	// Read without creating a profile or applying defaults that generate keys.
+	// An offline check must never manufacture credentials and then preserve them
+	// as though this profile had already logged in.
+	var configJSON []byte
+	if preloaded := c.preloadedConfigJSON.Load(); preloaded != nil {
+		configJSON = []byte(*preloaded)
 	} else {
-		log.Infof("IsLoginRequired: loading config from file")
-		// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
-		// which are blocked by the tvOS sandbox in App Group containers
-		cfg, err = profilemanager.DirectUpdateOrCreateConfig(profilemanager.ConfigInput{
-			ConfigPath: c.cfgFile,
-		})
+		var err error
+		configJSON, err = os.ReadFile(c.cfgFile)
 		if err != nil {
-			log.Errorf("IsLoginRequired: failed to load config: %v", err)
-			// If we can't load config, assume login is required
+			log.Errorf("IsLoginRequired: failed to read config: %v", err)
 			return true
 		}
 	}
+	cfg := &profilemanager.Config{}
+	if err := json.Unmarshal(configJSON, cfg); err != nil {
+		log.Errorf("IsLoginRequired: failed to parse config: %v", err)
+		return true
+	}
+	c.applyMDMOverlay(cfg)
 
-	if cfg == nil {
-		log.Errorf("IsLoginRequired: config is nil")
+	if cfg.ManagementURL == nil || cfg.ManagementURL.Hostname() == "" ||
+		(cfg.ManagementURL.Scheme != "http" && cfg.ManagementURL.Scheme != "https") {
+		log.Error("IsLoginRequired: invalid management URL")
+		return true
+	}
+	if _, err := ssh.GeneratePublicKey([]byte(cfg.SSHKey)); err != nil {
+		log.Errorf("IsLoginRequired: invalid SSH key: %v", err)
 		return true
 	}
 
 	authClient, err := auth.NewAuth(ctx, cfg.PrivateKey, cfg.ManagementURL, cfg)
 	if err != nil {
 		log.Errorf("IsLoginRequired: failed to create auth client: %v", err)
-		return true // Assume login is required if we can't create auth client
+		return !isLoginTransportError(err)
 	}
 	defer authClient.Close()
 
 	needsLogin, err := authClient.IsLoginRequired(ctx)
 	if err != nil {
 		log.Errorf("IsLoginRequired: check failed: %v", err)
-		// If the check fails, assume login is required to be safe
-		return true
+		// Only transport failures leave the login verdict unknown.
+		return !isLoginTransportError(err)
 	}
 	log.Infof("IsLoginRequired: needsLogin=%v", needsLogin)
 	return needsLogin
 }
 
+// isLoginTransportError excludes local key/configuration failures and unknown
+// errors: only a recognized outage can defer the decision to the engine.
+func isLoginTransportError(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var networkError net.Error
+	if errors.As(err, &networkError) {
+		return true
+	}
+	switch status.Code(err) {
+	// Match the connection failures retried by auth.isConnectionError.
+	case codes.Unavailable, codes.DeadlineExceeded, codes.Canceled, codes.Internal:
+		return true
+	default:
+		return false
+	}
+}
+
 // loginForMobileAuthTimeout is the timeout for requesting auth info from the server
 const loginForMobileAuthTimeout = 30 * time.Second
 
+const stopRunWaitTimeout = 20 * time.Second
+
 func (c *Client) LoginForMobile() string {
-	var ctx context.Context
 	//nolint
 	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
 	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsNameCtxKey, c.osName)
 	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsVersionCtxKey, c.osVersion)
-	c.ctxCancelLock.Lock()
-	defer c.ctxCancelLock.Unlock()
-	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
+	ctx, cancel := context.WithCancel(ctxWithValues)
+	loginDone := false
+	defer func() {
+		if !loginDone {
+			cancel()
+		}
+	}()
 
 	// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
 	// which are blocked by the tvOS sandbox in App Group containers
@@ -457,8 +542,9 @@ func (c *Client) LoginForMobile() string {
 		log.Errorf("LoginForMobile: failed to load config: %v", err)
 		return fmt.Sprintf("failed to load config: %v", err)
 	}
+	c.applyMDMOverlay(cfg)
 
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, cfg, false, false, "")
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, cfg, false, false, "", false)
 	if err != nil {
 		return err.Error()
 	}
@@ -473,7 +559,9 @@ func (c *Client) LoginForMobile() string {
 	}
 
 	// This could cause a potential race condition with loading the extension which need to be handled on swift side
+	loginDone = true
 	go func() {
+		defer cancel()
 		tokenInfo, err := oAuthFlow.WaitToken(ctx, flowInfo)
 		if err != nil {
 			log.Errorf("LoginForMobile: WaitToken failed: %v", err)
@@ -490,18 +578,18 @@ func (c *Client) LoginForMobile() string {
 			log.Errorf("LoginForMobile: Login failed: %v", err)
 			return
 		}
-		c.loginComplete = true
+		c.loginComplete.Store(true)
 	}()
 
 	return flowInfo.VerificationURIComplete
 }
 
 func (c *Client) IsLoginComplete() bool {
-	return c.loginComplete
+	return c.loginComplete.Load()
 }
 
 func (c *Client) ClearLoginComplete() {
-	c.loginComplete = false
+	c.loginComplete.Store(false)
 }
 
 func (c *Client) GetRoutesSelectionDetails() (*RoutesSelectionDetails, error) {
@@ -721,13 +809,36 @@ func (c *Client) DeselectRoute(id string) error {
 	return nil
 }
 
-// setState stores the running engine state so DebugBundle can reuse the live
-// config and ConnectClient. It is cleared on Stop.
-func (c *Client) setState(cfg *profilemanager.Config, cc *internal.ConnectClient) {
+func (c *Client) startRun(cancel context.CancelFunc) (chan struct{}, error) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
+
+	if c.runDone != nil {
+		return nil, errClientAlreadyRunning
+	}
+
+	done := make(chan struct{})
+	c.runDone = done
+	c.ctxCancel = cancel
+	return done, nil
+}
+
+func (c *Client) finishRun(done chan struct{}) {
+	c.stateMu.Lock()
+	c.connectClient = nil
+	c.config = nil
+	c.runDone = nil
+	c.ctxCancel = nil
+	c.stateMu.Unlock()
+
+	close(done)
+}
+
+func (c *Client) setState(cfg *profilemanager.Config, cc *internal.ConnectClient) {
+	c.stateMu.Lock()
 	c.config = cfg
 	c.connectClient = cc
+	c.stateMu.Unlock()
 }
 
 // stateSnapshot returns the current config and ConnectClient under the lock.

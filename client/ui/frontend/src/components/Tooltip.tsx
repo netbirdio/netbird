@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import * as RTooltip from "@radix-ui/react-tooltip";
 import { cn } from "@/lib/cn";
+import { useDirection } from "@/hooks/useDirection";
 
 type Props = {
     content: ReactNode;
@@ -14,6 +15,10 @@ type Props = {
     keepOpenOnClick?: boolean;
     contentClassName?: string;
     closeDelay?: number;
+    // suppressed forces the tooltip shut, for a trigger that also opens
+    // something else (a popover on the same button) whose content would
+    // otherwise render underneath it.
+    suppressed?: boolean;
 };
 
 export const Tooltip = ({
@@ -28,7 +33,10 @@ export const Tooltip = ({
     keepOpenOnClick = true,
     contentClassName,
     closeDelay = 0,
+    suppressed = false,
 }: Props) => {
+    const dir = useDirection();
+    const physicalSide = dir === "rtl" ? mirrorSide(side) : side;
     const [open, setOpen] = useState(false);
     const hoveringRef = useRef(false);
     const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -49,6 +57,12 @@ export const Tooltip = ({
     };
     useEffect(() => () => cancelClose(), []);
 
+    // Drops the hover that was in flight when the other surface opened, so the
+    // tooltip does not spring back the moment it closes again.
+    useEffect(() => {
+        if (suppressed) setOpen(false);
+    }, [suppressed]);
+
     const handleOpenChange = (next: boolean) => {
         if (!next && keepOpenOnClick && hoveringRef.current) return;
         if (next) cancelClose();
@@ -57,7 +71,7 @@ export const Tooltip = ({
 
     return (
         <RTooltip.Provider delayDuration={delayDuration} disableHoverableContent={!interactive}>
-            <RTooltip.Root open={open} onOpenChange={handleOpenChange}>
+            <RTooltip.Root open={open && !suppressed} onOpenChange={handleOpenChange}>
                 <RTooltip.Trigger
                     asChild
                     onPointerEnter={() => {
@@ -73,7 +87,7 @@ export const Tooltip = ({
                 </RTooltip.Trigger>
                 <RTooltip.Portal>
                     <RTooltip.Content
-                        side={side}
+                        side={physicalSide}
                         align={align}
                         sideOffset={sideOffset}
                         alignOffset={alignOffset}
@@ -81,12 +95,12 @@ export const Tooltip = ({
                         onPointerLeave={interactive ? scheduleClose : undefined}
                         onPointerDownOutside={interactive ? undefined : (e) => e.preventDefault()}
                         className={cn(
-                            "z-50 select-none text-xs text-nb-gray-100 shadow-lg",
-                            "data-[state=delayed-open]:animate-in data-[state=closed]:animate-out",
+                            "z-50 text-xs text-nb-gray-100 shadow-xs select-none dark:shadow-lg",
+                            "data-[state=closed]:animate-out data-[state=delayed-open]:animate-in",
                             "data-[state=closed]:fade-out-0 data-[state=delayed-open]:fade-in-0",
                             !interactive && "pointer-events-none",
                             contentClassName ??
-                                "rounded-md border border-nb-gray-850 bg-nb-gray-900 px-2 py-1",
+                                "rounded-md border border-nb-gray-800 bg-white px-2 py-1 dark:border-nb-gray-850 dark:bg-nb-gray-900",
                         )}
                     >
                         {content}
@@ -96,3 +110,9 @@ export const Tooltip = ({
         </RTooltip.Provider>
     );
 };
+
+function mirrorSide(side: Props["side"]): Props["side"] {
+    if (side === "left") return "right";
+    if (side === "right") return "left";
+    return side;
+}

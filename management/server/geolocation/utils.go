@@ -184,7 +184,12 @@ func getFilenameFromURL(url string) (string, error) {
 
 	defer resp.Body.Close()
 
-	_, params, err := mime.ParseMediaType(resp.Header["Content-Disposition"][0])
+	contentDisposition := resp.Header.Get("Content-Disposition")
+	if contentDisposition == "" {
+		return "", fmt.Errorf("no Content-Disposition header in response from %s", url)
+	}
+
+	_, params, err := mime.ParseMediaType(contentDisposition)
 	if err != nil {
 		return "", err
 	}

@@ -8,12 +8,10 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
-	"google.golang.org/grpc/codes"
-	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal/daemonaddr"
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
+	"github.com/netbirdio/netbird/client/internal/localmetrics"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/util"
@@ -30,6 +28,8 @@ import (
 //     management identity hands SSH authorization decisions, including which
 //     keys and users are accepted, to whoever controls that identity. Changing
 //     the management URL and deregistering the peer are both ways to do that.
+//   - Binding the local metrics endpoint to a non-loopback address publishes
+//     peer names and connectivity state to the network without authentication.
 //
 // Everything else stays unauthenticated, so this is not an authorization model:
 // it only refuses the changes that would let a local user become root. A caller
@@ -39,27 +39,36 @@ import (
 // user-to-root boundary. Fields are nil or empty when the request leaves them
 // untouched.
 type privilegedConfigChange struct {
-	managementURL    string
-	serverSSHAllowed *bool
-	enableSSHRoot    *bool
-	disableSSHAuth   *bool
+	managementURL       string
+	serverSSHAllowed    *bool
+	remoteJobsAllowed   *bool
+	enableSSHRoot       *bool
+	disableSSHAuth      *bool
+	enableLocalMetrics  *bool
+	localMetricsAddress *string
 }
 
 func privilegedChangeFromSetConfig(msg *proto.SetConfigRequest) privilegedConfigChange {
 	return privilegedConfigChange{
-		managementURL:    msg.GetManagementUrl(),
-		serverSSHAllowed: msg.ServerSSHAllowed,
-		enableSSHRoot:    msg.EnableSSHRoot,
-		disableSSHAuth:   msg.DisableSSHAuth,
+		managementURL:       msg.GetManagementUrl(),
+		serverSSHAllowed:    msg.ServerSSHAllowed,
+		remoteJobsAllowed:   msg.RemoteJobsAllowed,
+		enableSSHRoot:       msg.EnableSSHRoot,
+		disableSSHAuth:      msg.DisableSSHAuth,
+		enableLocalMetrics:  msg.EnableLocalMetrics,
+		localMetricsAddress: msg.LocalMetricsAddress,
 	}
 }
 
 func privilegedChangeFromLogin(msg *proto.LoginRequest) privilegedConfigChange {
 	return privilegedConfigChange{
-		managementURL:    msg.GetManagementUrl(),
-		serverSSHAllowed: msg.ServerSSHAllowed,
-		enableSSHRoot:    msg.EnableSSHRoot,
-		disableSSHAuth:   msg.DisableSSHAuth,
+		managementURL:       msg.GetManagementUrl(),
+		serverSSHAllowed:    msg.ServerSSHAllowed,
+		remoteJobsAllowed:   msg.RemoteJobsAllowed,
+		enableSSHRoot:       msg.EnableSSHRoot,
+		disableSSHAuth:      msg.DisableSSHAuth,
+		enableLocalMetrics:  msg.EnableLocalMetrics,
+		localMetricsAddress: msg.LocalMetricsAddress,
 	}
 }
 
@@ -81,6 +90,21 @@ func requirePrivilegeForConfigChange(ctx context.Context, stored *profilemanager
 
 	if enables(sshServerCurrentlyAllowed(stored), change.serverSSHAllowed) {
 		return denyPrivileged(ctx, "enabling the NetBird SSH server", ipcauth.UpCommand("--allow-server-ssh"))
+	}
+
+	// Enabling remote jobs lets the management server run jobs (e.g. debug
+	// bundles) on this host, so turning it on crosses the user-to-root
+	// boundary the same way enabling the SSH server does. The stored value
+	// defaults to off (nil = off), so a legacy config is correctly seen as
+	// off and turning it on requires privilege.
+	if enables(storedFlag(stored, func(c *profilemanager.Config) *bool { return c.RemoteJobsAllowed }), change.remoteJobsAllowed) {
+		return denyPrivileged(ctx, "enabling remote jobs", ipcauth.UpCommand("--allow-remote-jobs"))
+	}
+
+	if addr, exposes := exposesLocalMetrics(stored, change); exposes {
+		return denyPrivileged(ctx,
+			"exposing the local metrics endpoint on a non-loopback address",
+			ipcauth.UpCommand("--enable-local-metrics --local-metrics-address "+addr))
 	}
 
 	// Only guard the management binding while the SSH server is enabled: that is
@@ -127,7 +151,7 @@ func denyPrivileged(ctx context.Context, action, command string) error {
 	id, ok := ipcauth.CallerIdentity(ctx)
 	if !ok {
 		log.Warnf("denying %s: the caller's identity cannot be verified on this control channel", action)
-		return privilegeError(unidentifiedSummary(action), reinstallCommand())
+		return ipcauth.PrivilegeError(unidentifiedSummary(action), reinstallCommand())
 	}
 
 	if ipcauth.IsPrivilegedCaller(id) {
@@ -136,45 +160,8 @@ func denyPrivileged(ctx context.Context, action, command string) error {
 	}
 
 	log.Warnf("denying %s for unprivileged caller %s", action, id)
-	actor, command := requiredActor(command)
-	return privilegeError(privilegeSummary(action, actor), command)
-}
-
-// requiredActor names who may perform the operation and adjusts the command to
-// match. A daemon that is not itself privileged delegates to its own identity, so
-// telling that host's user to become root is wrong twice over: root is not what the
-// daemon checks for, and a rootless container has neither root nor sudo.
-func requiredActor(command string) (string, string) {
-	self, delegates := ipcauth.SelfDelegatesTo()
-	if !delegates {
-		return ipcauth.PrivilegedActor(), command
-	}
-	return fmt.Sprintf("the user the daemon runs as (%s)", self), strings.ReplaceAll(command, "sudo ", "")
-}
-
-// privilegeError builds the PermissionDenied carrying summary and command.
-func privilegeError(summary, command string) error {
-	st := gstatus.New(codes.PermissionDenied, fmt.Sprintf("%s\n\n%s", summary, command))
-
-	detailed, err := st.WithDetails(&errdetails.ErrorInfo{
-		Reason: ipcauth.ErrorReasonPrivilegeRequired,
-		Domain: ipcauth.ErrorDomain,
-		Metadata: map[string]string{
-			ipcauth.ErrorMetaSummary: summary,
-			ipcauth.ErrorMetaCommand: command,
-		},
-	})
-	if err != nil {
-		log.Debugf("attach privilege error detail: %v", err)
-		return st.Err()
-	}
-	return detailed.Err()
-}
-
-// privilegeSummary states what is refused and what it needs, in one sentence
-// that reads the same in a dialog and in a terminal.
-func privilegeSummary(action, actor string) string {
-	return fmt.Sprintf("%s requires %s.", capitalize(action), actor)
+	actor, command := ipcauth.RequiredActor(command)
+	return ipcauth.PrivilegeError(ipcauth.PrivilegeSummary(action, actor), command)
 }
 
 // unidentifiedSummary covers a control channel that carries no caller identity.
@@ -245,6 +232,48 @@ func sshServerCurrentlyAllowed(cfg *profilemanager.Config) *bool {
 	return &enabled
 }
 
+// exposesLocalMetrics reports whether the change would leave the metrics
+// endpoint enabled on an address that is not confirmed loopback, and returns
+// that address. A request that restates the stored state is not a change, so a
+// settings form resubmitted after an administrator opened the endpoint is not
+// refused.
+func exposesLocalMetrics(stored *profilemanager.Config, change privilegedConfigChange) (string, bool) {
+	storedEnabled, storedAddr := storedLocalMetrics(stored)
+
+	enabled := storedEnabled
+	if change.enableLocalMetrics != nil {
+		enabled = *change.enableLocalMetrics
+	}
+	addr := storedAddr
+	if change.localMetricsAddress != nil {
+		addr = metricsAddrOrDefault(*change.localMetricsAddress)
+	}
+
+	if !enabled || localmetrics.IsLoopback(addr) {
+		return "", false
+	}
+	if storedEnabled && storedAddr == addr {
+		return "", false
+	}
+	return addr, true
+}
+
+// storedLocalMetrics reads the metrics settings from the stored config,
+// tolerating a config that does not exist yet.
+func storedLocalMetrics(cfg *profilemanager.Config) (bool, string) {
+	if cfg == nil {
+		return false, localmetrics.DefaultListenAddress
+	}
+	return cfg.LocalMetricsEnabled, metricsAddrOrDefault(cfg.LocalMetricsAddress)
+}
+
+func metricsAddrOrDefault(addr string) string {
+	if addr == "" {
+		return localmetrics.DefaultListenAddress
+	}
+	return addr
+}
+
 // sameManagementURL reports whether requested addresses the same management
 // server as stored, comparing scheme, host and effective port so that an
 // equivalent spelling ("https://api.netbird.io" for a stored
@@ -262,21 +291,5 @@ func sameManagementURL(stored *url.URL, requested string) bool {
 		return false
 	}
 
-	return stored.Scheme == parsed.Scheme &&
-		stored.Hostname() == parsed.Hostname() &&
-		effectivePort(stored) == effectivePort(parsed)
-}
-
-func effectivePort(u *url.URL) string {
-	if port := u.Port(); port != "" {
-		return port
-	}
-	switch u.Scheme {
-	case "https":
-		return "443"
-	case "http":
-		return "80"
-	default:
-		return ""
-	}
+	return profilemanager.SameServiceURL(stored, parsed)
 }

@@ -1,0 +1,4 @@
+{
+  "description": "Classic route served by a peer group instead of one peer: each routing peer's copy takes the route id with its own peer id appended and drops the PeerGroups field, and the distribution group's peer-a must receive both copies as an HA pair. Each router receives only its own copy plus a default-permit route firewall rule, because the route carries no access control groups. A policy connecting the two groups is required — route distribution follows peers the target may already talk to.",
+  "peers": ["peer-a", "peer-r1"]
+}

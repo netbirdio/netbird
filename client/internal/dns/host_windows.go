@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"os"
 	"os/exec"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -34,10 +36,16 @@ var (
 // Registry locations of the host DNS configuration this package programs,
 // exported so a diagnostic reader reports the same locations that are written.
 const (
-	// NRPTKeyPrefix starts the name of every NRPT rule key this client creates.
-	// Older versions used different layouts under the same prefix: a single
-	// unsuffixed key, then one key per domain, now one key per batch of domains.
-	NRPTKeyPrefix = "NetBird-Match"
+	// NRPTKeyPrefix starts the name of every NRPT rule key this client creates:
+	// the match rules, the catch-all, and the .local exemption. Cleanup
+	// enumerates by this prefix, so a new kind of rule is removed by existing
+	// code as long as its key starts here.
+	NRPTKeyPrefix = "NetBird-"
+
+	// nrptMatchKeyName names the match-domain rules. Older versions used
+	// different layouts under the same name: a single unsuffixed key, then one
+	// key per domain, now one key per batch of domains.
+	nrptMatchKeyName = NRPTKeyPrefix + "Match"
 
 	// DNSPolicyConfigRoot holds the NRPT rules of the local policy store.
 	DNSPolicyConfigRoot = `SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\DnsPolicyConfig`
@@ -53,8 +61,24 @@ const (
 )
 
 const (
-	dnsPolicyConfigMatchPath    = DNSPolicyConfigRoot + `\` + NRPTKeyPrefix
-	gpoDnsPolicyConfigMatchPath = GPODNSPolicyConfigRoot + `\` + NRPTKeyPrefix
+	dnsPolicyConfigMatchPath    = DNSPolicyConfigRoot + `\` + nrptMatchKeyName
+	gpoDnsPolicyConfigMatchPath = GPODNSPolicyConfigRoot + `\` + nrptMatchKeyName
+
+	dnsPolicyConfigExemptLocalPath    = DNSPolicyConfigRoot + `\` + NRPTKeyPrefix + `ExemptLocal`
+	gpoDnsPolicyConfigExemptLocalPath = GPODNSPolicyConfigRoot + `\` + NRPTKeyPrefix + `ExemptLocal`
+
+	nrptCatchAllNamespace = "."
+	// nrptLocalNamespace is reserved for multicast DNS by RFC 6762: a unicast
+	// resolver must not answer for it. The catch-all rule would hand it to us
+	// anyway, so it gets an exemption rule of its own.
+	nrptLocalNamespace = ".local"
+
+	// envLegacyDNSResolution restores the pre-catch-all behaviour: the adapter's
+	// NameServer alone, leaving the OS free to query other adapters' resolvers in
+	// parallel. An escape hatch for setups that depend on a resolver of theirs
+	// still being reachable while connected, at the cost of the leak and of the
+	// race the catch-all rule exists to close.
+	envLegacyDNSResolution = "NB_USE_LEGACY_DNS_RESOLUTION"
 
 	dnsPolicyConfigVersionKey           = "Version"
 	dnsPolicyConfigVersionValue         = 2
@@ -100,19 +124,9 @@ func newHostManager(wgInterface WGIface) (*registryConfigurator, error) {
 		return nil, err
 	}
 
-	var useGPO bool
-	k, err := registry.OpenKey(registry.LOCAL_MACHINE, GPODNSPolicyConfigRoot, registry.QUERY_VALUE)
-	if err != nil {
-		log.Debugf("failed to open GPO DNS policy root: %v", err)
-	} else {
-		closer(k)
-		useGPO = true
-		log.Infof("detected GPO DNS policy configuration, using policy store")
-	}
-
 	configurator := &registryConfigurator{
 		guid: guid,
-		gpo:  useGPO,
+		gpo:  useGPOPolicyStore(),
 	}
 
 	origNameservers, err := configurator.captureOriginalNameservers()
@@ -293,6 +307,13 @@ func (r *registryConfigurator) disableWINSForInterface() error {
 }
 
 func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
+	// Clear every rule the previous apply installed before installing any new
+	// one, including a leftover catch-all: removal is unconditional so a rule
+	// from an earlier run cannot survive into a config that no longer wants it.
+	if err := r.removeDNSMatchPolicies(); err != nil {
+		log.Errorf("cleanup old dns match policies: %s", err)
+	}
+
 	if config.RouteAll {
 		if err := r.addDNSSetupForAll(config.ServerIP); err != nil {
 			return fmt.Errorf("add dns setup: %w", err)
@@ -318,8 +339,22 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 		matchDomains = append(matchDomains, "."+strings.TrimSuffix(dConf.Domain, "."))
 	}
 
-	if err := r.removeDNSMatchPolicies(); err != nil {
-		log.Errorf("cleanup old dns match policies: %s", err)
+	// The root namespace is a match domain like any other: it just happens to
+	// match every name. Without it the adapter's NameServer only adds one more
+	// resolver to the set Windows queries in parallel, keeping whichever answer
+	// comes back first — which leaks every query to the local network and lets a
+	// resolver other than ours answer for a name we are authoritative for.
+	if config.RouteAll {
+		if parseBoolEnv(envLegacyDNSResolution) {
+			log.Infof("%s is set, leaving DNS resolution shared with the other adapters' resolvers instead of forcing it through %s", envLegacyDNSResolution, config.ServerIP)
+		} else {
+			matchDomains = append(matchDomains, nrptCatchAllNamespace)
+			log.Infof("routing every namespace through %s: DNS resolution is now exclusive to NetBird", config.ServerIP)
+
+			if err := r.addDNSExemptLocalPolicy(); err != nil {
+				return fmt.Errorf("add dns exempt policy: %w", err)
+			}
+		}
 	}
 
 	if len(matchDomains) != 0 {
@@ -397,6 +432,42 @@ func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip netip.Addr
 	return nil
 }
 
+// addDNSExemptLocalPolicy carves .local back out of the catch-all. RFC 6762
+// reserves it for multicast DNS, so forwarding those names to a unicast
+// upstream answers NXDOMAIN for hosts that do exist - printers, NAS boxes, and
+// anything else announcing itself on the link - and the answer is authoritative
+// enough that Windows stops looking. A rule naming the namespace with no
+// servers hands it back to the DNS client untouched. A more specific rule still
+// wins, so a match domain under .local keeps going through us.
+func (r *registryConfigurator) addDNSExemptLocalPolicy() error {
+	var noServers netip.Addr
+
+	if err := r.configureDNSPolicy(dnsPolicyConfigExemptLocalPath, []string{nrptLocalNamespace}, noServers); err != nil {
+		return fmt.Errorf("configure exempt policy for %s: %w", nrptLocalNamespace, err)
+	}
+
+	if r.gpo {
+		if err := r.configureDNSPolicy(gpoDnsPolicyConfigExemptLocalPath, []string{nrptLocalNamespace}, noServers); err != nil {
+			return fmt.Errorf("configure gpo exempt policy for %s: %w", nrptLocalNamespace, err)
+		}
+		if err := refreshGroupPolicy(); err != nil {
+			log.Warnf("failed to refresh group policy: %v", err)
+		}
+	}
+
+	log.Infof("added NRPT exemption for %s, leaving it to the OS resolver", nrptLocalNamespace)
+	return nil
+}
+
+// configureDNSPolicy writes one NRPT rule. An invalid ip writes an exemption
+// rule: the namespace with an empty server list, which tells the DNS client to
+// resolve those names the way it would without any rule at all.
+//
+// The empty string is the whole difference, and it has to be written: dropping
+// the value and clearing ConfigOptions instead produces a rule Windows treats
+// as a no-op, keeps out of Get-DnsClientNrptPolicy -Effective, and ignores in
+// favour of the catch-all. 0x8 says the server list is the meaningful part of
+// the rule, and an empty list then means "no server, resolve normally".
 func (r *registryConfigurator) configureDNSPolicy(policyPath string, domains []string, ip netip.Addr) error {
 	if err := removeRegistryKeyFromDNSPolicyConfig(policyPath); err != nil {
 		return fmt.Errorf("remove existing dns policy: %w", err)
@@ -416,7 +487,11 @@ func (r *registryConfigurator) configureDNSPolicy(policyPath string, domains []s
 		return fmt.Errorf("set %s: %w", dnsPolicyConfigNameKey, err)
 	}
 
-	if err := regKey.SetStringValue(dnsPolicyConfigGenericDNSServersKey, ip.String()); err != nil {
+	var servers string
+	if ip.IsValid() {
+		servers = ip.String()
+	}
+	if err := regKey.SetStringValue(dnsPolicyConfigGenericDNSServersKey, servers); err != nil {
 		return fmt.Errorf("set %s: %w", dnsPolicyConfigGenericDNSServersKey, err)
 	}
 
@@ -491,14 +566,22 @@ func (r *registryConfigurator) setInterfaceRegistryKeyStringValue(key, value str
 	return nil
 }
 
+// deleteInterfaceRegistryKeyProperty removes a value from the interface key.
+// A value that is already gone, or an interface key that is, is not an error:
+// the caller asked for the value not to be there, and a cleanup that runs twice
+// has to reach its later steps on the second run as well.
 func (r *registryConfigurator) deleteInterfaceRegistryKeyProperty(propertyKey string) error {
 	regKey, err := r.getInterfaceRegistryKey()
-	if err != nil {
+	switch {
+	case errors.Is(err, registry.ErrNotExist), errors.Is(err, syscall.ERROR_PATH_NOT_FOUND):
+		log.Debugf("interface key of %s does not exist, nothing to delete %s from", r.guid, propertyKey)
+		return nil
+	case err != nil:
 		return fmt.Errorf("get interface registry key: %w", err)
 	}
 	defer closer(regKey)
 
-	if err := regKey.DeleteValue(propertyKey); err != nil {
+	if err := regKey.DeleteValue(propertyKey); err != nil && !errors.Is(err, registry.ErrNotExist) {
 		return fmt.Errorf("delete registry key %s: %w", propertyKey, err)
 	}
 	return nil
@@ -514,8 +597,11 @@ func (r *registryConfigurator) getInterfaceRegistryKey() (registry.Key, error) {
 }
 
 func (r *registryConfigurator) restoreHostDNS() error {
+	// Propagated, unlike in applyDNSConfig: there we are about to write fresh
+	// rules over whatever survived, here we are leaving, and a rule left behind
+	// keeps sending every query to an address that is about to disappear.
 	if err := r.removeDNSMatchPolicies(); err != nil {
-		log.Errorf("remove dns match policies: %s", err)
+		return fmt.Errorf("remove dns match policies: %w", err)
 	}
 
 	if err := r.deleteInterfaceRegistryKeyProperty(interfaceConfigSearchListKey); err != nil {
@@ -524,7 +610,12 @@ func (r *registryConfigurator) restoreHostDNS() error {
 
 	go r.flushDNSCache()
 
-	return nil
+	// Last, and only on the way out, once no rule of ours is left: during a
+	// session the store is where the rules of this run live, and emptying it
+	// mid-session would have the next rule recreate it anyway. Propagated so a
+	// failure keeps the shutdown state for the next run to retry, rather than
+	// leaving the store to hold up every rule change from here on.
+	return removeEmptyGPOPolicyStore()
 }
 
 // removeDNSMatchPolicies deletes every NRPT rule this client may have created,
@@ -563,6 +654,73 @@ func (r *registryConfigurator) restoreUncleanShutdownDNS() error {
 	return r.restoreHostDNS()
 }
 
+// useGPOPolicyStore reports whether NRPT rules have to go into the group policy
+// store, and clears an empty one out of the way first.
+//
+// The order is the point. A store left empty by an earlier run would otherwise
+// decide this run too, sending its rules somewhere the resolver only reads when
+// the policy engine next applies DNS client policy. Removing it before the
+// choice is made leaves the local store authoritative for the whole session,
+// including the first one after an upgrade.
+func useGPOPolicyStore() bool {
+	if err := removeEmptyGPOPolicyStore(); err != nil {
+		// Nothing to retry against here: the worst case is the run going
+		// through the group policy store, which is where it would have gone
+		// before this check existed.
+		log.Warnf("%v", err)
+	}
+
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, GPODNSPolicyConfigRoot, registry.QUERY_VALUE)
+	if err != nil {
+		log.Debugf("failed to open GPO DNS policy root: %v", err)
+		return false
+	}
+	closer(k)
+
+	log.Infof("detected GPO DNS policy configuration, using policy store")
+	return true
+}
+
+// removeEmptyGPOPolicyStore deletes the group policy DnsPolicyConfig key once
+// nothing is left in it. The key survives the deletion of the last rule it
+// held, and the client treats its presence as "group policy configures the
+// NRPT", so an empty one left behind keeps every later run writing rules there.
+// Rules in that store reach the resolver only when the policy engine next
+// applies DNS client policy, and a rule this client writes belongs to no GPO,
+// so nothing schedules that application: both adding and removing a rule are
+// held up by a minute or more, and for a removal that is a catch-all rule
+// resolving every name over an interface that no longer exists. With the store
+// absent the local one is authoritative and a change applies at once.
+//
+// A store that still holds rules, values or subkeys of somebody else's is left
+// alone.
+func removeEmptyGPOPolicyStore() error {
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, GPODNSPolicyConfigRoot, registry.QUERY_VALUE)
+	switch {
+	case errors.Is(err, registry.ErrNotExist), errors.Is(err, syscall.ERROR_PATH_NOT_FOUND):
+		return nil
+	case err != nil:
+		return fmt.Errorf("open HKEY_LOCAL_MACHINE\\%s: %w", GPODNSPolicyConfigRoot, err)
+	}
+
+	info, err := k.Stat()
+	closer(k)
+	if err != nil {
+		return fmt.Errorf("stat HKEY_LOCAL_MACHINE\\%s: %w", GPODNSPolicyConfigRoot, err)
+	}
+
+	if info.SubKeyCount != 0 || info.ValueCount != 0 {
+		return nil
+	}
+
+	if err := registry.DeleteKey(registry.LOCAL_MACHINE, GPODNSPolicyConfigRoot); err != nil {
+		return fmt.Errorf("delete empty HKEY_LOCAL_MACHINE\\%s: %w", GPODNSPolicyConfigRoot, err)
+	}
+
+	log.Infof("removed the empty GPO DNS policy store, leaving the local one authoritative")
+	return nil
+}
+
 // listNRPTRuleKeys returns the names of our NRPT rule keys under a policy store
 // root. An absent root holds nothing to clean up, which is the normal state of
 // the GPO store on a machine without DNS Client policy.
@@ -598,9 +756,17 @@ func listNRPTRuleKeys(root string) ([]string, error) {
 
 func removeRegistryKeyFromDNSPolicyConfig(regKeyPath string) error {
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, regKeyPath, registry.QUERY_VALUE)
-	if err != nil {
-		log.Debugf("failed to open HKEY_LOCAL_MACHINE\\%s: %v", regKeyPath, err)
+	switch {
+	case errors.Is(err, registry.ErrNotExist), errors.Is(err, syscall.ERROR_PATH_NOT_FOUND):
+		// nothing to remove, which is the normal case for a rule this config
+		// never installed
+		log.Debugf("HKEY_LOCAL_MACHINE\\%s does not exist", regKeyPath)
 		return nil
+	case err != nil:
+		// anything else has to reach the caller: reporting success here would
+		// leave the rule in force while claiming it was removed, which is how a
+		// stale rule outlives the interface it points at
+		return fmt.Errorf("open HKEY_LOCAL_MACHINE\\%s: %w", regKeyPath, err)
 	}
 
 	closer(k)
@@ -634,6 +800,20 @@ func refreshGroupPolicy() error {
 	}
 
 	return nil
+}
+
+func parseBoolEnv(key string) bool {
+	val := os.Getenv(key)
+	if val == "" {
+		return false
+	}
+
+	parsed, err := strconv.ParseBool(val)
+	if err != nil {
+		log.Warnf("failed to parse %s=%q: %v", key, val, err)
+		return false
+	}
+	return parsed
 }
 
 func closer(closer io.Closer) {

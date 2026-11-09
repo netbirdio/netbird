@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -87,9 +87,9 @@ func TestSetupOwner_PATFeatureEnabled_MissingExpireDefaultsToOneDay(t *testing.T
 			},
 		},
 		&mock_server.MockAccountManager{
-			GetAccountIDByUserIdFunc: func(_ context.Context, userAuth auth.UserAuth) (string, error) {
+			GetAccountIDFromUserAuthFunc: func(_ context.Context, userAuth auth.UserAuth) (string, string, error) {
 				assert.Equal(t, "owner-id", userAuth.UserId)
-				return "acc-1", nil
+				return "acc-1", "owner-id", nil
 			},
 			CreatePATFunc: func(_ context.Context, accountID, initiatorUserID, targetUserID, tokenName string, expiresIn int) (*types.PersonalAccessTokenGenerated, error) {
 				assert.Equal(t, "acc-1", accountID)
@@ -147,7 +147,7 @@ func TestSetupOwner_AccountProvisioningFails_RollsBackSideEffectAccountAndUser(t
 
 	ctrl := gomock.NewController(t)
 	accountStore := nbstore.NewMockStore(ctrl)
-	account := &types.Account{Id: "acc-1"}
+	account := &types.Account{Id: "acc-1", CreatedBy: "owner-id"}
 	accountStore.EXPECT().GetAccountIDByUserID(gomock.Any(), nbstore.LockingStrengthNone, "owner-id").Return("acc-1", nil)
 	accountStore.EXPECT().GetAccount(gomock.Any(), "acc-1").Return(account, nil)
 	accountStore.EXPECT().DeleteAccount(gomock.Any(), account).Return(nil)
@@ -163,9 +163,9 @@ func TestSetupOwner_AccountProvisioningFails_RollsBackSideEffectAccountAndUser(t
 			},
 		},
 		&mock_server.MockAccountManager{
-			GetAccountIDByUserIdFunc: func(_ context.Context, userAuth auth.UserAuth) (string, error) {
+			GetAccountIDFromUserAuthFunc: func(_ context.Context, userAuth auth.UserAuth) (string, string, error) {
 				assert.Equal(t, "owner-id", userAuth.UserId)
-				return "", errors.New("metadata update failed")
+				return "", "", errors.New("metadata update failed")
 			},
 			GetStoreFunc: func() nbstore.Store {
 				return accountStore
@@ -190,7 +190,7 @@ func TestSetupOwner_CreatePATFails_RollsBackSetupAccountAndUser(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	accountStore := nbstore.NewMockStore(ctrl)
-	account := &types.Account{Id: "acc-1"}
+	account := &types.Account{Id: "acc-1", CreatedBy: "owner-id"}
 	accountStore.EXPECT().GetAccount(gomock.Any(), "acc-1").Return(account, nil)
 	accountStore.EXPECT().DeleteAccount(gomock.Any(), account).Return(nil)
 
@@ -204,9 +204,9 @@ func TestSetupOwner_CreatePATFails_RollsBackSetupAccountAndUser(t *testing.T) {
 			},
 		},
 		&mock_server.MockAccountManager{
-			GetAccountIDByUserIdFunc: func(_ context.Context, userAuth auth.UserAuth) (string, error) {
+			GetAccountIDFromUserAuthFunc: func(_ context.Context, userAuth auth.UserAuth) (string, string, error) {
 				assert.Equal(t, "owner-id", userAuth.UserId)
-				return "acc-1", nil
+				return "acc-1", "owner-id", nil
 			},
 			CreatePATFunc: func(_ context.Context, accountID, initiatorUserID, targetUserID, tokenName string, expiresIn int) (*types.PersonalAccessTokenGenerated, error) {
 				assert.Equal(t, "acc-1", accountID)
@@ -233,6 +233,59 @@ func TestSetupOwner_CreatePATFails_RollsBackSetupAccountAndUser(t *testing.T) {
 	assert.Equal(t, 1, rollbackCalls)
 }
 
+// A concurrent first login can make the setup account shared: either a JIT user
+// created the primary account first and the owner joined it, or a JIT user joined
+// the setup account. A PAT failure must not delete an account other users rely on.
+// DeleteAccount is not expected, so the mock store fails the test if it is called.
+func TestSetupOwner_CreatePATFails_KeepsSharedAccount(t *testing.T) {
+	tests := map[string]*types.Account{
+		"created by another user": {Id: "acc-1", CreatedBy: "jit-user"},
+		"another user joined": {Id: "acc-1", CreatedBy: "owner-id", Users: map[string]*types.User{
+			"owner-id": {Id: "owner-id"},
+			"jit-user": {Id: "jit-user"},
+		}},
+	}
+
+	for name, account := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(SetupPATEnabledEnvKey, "true")
+
+			ctrl := gomock.NewController(t)
+			accountStore := nbstore.NewMockStore(ctrl)
+			accountStore.EXPECT().GetAccount(gomock.Any(), "acc-1").Return(account, nil)
+
+			rollbackCalls := 0
+			setupManager := NewSetupService(
+				&setupInstanceManagerMock{
+					rollbackSetupFn: func(_ context.Context, _ string) error {
+						rollbackCalls++
+						return nil
+					},
+				},
+				&mock_server.MockAccountManager{
+					GetAccountIDFromUserAuthFunc: func(_ context.Context, _ auth.UserAuth) (string, string, error) {
+						return "acc-1", "owner-id", nil
+					},
+					CreatePATFunc: func(_ context.Context, _, _, _, _ string, _ int) (*types.PersonalAccessTokenGenerated, error) {
+						return nil, status.Errorf(status.PermissionDenied, "user is blocked")
+					},
+					GetStoreFunc: func() nbstore.Store {
+						return accountStore
+					},
+				},
+			)
+
+			_, err := setupManager.SetupOwner(context.Background(), "admin@example.com", "securepassword123", "Admin", SetupOptions{
+				CreatePAT:       true,
+				PATExpireInDays: intPtr(30),
+			})
+
+			require.Error(t, err)
+			assert.Equal(t, 1, rollbackCalls, "setup user should still be rolled back")
+		})
+	}
+}
+
 func TestSetupOwner_CreatePATFails_AccountAlreadyGoneStillRollsBackUser(t *testing.T) {
 	t.Setenv(SetupPATEnabledEnvKey, "true")
 
@@ -251,8 +304,8 @@ func TestSetupOwner_CreatePATFails_AccountAlreadyGoneStillRollsBackUser(t *testi
 			},
 		},
 		&mock_server.MockAccountManager{
-			GetAccountIDByUserIdFunc: func(_ context.Context, _ auth.UserAuth) (string, error) {
-				return "acc-1", nil
+			GetAccountIDFromUserAuthFunc: func(_ context.Context, _ auth.UserAuth) (string, string, error) {
+				return "acc-1", "owner-id", nil
 			},
 			CreatePATFunc: func(_ context.Context, _, _, _, _ string, _ int) (*types.PersonalAccessTokenGenerated, error) {
 				return nil, errors.New("token failure")
@@ -280,7 +333,7 @@ func TestSetupOwner_CreatePATFails_AccountRollbackFailureStopsBeforeUserRollback
 
 	ctrl := gomock.NewController(t)
 	accountStore := nbstore.NewMockStore(ctrl)
-	account := &types.Account{Id: "acc-1"}
+	account := &types.Account{Id: "acc-1", CreatedBy: "owner-id"}
 	accountStore.EXPECT().GetAccount(gomock.Any(), "acc-1").Return(account, nil)
 	accountStore.EXPECT().DeleteAccount(gomock.Any(), account).Return(errors.New("delete failed"))
 
@@ -293,8 +346,8 @@ func TestSetupOwner_CreatePATFails_AccountRollbackFailureStopsBeforeUserRollback
 			},
 		},
 		&mock_server.MockAccountManager{
-			GetAccountIDByUserIdFunc: func(_ context.Context, _ auth.UserAuth) (string, error) {
-				return "acc-1", nil
+			GetAccountIDFromUserAuthFunc: func(_ context.Context, _ auth.UserAuth) (string, string, error) {
+				return "acc-1", "owner-id", nil
 			},
 			CreatePATFunc: func(_ context.Context, _, _, _, _ string, _ int) (*types.PersonalAccessTokenGenerated, error) {
 				return nil, errors.New("token failure")

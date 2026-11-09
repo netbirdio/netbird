@@ -21,8 +21,7 @@ import (
 	"google.golang.org/grpc/connectivity"
 
 	nbgrpc "github.com/netbirdio/netbird/client/grpc"
-	"github.com/netbirdio/netbird/client/netstate"
-	"github.com/netbirdio/netbird/client/netsweep"
+	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -64,12 +63,9 @@ type GrpcClient struct {
 	connStateCallbackLock sync.RWMutex
 	serverURL             string
 
-	// netState gates the stream retry loop on OS-reported network
-	// availability; nil (the default) disables gating.
-	netState *netstate.State
-
-	// sweeper cuts the transport connections on network change; nil disables it.
-	sweeper *netsweep.Sweeper
+	// netMgr gates the stream retry loop on OS-reported network
+	// availability and sweeps the transport on network change.
+	netMgr *netevents.Manager
 
 	// syncStreamErr holds the last Sync stream error, or nil while the stream
 	// is established and healthy. GetServerKey succeeds even when the peer
@@ -123,15 +119,9 @@ func MaxRecvMsgSize() int {
 // Option configures optional GrpcClient behavior.
 type Option func(*GrpcClient)
 
-// WithNetworkState injects the OS network availability state that gates the
-// stream retry loop; without it gating is disabled.
-func WithNetworkState(netState *netstate.State) Option {
-	return func(c *GrpcClient) { c.netState = netState }
-}
-
-// WithSweeper injects the network change sweeper.
-func WithSweeper(sweeper *netsweep.Sweeper) Option {
-	return func(c *GrpcClient) { c.sweeper = sweeper }
+// WithNetEvents injects the OS network event handling.
+func WithNetEvents(events *netevents.Manager) Option {
+	return func(c *GrpcClient) { c.netMgr = events }
 }
 
 // NewClient creates a new client to Management service
@@ -152,8 +142,8 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		extraOpts = append(extraOpts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxSize)))
 		log.Infof("management gRPC max receive message size set to %d bytes", maxSize)
 	}
-	if c.sweeper != nil {
-		extraOpts = append(extraOpts, nbgrpc.WithSweeper(c.sweeper))
+	if c.netMgr != nil {
+		extraOpts = append(extraOpts, nbgrpc.WithSweeper(c.netMgr))
 	}
 
 	var conn *grpc.ClientConn
@@ -215,9 +205,9 @@ func (c *GrpcClient) ready() bool {
 
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
-func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
+func (c *GrpcClient) Sync(ctx context.Context, getInfo func(ctx context.Context) *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
 	return c.withMgmtStream(ctx, func(ctx context.Context, serverPubKey wgtypes.Key, backOff backoff.BackOff) error {
-		return c.handleSyncStream(ctx, serverPubKey, sysInfo, msgHandler, backOff)
+		return c.handleSyncStream(ctx, serverPubKey, getInfo, msgHandler, backOff)
 	})
 }
 
@@ -235,16 +225,19 @@ func (c *GrpcClient) withMgmtStream(
 	ctx context.Context,
 	handler func(ctx context.Context, serverPubKey wgtypes.Key, backOff backoff.BackOff) error,
 ) error {
-	backOff := c.sweeper.QuickRetryBackoff(ctx, defaultBackoff(ctx), c.netState)
+	backOff := c.netMgr.QuickRetryBackoff(ctx, defaultBackoff(ctx))
 	operation := func() error {
 		// suspend reconnect attempts while the OS reports no usable network.
 		// Wait only errors on a cancelled context, which means shutdown, so
 		// stop the loop without reporting a failure.
-		if waited, err := c.netState.Wait(ctx); err != nil {
+		if waited, err := c.netMgr.Wait(ctx); err != nil {
 			log.Debugf("management connection context has been canceled while offline, this usually indicates shutdown")
 			return nil //nolint:nilerr // a cancelled context means shutdown, not a retryable failure
 		} else if waited {
 			backOff.Reset()
+			// dials attempted while offline grew the channel's internal backoff;
+			// reset it too, or the reconnect waits out that timer first
+			c.conn.ResetConnectBackoff()
 		}
 
 		connState := c.conn.GetState()
@@ -273,7 +266,7 @@ func (c *GrpcClient) withMgmtStream(
 		return handler(ctx, *serverPubKey, backOff)
 	}
 
-	err := nbgrpc.Retry(ctx, operation, backOff, c.netState)
+	err := nbgrpc.Retry(ctx, operation, backOff, c.netMgr)
 	if err != nil {
 		log.Warnf("exiting the Management service connection retry loop due to the unrecoverable error: %s", err)
 	}
@@ -431,11 +424,11 @@ func (c *GrpcClient) sendJobResponse(
 	return nil
 }
 
-func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error, backOff backoff.BackOff) error {
+func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.Key, getInfo func(ctx context.Context) *system.Info, msgHandler func(msg *proto.SyncResponse) error, backOff backoff.BackOff) error {
 	ctx, cancelStream := context.WithCancel(ctx)
 	defer cancelStream()
 
-	stream, err := c.connectToSyncStream(ctx, serverPubKey, sysInfo)
+	stream, err := c.connectToSyncStream(ctx, serverPubKey, getInfo(ctx))
 	if err != nil {
 		log.Debugf("failed to open Management Service stream: %s", err)
 		c.notifyDisconnected(err)
@@ -591,7 +584,7 @@ func (c *GrpcClient) IsHealthy() bool {
 
 func (c *GrpcClient) login(req *proto.LoginRequest) (*proto.LoginResponse, error) {
 	if !c.ready() {
-		return nil, errors.New(errMsgNoMgmtConnection)
+		return nil, gstatus.Error(codes.Unavailable, errMsgNoMgmtConnection)
 	}
 
 	serverKey, err := c.getServerPublicKey()
@@ -628,7 +621,13 @@ func (c *GrpcClient) login(req *proto.LoginRequest) (*proto.LoginResponse, error
 
 	err = backoff.Retry(operation, nbgrpc.Backoff(c.ctx))
 	if err != nil {
-		log.Errorf("failed to login to Management Service: %v", err)
+		// PermissionDenied is how management asks an unknown peer to register,
+		// which the caller does next, so it is not an error worth reporting.
+		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
+			log.Debugf("login to Management Service refused: %v", err)
+		} else {
+			log.Errorf("failed to login to Management Service: %v", err)
+		}
 		return nil, err
 	}
 
@@ -745,9 +744,13 @@ func (c *GrpcClient) GetDeviceAuthorizationFlow() (*proto.DeviceAuthorizationFlo
 	return flowInfoResp, nil
 }
 
-// GetPKCEAuthorizationFlow returns a pkce authorization flow information.
+// GetPKCEAuthorizationFlow returns the PKCE authorization flow information.
 // It also takes care of encrypting and decrypting messages.
-func (c *GrpcClient) GetPKCEAuthorizationFlow() (*proto.PKCEAuthorizationFlow, error) {
+//
+// sessionExtend tells the server the flow will renew an existing peer's session
+// rather than log one in, so it can rule out a configuration that would let the
+// IdP answer from an unrelated account. See PKCEAuthorizationFlowRequest.
+func (c *GrpcClient) GetPKCEAuthorizationFlow(sessionExtend bool) (*proto.PKCEAuthorizationFlow, error) {
 	if !c.ready() {
 		return nil, fmt.Errorf("no connection to management in order to get pkce authorization flow")
 	}
@@ -760,7 +763,7 @@ func (c *GrpcClient) GetPKCEAuthorizationFlow() (*proto.PKCEAuthorizationFlow, e
 	mgmCtx, cancel := context.WithTimeout(c.ctx, time.Second*2)
 	defer cancel()
 
-	message := &proto.PKCEAuthorizationFlowRequest{}
+	message := &proto.PKCEAuthorizationFlowRequest{SessionExtend: sessionExtend}
 	encryptedMSG, err := encryption.EncryptMessage(*serverKey, c.key, message)
 	if err != nil {
 		return nil, err
@@ -1021,6 +1024,19 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 		})
 	}
 
+	proofs := make([]*proto.CertificateProof, 0, len(info.CertificateProofs))
+	for _, p := range info.CertificateProofs {
+		proofs = append(proofs, &proto.CertificateProof{
+			Nonce:     p.Nonce,
+			Chain:     p.Chain,
+			SigAlg:    p.SigAlg,
+			Signature: p.Signature,
+		})
+	}
+	if len(proofs) > 0 {
+		log.Debugf("peer meta carries %d certificate posture proofs", len(proofs))
+	}
+
 	return &proto.PeerSystemMeta{
 		Hostname:         info.Hostname,
 		GoOS:             info.GoOS,
@@ -1040,12 +1056,14 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			Cloud:    info.Environment.Cloud,
 			Platform: info.Environment.Platform,
 		},
-		Files: files,
+		Files:             files,
+		CertificateProofs: proofs,
 
 		Flags: &proto.Flags{
 			RosenpassEnabled:    info.RosenpassEnabled,
 			RosenpassPermissive: info.RosenpassPermissive,
 			ServerSSHAllowed:    info.ServerSSHAllowed,
+			RemoteJobsAllowed:   info.RemoteJobsAllowed,
 
 			DisableClientRoutes: info.DisableClientRoutes,
 			DisableServerRoutes: info.DisableServerRoutes,

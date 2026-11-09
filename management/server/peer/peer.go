@@ -2,6 +2,7 @@ package peer
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net"
 	"net/netip"
@@ -13,14 +14,14 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/shared/management/http/api"
-	sharedTypes "github.com/netbirdio/netbird/shared/management/types"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 // Peer capability constants mirror the proto enum values.
 const (
-	PeerCapabilitySourcePrefixes      int32 = 1
-	PeerCapabilityIPv6Overlay         int32 = 2
-	PeerCapabilityComponentNetworkMap int32 = 3
+	PeerCapabilitySourcePrefixes      = nmdata.PeerCapabilitySourcePrefixes
+	PeerCapabilityIPv6Overlay         = nmdata.PeerCapabilityIPv6Overlay
+	PeerCapabilityComponentNetworkMap = nmdata.PeerCapabilityComponentNetworkMap
 )
 
 // Peer represents a machine connected to the network.
@@ -80,25 +81,38 @@ type ProxyMeta struct {
 }
 
 type PeerStatus struct { //nolint:revive
-	// LastSeen is the last time the peer status was updated (i.e. the last
-	// time we observed the peer being alive on a sync stream). Written by
-	// the database (CURRENT_TIMESTAMP) — callers do not supply it.
-	LastSeen time.Time
-	// SessionStartedAt records when the currently-active sync stream began,
-	// stored as Unix nanoseconds. It acts as the optimistic-locking token
-	// for status updates: a stream is only allowed to mutate the peer's
-	// status when its own token strictly exceeds the stored token (when connecting)
-	// or matches it exactly (for disconnects). Zero means "no
-	// active session". Integer nanoseconds are used so equality is
-	// precision-safe across drivers, and so the predicates compose to a
-	// single bigint comparison.
-	SessionStartedAt int64 `gorm:"not null;default:0"`
-	// Connected indicates whether peer is connected to the management service or not
-	Connected bool
+	// LastSeen is the last time the peer was observed alive: the later of the peer's own
+	// connection record and the heartbeat of the instance holding its connection. It is
+	// derived from the connection record; the peer_status_last_seen column is deprecated
+	// and neither read nor written.
+	LastSeen time.Time `gorm:"-"`
+	// SessionStartedAt is the fencing token of the latest sync stream that held the peer's
+	// connection, in Unix nanoseconds, zero when none did. It is derived from the
+	// connection record; the peer_status_session_started_at column is deprecated and
+	// neither read nor written.
+	SessionStartedAt int64 `gorm:"-"`
+	// Connected indicates whether peer is connected to the management service or not.
+	// It is derived from the connection record; the peer_status_connected column is
+	// deprecated and neither read nor written.
+	Connected bool `gorm:"-"`
 	// LoginExpired
 	LoginExpired bool
 	// RequiresApproval indicates whether peer requires approval or not
 	RequiresApproval bool
+}
+
+// ApplyConnection derives Connected, LastSeen and SessionStartedAt from the peer's
+// connection record: its session token, its own LastSeen, and the LastSeen of the instance
+// holding the connection. Each is invalid when the record, or the instance, is missing. A
+// peer is connected only while an instance that heartbeated within InstanceStaleAfter
+// holds it. LastSeen is the later of the record's and the instance's.
+func (s *PeerStatus) ApplyConnection(session sql.NullInt64, lastSeen, instanceLastSeen sql.NullTime) {
+	s.SessionStartedAt = session.Int64
+	s.LastSeen = lastSeen.Time
+	s.Connected = instanceLastSeen.Valid && time.Since(instanceLastSeen.Time) < InstanceStaleAfter
+	if instanceLastSeen.Valid && instanceLastSeen.Time.After(s.LastSeen) {
+		s.LastSeen = instanceLastSeen.Time
+	}
 }
 
 // Location is a geo location information of a Peer based on public connection IP
@@ -142,6 +156,7 @@ type Flags struct {
 	RosenpassEnabled    bool
 	RosenpassPermissive bool
 	ServerSSHAllowed    bool
+	RemoteJobsAllowed   bool
 
 	DisableClientRoutes bool
 	DisableServerRoutes bool
@@ -173,6 +188,7 @@ type PeerSystemMeta struct { //nolint:revive
 	Environment        Environment `gorm:"serializer:json"`
 	Flags              Flags       `gorm:"serializer:json"`
 	Files              []File      `gorm:"serializer:json"`
+	Certificates       []string    `gorm:"serializer:json"`
 	Capabilities       []int32     `gorm:"serializer:json"`
 	SyncMessageVersion int
 }
@@ -198,41 +214,13 @@ func (p PeerSystemMeta) isEmpty() bool {
 		p.SystemManufacturer == "" &&
 		p.Environment.Cloud == "" &&
 		p.Environment.Platform == "" &&
-		len(p.Files) == 0
+		len(p.Files) == 0 &&
+		len(p.Certificates) == 0
 }
 
 // AddedWithSSOLogin indicates whether this peer has been added with an SSO login by a user.
 func (p *Peer) AddedWithSSOLogin() bool {
 	return p.UserID != ""
-}
-
-// ToComponent converts the peer to its self-contained components
-// representation, carrying exactly the subset of peer data that crosses the
-// components wire format. Returns nil for a nil peer so callers can convert
-// possibly-missing peers without guarding.
-func (p *Peer) ToComponent() *sharedTypes.ComponentPeer {
-	if p == nil {
-		return nil
-	}
-	cp := &sharedTypes.ComponentPeer{
-		ID:                     p.ID,
-		Key:                    p.Key,
-		IP:                     p.IP,
-		IPv6:                   p.IPv6,
-		DNSLabel:               p.DNSLabel,
-		SSHKey:                 p.SSHKey,
-		SSHEnabled:             p.SSHEnabled,
-		ServerSSHAllowed:       p.Meta.Flags.ServerSSHAllowed,
-		AgentVersion:           p.Meta.WtVersion,
-		SupportsSourcePrefixes: p.SupportsSourcePrefixes(),
-		SupportsIPv6:           p.SupportsIPv6(),
-		LoginExpirationEnabled: p.LoginExpirationEnabled,
-		AddedWithSSOLogin:      p.AddedWithSSOLogin(),
-	}
-	if p.LastLogin != nil {
-		cp.LastLogin = *p.LastLogin
-	}
-	return cp
 }
 
 // HasCapability reports whether the peer has the given capability.
@@ -446,6 +434,9 @@ func diffMeta(oldMeta, newMeta PeerSystemMeta, oldLocation, newLocation Location
 	if !sameMultiset(oldMeta.Files, newMeta.Files) {
 		add("files", fmt.Sprintf("%v", oldMeta.Files), fmt.Sprintf("%v", newMeta.Files))
 	}
+	if !sameMultiset(oldMeta.Certificates, newMeta.Certificates) {
+		add("certificates", len(oldMeta.Certificates), len(newMeta.Certificates))
+	}
 	if oldMeta.SyncMessageVersion != newMeta.SyncMessageVersion {
 		add("sync_meta_version", fmt.Sprintf("%d", oldMeta.SyncMessageVersion), fmt.Sprintf("%d", newMeta.SyncMessageVersion))
 	}
@@ -563,10 +554,7 @@ func (p *Peer) EventMeta(dnsDomain string) map[string]any {
 	return meta
 }
 
-// Copy PeerStatus. SessionStartedAt must be propagated so clone-based
-// callers (Peer.Copy, MarkLoginExpired, UpdateLastLogin) don't silently
-// reset the fencing token to zero — that would let any subsequent
-// SavePeerStatus write reopen the optimistic-lock window.
+// Copy returns a copy of the PeerStatus.
 func (p *PeerStatus) Copy() *PeerStatus {
 	return &PeerStatus{
 		LastSeen:         p.LastSeen,
@@ -602,6 +590,7 @@ func (f Flags) isEqual(other Flags) bool {
 	return f.RosenpassEnabled == other.RosenpassEnabled &&
 		f.RosenpassPermissive == other.RosenpassPermissive &&
 		f.ServerSSHAllowed == other.ServerSSHAllowed &&
+		f.RemoteJobsAllowed == other.RemoteJobsAllowed &&
 		f.DisableClientRoutes == other.DisableClientRoutes &&
 		f.DisableServerRoutes == other.DisableServerRoutes &&
 		f.DisableDNS == other.DisableDNS &&

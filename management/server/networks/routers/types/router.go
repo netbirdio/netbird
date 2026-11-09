@@ -6,8 +6,8 @@ import (
 	"github.com/rs/xid"
 
 	"github.com/netbirdio/netbird/management/server/networks/types"
+	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/shared/management/http/api"
-	sharedTypes "github.com/netbirdio/netbird/shared/management/types"
 )
 
 type NetworkRouter struct {
@@ -22,37 +22,7 @@ type NetworkRouter struct {
 	Enabled    bool
 }
 
-// ToComponent converts the router to its self-contained components
-// representation. Returns nil for a nil router.
-func (n *NetworkRouter) ToComponent() *sharedTypes.ComponentRouter {
-	if n == nil {
-		return nil
-	}
-	return &sharedTypes.ComponentRouter{
-		NetworkID:  n.NetworkID,
-		PublicID:   n.PublicID,
-		Peer:       n.Peer,
-		PeerGroups: n.PeerGroups,
-		Masquerade: n.Masquerade,
-		Metric:     n.Metric,
-		Enabled:    n.Enabled,
-	}
-}
-
-// ToComponentMap converts a peer-keyed router map to its components
-// representation.
-func ToComponentMap(routers map[string]*NetworkRouter) map[string]*sharedTypes.ComponentRouter {
-	if routers == nil {
-		return nil
-	}
-	out := make(map[string]*sharedTypes.ComponentRouter, len(routers))
-	for id, r := range routers {
-		out[id] = r.ToComponent()
-	}
-	return out
-}
-
-func NewNetworkRouter(accountID string, networkID string, peer string, peerGroups []string, masquerade bool, metric int, enabled bool) (*NetworkRouter, error) {
+func NewNetworkRouter(accountID, networkID, peer string, peerGroups []string, masquerade bool, metric int, enabled bool) (*NetworkRouter, error) {
 	r := &NetworkRouter{
 		ID:         xid.New().String(),
 		AccountID:  accountID,
@@ -120,6 +90,21 @@ func (n *NetworkRouter) Copy() *NetworkRouter {
 		Metric:     n.Metric,
 		Enabled:    n.Enabled,
 	}
+}
+
+func (n *NetworkRouter) Equal(other *NetworkRouter) bool {
+	if n == nil || other == nil {
+		return n == other
+	}
+
+	return n.ID == other.ID &&
+		n.NetworkID == other.NetworkID &&
+		n.AccountID == other.AccountID &&
+		n.Peer == other.Peer &&
+		n.Masquerade == other.Masquerade &&
+		n.Metric == other.Metric &&
+		n.Enabled == other.Enabled &&
+		util.ElementsMatch(n.PeerGroups, other.PeerGroups)
 }
 
 func (n *NetworkRouter) EventMeta(network *types.Network) map[string]any {

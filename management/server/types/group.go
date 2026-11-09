@@ -1,7 +1,9 @@
 package types
 
 import (
-	"github.com/netbirdio/netbird/management/server/integration_reference"
+	"github.com/netbirdio/netbird/management/server/util"
+	"github.com/netbirdio/netbird/shared/management/integration_reference"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 const (
@@ -39,7 +41,7 @@ type Group struct {
 type GroupPeer struct {
 	AccountID string `gorm:"index"`
 	GroupID   string `gorm:"primaryKey"`
-	PeerID    string `gorm:"primaryKey"`
+	PeerID    string `gorm:"primaryKey;index:idx_group_peers_peer_id,option:CONCURRENTLY"`
 }
 
 func (g *Group) LoadGroupPeers() {
@@ -67,6 +69,10 @@ func (g *Group) EventMeta() map[string]any {
 	return map[string]any{"name": g.Name}
 }
 
+func (g *Group) EventMetaResource(resource *nmdata.NetworkResource) map[string]any {
+	return map[string]any{"name": g.Name, "id": g.ID, "resource_name": resource.Name, "resource_id": resource.ID, "resource_type": resource.Type}
+}
+
 func (g *Group) Copy() *Group {
 	group := &Group{
 		ID:                   g.ID,
@@ -85,42 +91,31 @@ func (g *Group) Copy() *Group {
 	return group
 }
 
+func (g *Group) Equal(other *Group) bool {
+	if g == nil || other == nil {
+		return g == other
+	}
+
+	return g.ID == other.ID &&
+		g.AccountID == other.AccountID &&
+		g.Name == other.Name &&
+		g.Issued == other.Issued &&
+		g.IntegrationReference == other.IntegrationReference &&
+		util.ElementsMatch(g.Peers, other.Peers) &&
+		util.ElementsMatch(g.Resources, other.Resources)
+}
+
 // HasPeers checks if the group has any peers.
 func (g *Group) HasPeers() bool {
 	return len(g.Peers) > 0
 }
 
+// GroupAllName is the reserved name of the default group that contains every peer in an account.
+const GroupAllName = "All"
+
 // IsGroupAll checks if the group is a default "All" group.
 func (g *Group) IsGroupAll() bool {
 	return g.Name == GroupAllName
-}
-
-// ToComponent converts the group to its self-contained components
-// representation. The Peers slice is shared, not copied — components are
-// treated as immutable snapshots. Returns nil for a nil group.
-func (g *Group) ToComponent() *ComponentGroup {
-	if g == nil {
-		return nil
-	}
-	return &ComponentGroup{
-		ID:       g.ID,
-		PublicID: g.PublicID,
-		Name:     g.Name,
-		Peers:    g.Peers,
-	}
-}
-
-// GroupsToComponent converts an id-keyed group map to its components
-// representation, preserving nil entries.
-func GroupsToComponent(groups map[string]*Group) map[string]*ComponentGroup {
-	if groups == nil {
-		return nil
-	}
-	out := make(map[string]*ComponentGroup, len(groups))
-	for id, g := range groups {
-		out[id] = g.ToComponent()
-	}
-	return out
 }
 
 // AddPeer adds peerID to Peers if not present, returning true if added.

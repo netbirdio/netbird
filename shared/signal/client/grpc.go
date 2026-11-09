@@ -19,8 +19,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	nbgrpc "github.com/netbirdio/netbird/client/grpc"
-	"github.com/netbirdio/netbird/client/netstate"
-	"github.com/netbirdio/netbird/client/netsweep"
+	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/signal/proto"
@@ -39,6 +38,15 @@ const (
 	receiveProbeTimeout = 10 * time.Second
 	// receiveWatchdogInterval is how often the watchdog evaluates the stream.
 	receiveWatchdogInterval = 10 * time.Second
+	// defaultRegistrationTimeout bounds the wait for a new stream's registration header.
+	defaultRegistrationTimeout = 10 * time.Second
+	// defaultRegistrationProbeInterval is how often a new stream sends a
+	// self-addressed heartbeat while it waits for its registration header.
+	// Proxies such as AWS ALB withhold gRPC response headers until the first
+	// message. The heartbeat is repeated because one that reaches the server
+	// before the stream is registered is dropped, and spaced so a stream that
+	// waits out defaultRegistrationTimeout sends at most three.
+	defaultRegistrationProbeInterval = 3 * time.Second
 )
 
 // errReceiveStreamStalled is reported when the receive stream is transport-alive
@@ -54,6 +62,7 @@ type ConnStateNotifier interface {
 // GrpcClient Wraps the Signal Exchange Service gRpc client
 type GrpcClient struct {
 	key        wgtypes.Key
+	sharedKeys *encryption.SharedKeyCache
 	realClient proto.SignalExchangeClient
 	signalConn *grpc.ClientConn
 	ctx        context.Context
@@ -67,12 +76,9 @@ type GrpcClient struct {
 	connStateCallback     ConnStateNotifier
 	connStateCallbackLock sync.RWMutex
 
-	// netState gates the Receive retry loop on OS-reported network
-	// availability; nil (the default) disables gating.
-	netState *netstate.State
-
-	// sweeper cuts the transport connections on network change; nil disables it.
-	sweeper *netsweep.Sweeper
+	// netMgr gates the Receive retry loop on OS-reported network
+	// availability and sweeps the transport on network change.
+	netMgr *netevents.Manager
 
 	onReconnectedListenerFn func()
 
@@ -95,39 +101,39 @@ type GrpcClient struct {
 	// new stream feeds the same worker, and only triggers a reconnect storm.
 	receiveHandoffBlocked atomic.Bool
 	watchdogWg            sync.WaitGroup
+
+	registrationTimeout       time.Duration
+	registrationProbeInterval time.Duration
 }
 
 // Option configures optional GrpcClient behavior.
 type Option func(*GrpcClient)
 
-// WithNetworkState injects the OS network availability state that gates the
-// Receive retry loop; without it gating is disabled.
-func WithNetworkState(netState *netstate.State) Option {
-	return func(c *GrpcClient) { c.netState = netState }
-}
-
-// WithSweeper injects the network change sweeper.
-func WithSweeper(sweeper *netsweep.Sweeper) Option {
-	return func(c *GrpcClient) { c.sweeper = sweeper }
+// WithNetEvents injects the OS network event handling.
+func WithNetEvents(events *netevents.Manager) Option {
+	return func(c *GrpcClient) { c.netMgr = events }
 }
 
 // NewClient creates a new Signal client
 func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled bool, opts ...Option) (*GrpcClient, error) {
 	// Options apply before dialing: the sweeper must wrap the first connection too.
 	c := &GrpcClient{
-		ctx:                   ctx,
-		key:                   key,
-		mux:                   sync.Mutex{},
-		status:                StreamDisconnected,
-		connStateCallbackLock: sync.RWMutex{},
+		ctx:                       ctx,
+		key:                       key,
+		sharedKeys:                encryption.NewSharedKeyCache(key),
+		mux:                       sync.Mutex{},
+		status:                    StreamDisconnected,
+		connStateCallbackLock:     sync.RWMutex{},
+		registrationTimeout:       defaultRegistrationTimeout,
+		registrationProbeInterval: defaultRegistrationProbeInterval,
 	}
 	for _, opt := range opts {
 		opt(c)
 	}
 
 	var extraOpts []grpc.DialOption
-	if c.sweeper != nil {
-		extraOpts = append(extraOpts, nbgrpc.WithSweeper(c.sweeper))
+	if c.netMgr != nil {
+		extraOpts = append(extraOpts, nbgrpc.WithSweeper(c.netMgr))
 	}
 
 	var conn *grpc.ClientConn
@@ -168,6 +174,7 @@ func (c *GrpcClient) Close() error {
 	}
 	c.decryptionWg.Wait()
 	c.decryptionWorker = nil
+	c.sharedKeys.Close()
 
 	return c.signalConn.Close()
 }
@@ -198,17 +205,20 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 // The connection retry logic will try to reconnect for 30 min and if wasn't successful will propagate the error to the function caller.
 func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Message) error) error {
 
-	backOff := c.sweeper.QuickRetryBackoff(ctx, defaultBackoff(ctx), c.netState)
+	backOff := c.netMgr.QuickRetryBackoff(ctx, defaultBackoff(ctx))
 
 	operation := func() error {
 		// suspend reconnect attempts while the OS reports no usable network.
 		// Wait only errors on a cancelled context, which means shutdown, so
 		// stop the loop without reporting a failure.
-		if waited, err := c.netState.Wait(ctx); err != nil {
+		if waited, err := c.netMgr.Wait(ctx); err != nil {
 			log.Debugf("signal connection context has been canceled while offline, this usually indicates shutdown")
 			return nil
 		} else if waited {
 			backOff.Reset()
+			// dials attempted while offline grew the channel's internal backoff;
+			// reset it too, or the reconnect waits out that timer first
+			c.signalConn.ResetConnectBackoff()
 		}
 
 		c.notifyStreamDisconnected()
@@ -234,7 +244,7 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 		// todo once the key rotation logic has been implemented, consider changing to some other identifier (received from management)
 		streamCtx, cancelStream := context.WithCancel(ctx)
 		defer cancelStream()
-		stream, err := c.connect(streamCtx, c.key.PublicKey().String())
+		stream, err := c.connect(streamCtx, cancelStream, c.key.PublicKey().String())
 		if err != nil {
 			log.Warnf("disconnected from the Signal Exchange due to an error: %v", err)
 			return err
@@ -281,7 +291,7 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 		return nil
 	}
 
-	err := nbgrpc.Retry(ctx, operation, backOff, c.netState)
+	err := nbgrpc.Retry(ctx, operation, backOff, c.netMgr)
 	if err != nil {
 		log.Errorf("exiting the Signal service connection retry loop due to the unrecoverable error: %v", err)
 		return err
@@ -298,7 +308,6 @@ func (c *GrpcClient) notifyStreamDisconnected() {
 
 func (c *GrpcClient) notifyStreamConnected() {
 	c.mux.Lock()
-	defer c.mux.Unlock()
 
 	c.status = StreamConnected
 	if c.connectedCh != nil {
@@ -307,12 +316,16 @@ func (c *GrpcClient) notifyStreamConnected() {
 		c.connectedCh = nil
 	}
 
-	if c.onReconnectedListenerFn != nil {
-		c.onReconnectedListenerFn()
+	listener := c.onReconnectedListenerFn
+	c.mux.Unlock()
+
+	// Listeners can hold their own locks while unregistering from this client.
+	if listener != nil {
+		listener()
 	}
 }
 
-func (c *GrpcClient) connect(ctx context.Context, key string) (proto.SignalExchange_ConnectStreamClient, error) {
+func (c *GrpcClient) connect(ctx context.Context, cancel context.CancelFunc, key string) (proto.SignalExchange_ConnectStreamClient, error) {
 	c.stream = nil
 
 	// add key fingerprint to the request header to be identified on the server side
@@ -323,17 +336,58 @@ func (c *GrpcClient) connect(ctx context.Context, key string) (proto.SignalExcha
 	if err != nil {
 		return nil, err
 	}
-	// blocks
-	header, err := c.stream.Header()
-	if err != nil {
+	stopProbes := c.probeUntilRegistered(ctx)
+	defer stopProbes()
+	if err := awaitRegistration(stream, c.registrationTimeout, cancel); err != nil {
 		return nil, err
-	}
-	registered := header.Get(proto.HeaderRegistered)
-	if len(registered) == 0 {
-		return nil, fmt.Errorf("didn't receive a registration header from the Signal server whille connecting to the streams")
 	}
 
 	return stream, nil
+}
+
+// probeUntilRegistered sends a self-addressed heartbeat every
+// registrationProbeInterval until the returned stop function is called. The
+// server forwards it onto this client's stream, so a proxy that holds the
+// registration header until the first message releases it.
+func (c *GrpcClient) probeUntilRegistered(ctx context.Context) func() {
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(c.registrationProbeInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := c.sendReceiveProbe(ctx); err != nil && ctx.Err() == nil {
+					log.Debugf("failed to send signal registration probe: %v", err)
+				}
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
+}
+
+func awaitRegistration(stream proto.SignalExchange_ConnectStreamClient, timeout time.Duration, cancel context.CancelFunc) error {
+	// A timer rather than a context deadline: the stream context must outlive registration.
+	timer := time.AfterFunc(timeout, cancel)
+	header, err := stream.Header()
+	if !timer.Stop() {
+		return fmt.Errorf("no registration header from the Signal server within %s", timeout)
+	}
+	if err != nil {
+		return err
+	}
+	registered := header.Get(proto.HeaderRegistered)
+	if len(registered) == 0 {
+		return fmt.Errorf("didn't receive a registration header from the Signal server whille connecting to the streams")
+	}
+	return nil
 }
 
 // Ready indicates whether the client is okay and Ready to be used
@@ -347,6 +401,13 @@ func (c *GrpcClient) Ready() bool {
 // recorder accordingly. It does not actively probe: the watchdog
 // (watchReceiveStream) owns probing the receive path and reconnecting.
 func (c *GrpcClient) IsHealthy() bool {
+	c.mux.Lock()
+	registered := c.status == StreamConnected
+	c.mux.Unlock()
+	if !registered {
+		return false
+	}
+
 	switch c.signalConn.GetState() {
 	case connectivity.TransientFailure:
 		return false
@@ -390,6 +451,7 @@ func (c *GrpcClient) WaitStreamConnected(ctx context.Context) {
 	}
 }
 
+// SetOnReconnectedListener replaces the listener without waiting for an in-flight callback.
 func (c *GrpcClient) SetOnReconnectedListener(fn func()) {
 	c.mux.Lock()
 	defer c.mux.Unlock()
@@ -425,7 +487,7 @@ func (c *GrpcClient) decryptMessage(msg *proto.EncryptedMessage) (*proto.Message
 	}
 
 	body := &proto.Body{}
-	err = encryption.DecryptMessage(remoteKey, c.key, msg.GetBody(), body)
+	err = c.sharedKeys.DecryptMessage(remoteKey, msg.GetBody(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -445,7 +507,7 @@ func (c *GrpcClient) encryptMessage(msg *proto.Message) (*proto.EncryptedMessage
 		return nil, err
 	}
 
-	encryptedBody, err := encryption.EncryptMessage(remoteKey, c.key, msg.Body)
+	encryptedBody, err := c.sharedKeys.EncryptMessage(remoteKey, msg.Body)
 	if err != nil {
 		return nil, err
 	}

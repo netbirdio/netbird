@@ -7,11 +7,9 @@ import (
 
 	"github.com/netbirdio/netbird/client/ssh/auth"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
 	sharedgrpc "github.com/netbirdio/netbird/shared/management/grpc"
-	"github.com/netbirdio/netbird/shared/management/networkmap"
+	nmdata "github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -31,14 +29,13 @@ func ToComponentSyncResponse(
 	config *nbconfig.Config,
 	httpConfig *nbconfig.HttpServerConfig,
 	deviceFlowConfig *nbconfig.DeviceAuthorizationFlow,
-	peer *nbpeer.Peer,
+	peer *nmdata.Peer,
 	turnCredentials *Token,
 	relayCredentials *Token,
 	components *types.NetworkMapComponents,
-	proxyPatch *types.NetworkMap,
 	dnsName string,
-	checks []*posture.Checks,
-	settings *types.Settings,
+	checks []*nmdata.PostureChecks,
+	settings *nmdata.AccountSettingsInfo,
 	extraSettings *types.ExtraSettings,
 	peerGroups []string,
 	dnsFwdPort int64,
@@ -52,21 +49,18 @@ func ToComponentSyncResponse(
 	enableSSH := computeSSHEnabledForPeer(components, peer)
 	peerConfig := toPeerConfig(peer, components.Network, dnsName, settings, httpConfig, deviceFlowConfig, enableSSH, components.ForceRoutingPeerDNSResolution)
 
-	includeIPv6 := peer.SupportsIPv6() && peer.IPv6.IsValid()
-	useSourcePrefixes := peer.SupportsSourcePrefixes()
-
 	userIDClaim := auth.DefaultUserIDClaim
 	if httpConfig != nil && httpConfig.AuthUserIDClaim != "" {
 		userIDClaim = httpConfig.AuthUserIDClaim
 	}
 
 	envelope := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{
+		Peer:             peer,
 		Components:       components,
 		PeerConfig:       peerConfig,
 		DNSDomain:        dnsName,
 		DNSForwarderPort: dnsFwdPort,
 		UserIDClaim:      userIDClaim,
-		ProxyPatch:       toProxyPatch(proxyPatch, dnsName, includeIPv6, useSourcePrefixes),
 	})
 
 	resp := &proto.SyncResponse{
@@ -92,43 +86,6 @@ func ToComponentSyncResponse(
 	return resp
 }
 
-// toProxyPatch converts a proxy-injected *types.NetworkMap into the wire
-// patch the components envelope ships alongside. Returns nil when there are
-// no fragments to merge — proto3 omits a nil message field, so the receiver
-// sees no patch and skips the merge step entirely.
-//
-// We reuse the legacy proto-conversion helpers (toProtocolRoutes,
-// toProtocolFirewallRules, toProtocolRoutesFirewallRules,
-// appendRemotePeerConfig, ForwardingRule.ToProto) because the proxy
-// delivers fragments pre-expanded — there's no raw component shape to
-// derive them from. Components purity isn't violated: proxy data isn't
-// policy-graph-derived, it's externally injected post-Calculate, so the
-// client merges it on top of its locally-computed NetworkMap.
-func toProxyPatch(nm *types.NetworkMap, dnsName string, includeIPv6, useSourcePrefixes bool) *proto.ProxyPatch {
-	if nm == nil {
-		return nil
-	}
-	if len(nm.Peers) == 0 && len(nm.OfflinePeers) == 0 && len(nm.FirewallRules) == 0 &&
-		len(nm.Routes) == 0 && len(nm.RoutesFirewallRules) == 0 && len(nm.ForwardingRules) == 0 {
-		return nil
-	}
-
-	patch := &proto.ProxyPatch{
-		Peers:              networkmap.AppendRemotePeerConfig(nil, nm.Peers, dnsName, includeIPv6),
-		OfflinePeers:       networkmap.AppendRemotePeerConfig(nil, nm.OfflinePeers, dnsName, includeIPv6),
-		FirewallRules:      networkmap.ToProtocolFirewallRules(nm.FirewallRules, includeIPv6, useSourcePrefixes),
-		Routes:             networkmap.ToProtocolRoutes(nm.Routes),
-		RouteFirewallRules: networkmap.ToProtocolRoutesFirewallRules(nm.RoutesFirewallRules),
-	}
-	if len(nm.ForwardingRules) > 0 {
-		patch.ForwardingRules = make([]*proto.ForwardingRule, 0, len(nm.ForwardingRules))
-		for _, r := range nm.ForwardingRules {
-			patch.ForwardingRules = append(patch.ForwardingRules, r.ToProto())
-		}
-	}
-	return patch
-}
-
 // computeSSHEnabledForPeer mirrors the SSH-server-activation bit that
 // Calculate() folds into NetworkMap.EnableSSH. Components-format peers
 // receive a freshly-computed PeerConfig.SshConfig.SshEnabled at sync time;
@@ -145,7 +102,7 @@ func toProxyPatch(nm *types.NetworkMap, dnsName string, includeIPv6, useSourcePr
 //
 // The full SSH AuthorizedUsers map is still produced by the client when it
 // runs Calculate() over the envelope.
-func computeSSHEnabledForPeer(c *types.NetworkMapComponents, peer *nbpeer.Peer) bool {
+func computeSSHEnabledForPeer(c *types.NetworkMapComponents, peer *nmdata.Peer) bool {
 	if c == nil || peer == nil {
 		return false
 	}
@@ -170,25 +127,25 @@ func computeSSHEnabledForPeer(c *types.NetworkMapComponents, peer *nbpeer.Peer) 
 // ruleEnablesSSHForPeer returns true when rule is active, targets peer, and
 // either explicitly authorises SSH or covers the legacy TCP/22 path while the
 // peer itself has SSH enabled locally.
-func ruleEnablesSSHForPeer(c *types.NetworkMapComponents, rule *types.PolicyRule, peer *nbpeer.Peer) bool {
+func ruleEnablesSSHForPeer(c *types.NetworkMapComponents, rule *nmdata.PolicyRule, peer *nmdata.Peer) bool {
 	if rule == nil || !rule.Enabled {
 		return false
 	}
 	if !peerInDestinations(c, rule, peer.ID) {
 		return false
 	}
-	if rule.Protocol == types.PolicyRuleProtocolNetbirdSSH {
+	if rule.Protocol == string(types.PolicyRuleProtocolNetbirdSSH) {
 		return true
 	}
-	return peer.SSHEnabled && types.PolicyRuleImpliesLegacySSH(rule)
+	return peer.SSHEnabled && nmdata.PolicyRuleImpliesLegacySSH(rule)
 }
 
 // peerInDestinations reports whether peerID is in any of rule.Destinations'
 // groups (or matches DestinationResource if it's a peer-typed resource —
 // for non-peer types Calculate falls through to group lookup, so we mirror
 // that exactly to avoid silent divergence).
-func peerInDestinations(c *types.NetworkMapComponents, rule *types.PolicyRule, peerID string) bool {
-	if rule.DestinationResource.Type == types.ResourceTypePeer && rule.DestinationResource.ID != "" {
+func peerInDestinations(c *types.NetworkMapComponents, rule *nmdata.PolicyRule, peerID string) bool {
+	if rule.DestinationResource.Type == string(types.ResourceTypePeer) && rule.DestinationResource.ID != "" {
 		return rule.DestinationResource.ID == peerID
 	}
 	for _, groupID := range rule.Destinations {

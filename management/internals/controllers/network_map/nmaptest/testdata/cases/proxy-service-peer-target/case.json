@@ -1,0 +1,7 @@
+{
+  "description": "A reverse-proxy service targeting a peer. The proxy-access ACL is synthesised from Services, never loaded from the policies table, and is what lets the cluster's embedded proxy peer reach the target on the target's port: proxy-peer gets an OUT rule to app-peer on TCP 8080 and app-peer the matching IN rule. Without the synthesis both maps are empty of each other.",
+  "peers": [
+    "proxy-peer",
+    "app-peer"
+  ]
+}

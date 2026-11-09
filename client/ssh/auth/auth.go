@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
@@ -153,6 +154,24 @@ func (a *Authorizer) GetUserIDClaim() string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.userIDClaim
+}
+
+// Config returns the authorization currently in force. The user list and the
+// machine-user map are copies; the originals stay in use here.
+func (a *Authorizer) Config() *Config {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	machineUsers := make(map[string][]uint32, len(a.machineUsers))
+	for osUser, indexes := range a.machineUsers {
+		machineUsers[osUser] = slices.Clone(indexes)
+	}
+
+	return &Config{
+		UserIDClaim:     a.userIDClaim,
+		AuthorizedUsers: slices.Clone(a.authorizedUsers),
+		MachineUsers:    machineUsers,
+	}
 }
 
 // findUserIndex finds the index of a hashed user ID in the authorized users list

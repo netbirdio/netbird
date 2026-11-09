@@ -5,8 +5,12 @@ import (
 	"os"
 	"testing"
 
-	"github.com/netbirdio/netbird/shared/management/grpc"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/shared/management/grpc"
 )
 
 const (
@@ -58,6 +62,71 @@ func Test_LoadMgmtConfig_Empty(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Nil(t, cfg.HighestSupportedSyncMessageVersion)
 	assert.Nil(t, cfg.PerAccountHighestSupportedSyncMessageVersion)
+}
+
+func TestApplyEmbeddedIdPConfigRequiresSingleAccountDomain(t *testing.T) {
+	previousDomain := mgmtSingleAccModeDomain
+	previousDisabled := disableSingleAccMode
+	t.Cleanup(func() {
+		mgmtSingleAccModeDomain = previousDomain
+		disableSingleAccMode = previousDisabled
+	})
+
+	mgmtSingleAccModeDomain = ""
+	disableSingleAccMode = false
+	cfg := &nbconfig.Config{
+		EmbeddedIdP: &idp.EmbeddedIdPConfig{Enabled: true},
+	}
+	require.ErrorContains(t, ApplyEmbeddedIdPConfig(context.Background(), cfg), "embedded IdP requires single account mode")
+}
+
+// A config without an HttpConfig section is valid with the embedded IdP, so the
+// TLS flags must not assume the section exists.
+func TestApplyCommandLineOverridesWithoutHttpConfig(t *testing.T) {
+	previousDomain, previousCertFile, previousCertKey := mgmtLetsencryptDomain, certFile, certKey
+	t.Cleanup(func() {
+		mgmtLetsencryptDomain, certFile, certKey = previousDomain, previousCertFile, previousCertKey
+	})
+
+	tests := []struct {
+		name     string
+		domain   string
+		certFile string
+		certKey  string
+		want     nbconfig.HttpServerConfig
+	}{
+		{
+			name:   "letsencrypt domain",
+			domain: "mgmt.example.com",
+			want:   nbconfig.HttpServerConfig{LetsEncryptDomain: "mgmt.example.com"},
+		},
+		{
+			name:     "certificate files",
+			certFile: "/etc/netbird/tls/tls.crt",
+			certKey:  "/etc/netbird/tls/tls.key",
+			want:     nbconfig.HttpServerConfig{CertFile: "/etc/netbird/tls/tls.crt", CertKey: "/etc/netbird/tls/tls.key"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mgmtLetsencryptDomain, certFile, certKey = tt.domain, tt.certFile, tt.certKey
+			cfg := &nbconfig.Config{}
+
+			ApplyCommandLineOverrides(cfg)
+
+			require.NotNil(t, cfg.HttpConfig, "HttpConfig should be created for the TLS flags")
+			assert.Equal(t, tt.want, *cfg.HttpConfig, "HttpConfig should carry only the flag values")
+		})
+	}
+
+	t.Run("no TLS flags", func(t *testing.T) {
+		mgmtLetsencryptDomain, certFile, certKey = "", "", ""
+		cfg := &nbconfig.Config{}
+
+		ApplyCommandLineOverrides(cfg)
+
+		assert.Nil(t, cfg.HttpConfig, "HttpConfig should stay unset so the embedded IdP does not warn about it")
+	})
 }
 
 func createConfig(config string) (string, error) {

@@ -1,0 +1,43 @@
+{
+  "Network": {"Serial": 21},
+  "AccountSettings": {"RoutingPeerDNSResolutionEnabled": true},
+  "Peers": {
+    "peer-a": {"IP": "100.64.0.1", "Meta": {"WtVersion": "0.60.0"}},
+    "peer-b": {"IP": "100.64.0.2", "Meta": {"WtVersion": "0.60.0"}},
+    "peer-r": {"IP": "100.64.0.9", "Meta": {"WtVersion": "0.60.0"}}
+  },
+  "Groups": {
+    "grp-dev": {"Peers": ["peer-a", "peer-b"]}
+  },
+  "Policies": [
+    {
+      "ID": "pol-subnet",
+      "Enabled": true,
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "all",
+          "Sources": ["grp-dev"],
+          "DestinationResource": {"ID": "res-subnet", "Type": "subnet"}
+        }
+      ]
+    }
+  ],
+  "ResourcePolicies": {"res-subnet": [{"ID": "pol-subnet"}]},
+  "NetworkResources": [
+    {
+      "ID": "res-subnet",
+      "NetworkID": "net-1",
+      "Name": "office-subnet",
+      "Type": "subnet",
+      "Prefix": "10.20.0.0/24",
+      "Enabled": true
+    }
+  ],
+  "Routers": {
+    "net-1": {
+      "peer-r": {"PublicID": "router-direct", "Metric": 500, "Enabled": true}
+    }
+  }
+}

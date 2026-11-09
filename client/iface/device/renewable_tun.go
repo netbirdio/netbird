@@ -10,7 +10,8 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/tun"
+
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 // closeAwareDevice wraps a tun.Device along with a flag
@@ -23,15 +24,15 @@ import (
 // goroutine is awaited and closed only once.
 type closeAwareDevice struct {
 	isClosed atomic.Bool
-	tun.Device
+	wgbackend.TUN
 	closeEventCh chan struct{}
 	wg           sync.WaitGroup
 	closeOnce    sync.Once
 }
 
-func newClosableDevice(tunDevice tun.Device) *closeAwareDevice {
+func newClosableDevice(tunDevice wgbackend.TUN) *closeAwareDevice {
 	return &closeAwareDevice{
-		Device:       tunDevice,
+		TUN:          tunDevice,
 		isClosed:     atomic.Bool{},
 		closeEventCh: make(chan struct{}),
 	}
@@ -39,18 +40,18 @@ func newClosableDevice(tunDevice tun.Device) *closeAwareDevice {
 
 // redirectEvents redirects the Events() method of the underlying tun.Device
 // to the given channel (RenewableTUN's events channel).
-func (c *closeAwareDevice) redirectEvents(out chan tun.Event) {
+func (c *closeAwareDevice) redirectEvents(out chan wgbackend.TUNEvent) {
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
 		for {
 			select {
-			case ev, ok := <-c.Device.Events():
+			case ev, ok := <-c.TUN.Events():
 				if !ok {
 					return
 				}
 
-				if ev == tun.EventDown {
+				if ev == wgbackend.TUNEventDown {
 					continue
 				}
 
@@ -72,7 +73,7 @@ func (c *closeAwareDevice) Close() (err error) {
 	c.closeOnce.Do(func() {
 		c.isClosed.Store(true)
 		close(c.closeEventCh)
-		err = c.Device.Close()
+		err = c.TUN.Close()
 		c.wg.Wait()
 	})
 
@@ -87,7 +88,7 @@ type RenewableTUN struct {
 	devices []*closeAwareDevice
 	mu      sync.Mutex
 	cond    *sync.Cond
-	events  chan tun.Event
+	events  chan wgbackend.TUNEvent
 	closed  atomic.Bool
 }
 
@@ -95,7 +96,7 @@ func NewRenewableTUN() *RenewableTUN {
 	r := &RenewableTUN{
 		devices: make([]*closeAwareDevice, 0),
 		mu:      sync.Mutex{},
-		events:  make(chan tun.Event, 16),
+		events:  make(chan wgbackend.TUNEvent, 16),
 	}
 	r.cond = sync.NewCond(&r.mu)
 	return r
@@ -225,7 +226,7 @@ func (r *RenewableTUN) Name() (string, error) {
 
 // Events returns a channel that is fed events from the underlying tun.Device's events channel
 // once it is added.
-func (r *RenewableTUN) Events() <-chan tun.Event {
+func (r *RenewableTUN) Events() <-chan wgbackend.TUNEvent {
 	return r.events
 }
 
@@ -259,7 +260,7 @@ func (r *RenewableTUN) BatchSize() int {
 	return 1
 }
 
-func (r *RenewableTUN) AddDevice(device tun.Device) {
+func (r *RenewableTUN) AddDevice(device wgbackend.TUN) {
 	r.mu.Lock()
 	if r.closed.Load() {
 		r.mu.Unlock()

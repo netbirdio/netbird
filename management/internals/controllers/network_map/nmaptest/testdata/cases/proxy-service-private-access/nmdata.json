@@ -1,0 +1,26 @@
+{
+  "Network": {"Serial": 31},
+  "AccountSettings": {"RoutingPeerDNSResolutionEnabled": true},
+  "Peers": {
+    "user-peer": {"IP": "100.64.0.10", "Meta": {"WtVersion": "0.60.0"}},
+    "other-peer": {"IP": "100.64.0.11", "Meta": {"WtVersion": "0.60.0"}},
+    "proxy-peer": {
+      "IP": "100.64.0.99",
+      "Meta": {"WtVersion": "0.60.0"},
+      "ProxyMeta": {"Embedded": true, "Cluster": "eu.proxy.netbird.io"}
+    }
+  },
+  "Groups": {
+    "grp-admins": {"Peers": ["user-peer"]}
+  },
+  "Services": [
+    {
+      "ID": "svc-1",
+      "Enabled": true,
+      "Private": true,
+      "Mode": "http",
+      "ProxyCluster": "eu.proxy.netbird.io",
+      "AccessGroups": ["grp-admins", "grp-deleted"]
+    }
+  ]
+}

@@ -10,11 +10,10 @@ import (
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
 	nbDomain "github.com/netbirdio/netbird/shared/management/domain"
-
 	"github.com/netbirdio/netbird/shared/management/http/api"
-	sharedTypes "github.com/netbirdio/netbird/shared/management/types"
 )
 
 type NetworkResourceType string
@@ -33,7 +32,7 @@ type NetworkResource struct {
 	ID          string `gorm:"primaryKey"`
 	NetworkID   string `gorm:"index"`
 	AccountID   string `gorm:"index"`
-	PublicID    string `json:"-"`
+	PublicID    string `json:"-" gorm:"index"`
 	Name        string
 	Description string
 	Type        NetworkResourceType
@@ -63,27 +62,6 @@ func NewNetworkResource(accountID, networkID, name, description, address string,
 		GroupIDs:    groupIDs,
 		Enabled:     enabled,
 	}, nil
-}
-
-// ToComponent converts the resource to its self-contained components
-// representation. Returns nil for a nil resource.
-func (n *NetworkResource) ToComponent() *sharedTypes.ComponentResource {
-	if n == nil {
-		return nil
-	}
-	return &sharedTypes.ComponentResource{
-		ID:          n.ID,
-		PublicID:    n.PublicID,
-		NetworkID:   n.NetworkID,
-		AccountID:   n.AccountID,
-		Name:        n.Name,
-		Description: n.Description,
-		Type:        sharedTypes.ComponentResourceType(n.Type),
-		Address:     n.Address,
-		Domain:      n.Domain,
-		Prefix:      n.Prefix,
-		Enabled:     n.Enabled,
-	}
 }
 
 func (n *NetworkResource) ToAPIResponse(groups []api.GroupMinimum) *api.NetworkResource {
@@ -129,6 +107,23 @@ func (n *NetworkResource) Copy() *NetworkResource {
 		GroupIDs:    n.GroupIDs,
 		Enabled:     n.Enabled,
 	}
+}
+
+func (n *NetworkResource) Equal(other *NetworkResource) bool {
+	if n == nil || other == nil {
+		return n == other
+	}
+
+	return n.ID == other.ID &&
+		n.NetworkID == other.NetworkID &&
+		n.AccountID == other.AccountID &&
+		n.Name == other.Name &&
+		n.Description == other.Description &&
+		n.Type == other.Type &&
+		n.Domain == other.Domain &&
+		n.Prefix == other.Prefix &&
+		n.Enabled == other.Enabled &&
+		util.ElementsMatch(n.GroupIDs, other.GroupIDs)
 }
 
 func (n *NetworkResource) ToRoute(peer *nbpeer.Peer, router *routerTypes.NetworkRouter) *route.Route {

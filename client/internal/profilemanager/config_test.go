@@ -14,6 +14,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -35,17 +36,14 @@ func TestGetConfig(t *testing.T) {
 	}
 
 	assert.Equal(t, config.ManagementURL.String(), DefaultManagementURL)
-	assert.Equal(t, config.AdminURL.String(), DefaultAdminURL)
 
 	managementURL := "https://test.management.url:33071"
-	adminURL := "https://app.admin.url:443"
 	path := filepath.Join(t.TempDir(), "config.json")
 	preSharedKey := "preSharedKey"
 
 	// case 2: new config has to be generated
 	config, err = UpdateOrCreateConfig(ConfigInput{
 		ManagementURL: managementURL,
-		AdminURL:      adminURL,
 		ConfigPath:    path,
 		PreSharedKey:  &preSharedKey,
 	})
@@ -63,7 +61,6 @@ func TestGetConfig(t *testing.T) {
 	// case 3: existing config -> fetch it
 	config, err = UpdateOrCreateConfig(ConfigInput{
 		ManagementURL: managementURL,
-		AdminURL:      adminURL,
 		ConfigPath:    path,
 		PreSharedKey:  &preSharedKey,
 	})
@@ -78,7 +75,6 @@ func TestGetConfig(t *testing.T) {
 	newManagementURL := "https://test.newManagement.url:33071"
 	config, err = UpdateOrCreateConfig(ConfigInput{
 		ManagementURL: newManagementURL,
-		AdminURL:      adminURL,
 		ConfigPath:    path,
 		PreSharedKey:  &preSharedKey,
 	})
@@ -163,7 +159,6 @@ func TestNewProfileDefaults(t *testing.T) {
 	require.NoError(t, err, "should create new config")
 
 	assert.Equal(t, DefaultManagementURL, config.ManagementURL.String(), "ManagementURL should have default")
-	assert.Equal(t, DefaultAdminURL, config.AdminURL.String(), "AdminURL should have default")
 	assert.NotEmpty(t, config.PrivateKey, "PrivateKey should be generated")
 	assert.NotEmpty(t, config.SSHKey, "SSHKey should be generated")
 	assert.Equal(t, iface.WgInterfaceDefault, config.WgIface, "WgIface should have default")
@@ -195,7 +190,7 @@ func TestWireguardPortZeroExplicit(t *testing.T) {
 	assert.Equal(t, 0, config.WgPort, "WgPort should be 0 when explicitly set by user")
 
 	// Verify it persists
-	readConfig, err := GetConfig(configPath)
+	readConfig, err := GetExistingConfig(configPath)
 	require.NoError(t, err)
 	assert.Equal(t, 0, readConfig.WgPort, "WgPort should remain 0 after reading from file")
 }
@@ -269,6 +264,132 @@ func TestUpdateConfigServerSSHAllowedNotSet(t *testing.T) {
 			assert.Equal(t, tt.want, *config.ServerSSHAllowed)
 		})
 	}
+}
+
+// A config that predates ServerSSHAllowed keeps the SSH server on, but only when it is
+// the config of an enrolled peer. A file with no identity, such as another component's
+// JSON file that was loaded as a profile, never ran a server and resolves to off,
+// including on the write paths that mint the identity.
+func TestServerSSHAllowedLegacyDefault(t *testing.T) {
+	enrolled := `{"PrivateKey":"` + generateKey() + `"}`
+
+	tests := []struct {
+		name  string
+		body  string
+		input ConfigInput
+		want  bool
+	}{
+		{"enrolled legacy config keeps SSH on", enrolled, ConfigInput{}, runtime.GOOS != "android"},
+		{"empty file", `{}`, ConfigInput{}, false},
+		{"foreign json", `{"Success":false,"Error":"x","ExecutedAt":"2026-01-01T00:00:00Z"}`, ConfigInput{}, false},
+		{"foreign json with management url", `{"name":"default","username":""}`, ConfigInput{ManagementURL: "https://example.com:443"}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			write := func() string {
+				path := filepath.Join(t.TempDir(), "config.json")
+				require.NoError(t, os.WriteFile(path, []byte(tt.body), 0600))
+				return path
+			}
+
+			path := write()
+			read, err := GetExistingConfig(path)
+			require.NoError(t, err)
+			require.NotNil(t, read.ServerSSHAllowed)
+			assert.Equal(t, tt.want, *read.ServerSSHAllowed, "read path")
+
+			input := tt.input
+			input.ConfigPath = write()
+			updated, err := UpdateConfig(input)
+			require.NoError(t, err)
+			require.NotNil(t, updated.ServerSSHAllowed)
+			assert.Equal(t, tt.want, *updated.ServerSSHAllowed, "UpdateConfig")
+
+			input.ConfigPath = write()
+			direct, err := DirectUpdateOrCreateConfig(input)
+			require.NoError(t, err)
+			require.NotNil(t, direct.ServerSSHAllowed)
+			assert.Equal(t, tt.want, *direct.ServerSSHAllowed, "DirectUpdateOrCreateConfig")
+		})
+	}
+}
+
+func TestUpdateConfigRemoteJobsAllowed(t *testing.T) {
+	// Unlike SSH (which defaults on for legacy configs), remote jobs are an
+	// explicit opt-in: a pre-existing config with no value materializes to off.
+	t.Run("legacy config defaults off", func(t *testing.T) {
+		configPath := filepath.Join(t.TempDir(), "config.json")
+		require.NoError(t, os.WriteFile(configPath, []byte("{}"), 0600))
+
+		config, err := UpdateConfig(ConfigInput{ConfigPath: configPath})
+		require.NoError(t, err)
+		require.NotNil(t, config.RemoteJobsAllowed, "RemoteJobsAllowed should be materialized")
+		assert.False(t, *config.RemoteJobsAllowed, "remote jobs must default off")
+	})
+
+	for _, tt := range []struct {
+		name  string
+		input *bool
+		want  bool
+	}{
+		{"enable", util.True(), true},
+		{"disable", util.False(), false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			configPath := filepath.Join(t.TempDir(), "config.json")
+			require.NoError(t, os.WriteFile(configPath, []byte("{}"), 0600))
+
+			config, err := UpdateConfig(ConfigInput{ConfigPath: configPath, RemoteJobsAllowed: tt.input})
+			require.NoError(t, err)
+			require.NotNil(t, config.RemoteJobsAllowed)
+			assert.Equal(t, tt.want, *config.RemoteJobsAllowed)
+		})
+	}
+}
+
+func TestApplyMDMPolicyRemoteJobs(t *testing.T) {
+	t.Run("enables remote jobs and sets the upload URL override", func(t *testing.T) {
+		cfg := &Config{}
+		cfg.applyMDMPolicy(mdm.NewPolicy(map[string]any{
+			mdm.KeyRemoteJobsAllowed: true,
+			mdm.KeyBundleUploadURL:   "https://upload.example.com",
+		}))
+		require.NotNil(t, cfg.RemoteJobsAllowed)
+		assert.True(t, *cfg.RemoteJobsAllowed, "MDM allowRemoteJobs must enable the flag")
+		assert.Equal(t, "https://upload.example.com", cfg.DebugBundleUploadURL, "MDM upload URL override must be applied")
+	})
+
+	t.Run("a non-https upload URL is rejected", func(t *testing.T) {
+		cfg := &Config{}
+		cfg.applyMDMPolicy(mdm.NewPolicy(map[string]any{
+			mdm.KeyBundleUploadURL: "http://insecure.example.com",
+		}))
+		assert.Empty(t, cfg.DebugBundleUploadURL, "a non-https upload URL must be skipped")
+	})
+
+	t.Run("dropping the key clears a previously-applied override", func(t *testing.T) {
+		cfg := &Config{DebugBundleUploadURL: "https://old.example.com"}
+		// A replacement policy that no longer carries the key must not leave
+		// the old upload target directing bundles.
+		cfg.applyMDMPolicy(mdm.NewPolicy(map[string]any{mdm.KeyRemoteJobsAllowed: true}))
+		assert.Empty(t, cfg.DebugBundleUploadURL, "the stale upload URL override must be cleared")
+	})
+
+	t.Run("an empty replacement policy clears a previously-applied override", func(t *testing.T) {
+		cfg := &Config{DebugBundleUploadURL: "https://old.example.com"}
+		// A policy that becomes empty entirely hits the IsEmpty early return;
+		// the override must still be cleared rather than surviving on the
+		// reused Config instance.
+		cfg.applyMDMPolicy(mdm.NewPolicy(map[string]any{}))
+		assert.Empty(t, cfg.DebugBundleUploadURL, "the stale upload URL override must be cleared when the policy empties")
+	})
+
+	t.Run("an invalid upload URL clears a previously-applied override (fail closed)", func(t *testing.T) {
+		cfg := &Config{DebugBundleUploadURL: "https://old.example.com"}
+		cfg.applyMDMPolicy(mdm.NewPolicy(map[string]any{mdm.KeyBundleUploadURL: "not-a-url"}))
+		assert.Empty(t, cfg.DebugBundleUploadURL, "an invalid override must fail closed, not keep the stale target")
+	})
 }
 
 func TestUpdateOldManagementURL(t *testing.T) {

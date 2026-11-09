@@ -1,0 +1,7 @@
+{
+  "description": "Source-side NB-version posture check: peer-b (0.40.0) fails the 0.45.0 minimum, so peer-c must not see it and peer-b itself gets no policy connectivity.",
+  "peers": [
+    "peer-b",
+    "peer-c"
+  ]
+}

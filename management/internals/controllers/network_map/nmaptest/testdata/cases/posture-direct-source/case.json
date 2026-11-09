@@ -1,0 +1,5 @@
+{
+  "description": "A peer named directly as a rule source is gated by the policy's posture checks exactly like a group member: peer-b (0.40.0) fails the 0.45.0 minimum, so it gets no connectivity and peer-c must not see it, while the compliant direct source peer-a reaches peer-c. Legacy mode is excluded: the frozen legacynmap copy still carries the direct-peer bypass.",
+  "peers": ["peer-b", "peer-c"],
+  "modes": ["full", "envelope"]
+}

@@ -388,7 +388,7 @@ func TestComponents_NetworkSerial(t *testing.T) {
 	account.Network.Serial = 42
 	nm := componentsNetworkMap(account, "peer-0", validatedPeers)
 	require.NotNil(t, nm)
-	assert.Equal(t, uint64(42), nm.Network.Serial, "network serial should match")
+	assert.Equal(t, uint64(42), nm.Network.CurrentSerial(), "network serial should match")
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -812,7 +812,7 @@ func TestComponents_AllPeersGetValidMaps(t *testing.T) {
 		}
 		nm := componentsNetworkMap(account, peerID, validatedPeers)
 		require.NotNil(t, nm, "network map should not be nil for %s", peerID)
-		assert.Equal(t, account.Network.Serial, nm.Network.Serial, "serial mismatch for %s", peerID)
+		assert.Equal(t, account.Network.Serial, nm.Network.CurrentSerial(), "serial mismatch for %s", peerID)
 		assert.NotEmpty(t, nm.Peers, "validated peer %s should see other peers", peerID)
 	}
 }
@@ -833,7 +833,7 @@ func TestComponents_LargeScaleMapGeneration(t *testing.T) {
 				require.NotNil(t, nm, "network map should not be nil for %s", peerID)
 				assert.NotEmpty(t, nm.Peers, "peer %s should see other peers at scale", peerID)
 				assert.NotEmpty(t, nm.Routes, "peer %s should have routes at scale", peerID)
-				assert.Equal(t, account.Network.Serial, nm.Network.Serial, "serial mismatch for %s", peerID)
+				assert.Equal(t, account.Network.Serial, nm.Network.CurrentSerial(), "serial mismatch for %s", peerID)
 			}
 		})
 	}
@@ -873,6 +873,89 @@ func TestComponents_PeerAsSourceResource(t *testing.T) {
 		}
 	}
 	assert.True(t, has443, "peer-0 as source resource should have port 443 rule")
+}
+
+func hasFirewallRuleTo(nm *types.NetworkMap, peerIP, port string) bool {
+	for _, rule := range nm.FirewallRules {
+		if rule.PeerIP == peerIP && rule.Port == port {
+			return true
+		}
+	}
+	return false
+}
+
+// TestComponents_PeerAsSourceResource_PostureChecks verifies that a directly referenced
+// source peer is gated by the policy's posture checks like a member of a group holding only
+// that peer: peer-1 (0.25.0) fails the 0.26.0 minimum, peer-2 (0.40.0) passes.
+func TestComponents_PeerAsSourceResource_PostureChecks(t *testing.T) {
+	account, validatedPeers := scalableTestAccountWithoutDefaultPolicy(20, 2)
+
+	for _, sourcePeerID := range []string{"peer-1", "peer-2"} {
+		account.Policies = append(account.Policies, &types.Policy{
+			ID: "policy-peer-src-" + sourcePeerID, Name: "Peer Source " + sourcePeerID, Enabled: true, AccountID: "test-account",
+			SourcePostureChecks: []string{"posture-check-ver"},
+			Rules: []*types.PolicyRule{{
+				ID: "rule-peer-src-" + sourcePeerID, Enabled: true,
+				Action:         types.PolicyTrafficActionAccept,
+				Protocol:       types.PolicyRuleProtocolTCP,
+				Bidirectional:  true,
+				Ports:          []string{"9443"},
+				SourceResource: types.Resource{ID: sourcePeerID, Type: types.ResourceTypePeer},
+				Destinations:   []string{"group-0"},
+			}},
+		})
+	}
+
+	nm0 := componentsNetworkMap(account, "peer-0", validatedPeers)
+	require.NotNil(t, nm0)
+	assert.False(t, hasFirewallRuleTo(nm0, "100.64.0.1", "9443"), "destination must not see the direct source peer failing the posture check")
+	assert.True(t, hasFirewallRuleTo(nm0, "100.64.0.2", "9443"), "destination must see the direct source peer passing the posture check")
+
+	nm1 := componentsNetworkMap(account, "peer-1", validatedPeers)
+	require.NotNil(t, nm1)
+	assert.False(t, hasFirewallRuleTo(nm1, "100.64.0.0", "9443"), "a direct source peer failing the posture check gets no policy connectivity")
+
+	nm2 := componentsNetworkMap(account, "peer-2", validatedPeers)
+	require.NotNil(t, nm2)
+	assert.True(t, hasFirewallRuleTo(nm2, "100.64.0.0", "9443"), "a direct source peer passing the posture check gets policy connectivity")
+}
+
+// TestComponents_PeerAsResource_Unvalidated verifies that a directly referenced peer is
+// subject to approval like a group member, whether it is the rule's source or destination.
+func TestComponents_PeerAsResource_Unvalidated(t *testing.T) {
+	account, validatedPeers := scalableTestAccountWithoutDefaultPolicy(20, 2)
+	delete(validatedPeers, "peer-2")
+
+	account.Policies = append(account.Policies,
+		&types.Policy{
+			ID: "policy-unval-src", Name: "Unvalidated Source", Enabled: true, AccountID: "test-account",
+			Rules: []*types.PolicyRule{{
+				ID: "rule-unval-src", Enabled: true,
+				Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolTCP, Bidirectional: true,
+				Ports:          []string{"9443"},
+				SourceResource: types.Resource{ID: "peer-2", Type: types.ResourceTypePeer},
+				Destinations:   []string{"group-0"},
+			}},
+		},
+		&types.Policy{
+			ID: "policy-unval-dst", Name: "Unvalidated Destination", Enabled: true, AccountID: "test-account",
+			Rules: []*types.PolicyRule{{
+				ID: "rule-unval-dst", Enabled: true,
+				Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolTCP, Bidirectional: true,
+				Ports:               []string{"9444"},
+				Sources:             []string{"group-0"},
+				DestinationResource: types.Resource{ID: "peer-2", Type: types.ResourceTypePeer},
+			}},
+		},
+	)
+
+	nm0 := componentsNetworkMap(account, "peer-0", validatedPeers)
+	require.NotNil(t, nm0)
+	assert.False(t, hasFirewallRuleTo(nm0, "100.64.0.2", "9443"), "an unvalidated direct source peer must not be admitted")
+	assert.False(t, hasFirewallRuleTo(nm0, "100.64.0.2", "9444"), "an unvalidated direct destination peer must not be admitted")
+	for _, p := range nm0.Peers {
+		assert.NotEqual(t, "peer-2", p.ID, "an unvalidated direct peer must not be shipped as a remote peer")
+	}
 }
 
 // TestComponents_PeerAsDestinationResource verifies that a policy with DestinationResource.Type=Peer

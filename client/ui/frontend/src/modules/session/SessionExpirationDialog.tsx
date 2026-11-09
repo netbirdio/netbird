@@ -12,12 +12,17 @@ import { SquareIcon } from "@/components/SquareIcon";
 import { Connection, Profiles as ProfilesSvc, Session, WindowManager } from "@bindings/services";
 import { useAutoSizeWindow } from "@/hooks/useAutoSizeWindow";
 import { EVENT_BROWSER_LOGIN_CANCEL, EVENT_TRIGGER_LOGIN } from "@/lib/connection";
-import { errorDialog, formatErrorMessage } from "@/lib/errors.ts";
+import { errorDialogFor } from "@/lib/errors.ts";
 import { formatRemaining } from "@/lib/formatters";
 
 const DEFAULT_SECONDS = 360;
 const WINDOW_WIDTH = 360;
 const SOON_THRESHOLD_SECONDS = 60 * 60;
+const DEADLINE_TOLERANCE_MS = 5 * 1000;
+// The final-warning deadline reaches the Go side as RFC3339 truncated to whole
+// seconds, while the status snapshot carries millisecond precision, so an
+// unchanged deadline can look up to 999 ms newer than the exact URL value.
+const EXACT_DEADLINE_TOLERANCE_MS = 999;
 
 export default function SessionExpirationDialog() {
     const { t } = useTranslation();
@@ -29,11 +34,19 @@ export default function SessionExpirationDialog() {
         const n = Number.parseInt(raw, 10);
         return Number.isFinite(n) && n > 0 ? n : DEFAULT_SECONDS;
     }, [params]);
+    const initialDeadline = useMemo(() => {
+        const raw = params.get("deadline");
+        if (!raw) return null;
+        const n = Number.parseInt(raw, 10);
+        return Number.isFinite(n) && n > 0 ? n : null;
+    }, [params]);
 
     const [remaining, setRemaining] = useState(initialSeconds);
     const [busy, setBusy] = useState(false);
     const busyRef = useRef(busy);
     busyRef.current = busy;
+    const openedDeadlineRef = useRef(initialDeadline ?? Date.now() + initialSeconds * 1000);
+    const exactDeadlineRef = useRef(initialDeadline !== null);
     const expired = remaining <= 0;
     const expiredRef = useRef(expired);
     expiredRef.current = expired;
@@ -45,23 +58,45 @@ export default function SessionExpirationDialog() {
 
     useEffect(() => {
         setRemaining(initialSeconds);
-    }, [initialSeconds]);
+        openedDeadlineRef.current = initialDeadline ?? Date.now() + initialSeconds * 1000;
+        exactDeadlineRef.current = initialDeadline !== null;
+    }, [initialSeconds, initialDeadline]);
 
+    // Recompute from the absolute deadline instead of decrementing per tick: webview
+    // timers get suspended for tens of seconds (App Nap / hidden-window throttling),
+    // so a tick counter drifts behind the wall clock by the suspended time.
     useEffect(() => {
         const id = globalThis.setInterval(() => {
-            setRemaining((s) => (s <= 1 ? 0 : s - 1));
+            setRemaining(Math.max(0, Math.ceil((openedDeadlineRef.current - Date.now()) / 1000)));
         }, 1000);
         return () => globalThis.clearInterval(id);
     }, [initialSeconds]);
 
+    // Auto-close only when the session was actually renewed elsewhere (tray action, CLI,
+    // main window): the daemon keeps emitting Connected snapshots regardless of session
+    // state, so the signal is the deadline jumping past the one this dialog was opened for.
+    // With the exact deadline from the URL any jump past its sub-second precision loss
+    // counts; the seconds-derived fallback needs a wider tolerance for the Go-side
+    // truncation and mount latency.
     // Don't auto-close while busy (aborts our WaitExtend) or expired (hides the state).
     useEffect(() => {
-        const off = Events.On("netbird:status", (ev: { data: { status?: string } }) => {
-            if (busyRef.current || expiredRef.current) return;
-            if (ev?.data?.status === "Connected") {
-                WindowManager.CloseSessionExpiration().catch(console.error);
-            }
-        });
+        const off = Events.On(
+            "netbird:status",
+            (ev: { data: { status?: string; sessionExpiresAt?: string | null } }) => {
+                if (busyRef.current || expiredRef.current) return;
+                if (ev?.data?.status !== "Connected") return;
+                const raw = ev?.data?.sessionExpiresAt;
+                if (!raw) return;
+                const renewed = Date.parse(raw);
+                if (!Number.isFinite(renewed)) return;
+                const tolerance = exactDeadlineRef.current
+                    ? EXACT_DEADLINE_TOLERANCE_MS
+                    : DEADLINE_TOLERANCE_MS;
+                if (renewed - openedDeadlineRef.current > tolerance) {
+                    WindowManager.CloseSessionExpiration().catch(console.error);
+                }
+            },
+        );
         return () => {
             off();
         };
@@ -124,10 +159,7 @@ export default function SessionExpirationDialog() {
             WindowManager.CloseRenewFlow().catch(console.error);
         } catch (e) {
             resetDialog();
-            await errorDialog({
-                Title: t("sessionExpiration.extendFailedTitle"),
-                Message: formatErrorMessage(e),
-            });
+            await errorDialogFor(t("sessionExpiration.extendFailedTitle"), e);
         }
     }, [busy, t]);
 
@@ -139,10 +171,7 @@ export default function SessionExpirationDialog() {
             await WindowManager.CloseSessionExpiration();
         } catch (e) {
             setBusy(false);
-            await errorDialog({
-                Title: t("connect.error.loginTitle"),
-                Message: formatErrorMessage(e),
-            });
+            await errorDialogFor(t("connect.error.loginTitle"), e);
         }
     }, [busy, t]);
 
@@ -159,10 +188,7 @@ export default function SessionExpirationDialog() {
             WindowManager.CloseSessionExpiration().catch(console.error);
         } catch (e) {
             setBusy(false);
-            await errorDialog({
-                Title: t("sessionExpiration.logoutFailedTitle"),
-                Message: formatErrorMessage(e),
-            });
+            await errorDialogFor(t("sessionExpiration.logoutFailedTitle"), e);
         }
     }, [busy, t]);
 
@@ -186,7 +212,7 @@ export default function SessionExpirationDialog() {
             {!expired && (
                 <div
                     className={
-                        "font-mono text-2xl font-semibold tabular-nums tracking-wider text-nb-gray-50"
+                        "font-mono text-2xl font-semibold tracking-wider text-nb-gray-50 tabular-nums"
                     }
                     aria-live={"polite"}
                 >

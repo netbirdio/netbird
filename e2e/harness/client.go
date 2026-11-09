@@ -31,6 +31,9 @@ const (
 // Client is a running NetBird client container joined to the combined server.
 type Client struct {
 	container testcontainers.Container
+	// name is the container hostname the agent reports to management at
+	// registration — the name the peer appears under in the peers API.
+	name string
 }
 
 // clientOptions is what the ClientOption values assemble.
@@ -62,11 +65,7 @@ func StartClient(ctx context.Context, c *Combined, setupKey string, opts ...Clie
 		opt(&o)
 	}
 
-	root, err := repoRoot(ctx)
-	if err != nil {
-		return nil, err
-	}
-	clientImage, err := resolveImage(ctx, root, "NB_E2E_CLIENT_IMAGE", defaultClientImage, clientDockerfile)
+	clientImage, err := ClientImage(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -99,24 +98,66 @@ func StartClient(ctx context.Context, c *Combined, setupKey string, opts ...Clie
 	if err != nil {
 		return nil, fmt.Errorf("start client container: %w", err)
 	}
-	return &Client{container: ctr}, nil
+	return &Client{container: ctr, name: o.name}, nil
+}
+
+// ClientImage returns the client image StartClient runs, building it from this
+// module's source unless NB_E2E_CLIENT_IMAGE names a published one. A suite that
+// runs the agent outside a harness container, such as in a Kubernetes cluster,
+// uses it to get the same build.
+func ClientImage(ctx context.Context) (string, error) {
+	root, err := repoRoot(ctx)
+	if err != nil {
+		return "", err
+	}
+	return resolveImage(ctx, root, "NB_E2E_CLIENT_IMAGE", defaultClientImage, clientDockerfile)
+}
+
+// Exec runs a command inside the client container and returns its exit code and
+// combined output. It reaches whatever the agent routes, so a suite can check
+// access the request helpers here do not model, such as plain HTTP to a routed
+// address.
+func (cl *Client) Exec(ctx context.Context, cmd ...string) (int, string, error) {
+	code, reader, err := cl.container.Exec(ctx, cmd, tcexec.Multiplexed())
+	if err != nil {
+		return 0, "", fmt.Errorf("exec %v: %w", cmd, err)
+	}
+	out, err := io.ReadAll(reader)
+	if err != nil {
+		return code, string(out), fmt.Errorf("read output of %v: %w", cmd, err)
+	}
+	return code, string(out), nil
+}
+
+// Hostname returns the container hostname the agent reports to management —
+// the name the registered peer appears under in the peers API.
+func (cl *Client) Hostname() string {
+	return cl.name
 }
 
 // Restart bounces the client connection (netbird down/up) so it pulls a fresh
 // network map — the documented workaround for a freshly-joined client not yet
 // seeing a synthesized agent-network service.
 func (cl *Client) Restart(ctx context.Context) error {
+	return cl.Up(ctx)
+}
+
+// Up re-runs `netbird up` inside the client with the given extra flags (e.g.
+// "--allow-remote-jobs"), bouncing the connection first so the new config is
+// picked up and re-synced to management. Used to toggle peer options that ride
+// on the login/sync request without recreating the container.
+func (cl *Client) Up(ctx context.Context, extraArgs ...string) error {
 	if _, _, err := cl.container.Exec(ctx, []string{"netbird", "down"}, tcexec.Multiplexed()); err != nil {
 		return fmt.Errorf("netbird down: %w", err)
 	}
 	time.Sleep(2 * time.Second)
-	code, reader, err := cl.container.Exec(ctx, []string{"netbird", "up"}, tcexec.Multiplexed())
+	code, reader, err := cl.container.Exec(ctx, append([]string{"netbird", "up"}, extraArgs...), tcexec.Multiplexed())
 	if err != nil {
 		return fmt.Errorf("netbird up: %w", err)
 	}
 	if code != 0 {
 		out, _ := io.ReadAll(reader)
-		return fmt.Errorf("netbird up exited %d: %s", code, string(out))
+		return fmt.Errorf("netbird up %v exited %d: %s", extraArgs, code, string(out))
 	}
 	return nil
 }

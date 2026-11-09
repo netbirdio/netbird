@@ -11,19 +11,46 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
-// withMDMPolicy temporarily overrides the server-package loadMDMPolicy hook
-// so SetConfig observes the supplied Policy. Restores the original loader
-// at test cleanup.
-func withMDMPolicy(t *testing.T, policy *mdm.Policy) {
+// fakeMDMFetcher implements mdm.PolicyFetcher returning a pre-set
+// policy map. Tests build one per Server instance to inject a
+// scripted MDM overlay via a Loader rather than via package-level state.
+type fakeMDMFetcher struct{ values map[string]any }
+
+func (f *fakeMDMFetcher) Fetch() map[string]any { return f.values }
+
+// withMDMPolicy installs an mdm.Loader on the given Server whose
+// loadPlatform returns the supplied Policy's underlying values. Use
+// after setupServerWithProfile to inject the scripted policy the
+// SetConfig / Login MDM gates will observe.
+func withMDMPolicy(t *testing.T, s *Server, policy *mdm.Policy) {
 	t.Helper()
-	prev := loadMDMPolicy
-	loadMDMPolicy = func() *mdm.Policy { return policy }
-	t.Cleanup(func() { loadMDMPolicy = prev })
+	values := map[string]any{}
+	if policy != nil {
+		for _, k := range policy.ManagedKeys() {
+			if v, ok := policy.GetString(k); ok {
+				values[k] = v
+				continue
+			}
+			if v, ok := policy.GetInt(k); ok {
+				values[k] = v
+				continue
+			}
+			if v, ok := policy.GetBool(k); ok {
+				values[k] = v
+				continue
+			}
+			if v, ok := policy.GetStringSlice(k); ok {
+				values[k] = v
+			}
+		}
+	}
+	s.mdmLoader = mdm.NewLoader(&fakeMDMFetcher{values: values})
 }
 
 // setupServerWithProfile mirrors the boilerplate of TestSetConfig_AllFieldsSaved:
@@ -57,6 +84,7 @@ func setupServerWithProfile(t *testing.T) (s *Server, ctx context.Context, profN
 	_, err = profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath:    cfgPath,
 		ManagementURL: "https://api.netbird.io:443",
+		Owner:         testProfileOwner(),
 	})
 	require.NoError(t, err)
 
@@ -72,7 +100,22 @@ func setupServerWithProfile(t *testing.T) (s *Server, ctx context.Context, profN
 	// without an identity the gate would (correctly) refuse the SSH fields.
 	ctx = privilegedTestCtx()
 	s = New(ctx, "console", "", false, false, false, false)
+
+	// The gate resolves the request's handle before the handler runs and hands
+	// the profile down in the context. Driving the handler directly skips the
+	// gate, so the fixture stands in for it with the profile these requests
+	// name.
+	ctx = withTarget(ctx, cfgPath)
 	return s, ctx, profName, currUser.Username, cfgPath
+}
+
+// testProfileOwner is the identity the unprivileged test contexts carry, so a
+// fixture profile can be owned by the very caller that drives the handler.
+// Without an owner the profile is unowned, which the loader hides from every
+// unprivileged caller.
+func testProfileOwner() *ipcauth.Identity {
+	id := unprivilegedIdentity()
+	return &id
 }
 
 // extractViolation pulls the MDMManagedFieldsViolation detail from a
@@ -93,11 +136,10 @@ func extractViolation(t *testing.T, err error) *proto.MDMManagedFieldsViolation 
 }
 
 func TestSetConfig_MDMReject_SingleField(t *testing.T) {
-	withMDMPolicy(t, mdm.NewPolicy(map[string]any{
+	s, ctx, profName, username, _ := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
 		mdm.KeyManagementURL: "https://mdm.example.com:443",
 	}))
-
-	s, ctx, profName, username, _ := setupServerWithProfile(t)
 
 	_, err := s.SetConfig(ctx, &proto.SetConfigRequest{
 		ProfileName:   profName,
@@ -110,13 +152,12 @@ func TestSetConfig_MDMReject_SingleField(t *testing.T) {
 }
 
 func TestSetConfig_MDMReject_MultipleFields(t *testing.T) {
-	withMDMPolicy(t, mdm.NewPolicy(map[string]any{
+	s, ctx, profName, username, _ := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
 		mdm.KeyManagementURL:    "https://mdm.example.com:443",
 		mdm.KeyBlockInbound:     true,
 		mdm.KeyRosenpassEnabled: true,
 	}))
-
-	s, ctx, profName, username, _ := setupServerWithProfile(t)
 
 	blockInbound := false
 	rosenpassEnabled := false
@@ -136,16 +177,122 @@ func TestSetConfig_MDMReject_MultipleFields(t *testing.T) {
 	}, v.GetFields())
 }
 
+func TestSetConfig_MDMReject_LocalMetrics(t *testing.T) {
+	s, ctx, profName, username, _ := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
+		mdm.KeyEnableLocalMetrics:  true,
+		mdm.KeyLocalMetricsAddress: "127.0.0.1:9191",
+	}))
+
+	enabled := false
+	addr := "0.0.0.0:9999"
+	_, err := s.SetConfig(ctx, &proto.SetConfigRequest{
+		ProfileName:         profName,
+		Username:            username,
+		EnableLocalMetrics:  &enabled,
+		LocalMetricsAddress: &addr,
+	})
+
+	v := extractViolation(t, err)
+	assert.ElementsMatch(t, []string{
+		mdm.KeyEnableLocalMetrics,
+		mdm.KeyLocalMetricsAddress,
+	}, v.GetFields())
+}
+
+// An explicitly empty address still changes the effective listen address
+// (the manager falls back to the default), so presence must be honored
+// rather than collapsed to "field not set".
+func TestSetConfig_MDMReject_LocalMetricsEmptyAddress(t *testing.T) {
+	s, ctx, profName, username, _ := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
+		mdm.KeyLocalMetricsAddress: "127.0.0.1:9999",
+	}))
+
+	addr := ""
+	_, err := s.SetConfig(ctx, &proto.SetConfigRequest{
+		ProfileName:         profName,
+		Username:            username,
+		LocalMetricsAddress: &addr,
+	})
+
+	v := extractViolation(t, err)
+	assert.ElementsMatch(t, []string{mdm.KeyLocalMetricsAddress}, v.GetFields())
+}
+
+func TestSetConfig_MDMReject_EmptyPreSharedKey(t *testing.T) {
+	s, ctx, profName, username, _ := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
+		mdm.KeyPreSharedKey: "mdm-enforced-psk",
+	}))
+
+	psk := ""
+	_, err := s.SetConfig(ctx, &proto.SetConfigRequest{
+		ProfileName:          profName,
+		Username:             username,
+		OptionalPreSharedKey: &psk,
+	})
+
+	v := extractViolation(t, err)
+	assert.ElementsMatch(t, []string{mdm.KeyPreSharedKey}, v.GetFields())
+}
+
+func TestSetConfig_MDMAllow_PreSharedKeySentinelEcho(t *testing.T) {
+	s, ctx, profName, username, _ := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
+		mdm.KeyPreSharedKey: "mdm-enforced-psk",
+	}))
+
+	psk := mdm.PreSharedKeyRedactedSentinel
+	resp, err := s.SetConfig(ctx, &proto.SetConfigRequest{
+		ProfileName:          profName,
+		Username:             username,
+		OptionalPreSharedKey: &psk,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+}
+
+func TestLoginRequestMDMConflicts_PreSharedKey(t *testing.T) {
+	policy := mdm.NewPolicy(map[string]any{
+		mdm.KeyPreSharedKey: "mdm-enforced-psk",
+	})
+	empty := ""
+	sentinel := mdm.PreSharedKeyRedactedSentinel
+	same := "mdm-enforced-psk"
+	other := "user-psk"
+
+	tests := []struct {
+		name string
+		msg  *proto.LoginRequest
+		want []string
+	}{
+		{name: "unset", msg: &proto.LoginRequest{}, want: nil},
+		{name: "optional empty", msg: &proto.LoginRequest{OptionalPreSharedKey: &empty}, want: []string{mdm.KeyPreSharedKey}},
+		{name: "optional sentinel echo", msg: &proto.LoginRequest{OptionalPreSharedKey: &sentinel}, want: nil},
+		{name: "optional same value", msg: &proto.LoginRequest{OptionalPreSharedKey: &same}, want: nil},
+		{name: "optional divergent", msg: &proto.LoginRequest{OptionalPreSharedKey: &other}, want: []string{mdm.KeyPreSharedKey}},
+		{name: "legacy empty is unset", msg: &proto.LoginRequest{PreSharedKey: ""}, want: nil},                         //nolint:staticcheck // SA1019: legacy proto field still accepted by Login
+		{name: "legacy sentinel echo", msg: &proto.LoginRequest{PreSharedKey: sentinel}, want: nil},                    //nolint:staticcheck // SA1019: legacy proto field still accepted by Login
+		{name: "legacy divergent", msg: &proto.LoginRequest{PreSharedKey: other}, want: []string{mdm.KeyPreSharedKey}}, //nolint:staticcheck // SA1019: legacy proto field still accepted by Login
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, loginRequestMDMConflicts(tc.msg, policy))
+		})
+	}
+}
+
 func TestSetConfig_MDMReject_AllOrNothing(t *testing.T) {
 	// MDM enforces ManagementURL only; user request touches both the
 	// enforced field AND a non-enforced field (RosenpassEnabled).
 	// The whole request must be rejected — non-conflicting fields are not
 	// applied either.
-	withMDMPolicy(t, mdm.NewPolicy(map[string]any{
+	s, ctx, profName, username, cfgPath := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
 		mdm.KeyManagementURL: "https://mdm.example.com:443",
 	}))
-
-	s, ctx, profName, username, cfgPath := setupServerWithProfile(t)
 
 	rosenpassEnabled := true
 	_, err := s.SetConfig(ctx, &proto.SetConfigRequest{
@@ -160,7 +307,7 @@ func TestSetConfig_MDMReject_AllOrNothing(t *testing.T) {
 
 	// Confirm RosenpassEnabled was NOT applied even though it was not
 	// in the conflict list: the request was rejected as a whole.
-	reloaded, err := profilemanager.GetConfig(cfgPath)
+	reloaded, err := profilemanager.GetExistingConfig(cfgPath)
 	require.NoError(t, err)
 	assert.False(t, reloaded.RosenpassEnabled, "non-conflicting field must not be applied when request is rejected")
 }
@@ -168,11 +315,10 @@ func TestSetConfig_MDMReject_AllOrNothing(t *testing.T) {
 func TestSetConfig_MDMAllow_NonManagedFields(t *testing.T) {
 	// MDM enforces ManagementURL but the user only writes RosenpassEnabled.
 	// Request must succeed.
-	withMDMPolicy(t, mdm.NewPolicy(map[string]any{
+	s, ctx, profName, username, _ := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
 		mdm.KeyManagementURL: "https://mdm.example.com:443",
 	}))
-
-	s, ctx, profName, username, _ := setupServerWithProfile(t)
 
 	rosenpassEnabled := true
 	resp, err := s.SetConfig(ctx, &proto.SetConfigRequest{
@@ -202,11 +348,10 @@ func TestSetConfig_MDMAllow_ManagementURLPortNormalized(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			withMDMPolicy(t, mdm.NewPolicy(map[string]any{
+			s, ctx, profName, username, _ := setupServerWithProfile(t)
+			withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
 				mdm.KeyManagementURL: tc.mdmURL,
 			}))
-
-			s, ctx, profName, username, _ := setupServerWithProfile(t)
 
 			rosenpassEnabled := true
 			resp, err := s.SetConfig(ctx, &proto.SetConfigRequest{
@@ -224,9 +369,8 @@ func TestSetConfig_MDMAllow_ManagementURLPortNormalized(t *testing.T) {
 
 func TestSetConfig_MDMEmpty_NoEnforcement(t *testing.T) {
 	// No MDM policy active: any field can be written.
-	withMDMPolicy(t, mdm.NewPolicy(nil))
-
 	s, ctx, profName, username, _ := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(nil))
 
 	resp, err := s.SetConfig(ctx, &proto.SetConfigRequest{
 		ProfileName:   profName,

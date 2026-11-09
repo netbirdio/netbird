@@ -412,6 +412,50 @@ func TestRouter_VendorKeepsOpenAIOffAnthropic(t *testing.T) {
 	assert.Equal(t, "api.openai.com", out.Mutations.RewriteUpstream.Host, "openai vendor must pin to the openai route despite anthropic being declared first")
 }
 
+func TestRouter_MultiVendorGatewayAcceptsBothSurfaces(t *testing.T) {
+	gateway := ProviderRoute{
+		ID:              "agentgateway",
+		Vendors:         []string{"openai", "anthropic"},
+		Models:          nil,
+		AllowedGroupIDs: []string{defaultTestGroup},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "gateway.example.com",
+	}
+	other := ProviderRoute{
+		ID:              "other-vendor",
+		Vendor:          "mistral",
+		Models:          nil,
+		AllowedGroupIDs: []string{defaultTestGroup},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "mistral.example.com",
+	}
+	mw := New(Config{Providers: []ProviderRoute{other, gateway}})
+
+	for _, tc := range []struct {
+		name   string
+		vendor string
+		model  string
+		path   string
+	}{
+		{name: "OpenAI", vendor: "openai", model: "gpt-4o-mini", path: "/v1/chat/completions"},
+		{name: "Anthropic", vendor: "anthropic", model: "claude-sonnet-4-5", path: "/v1/messages"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := mw.Invoke(context.Background(), newInputVendorModelURL(tc.vendor, tc.model, tc.path))
+			require.NoError(t, err)
+			require.NotNil(t, out)
+			assert.Equal(t, middleware.DecisionAllow, out.Decision,
+				"supported vendor must route through the multi-surface gateway")
+			require.NotNil(t, out.Mutations)
+			require.NotNil(t, out.Mutations.RewriteUpstream)
+			assert.Equal(t, "gateway.example.com", out.Mutations.RewriteUpstream.Host)
+
+			provider, _ := metaValue(t, out.Metadata, middleware.KeyLLMResolvedProviderID)
+			assert.Equal(t, "agentgateway", provider)
+		})
+	}
+}
+
 // TestRouter_VendorAbsentFallsBackToModelPath confirms vendor filtering is
 // inert when the request carries no detected vendor: routing then relies on
 // model/path as before.
@@ -690,6 +734,23 @@ func TestRouter_PathDisambiguation_FallbackWhenNoPrefixMatches(t *testing.T) {
 func TestRouter_FactoryRejectsBadJSON(t *testing.T) {
 	_, err := Factory{}.New([]byte("{not json"))
 	require.Error(t, err, "malformed JSON config must be rejected at chain build time")
+}
+
+func TestRouter_FactoryDecodesLegacyAndMultiVendorFields(t *testing.T) {
+	raw := []byte(`{"providers":[` +
+		`{"id":"legacy","vendor":"openai","models":[],"upstream_scheme":"https","upstream_host":"openai.example.com","auth_header_name":"Authorization","auth_header_value":"Bearer legacy","allowed_group_ids":["group"]},` +
+		`{"id":"multi","vendors":["openai","anthropic"],"models":[],"upstream_scheme":"https","upstream_host":"gateway.example.com","auth_header_name":"Authorization","auth_header_value":"Bearer multi","allowed_group_ids":["group"]}` +
+		`]}`)
+
+	resolved, err := Factory{}.New(raw)
+	require.NoError(t, err)
+	router, ok := resolved.(*Middleware)
+	require.True(t, ok, "factory must return the concrete router middleware")
+	require.Len(t, router.cfg.Providers, 2)
+	assert.Equal(t, "openai", router.cfg.Providers[0].Vendor,
+		"the legacy singular field must keep decoding")
+	assert.Equal(t, []string{"openai", "anthropic"}, router.cfg.Providers[1].Vendors,
+		"the multi-vendor field must decode both supported surfaces")
 }
 
 func TestRouter_FactoryAcceptsEmptyShapes(t *testing.T) {

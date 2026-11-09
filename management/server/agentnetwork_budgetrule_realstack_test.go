@@ -89,6 +89,7 @@ func TestAgentNetwork_UpdateSettings_PreservesImmutableAndTogglesCollection(t *t
 
 	// Bootstrap is an explicit settings create; providers have no settings
 	// side effects anymore.
+	seedPrivateProxyCluster(t, am.Store, clusterAddr)
 	before, err := mgr.CreateSettings(ctx, adminUserID, agenttypes.DefaultSettings(accountID), clusterAddr, "")
 	require.NoError(t, err, "CreateSettings must bootstrap the row")
 	require.Equal(t, clusterAddr, before.ProxyAddress, "proxy address pinned at bootstrap")
@@ -96,10 +97,14 @@ func TestAgentNetwork_UpdateSettings_PreservesImmutableAndTogglesCollection(t *t
 	assert.False(t, before.EnablePromptCollection, "prompt collection defaults off")
 
 	_, err = mgr.CreateProvider(ctx, adminUserID, &agenttypes.Provider{
-		AccountID:   accountID,
-		ProviderID:  "openai_api",
-		Name:        "openai",
-		UpstreamURL: "https://api.openai.com",
+		AccountID:  accountID,
+		ProviderID: "openai_api",
+		Name:       "openai",
+		// A private address: the save-time credential check leaves it
+		// unchecked rather than spending a dummy key against the real
+		// api.openai.com, which the vendor refuses and which would make
+		// this test depend on the runner having egress.
+		UpstreamURL: "https://10.255.255.1",
 		APIKey:      "sk-test",
 		Enabled:     true,
 		Models:      []agenttypes.ProviderModel{{ID: "gpt-5.4"}},

@@ -1238,3 +1238,55 @@ func TestDNSForwarder_EmptyQuery(t *testing.T) {
 
 	assert.Nil(t, mockWriter.GetLastResponse(), "Should not write response for empty query")
 }
+
+// TestDNSForwarder_ClosedBeforeItServes covers Listen reaching the point of
+// serving after the forwarder has already been closed. Listen runs on its own
+// goroutine, so it can get there late, and a socket it starts serving then is
+// one nothing will ever close: on Android it keeps answering on an interface
+// that has been replaced. The close is sequenced first here rather than raced,
+// which pins the same state deterministically.
+func TestDNSForwarder_ClosedBeforeItServes(t *testing.T) {
+	f := NewDNSForwarder(netip.MustParseAddrPort("127.0.0.1:0"), 60, nil, nil, nil)
+
+	require.NoError(t, f.Close(context.Background()), "closing a forwarder that never started")
+
+	done := make(chan error, 1)
+	go func() { done <- f.Listen(nil) }()
+
+	select {
+	case err := <-done:
+		assert.NoError(t, err, "a closed forwarder should give up quietly, not serve")
+	case <-time.After(5 * time.Second):
+		t.Fatal("Listen went on to serve after the forwarder was closed")
+	}
+}
+
+// TestDNSForwarder_CloseStopsUnactivatedServers covers the window between
+// Listen publishing its servers and reaching ActivateAndServe. A server that
+// has not been activated refuses to shut down, so Close has to close the
+// sockets itself or they are left serving.
+func TestDNSForwarder_CloseStopsUnactivatedServers(t *testing.T) {
+	f := NewDNSForwarder(netip.MustParseAddrPort("127.0.0.1:0"), 60, nil, nil, nil)
+
+	udpConn, err := f.createUDPListener(nil)
+	require.NoError(t, err, "create UDP listener")
+	tcpLn, err := f.createTCPListener(nil)
+	require.NoError(t, err, "create TCP listener")
+
+	// Published but deliberately never activated, which is the state Listen is
+	// in for the moment before it starts serving.
+	require.True(t, f.publish(udpConn, tcpLn, &dns.Server{PacketConn: udpConn}, &dns.Server{Listener: tcpLn}, nil),
+		"publishing to an open forwarder")
+
+	tcpAddr := tcpLn.Addr().String()
+	require.NoError(t, f.Close(context.Background()), "close should report no error for servers it could not shut down")
+
+	_, err = tcpLn.Accept()
+	assert.Error(t, err, "the TCP socket should be closed after Close")
+
+	conn, err := net.DialTimeout("tcp", tcpAddr, time.Second)
+	if err == nil {
+		_ = conn.Close()
+		t.Fatal("the forwarder is still accepting connections after Close")
+	}
+}

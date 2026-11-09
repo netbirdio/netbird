@@ -5,14 +5,14 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/management-integrations/integrations"
-
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nmapcontroller "github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness"
+	peerlivenesscontroller "github.com/netbirdio/netbird/management/internals/controllers/peerliveness/controller"
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral"
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/internals/shared/grpc"
@@ -20,7 +20,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/auth"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator/validator"
-	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/job"
 	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
 )
@@ -28,6 +27,12 @@ import (
 func (s *BaseServer) PeersUpdateManager() network_map.PeersUpdateManager {
 	return Create(s, func() network_map.PeersUpdateManager {
 		return update_channel.NewPeersUpdateManager(s.Metrics())
+	})
+}
+
+func (s *BaseServer) PeerLiveness() peerliveness.Controller {
+	return Create(s, func() peerliveness.Controller {
+		return peerlivenesscontroller.NewController(s.Store())
 	})
 }
 
@@ -49,12 +54,6 @@ func (s *BaseServer) IntegratedValidator() integrated_validator.IntegratedValida
 			log.Errorf("failed to create integrated peer validator: %v", err)
 		}
 		return integratedPeerValidator
-	})
-}
-
-func (s *BaseServer) ProxyController() port_forwarding.Controller {
-	return Create(s, func() port_forwarding.Controller {
-		return integrations.NewController(s.Store())
 	})
 }
 
@@ -123,7 +122,7 @@ func (s *BaseServer) EphemeralManager() ephemeral.Manager {
 
 func (s *BaseServer) NetworkMapController() network_map.Controller {
 	return Create(s, func() network_map.Controller {
-		return nmapcontroller.NewController(context.Background(), s.Store(), s.Metrics(), s.PeersUpdateManager(), s.AccountRequestBuffer(), s.IntegratedValidator(), s.SettingsManager(), s.DNSDomain(), s.ProxyController(), s.EphemeralManager(), s.Config)
+		return nmapcontroller.NewController(context.Background(), s.Store(), s.Metrics(), s.PeersUpdateManager(), s.AccountRequestBuffer(), s.IntegratedValidator(), s.SettingsManager(), s.DNSDomain(), s.EphemeralManager(), s.Config, s.NetworkMapStore())
 	})
 }
 

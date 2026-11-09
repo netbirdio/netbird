@@ -54,7 +54,7 @@ export default function ErrorDialog() {
                     <DialogDescription className={"text-balance"}>
                         {/* select-text: the message often names a path, a flag or an
                             address the user needs to act on. */}
-                        <span className={"select-text whitespace-pre-wrap break-words"}>
+                        <span className={"wrap-break-word whitespace-pre-wrap select-text"}>
                             {message}
                         </span>
                     </DialogDescription>
@@ -66,12 +66,12 @@ export default function ErrorDialog() {
                         wrap
                         variant={"bright"}
                         className={
-                            "mt-2 w-full items-start gap-2 rounded-md bg-nb-gray-930 px-3 py-2 text-left"
+                            "mt-2 w-full items-start gap-2 rounded-md bg-nb-gray-930 px-3 py-2 text-start"
                         }
                         aria-label={t("common.copy")}
                     >
                         <code
-                            className={"select-text break-all font-mono text-xs text-nb-gray-200"}
+                            className={"font-mono text-xs break-all text-nb-gray-200 select-text"}
                         >
                             {command}
                         </code>

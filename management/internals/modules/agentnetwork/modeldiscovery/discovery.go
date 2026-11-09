@@ -52,9 +52,8 @@ const (
 )
 
 // ErrNoDiscovery is returned for a catalog entry that declares no listing
-// endpoint. Gateways vary too much to have one, and the caller should fall
-// back to the catalog list plus free-text entry rather than treating this as
-// a failure.
+// endpoint. The caller should fall back to the catalog list plus free-text
+// entry rather than treating this as a failure.
 var ErrNoDiscovery = errors.New("provider has no model-discovery endpoint")
 
 // ErrInvalidRequest marks a discovery failure caused by the caller's own input
@@ -124,13 +123,27 @@ func (c *Client) Fetch(ctx context.Context, req Request) ([]Model, error) {
 		return nil, ErrNoDiscovery
 	}
 
-	endpoint, err := c.discoveryURL(entry, req)
+	// One deadline over the whole operation. Both host lookups and the request
+	// itself run under it, so a vendor cannot be slow twice, and a caller that
+	// gives up is not left waiting on a resolver.
+	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
+	defer cancel()
+
+	// An entry with a listing host of its own answers from somewhere other
+	// than the upstream on the record — Bedrock lists from the control plane
+	// and infers on the runtime host. Reaching the listing therefore proves
+	// nothing about the host requests will actually go to, so that one is
+	// checked separately or not at all.
+	if entry.Discovery.Host != "" {
+		if err := c.checkUpstreamHost(ctx, entry, req.UpstreamURL); err != nil {
+			return nil, err
+		}
+	}
+
+	endpoint, err := c.discoveryURL(ctx, entry, req)
 	if err != nil {
 		return nil, err
 	}
-
-	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
-	defer cancel()
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -146,7 +159,7 @@ func (c *Client) Fetch(ctx context.Context, req Request) ([]Model, error) {
 
 	resp, err := c.httpClient().Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("reach %s: %w", entry.Name, err)
+		return nil, &UnreachableError{Provider: entry.Name, Err: err}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -157,7 +170,7 @@ func (c *Client) Fetch(ctx context.Context, req Request) ([]Model, error) {
 	if resp.StatusCode != http.StatusOK {
 		// Surface the vendor's own status. An operator whose key lacks a scope
 		// needs to see 403 rather than a generic failure.
-		return nil, fmt.Errorf("%s returned %d for its model listing", entry.Name, resp.StatusCode)
+		return nil, &VendorStatusError{Provider: entry.Name, Status: resp.StatusCode}
 	}
 
 	ids, err := parseListing(entry.Discovery.Shape, body)
@@ -176,12 +189,16 @@ func (c *Client) Fetch(ctx context.Context, req Request) ([]Model, error) {
 // management holds credentials for every provider, and an upstream pointed at
 // an internal address would turn this endpoint into a probe of the management
 // server's own network.
-func (c *Client) discoveryURL(entry catalog.Provider, req Request) (string, error) {
+func (c *Client) discoveryURL(ctx context.Context, entry catalog.Provider, req Request) (string, error) {
 	host := entry.Discovery.Host
 	if host == "" {
 		parsed, err := url.Parse(strings.TrimSpace(req.UpstreamURL))
 		if err != nil || parsed.Host == "" {
-			return "", fmt.Errorf("%w: provider upstream %q is not a usable URL", ErrInvalidRequest, req.UpstreamURL)
+			// The URL is left out of the message on purpose: it reaches the
+			// operator through an endpoint that does not lowercase it, but the
+			// rest of this feature's copy never echoes what they typed, and one
+			// path that does is the one that ends up quoted in a bug report.
+			return "", fmt.Errorf("%w: the provider upstream is not a usable URL", ErrInvalidRequest)
 		}
 		host = parsed.Host
 	}
@@ -194,17 +211,45 @@ func (c *Client) discoveryURL(entry catalog.Provider, req Request) (string, erro
 			region = RegionFromUpstream(entry, req.UpstreamURL)
 		}
 		if region == "" {
-			return "", fmt.Errorf("%w: %s discovery needs a region, and none could be read from the provider upstream",
-				ErrInvalidRequest, entry.Name)
+			return "", fmt.Errorf("%w: %w: %s discovery needs a region, and none could be read from the provider upstream",
+				ErrInvalidRequest, ErrNoDiscoveryHost, entry.Name)
 		}
 		host = strings.ReplaceAll(host, catalog.RegionPlaceholder, region)
 	}
 
 	target := &url.URL{Scheme: "https", Host: host, Path: entry.Discovery.Path, RawQuery: entry.Discovery.Query}
-	if err := c.checkPublicHost(target.Hostname()); err != nil {
+	if err := c.classifyHost(ctx, entry, target.Hostname()); err != nil {
 		return "", err
 	}
 	return target.String(), nil
+}
+
+// checkUpstreamHost verifies the host the operator configured, for entries
+// whose listing lives elsewhere and so cannot vouch for it.
+//
+// A name that does not resolve is the record being wrong. One that resolves
+// privately is not: an upstream behind a proxy is a supported configuration,
+// and ErrPrivateHost carries that difference on to the caller, which treats it
+// as unverifiable rather than as a failure.
+func (c *Client) checkUpstreamHost(ctx context.Context, entry catalog.Provider, upstreamURL string) error {
+	parsed, err := url.Parse(strings.TrimSpace(upstreamURL))
+	if err != nil || parsed.Hostname() == "" {
+		return fmt.Errorf("%w: the provider upstream is not a usable URL", ErrInvalidRequest)
+	}
+	return c.classifyHost(ctx, entry, parsed.Hostname())
+}
+
+// classifyHost renders a failed host check as the two outcomes the caller
+// distinguishes. A host that refuses to resolve is the commonest way for an
+// upstream to be wrong and has to arrive as unreachable rather than as an
+// unclassified fault. ErrPrivateHost means something else entirely — not a bad
+// host, one we decline to dial.
+func (c *Client) classifyHost(ctx context.Context, entry catalog.Provider, host string) error {
+	err := c.checkPublicHost(ctx, host)
+	if err == nil || errors.Is(err, ErrPrivateHost) {
+		return err
+	}
+	return &UnreachableError{Provider: entry.Name, Err: err}
 }
 
 // RegionFromUpstream recovers the region an operator embedded in the provider
@@ -244,7 +289,7 @@ func RegionFromUpstream(entry catalog.Provider, upstreamURL string) string {
 
 // checkPublicHost refuses hosts that resolve to an address the management
 // server should never be asked to reach on an operator's behalf.
-func (c *Client) checkPublicHost(host string) error {
+func (c *Client) checkPublicHost(ctx context.Context, host string) error {
 	if c.AllowPrivateHosts {
 		return nil
 	}
@@ -255,9 +300,6 @@ func (c *Client) checkPublicHost(host string) error {
 	if resolver == nil {
 		resolver = net.DefaultResolver
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
-	defer cancel()
-
 	addrs, err := resolver.LookupNetIP(ctx, "ip", host)
 	if err != nil {
 		return fmt.Errorf("resolve discovery host %q: %w", host, err)
@@ -266,7 +308,7 @@ func (c *Client) checkPublicHost(host string) error {
 	// loopback address is still a way to reach loopback.
 	for _, addr := range addrs {
 		if !isPublic(addr) {
-			return fmt.Errorf("%w: discovery host %q resolves to a non-public address", ErrInvalidRequest, host)
+			return fmt.Errorf("%w: %w: discovery host %q resolves to a non-public address", ErrInvalidRequest, ErrPrivateHost, host)
 		}
 	}
 	return nil
@@ -354,6 +396,9 @@ func decorate(entry catalog.Provider, ids []listedModel) []Model {
 	seen := make(map[string]struct{}, len(ids))
 	for _, listed := range ids {
 		if listed.id == "" {
+			continue
+		}
+		if entry.Discovery.ExactModelsOnly && strings.Contains(listed.id, "*") {
 			continue
 		}
 		if _, dup := seen[listed.id]; dup {
@@ -463,6 +508,13 @@ func guardDialAddress(address string) error {
 		return fmt.Errorf("discovery dial address %q is not an IP", host)
 	}
 	if !isPublic(addr) {
+		// Deliberately not ErrPrivateHost, which means "this upstream is on a
+		// private network, so we cannot check it" and lets a save through
+		// unchecked. checkPublicHost has already cleared the target by the
+		// time anything is dialled, so an address refused here is not the
+		// operator's upstream: it is a rebinding attempt, or an HTTP proxy in
+		// the path. Neither may quietly skip the check — one is hostile, and
+		// the other would silently disable this on every provider.
 		return fmt.Errorf("discovery refused to dial non-public address %s", addr)
 	}
 	return nil

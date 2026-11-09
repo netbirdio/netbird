@@ -51,7 +51,8 @@ func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 	// behavioural distinction, not a wording one.
 	if se.Metadata[authsession.MetaWarning] == "true" {
 		if se.Metadata[authsession.MetaFinal] == "true" {
-			t.openSessionExpiration()
+			deadline, _ := authsession.ParseExpiresAt(se.Metadata[authsession.MetaExpiresAt])
+			t.openSessionExpiration(deadline)
 			return
 		}
 		t.notifySessionWarning(t.eventTitle(se), body)

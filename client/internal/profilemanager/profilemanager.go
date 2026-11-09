@@ -3,12 +3,12 @@ package profilemanager
 import (
 	"fmt"
 	"os"
-	"os/user"
 	"path/filepath"
 	"strings"
 	"sync"
 	"unicode"
 
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -31,6 +31,29 @@ type Profile struct {
 	// loader so callers do not have to reconstruct it from ID + dir.
 	Path     string
 	IsActive bool
+	Owners   []ipcauth.Principal
+	// LegacyUserDir is the sanitized username of the per-username directory the
+	// profile was found in, empty for the profiles.v1 directory and for the
+	// default profile. It is the only legacy evidence of profile ownership.
+	LegacyUserDir string
+}
+
+// AccessibleBy reports whether a kernel-attested caller may address this
+// profile.
+func (p *Profile) AccessibleBy(id ipcauth.Identity) bool {
+	if !id.Known() {
+		return false
+	}
+	if ipcauth.ProfileOwnershipDisabled() {
+		return true
+	}
+	if ipcauth.IsPrivilegedCaller(id) {
+		return true
+	}
+	if len(p.Owners) == 0 {
+		return false
+	}
+	return p.Owners[0].Matches(id)
 }
 
 func (p *Profile) FilePath() (string, error) {
@@ -50,21 +73,12 @@ func (p *Profile) FilePath() (string, error) {
 		return DefaultConfigPath, nil
 	}
 
-	if !IsValidProfileFilenameStem(id) {
-		return "", fmt.Errorf("invalid profile ID: %q", id)
-	}
-
-	username, err := user.Current()
+	username, err := InvokingUser()
 	if err != nil {
 		return "", fmt.Errorf("failed to get current user: %w", err)
 	}
 
-	configDir, err := getConfigDirForUser(username.Username)
-	if err != nil {
-		return "", fmt.Errorf("failed to get config directory for user %s: %w", username.Username, err)
-	}
-
-	return filepath.Join(configDir, id.String()+".json"), nil
+	return (&ServiceManager{}).ActiveProfilePath(&ActiveProfileState{ID: id, Username: username.Username})
 }
 
 func (p *Profile) IsDefault() bool {
@@ -130,7 +144,7 @@ func (pm *ProfileManager) getActiveProfileState() ID {
 	if err != nil {
 		if !os.IsNotExist(err) {
 			log.Warnf("failed to read active profile state: %v", err)
-		} else {
+		} else if !sudoActive() {
 			if err := pm.setActiveProfileState(defaultProfileName); err != nil {
 				log.Warnf("failed to set default profile state: %v", err)
 			}
@@ -148,6 +162,13 @@ func (pm *ProfileManager) getActiveProfileState() ID {
 }
 
 func (pm *ProfileManager) setActiveProfileState(id ID) error {
+	// The invoking user's state is read-only under sudo — a root-owned file in
+	// the user's directory would break their own runs. The daemon still records
+	// the switch on its side; only the user-local bookkeeping is skipped.
+	if sudoActive() {
+		log.Infof("running under sudo: not persisting active profile %q for user %s", id, os.Getenv(envSudoUser))
+		return nil
+	}
 
 	configDir, err := getConfigDir()
 	if err != nil {

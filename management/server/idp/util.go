@@ -2,11 +2,14 @@ package idp
 
 import (
 	"encoding/json"
-	"math/rand"
+	"errors"
+	"net/http"
 	"net/url"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/netbirdio/netbird/management/server/util"
 )
 
 var (
@@ -33,31 +36,32 @@ func GeneratePassword(passwordLength, minSpecialChar, minNum, minUpperCase int) 
 
 	//Set special character
 	for i := 0; i < minSpecialChar; i++ {
-		random := rand.Intn(len(specialCharSet))
+		random := util.RandIntn(len(specialCharSet))
 		password.WriteString(string(specialCharSet[random]))
 	}
 
 	//Set numeric
 	for i := 0; i < minNum; i++ {
-		random := rand.Intn(len(numberSet))
+		random := util.RandIntn(len(numberSet))
 		password.WriteString(string(numberSet[random]))
 	}
 
 	//Set uppercase
 	for i := 0; i < minUpperCase; i++ {
-		random := rand.Intn(len(upperCharSet))
+		random := util.RandIntn(len(upperCharSet))
 		password.WriteString(string(upperCharSet[random]))
 	}
 
 	remainingLength := passwordLength - minSpecialChar - minNum - minUpperCase
 	for i := 0; i < remainingLength; i++ {
-		random := rand.Intn(len(allCharSet))
+		random := util.RandIntn(len(allCharSet))
 		password.WriteString(string(allCharSet[random]))
 	}
 	inRune := []rune(password.String())
-	rand.Shuffle(len(inRune), func(i, j int) {
+	for i := len(inRune) - 1; i > 0; i-- {
+		j := util.RandIntn(i + 1)
 		inRune[i], inRune[j] = inRune[j], inRune[i]
-	})
+	}
 	return string(inRune)
 }
 
@@ -78,6 +82,23 @@ const (
 	// Sets the defaultTimeout to 10s.
 	defaultTimeout = 10 * time.Second
 )
+
+// errRedirectRefused is returned instead of http.ErrUseLastResponse so the
+// client closes the redirect response rather than handing it back unread.
+var errRedirectRefused = errors.New("redirect refused")
+
+func newHTTPClient() *http.Client {
+	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
+	httpTransport.MaxIdleConns = 5
+
+	return &http.Client{
+		Timeout:   idpTimeout(),
+		Transport: httpTransport,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return errRedirectRefused
+		},
+	}
+}
 
 // idpTimeout returns a timeout value for the IDP
 func idpTimeout() time.Duration {

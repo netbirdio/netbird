@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 func networkMapFromComponents(t *testing.T, account *types.Account, peerID string, validatedPeers map[string]struct{}) *types.NetworkMap {
@@ -49,7 +50,7 @@ func allPeersValidated(account *types.Account, excludePeerIDs ...string) map[str
 	return validated
 }
 
-func peerIDs(peers []*types.ComponentPeer) []string {
+func peerIDs(peers []*nmdata.Peer) []string {
 	ids := make([]string, len(peers))
 	for i, p := range peers {
 		ids[i] = p.ID
@@ -172,6 +173,63 @@ func TestNetworkMapComponents_NetworkResourceRoutes_RouterPeer(t *testing.T) {
 	}
 	assert.True(t, hasResourceRoute, "router peer should receive network resource route")
 	assert.NotEmpty(t, nm.RoutesFirewallRules, "router peer should have route firewall rules for the resource")
+}
+
+// A receiver without a firewall asks Calculate to skip the route firewall
+// rules. Everything the rest of the sync consumes — routes, peers, peer
+// firewall rules — must come out unchanged.
+func TestNetworkMapComponents_SkipRouteFirewallRules(t *testing.T) {
+	ctx := context.Background()
+	account := createComponentTestAccount()
+
+	// The shared fixture leaves peer-router-1 out of every peer ACL, so its
+	// FirewallRules would be empty and the comparison below vacuous. Give the
+	// router a policy of its own.
+	account.Policies = append(account.Policies, &types.Policy{
+		ID: "policy-router", Name: "Router connectivity", Enabled: true,
+		Rules: []*types.PolicyRule{{
+			ID: "rule-router", Name: "Allow all <-> router", Enabled: true,
+			Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolALL,
+			Bidirectional: true,
+			Sources:       []string{"group-all"}, Destinations: []string{"group-all"},
+		}},
+	})
+
+	validated := allPeersValidated(account)
+
+	components := account.GetPeerNetworkMapComponents(
+		ctx,
+		"peer-router-1",
+		account.GetPeersCustomZone(ctx, "netbird.io"),
+		nil,
+		validated,
+		account.GetResourcePoliciesMap(),
+		account.GetResourceRoutersMap(),
+		account.GetActiveGroupUsers(),
+	)
+
+	full := components.Calculate(ctx)
+	require.NotEmpty(t, full.RoutesFirewallRules, "baseline: router peer must get route firewall rules")
+	require.NotEmpty(t, full.FirewallRules, "baseline: router peer must get peer firewall rules")
+
+	components.SkipRouteFirewallRules = true
+	skipped := components.Calculate(ctx)
+
+	assert.Empty(t, skipped.RoutesFirewallRules, "route firewall rules must not be computed when skipped")
+	assert.ElementsMatch(t, routeNetworks(full.Routes), routeNetworks(skipped.Routes),
+		"skipping route firewall rules must not change the routes")
+	assert.ElementsMatch(t, peerIDs(full.Peers), peerIDs(skipped.Peers),
+		"skipping route firewall rules must not change the peers to connect")
+	assert.Equal(t, full.FirewallRules, skipped.FirewallRules,
+		"peer firewall rules are unrelated and must come out unchanged")
+}
+
+func routeNetworks(routes []*nmdata.Route) []string {
+	networks := make([]string, 0, len(routes))
+	for _, r := range routes {
+		networks = append(networks, r.Network.String())
+	}
+	return networks
 }
 
 func TestNetworkMapComponents_NetworkResourceRoutes_UnrelatedPeer(t *testing.T) {
@@ -625,7 +683,7 @@ func TestNetworkMapComponents_DomainNetworkResource(t *testing.T) {
 
 	var hasDomainRoute bool
 	for _, r := range nm.Routes {
-		if r.NetworkType == route.DomainNetwork && len(r.Domains) > 0 && r.Domains[0].SafeString() == "api.example.com" {
+		if r.NetworkType == int(route.DomainNetwork) && len(r.Domains) > 0 && r.Domains[0].SafeString() == "api.example.com" {
 			hasDomainRoute = true
 		}
 	}

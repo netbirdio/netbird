@@ -6,8 +6,6 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/client/netstate"
 )
 
 // ConnStatus represents the connection state as seen by the guard.
@@ -16,13 +14,20 @@ type ConnStatus int
 const (
 	// ConnStatusDisconnected means neither ICE nor Relay is connected.
 	ConnStatusDisconnected ConnStatus = iota
-	// ConnStatusPartiallyConnected means Relay is connected but ICE is not.
+	// ConnStatusPartiallyConnected means one transport is usable and the other is not:
+	// relay connected with ICE down, or ICE connected with the shared relay transport down.
 	ConnStatusPartiallyConnected
 	// ConnStatusConnected means all required connections are established.
 	ConnStatusConnected
 )
 
 type connStatusFunc func() ConnStatus
+
+// NetworkWatcher is the availability view the guard gates reconnects on.
+type NetworkWatcher interface {
+	IsOnline() bool
+	Changed() <-chan struct{}
+}
 
 // Guard is responsible for the reconnection logic.
 // It will trigger to send an offer to the peer then has connection issues.
@@ -37,22 +42,22 @@ type Guard struct {
 	isConnectedOnAllWay connStatusFunc
 	timeout             time.Duration
 	srWatcher           *SRWatcher
-	// netState gates reconnect attempts on OS-reported network availability;
+	// netWatcher gates reconnect attempts on OS-reported network availability;
 	// nil disables gating.
-	netState                *netstate.State
+	netWatcher              NetworkWatcher
 	relayedConnDisconnected chan struct{}
 	iCEConnDisconnected     chan struct{}
 }
 
-// NewGuard creates a reconnection guard for a peer connection. A nil netState
+// NewGuard creates a reconnection guard for a peer connection. A nil netWatcher
 // disables network availability gating.
-func NewGuard(log *log.Entry, isConnectedFn connStatusFunc, timeout time.Duration, srWatcher *SRWatcher, netState *netstate.State) *Guard {
+func NewGuard(log *log.Entry, isConnectedFn connStatusFunc, timeout time.Duration, srWatcher *SRWatcher, netWatcher NetworkWatcher) *Guard {
 	return &Guard{
 		log:                     log,
 		isConnectedOnAllWay:     isConnectedFn,
 		timeout:                 timeout,
 		srWatcher:               srWatcher,
-		netState:                netState,
+		netWatcher:              netWatcher,
 		relayedConnDisconnected: make(chan struct{}, 1),
 		iCEConnDisconnected:     make(chan struct{}, 1),
 	}
@@ -83,8 +88,9 @@ func (g *Guard) SetICEConnDisconnected() {
 //   - Connected: no action, the peer is fully reachable.
 //   - Disconnected (neither ICE nor Relay): retries aggressively with exponential backoff (800ms doubling
 //     up to timeout), never gives up. This ensures rapid recovery when the peer has no connectivity at all.
-//   - PartiallyConnected (Relay up, ICE not): retries up to 3 times with exponential backoff, then switches
-//     to one attempt per hour. This limits signaling traffic when relay already provides connectivity.
+//   - PartiallyConnected (one transport usable, the other not): retries up to 3 times
+//     with exponential backoff, then switches to one attempt per hour. This limits
+//     signaling traffic while the peer still has a working path.
 //
 // External events (relay/ICE disconnect, signal/relay reconnect, candidate changes) reset the retry
 // counter and backoff ticker, giving ICE a fresh chance after network conditions change.
@@ -104,14 +110,17 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 	iceState := &iceRetryState{log: g.log}
 	defer iceState.reset()
 
-	netChanged := g.netState.Changed()
+	var netChanged <-chan struct{}
+	if g.netWatcher != nil {
+		netChanged = g.netWatcher.Changed()
+	}
 
 	for {
 		select {
 		case <-tickerChannel:
 			// skip attempts while the OS reports no usable network; the
 			// netChanged case below resumes the loop once it returns
-			if !g.netState.IsOnline() {
+			if g.netWatcher != nil && !g.netWatcher.IsOnline() {
 				continue
 			}
 			switch g.isConnectedOnAllWay() {
@@ -152,8 +161,8 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 
 		case <-netChanged:
 			// Re-arm for the next transition before acting on this one.
-			netChanged = g.netState.Changed()
-			if !g.netState.IsOnline() {
+			netChanged = g.netWatcher.Changed()
+			if !g.netWatcher.IsOnline() {
 				continue
 			}
 			// Ticks skipped while offline drove the backoff towards its
