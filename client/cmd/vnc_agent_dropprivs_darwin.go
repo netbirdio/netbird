@@ -45,10 +45,7 @@ func dropAgentPrivileges(targetUID uint32) error {
 	// target's primary group, so root's groups cannot let the dropped process
 	// write to root-only group-writable files. It then drops the gid and the
 	// uid and verifies the drop cannot be undone.
-	if err := sshserver.NewPrivilegeDropper().DropPrivileges(targetUID, targetGID, nil); err != nil {
-		return fmt.Errorf("drop to uid %d: %w", targetUID, err)
-	}
-	return nil
+	return sshserver.NewPrivilegeDropper().DropPrivileges(targetUID, targetGID, nil)
 }
 
 // primaryGroupID resolves the real primary group id of the user with the
