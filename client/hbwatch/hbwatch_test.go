@@ -1,16 +1,20 @@
 package hbwatch
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// fakeClock is a wall clock moved by hand. A jump models the phone sleeping:
-// no timer fires during the jump, but Now moves on.
+// fakeClock is a wall clock moved by hand. advance runs the timers that come
+// due, each at its own time. A jump models the phone sleeping: no timer fires
+// during the jump, so a timer that came due runs late at the next advance.
 type fakeClock struct {
 	mu        sync.Mutex
 	now       time.Time
@@ -23,8 +27,10 @@ type fakeTimer struct {
 	f  func()
 }
 
+var t0 = time.Unix(1_800_000_000, 0)
+
 func newFakeClock() *fakeClock {
-	return &fakeClock{now: time.Unix(1_800_000_000, 0)}
+	return &fakeClock{now: t0}
 }
 
 func (c *fakeClock) Now() time.Time {
@@ -40,24 +46,39 @@ func (c *fakeClock) AfterFunc(d time.Duration, f func()) {
 	c.timers = append(c.timers, fakeTimer{at: c.now.Add(d), f: f})
 }
 
-// advance moves the clock and runs the timers that came due, in order.
-func (c *fakeClock) advance(d time.Duration) {
-	c.mu.Lock()
-	c.now = c.now.Add(d)
-	var due []func()
-	kept := c.timers[:0]
-	for _, t := range c.timers {
-		if !t.at.After(c.now) {
-			due = append(due, t.f)
-			continue
+// advanceTo moves the clock to target and runs the timers due by then in
+// time order. A timer due in the past (after a jump) runs at the current time.
+func (c *fakeClock) advanceTo(target time.Time) {
+	for {
+		c.mu.Lock()
+		idx := -1
+		for i, t := range c.timers {
+			if t.at.After(target) {
+				continue
+			}
+			if idx < 0 || t.at.Before(c.timers[idx].at) {
+				idx = i
+			}
 		}
-		kept = append(kept, t)
+		if idx < 0 {
+			if target.After(c.now) {
+				c.now = target
+			}
+			c.mu.Unlock()
+			return
+		}
+		t := c.timers[idx]
+		c.timers = append(c.timers[:idx], c.timers[idx+1:]...)
+		if t.at.After(c.now) {
+			c.now = t.at
+		}
+		c.mu.Unlock()
+		t.f()
 	}
-	c.timers = kept
-	c.mu.Unlock()
-	for _, f := range due {
-		f()
-	}
+}
+
+func (c *fakeClock) advance(d time.Duration) {
+	c.advanceTo(c.Now().Add(d))
 }
 
 // jump moves the clock without running any timer, like a sleeping phone.
@@ -73,33 +94,11 @@ func (c *fakeClock) scheduledCount() int {
 	return c.scheduled
 }
 
+// counter counts stale actions (n) and off-burst reconnects (r) per service.
 type counter struct {
 	mu sync.Mutex
 	n  map[Service]int
 	r  map[Service]int
-}
-
-// reconnect counts the off-phase reconnects of svc apart from its stale action.
-func (c *counter) reconnect(svc Service) func() {
-	return func() {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		if c.r == nil {
-			c.r = map[Service]int{}
-		}
-		c.r[svc]++
-	}
-}
-
-func (c *counter) reconnects(svc Service) int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.r[svc]
-}
-
-// register registers svc with the counter's stale action and reconnect.
-func register(w *Watcher, c *counter, svc Service, kind string) (unregister func()) {
-	return w.Register(svc, kind, c.action(svc), c.reconnect(svc))
 }
 
 func (c *counter) action(svc Service) func() {
@@ -113,429 +112,518 @@ func (c *counter) action(svc Service) func() {
 	}
 }
 
+func (c *counter) reconnect(svc Service) func() {
+	return func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if c.r == nil {
+			c.r = map[Service]int{}
+		}
+		c.r[svc]++
+	}
+}
+
 func (c *counter) get(svc Service) int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.n[svc]
 }
 
-// newTickWatcher returns a Watcher whose client phase is 0, so the fake clock
-// start and every whole 30 s after it are ticks.
-func newTickWatcher(clk *fakeClock) *Watcher {
-	w := New(clk, 30*time.Second)
-	w.phaseFn = func() (time.Duration, time.Duration, bool) { return 0, 30 * time.Second, true }
-	return w
+func (c *counter) reconnects(svc Service) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.r[svc]
+}
+
+// total counts every stale action and off-burst reconnect.
+func (c *counter) total() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := 0
+	for _, svc := range services {
+		n += c.n[svc] + c.r[svc]
+	}
+	return n
+}
+
+func register(w *Watcher, c *counter, svc Service) (unregister func()) {
+	return w.Register(svc, ActionReconnect, c.action(svc), c.reconnect(svc))
 }
 
 func registerAll(w *Watcher, c *counter) {
-	register(w, c, Management, ActionReconnect)
-	register(w, c, Signal, ActionProbe)
-	register(w, c, Relay, ActionReconnect)
+	register(w, c, Management)
+	register(w, c, Signal)
+	register(w, c, Relay)
 }
 
-// After a sleep the monotonic timers have not run, but the first trigger must
+func newTestWatcher(clk *fakeClock) *Watcher {
+	return New(clk, 30*time.Second)
+}
+
+// captureLogs collects the standard logger entries of one test.
+func captureLogs(t *testing.T) *logtest.Hook {
+	t.Helper()
+	hook := &logtest.Hook{}
+	old := log.StandardLogger().ReplaceHooks(log.LevelHooks{})
+	log.AddHook(hook)
+	t.Cleanup(func() { log.StandardLogger().ReplaceHooks(old) })
+	return hook
+}
+
+// lines returns the logged messages that start with prefix and contain every
+// part.
+func lines(h *logtest.Hook, prefix string, parts ...string) []string {
+	var out []string
+	for _, e := range h.AllEntries() {
+		if !strings.HasPrefix(e.Message, prefix) {
+			continue
+		}
+		ok := true
+		for _, p := range parts {
+			ok = ok && strings.Contains(e.Message, p)
+		}
+		if ok {
+			out = append(out, e.Message)
+		}
+	}
+	return out
+}
+
+func setup(t *testing.T) (*fakeClock, *Watcher, *counter, *logtest.Hook) {
+	t.Helper()
+	h := captureLogs(t)
+	clk := newFakeClock()
+	w := newTestWatcher(clk)
+	c := &counter{}
+	registerAll(w, c)
+	return clk, w, c, h
+}
+
+// tickAt returns the server tick n periods after the start. The client phase
+// of the old watcher is 0, so these are its ticks too.
+func tickAt(n int) time.Time {
+	return t0.Add(time.Duration(n) * 30 * time.Second)
+}
+
+type hb struct {
+	svc Service
+	at  time.Duration
+}
+
+// heartbeats delivers each heartbeat at p plus its offset. Offsets must
+// ascend.
+func heartbeats(clk *fakeClock, w *Watcher, p time.Time, hbs ...hb) {
+	for _, h := range hbs {
+		clk.advanceTo(p.Add(h.at))
+		w.Seen(h.svc)
+	}
+}
+
+const ms = time.Millisecond
+
+var onTime = []hb{{Management, 0}, {Signal, 300 * ms}, {Relay, 600 * ms}}
+
+// All three heartbeats within 1 s: one check at B + 5 s, no action.
+func TestBurstOnTimeOneCheck(t *testing.T) {
+	clk, w, c, h := setup(t)
+	p := tickAt(1)
+	heartbeats(clk, w, p, hb{Management, 0}, hb{Signal, 400 * ms}, hb{Relay, 900 * ms})
+	clk.advanceTo(p.Add(BurstDelay - ms))
+	assert.Empty(t, lines(h, "hbwatch: check "), "no check before B + 5 s")
+	clk.advanceTo(p.Add(BurstDelay))
+	assert.Len(t, lines(h, "hbwatch: check ", "trigger=burst", "members=management,signal,relay"), 1,
+		"one burst check at B + 5 s")
+	clk.advance(20 * time.Second)
+	assert.Len(t, lines(h, "hbwatch: check "), 1, "one check for the burst")
+	assert.Equal(t, 0, c.total(), "no action")
+}
+
+// Relay 4 s after Management and Signal (radio paging, a TCP resend) is
+// jitter: it joins the burst.
+func TestBurstJitterRelayLate(t *testing.T) {
+	clk, w, c, _ := setup(t)
+	for n := 1; n <= 3; n++ {
+		heartbeats(clk, w, tickAt(n), hb{Management, 0}, hb{Signal, 200 * ms}, hb{Relay, 4 * time.Second})
+	}
+	clk.advanceTo(tickAt(3).Add(10 * time.Second))
+	assert.Equal(t, 0, c.total(), "relay 4 s late is jitter, no action")
+}
+
+// All three 4 s late together on every tick (bufferbloat, constant delay):
+// one burst per period, no action.
+func TestBurstConstantDelay(t *testing.T) {
+	clk, w, c, _ := setup(t)
+	for n := 1; n <= 10; n++ {
+		heartbeats(clk, w, tickAt(n),
+			hb{Management, 4 * time.Second}, hb{Signal, 4200 * ms}, hb{Relay, 4500 * ms})
+	}
+	clk.advanceTo(tickAt(10).Add(10 * time.Second))
+	assert.Equal(t, 0, c.total(), "constant delay of all three, no action")
+}
+
+// Management 1.8 s early, Signal on time, relay 2.3 s late: one burst.
+func TestBurstEarlyHeartbeat(t *testing.T) {
+	clk, w, c, _ := setup(t)
+	heartbeats(clk, w, tickAt(1), onTime...)
+	for n := 2; n <= 3; n++ {
+		heartbeats(clk, w, tickAt(n),
+			hb{Management, -1800 * ms}, hb{Signal, 0}, hb{Relay, 2300 * ms})
+	}
+	clk.advanceTo(tickAt(3).Add(10 * time.Second))
+	assert.Equal(t, 0, c.total(), "early heartbeat opens the burst, the late one joins it")
+}
+
+// A wake 2 s before the burst, then a burst with relay 0.5 s late.
+func TestWakeBeforeBurst(t *testing.T) {
+	clk, w, c, _ := setup(t)
+	heartbeats(clk, w, tickAt(1), onTime...)
+	p := tickAt(2)
+	clk.advanceTo(p.Add(-2 * time.Second))
+	w.CheckNow()
+	heartbeats(clk, w, p, hb{Management, 100 * ms}, hb{Signal, 100 * ms}, hb{Relay, 500 * ms})
+	clk.advanceTo(p.Add(10 * time.Second))
+	assert.Equal(t, 0, c.total(), "no action")
+}
+
+// Relay silent for one tick: exactly one relay reconnect at B + 5 s.
+func TestBurstRelaySilentOneTick(t *testing.T) {
+	clk, w, c, _ := setup(t)
+	heartbeats(clk, w, tickAt(1), onTime...)
+	p := tickAt(2)
+	heartbeats(clk, w, p, hb{Management, 0}, hb{Signal, 300 * ms})
+	clk.advanceTo(p.Add(BurstDelay - ms))
+	require.Equal(t, 0, c.get(Relay), "no action before B + 5 s")
+	clk.advanceTo(p.Add(BurstDelay))
+	assert.Equal(t, 1, c.get(Relay), "relay missed the burst, reconnect at B + 5 s")
+	heartbeats(clk, w, tickAt(3), onTime...)
+	clk.advanceTo(tickAt(3).Add(10 * time.Second))
+	assert.Equal(t, 1, c.get(Relay), "exactly one relay action")
+	assert.Equal(t, 1, c.total(), "no other action")
+}
+
+// A muted service gets one action per tick it misses, at B + 5 s.
+func TestBurstMutedServiceOncePerTick(t *testing.T) {
+	for _, muted := range services {
+		t.Run(string(muted), func(t *testing.T) {
+			clk, w, c, _ := setup(t)
+			heartbeats(clk, w, tickAt(1), onTime...)
+			for n := 2; n <= 4; n++ {
+				var hbs []hb
+				for _, h := range onTime {
+					if h.svc != muted {
+						hbs = append(hbs, h)
+					}
+				}
+				heartbeats(clk, w, tickAt(n), hbs...)
+				// The burst opens at the first heartbeat that came.
+				clk.advanceTo(tickAt(n).Add(hbs[0].at + BurstDelay))
+				assert.Equal(t, n-1, c.get(muted), "one action at tick %d", n)
+			}
+			assert.Equal(t, 3, c.total(), "only the muted service acts")
+		})
+	}
+}
+
+// A stale action blocks a wake action on the same service within the period.
+func TestOneActionPerPeriod(t *testing.T) {
+	clk, w, c, _ := setup(t)
+	heartbeats(clk, w, tickAt(1), onTime...)
+	p := tickAt(2)
+	heartbeats(clk, w, p, hb{Management, 0}, hb{Signal, 300 * ms})
+	clk.advanceTo(p.Add(10 * time.Second))
+	w.CheckNow()
+	clk.advance(Grace)
+	assert.Equal(t, 1, c.get(Relay), "one relay action per period")
+}
+
+// Relay 10 s early on one tick only, then back in the burst: no action.
+func TestOffBurstOneTickNoAction(t *testing.T) {
+	clk, w, c, h := setup(t)
+	heartbeats(clk, w, tickAt(1), onTime...)
+	heartbeats(clk, w, tickAt(2), hb{Relay, -10 * time.Second}, hb{Management, 0}, hb{Signal, 300 * ms})
+	for n := 3; n <= 4; n++ {
+		heartbeats(clk, w, tickAt(n), onTime...)
+	}
+	clk.advanceTo(tickAt(4).Add(10 * time.Second))
+	assert.Equal(t, 0, c.total(), "one off-burst tick, no action")
+	assert.Len(t, lines(h, "hbwatch: offburst svc=relay off=-10000 confirm=false"), 1, "off-burst logged")
+}
+
+// Relay 10 s early on 2 ticks in a row: one reconnect on the second. The new
+// connection is back in the burst and is left alone.
+func TestOffBurstTwoTicksReconnectsOnce(t *testing.T) {
+	clk, w, c, h := setup(t)
+	heartbeats(clk, w, tickAt(1), onTime...)
+	heartbeats(clk, w, tickAt(2), hb{Relay, -10 * time.Second}, hb{Management, 0}, hb{Signal, 300 * ms})
+	heartbeats(clk, w, tickAt(3), hb{Relay, -10 * time.Second})
+	clk.advanceTo(tickAt(3).Add(-10*time.Second + BurstDelay - ms))
+	require.Equal(t, 0, c.reconnects(Relay), "no reconnect before B + 5 s")
+	clk.advanceTo(tickAt(3).Add(-10*time.Second + BurstDelay))
+	require.Equal(t, 1, c.reconnects(Relay), "second off-burst tick reconnects relay")
+	assert.Len(t, lines(h, "hbwatch: offphase svc=relay off=-10000 action=reconnect"), 1, "offphase logged")
+
+	register(w, c, Relay)
+	heartbeats(clk, w, tickAt(3), hb{Management, 0}, hb{Signal, 300 * ms})
+	for n := 4; n <= 6; n++ {
+		heartbeats(clk, w, tickAt(n), onTime...)
+	}
+	clk.advanceTo(tickAt(6).Add(10 * time.Second))
+	assert.Equal(t, 1, c.reconnects(Relay), "new connection in the burst is not reconnected")
+	assert.Equal(t, 1, c.total(), "no other action")
+}
+
+// Offsets are taken mod period: a lone burst 15 s off is as far before the
+// next burst as after the last one, and two such lone bursts confirm.
+func TestOffBurstConfirmWrapsHalfPeriod(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		first, second time.Duration
+	}{
+		{"15s", 15 * time.Second, 15 * time.Second},
+		{"-14.8s then 14.9s", 15200 * ms, 14900 * ms},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clk, w, c, _ := setup(t)
+			heartbeats(clk, w, tickAt(1), onTime...)
+			heartbeats(clk, w, tickAt(1), hb{Relay, tc.first})
+			heartbeats(clk, w, tickAt(2), hb{Management, 0}, hb{Signal, 300 * ms}, hb{Relay, tc.second})
+			clk.advanceTo(tickAt(2).Add(tc.second + BurstDelay))
+			assert.Equal(t, 1, c.reconnects(Relay), "the two offsets confirm")
+			assert.Equal(t, 1, c.total(), "no other action")
+		})
+	}
+}
+
+func TestCentered(t *testing.T) {
+	p := 30 * time.Second
+	assert.Equal(t, 15*time.Second, centered(-15*time.Second, p), "-15 s maps to +15 s")
+	assert.Equal(t, time.Duration(0), centered(15*time.Second-(-15*time.Second), p), "+15 s and -15 s are equal")
+	assert.Equal(t, -300*ms, centered(29700*ms, p), "29.7 s is 0.3 s before")
+	assert.Equal(t, -10*time.Second, centered(20*time.Second, p), "20 s is 10 s before the next")
+}
+
+// Relay 10 s early, then 14 s early: the offsets differ by 4 s, no confirm.
+func TestOffBurstDifferentOffsetsNoConfirm(t *testing.T) {
+	clk, w, c, h := setup(t)
+	heartbeats(clk, w, tickAt(1), onTime...)
+	heartbeats(clk, w, tickAt(2), hb{Relay, -10 * time.Second}, hb{Management, 0}, hb{Signal, 300 * ms})
+	heartbeats(clk, w, tickAt(3), hb{Relay, -14 * time.Second}, hb{Management, 0}, hb{Signal, 300 * ms})
+	clk.advanceTo(tickAt(3).Add(10 * time.Second))
+	assert.Equal(t, 0, c.total(), "no confirm, no action")
+	assert.Len(t, lines(h, "hbwatch: offburst svc=relay", "confirm=false"), 2, "two off-burst lines")
+}
+
+// Register clears the stored off-burst offset: the first lone burst of a new
+// connection never confirms.
+func TestRegisterClearsOffBurst(t *testing.T) {
+	clk, w, c, _ := setup(t)
+	heartbeats(clk, w, tickAt(1), onTime...)
+	heartbeats(clk, w, tickAt(2), hb{Relay, -10 * time.Second}, hb{Management, 0}, hb{Signal, 300 * ms})
+	register(w, c, Relay)
+	heartbeats(clk, w, tickAt(3), hb{Relay, -10 * time.Second}, hb{Management, 0}, hb{Signal, 300 * ms})
+	clk.advanceTo(tickAt(3).Add(10 * time.Second))
+	assert.Equal(t, 0, c.total(), "first off-burst tick of the new connection, no action")
+}
+
+// relayTickAndWake sends relay alone at tick n and a wake 10 s later.
+func relayTickAndWake(clk *fakeClock, w *Watcher, n int) {
+	heartbeats(clk, w, tickAt(n), hb{Relay, 600 * ms})
+	clk.advanceTo(tickAt(n).Add(10600 * ms))
+	w.CheckNow()
+	clk.advance(Grace)
+}
+
+// Management and Signal muted while relay ticks: every burst is lone and the
+// relay sits on the reference burst, so it is not off burst. Management and
+// Signal act by the period plus tolerance rule while the gate is open, then
+// the gate closes.
+func TestLoneBurstsBothMuted(t *testing.T) {
+	clk, w, c, h := setup(t)
+	heartbeats(clk, w, tickAt(1), onTime...)
+	for n := 2; n <= 6; n++ {
+		relayTickAndWake(clk, w, n)
+	}
+	assert.Equal(t, 1, c.get(Management), "management acts once by the period rule")
+	assert.Equal(t, 1, c.get(Signal), "signal acts once by the period rule")
+	assert.Equal(t, 0, c.get(Relay), "relay sent every heartbeat")
+	assert.Equal(t, 0, c.reconnects(Relay), "relay on the reference burst is not off burst")
+	assert.Empty(t, lines(h, "hbwatch: offburst"), "no off-burst")
+	assert.NotEmpty(t, lines(h, "hbwatch: check ", "gate=closed"), "the gate closes")
+}
+
+// No burst with 2 members ever (each service alone): no reference, so no
+// off-burst action, and no stale action while the gaps stay under the period
+// plus tolerance.
+func TestNoReferenceBurstNoOffBurst(t *testing.T) {
+	clk, w, c, h := setup(t)
+	for n := 0; n <= 5; n++ {
+		heartbeats(clk, w, tickAt(n),
+			hb{Management, 0}, hb{Signal, 10 * time.Second}, hb{Relay, 20 * time.Second})
+	}
+	clk.advanceTo(tickAt(5).Add(29 * time.Second))
+	assert.Equal(t, 0, c.total(), "no action")
+	assert.Empty(t, lines(h, "hbwatch: offburst"), "no reference burst, no off-burst")
+	assert.NotEmpty(t, lines(h, "hbwatch: check trigger=lone"), "lone checks ran")
+}
+
+// Against a server that sends no test heartbeats (mode off, old server,
+// rollback) only the relay health check and wakes arrive. No action.
+func TestGateNoTestHeartbeatNoAction(t *testing.T) {
+	clk, w, c, _ := setup(t)
+	for n := 1; n <= 10; n++ {
+		relayTickAndWake(clk, w, n)
+	}
+	assert.Equal(t, 0, c.total(), "no test heartbeat: no action")
+}
+
+// Test heartbeats for 3 periods, then mode off. At most one action per
+// service, then nothing for 10 periods.
+func TestGateClosesAfterModeOff(t *testing.T) {
+	clk, w, c, h := setup(t)
+	for n := 1; n <= 3; n++ {
+		heartbeats(clk, w, tickAt(n), onTime...)
+	}
+	clk.advanceTo(tickAt(3).Add(10 * time.Second))
+	require.Equal(t, 0, c.total(), "steady ticks")
+
+	relayTickAndWake(clk, w, 4)
+	relayTickAndWake(clk, w, 5)
+	for _, svc := range services {
+		assert.LessOrEqual(t, c.get(svc)+c.reconnects(svc), 1, "at most one action after mode off: %s", svc)
+	}
+	first := c.total()
+	for n := 6; n <= 15; n++ {
+		relayTickAndWake(clk, w, n)
+	}
+	assert.Equal(t, first, c.total(), "no action once the gate is closed")
+	assert.NotEmpty(t, lines(h, "hbwatch: check ", "gate=closed"), "checks log the closed gate")
+}
+
+// The phone sleeps past the burst timer and the next burst opens before the
+// old check ran. The old check is closed without action; the new burst acts
+// on the missing service.
+func TestLateCheckSkippedByNewBurst(t *testing.T) {
+	clk, w, c, h := setup(t)
+	heartbeats(clk, w, tickAt(1), onTime...)
+	heartbeats(clk, w, tickAt(2), onTime...)
+	clk.jump(tickAt(3).Sub(clk.Now()))
+	// Seen before any advance: the old timer has not run yet.
+	w.Seen(Management)
+	heartbeats(clk, w, tickAt(3), hb{Signal, 300 * ms})
+	assert.Len(t, lines(h, "hbwatch: check ", "skipped=late"), 1, "old check skipped")
+	clk.advanceTo(tickAt(3).Add(BurstDelay))
+	assert.Equal(t, 1, c.get(Relay), "new burst acts on the missing relay")
+	assert.Equal(t, 1, c.total(), "no other action")
+}
+
+// A burst check that runs over 1 s after B + 5 s logs late=.
+func TestLateCheckLogsLate(t *testing.T) {
+	clk, w, c, h := setup(t)
+	heartbeats(clk, w, tickAt(1), onTime...)
+	clk.jump(tickAt(1).Add(25 * time.Second).Sub(clk.Now()))
+	clk.advance(0)
+	assert.Len(t, lines(h, "hbwatch: check trigger=burst", "wait=25000", "late=20000"), 1, "late check logged")
+	assert.Equal(t, 0, c.total(), "no action")
+}
+
+// Wakes between bursts check at T + 2 s with the period plus tolerance rule,
+// measured at the wake.
+func TestWakeBetweenBursts(t *testing.T) {
+	clk, w, c, h := setup(t)
+	heartbeats(clk, w, tickAt(1), onTime...)
+	clk.advanceTo(tickAt(1).Add(18 * time.Second))
+	w.CheckNow()
+	clk.advance(Grace - ms)
+	require.Empty(t, lines(h, "hbwatch: check trigger=wake"), "no wake check before T + 2 s")
+	clk.advance(ms)
+	require.Len(t, lines(h, "hbwatch: check trigger=wake", "wait=2000"), 1, "wake check at T + 2 s")
+	assert.Equal(t, 0, c.total(), "18 s gaps are not stale")
+
+	// All three silent at tick 2: a wake at P1 + 40 s sees gaps over 33 s.
+	clk.advanceTo(tickAt(1).Add(40 * time.Second))
+	w.CheckNow()
+	clk.advance(Grace)
+	for _, svc := range services {
+		assert.Equal(t, 1, c.get(svc), "silent for 40 s: %s", svc)
+	}
+}
+
+// A wake check that fires while a burst is open is skipped.
+func TestWakeSkippedWhileBurstOpen(t *testing.T) {
+	clk, w, c, h := setup(t)
+	p := tickAt(1)
+	heartbeats(clk, w, p, hb{Management, 0})
+	clk.advanceTo(p.Add(time.Second))
+	w.CheckNow()
+	heartbeats(clk, w, p, hb{Signal, 1500 * ms}, hb{Relay, 2 * time.Second})
+	clk.advanceTo(p.Add(10 * time.Second))
+	assert.Len(t, lines(h, "hbwatch: check trigger=wake", "skipped=burst"), 1, "wake check skipped")
+	assert.Len(t, lines(h, "hbwatch: check trigger=burst"), 1, "burst check ran")
+	assert.Equal(t, 0, c.total(), "no action")
+}
+
+// NB_TEST_HB_BURST_DELAY_MS moves the check.
+func TestBurstDelayFromEnv(t *testing.T) {
+	t.Setenv(envBurstDelay, "3000")
+	clk, w, c, _ := setup(t)
+	heartbeats(clk, w, tickAt(1), onTime...)
+	p := tickAt(2)
+	heartbeats(clk, w, p, hb{Management, 0}, hb{Signal, 300 * ms})
+	clk.advanceTo(p.Add(3*time.Second - ms))
+	require.Equal(t, 0, c.get(Relay), "no action before B + 3 s")
+	clk.advanceTo(p.Add(3 * time.Second))
+	assert.Equal(t, 1, c.get(Relay), "check at B + 3 s")
+
+	t.Setenv(envBurstDelay, "x")
+	assert.Equal(t, BurstDelay, burstDelayFromEnv(), "unparsable keeps default")
+	t.Setenv(envBurstDelay, "")
+	assert.Equal(t, BurstDelay, burstDelayFromEnv(), "unset keeps default")
+}
+
+// After a sleep the monotonic timers have not run, but the first burst must
 // see the real wall gap and act on the streams that stayed silent.
 func TestWallGapSeenAtOnceAfterSleep(t *testing.T) {
-	clk := newFakeClock()
-	w := New(clk, 30*time.Second)
-	var c counter
-	registerAll(w, &c)
+	clk, w, c, _ := setup(t)
 
 	clk.jump(100 * time.Second)
 	w.Seen(Management)
-	clk.advance(Grace)
+	clk.advance(BurstDelay)
 
 	assert.Equal(t, 0, c.get(Management), "management just sent a heartbeat")
-	assert.Equal(t, 1, c.get(Signal), "signal silent for 102 s must fire its action")
-	assert.Equal(t, 1, c.get(Relay), "relay silent for 102 s must fire its action")
-}
-
-// Heartbeats of one tick arrive a few hundred ms apart. They must collapse
-// into one check, and none of them is stale.
-func TestGraceCollapsesOneTick(t *testing.T) {
-	clk := newFakeClock()
-	w := New(clk, 30*time.Second)
-	var c counter
-	registerAll(w, &c)
-
-	clk.advance(30 * time.Second)
-	w.Seen(Relay)
-	clk.advance(300 * time.Millisecond)
-	w.Seen(Management)
-	clk.advance(300 * time.Millisecond)
-	w.Seen(Signal)
-	clk.advance(Grace)
-
-	assert.Equal(t, 1, clk.scheduledCount(), "three heartbeats within the grace must schedule one check")
-	for _, svc := range services {
-		assert.Equal(t, 0, c.get(svc), "no service is stale: %s", svc)
-	}
-}
-
-// One silent service fires once, not again within the same period, and a
-// reconnect (Register) resets its timestamp. Without a known phase no
-// heartbeat is a tick, so the period plus tolerance rule applies. Management
-// heartbeats keep the stale check on.
-func TestStaleFiresOncePerPeriodAndResetsOnReconnect(t *testing.T) {
-	clk := newFakeClock()
-	w := New(clk, 30*time.Second)
-	var c counter
-	registerAll(w, &c)
-
-	beat := func() {
-		w.Seen(Management)
-		w.Touch(Relay)
-		clk.advance(Grace)
-	}
-
-	// Exactly period + tolerance at the trigger is still fine: the grace
-	// before the check does not count toward the gap.
-	clk.advance(30*time.Second + Tolerance)
-	beat()
-	assert.Equal(t, 0, c.get(Signal), "gap of period + tolerance is not stale")
-
-	clk.advance(5 * time.Second)
-	beat()
-	require.Equal(t, 1, c.get(Signal), "signal past period + tolerance must fire")
-
-	// Wake within the same period: no second action.
-	w.CheckNow()
-	clk.advance(Grace)
-	clk.advance(10 * time.Second)
-	beat()
-	assert.Equal(t, 1, c.get(Signal), "no second action within one period")
-
-	// The stream reconnects: the fresh stream is not stale.
-	register(w, &c, Signal, ActionProbe)
-	clk.advance(25 * time.Second)
-	beat()
-	assert.Equal(t, 1, c.get(Signal), "a fresh stream must not be stale")
-
-	// It stays silent for a full period again: the next action may fire.
-	clk.advance(10 * time.Second)
-	beat()
-	assert.Equal(t, 2, c.get(Signal), "silent again past period + tolerance must fire again")
-	assert.Equal(t, 0, c.get(Management), "management kept sending")
-	assert.Equal(t, 0, c.get(Relay), "relay kept sending")
-}
-
-// tick delivers the heartbeats of the given services as one server tick: a
-// few hundred ms apart, then the grace runs out.
-func tick(clk *fakeClock, w *Watcher, svcs ...Service) {
-	for _, svc := range svcs {
-		w.Seen(svc)
-		clk.advance(300 * time.Millisecond)
-	}
-	clk.advance(Grace)
-}
-
-// untilNextTick moves the clock to the next tick after tick() ran for n
-// services.
-func untilNextTick(clk *fakeClock, n int) {
-	clk.advance(30*time.Second - Grace - time.Duration(n)*300*time.Millisecond)
-}
-
-// A service that misses one tick is flagged at that tick, not one tick or a
-// random wake later. A muted service is flagged at every tick it misses.
-func TestTickFlagsFirstMissedHeartbeat(t *testing.T) {
-	clk := newFakeClock()
-	w := newTickWatcher(clk)
-	var c counter
-	registerAll(w, &c)
-
-	clk.advance(30 * time.Second)
-	tick(clk, w, Relay, Management, Signal)
-	require.Equal(t, 0, c.get(Signal), "all three sent their heartbeat")
-
-	untilNextTick(clk, 3)
-	tick(clk, w, Relay, Management)
-	assert.Equal(t, 1, c.get(Signal), "signal missed this tick and must fire at it")
-
-	untilNextTick(clk, 2)
-	tick(clk, w, Relay, Management)
-	assert.Equal(t, 2, c.get(Signal), "signal missed the next tick too and must fire again")
-
-	untilNextTick(clk, 2)
-	tick(clk, w, Relay, Management, Signal)
-	assert.Equal(t, 2, c.get(Signal), "signal is back and must not fire")
-	assert.Equal(t, 0, c.get(Management), "management sent every heartbeat")
-	assert.Equal(t, 0, c.get(Relay), "relay sent every heartbeat")
-}
-
-// A frame that lands inside the grace after the tick still counts for that
-// tick.
-func TestTickFrameInsideGraceNotStale(t *testing.T) {
-	clk := newFakeClock()
-	w := newTickWatcher(clk)
-	var c counter
-	registerAll(w, &c)
-
-	clk.advance(30 * time.Second)
-	tick(clk, w, Relay, Management, Signal)
-
-	untilNextTick(clk, 3)
-	w.Seen(Relay)
-	clk.advance(300 * time.Millisecond)
-	w.Seen(Management)
-	clk.advance(Grace - 500*time.Millisecond)
-	w.Touch(Signal)
-	clk.advance(200 * time.Millisecond)
-	require.Equal(t, 2, clk.scheduledCount(), "one check per tick")
-	assert.Equal(t, 0, c.get(Signal), "signal frame inside the grace counts")
-}
-
-// Wakes and other frames between ticks keep the period plus tolerance rule:
-// a steady service is not stale half a period after its heartbeat.
-func TestWakeBetweenTicksNotStale(t *testing.T) {
-	clk := newFakeClock()
-	w := newTickWatcher(clk)
-	var c counter
-	registerAll(w, &c)
-
-	clk.advance(30 * time.Second)
-	tick(clk, w, Relay, Management, Signal)
-
-	clk.advance(18 * time.Second)
-	w.CheckNow()
-	clk.advance(Grace)
-	clk.advance(3 * time.Second)
-	w.Touch(Relay)
-	clk.advance(Grace)
-	for _, svc := range services {
-		assert.Equal(t, 0, c.get(svc), "wake or frame between ticks must not flag %s", svc)
-	}
-}
-
-// After a stalled connect one stream keeps a wrong server skew and its
-// heartbeat arrives about 11 s before the phase. That heartbeat is not a
-// tick: it must not flag the streams that are on phase, and at their tick the
-// early stream is not stale either. The early stream gets one off-phase
-// reconnect; here the reconnect does nothing, so the same connection stays.
-func TestOffPhaseHeartbeatIsNotATick(t *testing.T) {
-	clk := newFakeClock()
-	w := newTickWatcher(clk)
-	var c counter
-	registerAll(w, &c)
-
-	clk.advance(19 * time.Second)
-	for i := 0; i < 4; i++ {
-		// Signal at phase - 11 s.
-		w.Seen(Signal)
-		clk.advance(11 * time.Second)
-		// Management and relay at the phase.
-		tick(clk, w, Management, Relay)
-		clk.advance(19*time.Second - Grace - 600*time.Millisecond)
-	}
-	for _, svc := range services {
-		assert.Equal(t, 0, c.get(svc), "steady streams must not be flagged: %s", svc)
-	}
-	assert.Equal(t, 1, c.reconnects(Signal), "one off-phase reconnect per connection")
-	assert.Equal(t, 0, c.reconnects(Management), "management is on phase")
-	assert.Equal(t, 0, c.reconnects(Relay), "relay is on phase")
-}
-
-// An off-phase heartbeat reconnects only its own service, at once, not after
-// the grace. Here signal turns 4 s late: the tick flags it first and probes
-// it, and the probe does not hold back the reconnect, which fixes the skew.
-func TestOffPhaseHeartbeatReconnectsOwnService(t *testing.T) {
-	clk := newFakeClock()
-	w := newTickWatcher(clk)
-	var c counter
-	registerAll(w, &c)
-
-	clk.advance(30 * time.Second)
-	tick(clk, w, Relay, Management, Signal)
-	untilNextTick(clk, 3)
-	tick(clk, w, Relay, Management)
-	require.Equal(t, 1, c.get(Signal), "the tick probes the late signal")
-
-	clk.advance(4*time.Second - Grace - 600*time.Millisecond)
-	w.Seen(Signal)
-	assert.Equal(t, 1, c.reconnects(Signal), "off-phase signal heartbeat must reconnect signal at once")
-	assert.Equal(t, 0, c.reconnects(Management), "management not touched")
-	assert.Equal(t, 0, c.reconnects(Relay), "relay not touched")
-	assert.Equal(t, 0, c.get(Management), "no stale action on management")
-	assert.Equal(t, 0, c.get(Relay), "no stale action on relay")
-}
-
-// Heartbeats at the window edges are on phase and reconnect nothing.
-func TestHeartbeatInsideWindowNoReconnect(t *testing.T) {
-	clk := newFakeClock()
-	w := newTickWatcher(clk)
-	var c counter
-	register(w, &c, Relay, ActionReconnect)
-
-	clk.advance(30*time.Second - tickWindow)
-	w.Seen(Relay)
-	clk.advance(30 * time.Second)
-	w.Seen(Relay)
-	clk.advance(30*time.Second + 2*tickWindow)
-	w.Seen(Relay)
-	clk.advance(Grace)
-	assert.Equal(t, 0, c.reconnects(Relay), "heartbeat within the window must not reconnect")
-	assert.Equal(t, 0, c.get(Relay), "no stale action")
-}
-
-// At most one action per period: a new connection that is still off phase
-// and sends its first heartbeat under one period after the reconnect is left
-// until its next one. A reconnect that does not open a new connection leaves
-// the old stream, and its off-phase heartbeats are not reconnected again. A
-// new connection on phase is left alone.
-func TestOffPhaseReconnectOncePerConnectionAndPeriod(t *testing.T) {
-	clk := newFakeClock()
-	w := newTickWatcher(clk)
-	var c counter
-	register(w, &c, Relay, ActionReconnect)
-	// Management is not registered; its heartbeats only mark a test mode.
-	relay := func() {
-		w.Seen(Management)
-		w.Seen(Relay)
-	}
-
-	// Relay heartbeat 10 s before the phase.
-	clk.advance(20 * time.Second)
-	relay()
-	require.Equal(t, 1, c.reconnects(Relay), "first off-phase heartbeat reconnects")
-
-	// New connection 1 s later, its server skew is wrong again: heartbeats
-	// at phase + 10 s.
-	clk.advance(time.Second)
-	register(w, &c, Relay, ActionReconnect)
-	clk.advance(19 * time.Second)
-	relay()
-	assert.Equal(t, 1, c.reconnects(Relay), "20 s after the last action: at most one action per period")
-	clk.advance(30 * time.Second)
-	relay()
-	assert.Equal(t, 2, c.reconnects(Relay), "still off phase one period later: reconnect")
-
-	// The reconnect did not open a new connection.
-	clk.advance(30 * time.Second)
-	relay()
-	assert.Equal(t, 2, c.reconnects(Relay), "same connection must not be reconnected again")
-
-	// The next connection is on phase.
-	clk.advance(time.Second)
-	register(w, &c, Relay, ActionReconnect)
-	clk.advance(19 * time.Second)
-	for i := 0; i < 4; i++ {
-		tick(clk, w, Relay)
-		untilNextTick(clk, 1)
-	}
-	assert.Equal(t, 2, c.reconnects(Relay), "connection on phase must not be reconnected")
-	assert.Equal(t, 0, c.get(Relay), "no stale action")
-}
-
-// In mode off only the stock relay health check arrives, at any phase. It
-// must not reconnect relay. Once Management or Signal heartbeats come (a test
-// mode), an off-phase relay heartbeat reconnects; 2 periods after the last
-// one it does not any more.
-func TestOffPhaseRelayNeedsTestHeartbeats(t *testing.T) {
-	clk := newFakeClock()
-	w := newTickWatcher(clk)
-	var c counter
-	register(w, &c, Relay, ActionReconnect)
-
-	clk.advance(10 * time.Second)
-	for i := 0; i < 4; i++ {
-		w.Seen(Relay)
-		clk.advance(25 * time.Second)
-	}
-	require.Equal(t, 0, c.reconnects(Relay), "mode off: relay health checks must not reconnect")
-
-	// A test mode starts: a Management heartbeat (here off phase too, so no
-	// tick flags relay), then relay 10 s before the phase.
-	w.Seen(Management)
-	w.Seen(Relay)
-	require.Equal(t, 1, c.reconnects(Relay), "test mode: off-phase relay heartbeat reconnects")
-
-	// New relay connection, no test heartbeat for more than 2 periods.
-	register(w, &c, Relay, ActionReconnect)
-	clk.advance(61 * time.Second)
-	w.Seen(Relay)
-	assert.Equal(t, 1, c.reconnects(Relay), "2 periods without a test heartbeat: no reconnect")
-}
-
-// Without a known phase nothing is off phase.
-func TestUnknownPhaseNoOffPhaseReconnect(t *testing.T) {
-	clk := newFakeClock()
-	w := New(clk, 30*time.Second)
-	var c counter
-	registerAll(w, &c)
-
-	clk.advance(11 * time.Second)
-	w.Seen(Signal)
-	assert.Equal(t, 0, c.reconnects(Signal), "unknown phase must not reconnect")
-}
-
-// Without a known phase no heartbeat is a tick, so the period plus
-// tolerance rule applies.
-func TestUnknownPhaseKeepsPeriodRule(t *testing.T) {
-	clk := newFakeClock()
-	w := New(clk, 30*time.Second)
-	var c counter
-	registerAll(w, &c)
-
-	clk.advance(30 * time.Second)
-	tick(clk, w, Relay, Management, Signal)
-	untilNextTick(clk, 3)
-	tick(clk, w, Relay, Management)
-	assert.Equal(t, 0, c.get(Signal), "one missed heartbeat is under period plus tolerance")
-	untilNextTick(clk, 2)
-	tick(clk, w, Relay, Management)
-	assert.Equal(t, 1, c.get(Signal), "two missed heartbeats are over period plus tolerance")
-}
-
-func TestPhaseOffset(t *testing.T) {
-	w := New(newFakeClock(), 30*time.Second)
-	w.phaseFn = func() (time.Duration, time.Duration, bool) {
-		return 21723 * time.Millisecond, 30 * time.Second, true
-	}
-	base := time.Unix(1_800_000_000, 0)
-	for _, tc := range []struct {
-		at   time.Duration
-		want time.Duration
-	}{
-		{21723 * time.Millisecond, 0},
-		{22223 * time.Millisecond, 500 * time.Millisecond},
-		{10723 * time.Millisecond, -11 * time.Second},
-		{6723 * time.Millisecond, 15 * time.Second},
-		{51223 * time.Millisecond, -500 * time.Millisecond},
-	} {
-		off, ok := w.phaseOffset(base.Add(tc.at))
-		require.True(t, ok)
-		assert.Equal(t, tc.want, off, "offset at %s", tc.at)
-	}
+	assert.Equal(t, 1, c.get(Signal), "signal silent for 100 s must fire its action")
+	assert.Equal(t, 1, c.get(Relay), "relay silent for 100 s must fire its action")
 }
 
 // Only connected services are checked. A stale unregister from an old stream
 // must not drop the registration of the new stream.
 func TestUnregisterOnlyRemovesOwnRegistration(t *testing.T) {
+	captureLogs(t)
 	clk := newFakeClock()
-	w := New(clk, 30*time.Second)
+	w := newTestWatcher(clk)
 	var c counter
 
-	oldUnregister := register(w, &c, Relay, ActionReconnect)
-	newUnregister := register(w, &c, Relay, ActionReconnect)
+	oldUnregister := register(w, &c, Relay)
+	newUnregister := register(w, &c, Relay)
 	oldUnregister()
 
 	clk.jump(60 * time.Second)
 	w.Seen(Management)
 	w.CheckNow()
-	clk.advance(Grace)
+	clk.advance(BurstDelay)
 	assert.Equal(t, 1, c.get(Relay), "the newer registration must stay active")
 
 	newUnregister()
 	clk.jump(60 * time.Second)
 	w.Seen(Management)
 	w.CheckNow()
-	clk.advance(Grace)
+	clk.advance(BurstDelay)
 	assert.Equal(t, 1, c.get(Relay), "an unregistered service is not checked")
 }
 
 // The Swift wake can call CheckNow before the engine runs and after it stops.
 func TestCheckNowWithoutServicesIsNoop(t *testing.T) {
 	clk := newFakeClock()
-	w := New(clk, 30*time.Second)
+	w := newTestWatcher(clk)
 	w.CheckNow()
 	clk.advance(Grace)
 	assert.Equal(t, 1, clk.scheduledCount(), "CheckNow schedules one check")
@@ -576,277 +664,4 @@ func TestDefaultEnabledAfterEarlyDisabledCall(t *testing.T) {
 	require.Nil(t, def(), "SetDefault(nil) keeps the default off")
 	restore()
 	require.Same(t, w, def())
-}
-
-func checkPending(w *Watcher) bool {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.pending
-}
-
-// toNextPhase moves the clock from a whole tick plus d to the next tick plus
-// to, running timers on the way.
-func toNextPhase(clk *fakeClock, from, to time.Duration) {
-	clk.advance(30*time.Second - from + to)
-}
-
-// assertCheckAt asserts that the pending check runs at the current time plus
-// d, not earlier.
-func assertCheckAt(t *testing.T, clk *fakeClock, w *Watcher, d time.Duration) {
-	t.Helper()
-	clk.advance(d - time.Millisecond)
-	assert.True(t, checkPending(w), "check must not run before the expected time")
-	clk.advance(time.Millisecond)
-	assert.False(t, checkPending(w), "check must run at the expected time")
-}
-
-// A wake (here a path update) just before the tick starts the check. The
-// heartbeats of the tick join it, and relay, due 0.6 s after the phase, must
-// still land before the check. Night 23 had the wake 1.95 s before the
-// first heartbeat, inside the grace of the wake.
-func TestWakeBeforeTickWaitsForTick(t *testing.T) {
-	for _, wake := range []time.Duration{-2 * time.Second, -1800 * time.Millisecond} {
-		t.Run(wake.String(), func(t *testing.T) {
-			clk := newFakeClock()
-			w := newTickWatcher(clk)
-			var c counter
-			registerAll(w, &c)
-
-			clk.advance(30 * time.Second)
-			tick(clk, w, Relay, Management, Signal)
-
-			toNextPhase(clk, Grace+900*time.Millisecond, wake)
-			w.CheckNow()
-			clk.advance(100*time.Millisecond - wake)
-			w.Seen(Management)
-			w.Seen(Signal)
-			clk.advance(500 * time.Millisecond)
-			w.Seen(Relay)
-			// Now at P + 0.6 s; the check runs at P + 2 s.
-			assertCheckAt(t, clk, w, 1400*time.Millisecond)
-			for _, svc := range services {
-				assert.Equal(t, 0, c.get(svc), "no stale action: %s", svc)
-			}
-		})
-	}
-}
-
-// A heartbeat 1.8 s early starts the tick check. Relay arrives 2.3 s later,
-// after the grace from the early heartbeat, and must still count (22c Part D).
-func TestEarlyHeartbeatWaitsForTick(t *testing.T) {
-	clk := newFakeClock()
-	w := newTickWatcher(clk)
-	var c counter
-	registerAll(w, &c)
-
-	clk.advance(30 * time.Second)
-	tick(clk, w, Relay, Management, Signal)
-
-	toNextPhase(clk, Grace+900*time.Millisecond, -1800*time.Millisecond)
-	w.Seen(Management)
-	clk.advance(1900 * time.Millisecond)
-	w.Seen(Signal)
-	clk.advance(400 * time.Millisecond)
-	w.Seen(Relay)
-	assertCheckAt(t, clk, w, 1500*time.Millisecond)
-	for _, svc := range services {
-		assert.Equal(t, 0, c.get(svc), "no stale action: %s", svc)
-	}
-}
-
-// A wake 3.5 s before the phase is no tick and schedules its check at T +
-// grace. An early heartbeat joins it and moves the check to the tick.
-func TestJoinMovesCheckLater(t *testing.T) {
-	clk := newFakeClock()
-	w := newTickWatcher(clk)
-	var c counter
-	registerAll(w, &c)
-
-	clk.advance(30 * time.Second)
-	tick(clk, w, Relay, Management, Signal)
-
-	toNextPhase(clk, Grace+900*time.Millisecond, -3500*time.Millisecond)
-	w.CheckNow()
-	clk.advance(1700 * time.Millisecond)
-	w.Seen(Management)
-	clk.advance(1900 * time.Millisecond)
-	w.Seen(Signal)
-	clk.advance(400 * time.Millisecond)
-	w.Seen(Relay)
-	assertCheckAt(t, clk, w, 1500*time.Millisecond)
-	for _, svc := range services {
-		assert.Equal(t, 0, c.get(svc), "no stale action: %s", svc)
-	}
-}
-
-// A real missed tick still gives exactly one action, within 3 s of the phase.
-func TestMissedTickStillActsAfterTickGrace(t *testing.T) {
-	clk := newFakeClock()
-	w := newTickWatcher(clk)
-	var c counter
-	registerAll(w, &c)
-
-	clk.advance(30 * time.Second)
-	tick(clk, w, Relay, Management, Signal)
-
-	toNextPhase(clk, Grace+900*time.Millisecond, 100*time.Millisecond)
-	w.Seen(Management)
-	clk.advance(200 * time.Millisecond)
-	w.Seen(Signal)
-	// Now at P + 0.3 s.
-	clk.advance(Grace - 300*time.Millisecond - time.Millisecond)
-	require.Equal(t, 0, c.get(Relay), "no action before P + grace")
-	clk.advance(time.Millisecond)
-	assert.Equal(t, 1, c.get(Relay), "missed relay tick acts at P + grace")
-	clk.advance(5 * time.Second)
-	assert.Equal(t, 1, c.get(Relay), "exactly one action")
-	assert.Equal(t, 0, c.get(Management), "management sent its heartbeat")
-	assert.Equal(t, 0, c.get(Signal), "signal sent its heartbeat")
-}
-
-// A wake far from the phase checks at T + grace with tick=false.
-func TestWakeFarFromPhaseKeepsGrace(t *testing.T) {
-	clk := newFakeClock()
-	w := newTickWatcher(clk)
-	var c counter
-	registerAll(w, &c)
-
-	clk.advance(30 * time.Second)
-	tick(clk, w, Relay, Management, Signal)
-
-	clk.advance(10*time.Second - Grace - 900*time.Millisecond)
-	w.CheckNow()
-	w.mu.Lock()
-	tickSet := w.tick
-	w.mu.Unlock()
-	assert.False(t, tickSet, "a wake at P + 10 s is no tick")
-	assertCheckAt(t, clk, w, Grace)
-	for _, svc := range services {
-		assert.Equal(t, 0, c.get(svc), "no stale action: %s", svc)
-	}
-}
-
-func totalActions(c *counter) int {
-	n := 0
-	for _, svc := range services {
-		n += c.get(svc)
-	}
-	return n
-}
-
-// relayTickAndWake sends one on-phase relay heartbeat and a wake 10 s later,
-// then moves to the next tick.
-func relayTickAndWake(clk *fakeClock, w *Watcher) {
-	tick(clk, w, Relay)
-	clk.advance(10*time.Second - Grace - 300*time.Millisecond)
-	w.CheckNow()
-	clk.advance(Grace)
-	clk.advance(20*time.Second - Grace)
-}
-
-// Against a server that sends no test heartbeats (mode off, old server,
-// rollback) only the relay health check and wakes arrive. No stale action.
-func TestGateNoTestHeartbeatNoAction(t *testing.T) {
-	clk := newFakeClock()
-	w := newTickWatcher(clk)
-	var c counter
-	registerAll(w, &c)
-
-	clk.advance(30 * time.Second)
-	for i := 0; i < 10; i++ {
-		relayTickAndWake(clk, w)
-	}
-	assert.Equal(t, 0, totalActions(&c), "no test heartbeat: no stale action")
-}
-
-// Test heartbeats for 3 periods, then mode off. The first missed tick may
-// act once per service, then nothing for 10 periods.
-func TestGateClosesAfterModeOff(t *testing.T) {
-	clk := newFakeClock()
-	w := newTickWatcher(clk)
-	var c counter
-	registerAll(w, &c)
-
-	clk.advance(30 * time.Second)
-	for i := 0; i < 3; i++ {
-		tick(clk, w, Relay, Management, Signal)
-		untilNextTick(clk, 3)
-	}
-	require.Equal(t, 0, totalActions(&c), "steady ticks")
-
-	relayTickAndWake(clk, w)
-	relayTickAndWake(clk, w)
-	for _, svc := range services {
-		assert.LessOrEqual(t, c.get(svc), 1, "at most one action after mode off: %s", svc)
-	}
-	first := totalActions(&c)
-	for i := 0; i < 10; i++ {
-		relayTickAndWake(clk, w)
-	}
-	assert.Equal(t, first, totalActions(&c), "no action once the gate is closed")
-}
-
-// With test heartbeats arriving the gate is open: a relay that misses one
-// tick still gets its action.
-func TestGateOpenRelayMissedTickActs(t *testing.T) {
-	clk := newFakeClock()
-	w := newTickWatcher(clk)
-	var c counter
-	registerAll(w, &c)
-
-	clk.advance(30 * time.Second)
-	tick(clk, w, Relay, Management, Signal)
-	untilNextTick(clk, 3)
-	tick(clk, w, Management, Signal)
-	assert.Equal(t, 1, c.get(Relay), "relay missed a tick with the gate open")
-	assert.Equal(t, 0, c.get(Management), "management sent its heartbeat")
-	assert.Equal(t, 0, c.get(Signal), "signal sent its heartbeat")
-}
-
-// Management and Signal both muted while relay ticks: the first missed tick
-// still acts, the last test heartbeat is under 2 periods old.
-func TestGateOpenFirstMissedTickBothMuted(t *testing.T) {
-	clk := newFakeClock()
-	w := newTickWatcher(clk)
-	var c counter
-	registerAll(w, &c)
-
-	clk.advance(30 * time.Second)
-	tick(clk, w, Relay, Management, Signal)
-	untilNextTick(clk, 3)
-	tick(clk, w, Relay)
-	assert.Equal(t, 1, c.get(Management), "first missed management tick acts")
-	assert.Equal(t, 1, c.get(Signal), "first missed signal tick acts")
-	untilNextTick(clk, 1)
-	tick(clk, w, Relay)
-	untilNextTick(clk, 1)
-	tick(clk, w, Relay)
-	assert.Equal(t, 0, c.get(Relay), "relay sent every heartbeat")
-}
-
-// A frame just after a tick (outside the tick window) starts a check, and the
-// phone sleeps before its timer runs. At the next tick the heartbeats join
-// that old check. A service that misses this tick must still be flagged at
-// this tick, so gaps are measured at the tick, not at the old trigger.
-func TestSleptCheckMeasuresAtNextTick(t *testing.T) {
-	clk := newFakeClock()
-	w := newTickWatcher(clk)
-	var c counter
-	registerAll(w, &c)
-
-	clk.advance(30 * time.Second)
-	tick(clk, w, Relay, Management, Signal)
-
-	// P + 3.4 s: a relay data frame, then the phone sleeps to P1 + 0.1 s.
-	clk.advance(3400*time.Millisecond - Grace - 900*time.Millisecond)
-	w.Touch(Relay)
-	clk.jump(30*time.Second - 3400*time.Millisecond + 100*time.Millisecond)
-	w.Seen(Management)
-	clk.advance(200 * time.Millisecond)
-	w.Seen(Signal)
-	// Now at P1 + 0.3 s; relay is silent at this tick.
-	clk.advance(Grace - 300*time.Millisecond)
-	assert.Equal(t, 1, c.get(Relay), "relay missed this tick and must be flagged by P1 + grace")
-	assert.Equal(t, 0, c.get(Management), "management sent its heartbeat")
-	assert.Equal(t, 0, c.get(Signal), "signal sent its heartbeat")
 }

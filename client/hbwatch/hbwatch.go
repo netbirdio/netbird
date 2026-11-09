@@ -1,14 +1,15 @@
 // Package hbwatch is a local test helper (aligned keepalive test, never push).
-// It keeps the wall time of the last inbound frame per service and, on each
-// trigger (a received frame or an explicit CheckNow), waits a short grace,
-// counted from the client phase when the trigger is near it, and runs the dead
-// path of every connected service whose wall-clock gap exceeds
-// the heartbeat period plus a tolerance. When a heartbeat near the client
-// phase triggered the check (a tick), a service with no frame since the
-// previous tick is stale already. A heartbeat far from the client phase comes
-// from a stream with a wrong server skew; that stream is reconnected so the
-// server takes a new skew.
-// The gap is measured on the wall clock so time the phone spent asleep counts.
+// It keeps the wall time of the last inbound frame per service and judges
+// each service against the heartbeat burst of the others, not against the
+// client phase. A test heartbeat that arrives while no burst is open starts
+// one; test heartbeats within the burst delay join it, and the burst is
+// checked when the delay runs out. In a burst of two or more services a
+// registered service that did not join and sent nothing for half a period is
+// stale. A service that comes alone, on two lone bursts in a row at the same
+// offset from the last full burst, has a wrong server skew and is reconnected
+// so the server takes a new skew. Wakes check after a short grace with the
+// period plus tolerance rule.
+// Gaps are measured on the wall clock so time the phone spent asleep counts.
 // No action runs while no Management or Signal test heartbeat came within 2
 // periods.
 // Enabled by NB_TEST_HB_STALE=1.
@@ -24,8 +25,6 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/shared/testhb"
 )
 
 // Service names a watched stream.
@@ -42,31 +41,32 @@ const (
 	ActionProbe     = "probe"
 	ActionReconnect = "reconnect"
 
-	envEnabled = "NB_TEST_HB_STALE"
-	envPeriod  = "NB_TEST_HB_PERIOD_SEC"
+	envEnabled    = "NB_TEST_HB_STALE"
+	envPeriod     = "NB_TEST_HB_PERIOD_SEC"
+	envBurstDelay = "NB_TEST_HB_BURST_DELAY_MS"
 
 	defaultPeriod = 30 * time.Second
-	// Grace lets the other heartbeats of the same tick land before a check.
+	// BurstDelay is how long after the first test heartbeat of a burst the
+	// others may join it. Cellular paging plus one TCP resend can delay a
+	// healthy heartbeat 3 to 5 s.
+	BurstDelay = 5 * time.Second
+	// Grace lets the frames of a wake land before its check.
 	Grace = 2 * time.Second
-	// Tolerance covers server spread and arrival order.
+	// Tolerance covers arrival jitter on the period rule and the action limit.
 	Tolerance = 3 * time.Second
-	// tickWindow is how far from the client phase a heartbeat may arrive and
-	// still mark a tick. A heartbeat further off comes from a stream with a
-	// wrong server skew and says nothing about the other streams.
-	tickWindow = 3 * time.Second
+	// lateAfter marks a check whose timer ran this long after its time: the
+	// phone slept past it.
+	lateAfter = time.Second
+	// offBurstMatch is how close the offsets of two lone bursts must be to
+	// show one constant wrong skew rather than jitter.
+	offBurstMatch = 500 * time.Millisecond
 )
 
 const (
-	triggerFrame     = "frame"
-	triggerOffPhase  = "offphase"
-	triggerHeartbeat = "heartbeat"
-	triggerWake      = "wake"
+	triggerBurst = "burst"
+	triggerLone  = "lone"
+	triggerWake  = "wake"
 )
-
-var triggerRank = map[string]int{triggerFrame: 0, triggerOffPhase: 1, triggerHeartbeat: 2, triggerWake: 3}
-
-// phaseFunc returns the client heartbeat phase and period, ok false if unknown.
-type phaseFunc func() (phase, period time.Duration, ok bool)
 
 var services = []Service{Management, Signal, Relay}
 
@@ -84,25 +84,43 @@ func (realClock) AfterFunc(d time.Duration, f func()) { time.AfterFunc(d, f) }
 type service struct {
 	last       time.Time
 	lastAction time.Time
-	// lastReconnect limits off-phase reconnects. A probe does not count: it
-	// cannot fix the skew of a late stream that a tick flagged.
-	lastReconnect time.Time
-	action        func()
-	reconnect     func()
-	kind          string
-	regID         uint64
-	// offPhaseReg is the registration that got an off-phase reconnect. The
-	// same connection is not reconnected again for being off phase.
-	offPhaseReg uint64
+	action     func()
+	reconnect  func()
+	kind       string
+	regID      uint64
+	// offBurstAt is the start of the last lone burst of this service that was
+	// off the reference burst, zero when none; offBurst is its offset.
+	offBurstAt time.Time
+	offBurst   time.Duration
+}
+
+func (s *service) clearOffBurst() {
+	s.offBurstAt = time.Time{}
+	s.offBurst = 0
+}
+
+// burst is one group of test heartbeats waiting for its check.
+type burst struct {
+	gen     uint64
+	start   time.Time
+	members []Service
+}
+
+func (b *burst) has(svc Service) bool {
+	for _, m := range b.members {
+		if m == svc {
+			return true
+		}
+	}
+	return false
 }
 
 // Watcher tracks per-service heartbeat wall times. Use New for tests; the
 // package functions use a default Watcher built from env.
 type Watcher struct {
-	clk    Clock
-	period time.Duration
-	// phaseFn is asked until it knows the phase. Nil means no ticks.
-	phaseFn phaseFunc
+	clk        Clock
+	period     time.Duration
+	burstDelay time.Duration
 
 	mu   sync.Mutex
 	svcs map[Service]*service
@@ -110,28 +128,19 @@ type Watcher struct {
 	// those only in a test mode; the relay health check comes in mode off too.
 	lastTestHB time.Time
 	nextID     uint64
-	pending    bool
-	trigger    string
-	// tick is set when a heartbeat is among the collapsed triggers.
-	tick bool
-	// triggerAt is when the pending check was triggered. Gaps are measured
-	// there, so the grace does not eat into the tolerance.
-	triggerAt time.Time
-	// deadline is when the pending check may run. A trigger near the client
-	// phase moves it to phase + grace, so the whole tick lands first.
-	deadline time.Time
-	// armed is the deadline the pending timer was set for.
-	armed time.Time
-
-	phaseMu     sync.Mutex
-	phaseKnown  bool
-	phase       time.Duration
-	phasePeriod time.Duration
+	// open is the burst waiting for its check, nil when none.
+	open     *burst
+	burstGen uint64
+	// refBurst is the start of the last burst with two or more members.
+	refBurst    time.Time
+	wakePending bool
+	wakeAt      time.Time
 }
 
-// New returns a Watcher with the given clock and heartbeat period.
+// New returns a Watcher with the given clock and heartbeat period. The burst
+// delay comes from NB_TEST_HB_BURST_DELAY_MS, default BurstDelay.
 func New(clk Clock, period time.Duration) *Watcher {
-	w := &Watcher{clk: clk, period: period, svcs: map[Service]*service{}}
+	w := &Watcher{clk: clk, period: period, burstDelay: burstDelayFromEnv(), svcs: map[Service]*service{}}
 	for _, s := range services {
 		w.svcs[s] = &service{}
 	}
@@ -143,18 +152,29 @@ func (w *Watcher) now() time.Time {
 	return w.clk.Now().Round(0)
 }
 
-// Seen records a heartbeat for svc, logs it and triggers a check.
+// checkResult holds the log lines and actions of one check, run after the
+// lock is released.
+type checkResult struct {
+	lines   []string
+	actions []func()
+}
+
+func (r *checkResult) logf(format string, args ...any) {
+	r.lines = append(r.lines, fmt.Sprintf(format, args...))
+}
+
+func (r *checkResult) run() {
+	for _, l := range r.lines {
+		log.Info(l)
+	}
+	for _, a := range r.actions {
+		a()
+	}
+}
+
+// Seen records a test heartbeat for svc. It opens a burst when none is open
+// and joins the open one otherwise.
 func (w *Watcher) Seen(svc Service) {
-	w.seen(svc, true)
-}
-
-// Touch records any other inbound frame for svc like a heartbeat, without the
-// per-frame info log, and triggers a check.
-func (w *Watcher) Touch(svc Service) {
-	w.seen(svc, false)
-}
-
-func (w *Watcher) seen(svc Service, logIt bool) {
 	w.mu.Lock()
 	s, ok := w.svcs[svc]
 	if !ok {
@@ -162,46 +182,50 @@ func (w *Watcher) seen(svc Service, logIt bool) {
 		return
 	}
 	now := w.now()
+	// The check of the open burst is due but has not run: the phone slept past
+	// its timer, or the timer is about to fire. Settle it before this
+	// heartbeat counts.
+	var prev checkResult
+	if b := w.open; b != nil && now.After(b.start.Add(w.burstDelay)) {
+		w.open = nil
+		if now.Sub(b.start.Add(w.burstDelay)) > lateAfter {
+			prev = w.skipLate(b, now)
+		} else {
+			prev = w.evalBurst(b, now)
+		}
+	}
 	s.last = now
-	if logIt && svc != Relay {
+	if svc != Relay {
 		w.lastTestHB = now
 	}
+	started := w.open == nil
+	if started {
+		w.burstGen++
+		w.open = &burst{gen: w.burstGen, start: now}
+	}
+	b := w.open
+	if !b.has(svc) {
+		b.members = append(b.members, svc)
+	}
+	gen := b.gen
 	w.mu.Unlock()
-	if !logIt {
-		w.schedule(triggerFrame)
-		return
+
+	prev.run()
+	log.Infof("hbwatch: seen svc=%s t=%d", svc, now.UnixMilli())
+	if started {
+		log.Infof("hbwatch: burst start svc=%s t=%d", svc, now.UnixMilli())
+		w.clk.AfterFunc(w.burstDelay, func() { w.checkBurst(gen) })
 	}
-	off, known := w.phaseOffset(now)
-	log.Infof("hbwatch: seen svc=%s t=%d off=%d", svc, now.UnixMilli(), off.Milliseconds())
-	if known && off >= -tickWindow && off <= tickWindow {
-		w.schedule(triggerHeartbeat)
-		return
-	}
-	if known {
-		w.reconnectOffPhase(svc, off)
-	}
-	w.schedule(triggerOffPhase)
 }
 
-// reconnectOffPhase runs the reconnect of svc once per connection, at most
-// one reconnect per period, and only while the server sends test heartbeats.
-func (w *Watcher) reconnectOffPhase(svc Service, off time.Duration) {
+// Touch records any other inbound frame for svc. It counts as alive but never
+// opens or joins a burst.
+func (w *Watcher) Touch(svc Service) {
 	w.mu.Lock()
-	s := w.svcs[svc]
-	now := w.now()
-	if s.reconnect == nil || s.offPhaseReg == s.regID || !w.testHBActive(now) ||
-		!s.lastReconnect.IsZero() && now.Sub(s.lastReconnect) < w.period-Tolerance {
-		w.mu.Unlock()
-		return
+	defer w.mu.Unlock()
+	if s, ok := w.svcs[svc]; ok {
+		s.last = w.now()
 	}
-	s.lastAction = now
-	s.lastReconnect = now
-	s.offPhaseReg = s.regID
-	reconnect := s.reconnect
-	w.mu.Unlock()
-
-	log.Infof("hbwatch: offphase svc=%s off=%d action=%s", svc, off.Milliseconds(), ActionReconnect)
-	reconnect()
 }
 
 // testHBActive reports whether a Management or Signal test heartbeat came
@@ -211,86 +235,221 @@ func (w *Watcher) testHBActive(now time.Time) bool {
 	return !w.lastTestHB.IsZero() && now.Sub(w.lastTestHB) <= 2*w.period
 }
 
-// phaseOffset returns how far t is from the nearest client phase, in
-// (-period/2, period/2]. known is false while the phase is unknown.
-func (w *Watcher) phaseOffset(t time.Time) (off time.Duration, known bool) {
-	w.phaseMu.Lock()
-	defer w.phaseMu.Unlock()
-	if !w.phaseKnown {
-		if w.phaseFn == nil {
-			return 0, false
-		}
-		phase, period, ok := w.phaseFn()
-		if !ok || period <= 0 {
-			return 0, false
-		}
-		w.phase, w.phasePeriod, w.phaseKnown = phase, period, true
-	}
-	p := w.phasePeriod.Milliseconds()
-	o := ((t.UnixMilli()-w.phase.Milliseconds())%p + p) % p
+// mayAct reports whether s had no action within the last period. Arrival
+// jitters, so the next tick may come a little under one period after the last
+// action. Caller holds w.mu.
+func (w *Watcher) mayAct(s *service, now time.Time) bool {
+	return s.lastAction.IsZero() || now.Sub(s.lastAction) >= w.period-Tolerance
+}
+
+// centered returns d mod p in (-p/2, p/2].
+func centered(d, p time.Duration) time.Duration {
+	o := (d%p + p) % p
 	if o > p/2 {
 		o -= p
 	}
-	return time.Duration(o) * time.Millisecond, true
+	return o
 }
 
-// CheckNow triggers a check after the grace, for a device wake.
-func (w *Watcher) CheckNow() {
-	w.schedule(triggerWake)
-}
-
-// schedule starts one check; triggers that land while it is pending collapse
-// into that check. The log label keeps the highest of wake, heartbeat, frame.
-func (w *Watcher) schedule(trigger string) {
-	now := w.now()
-	tickAt, nearTick := w.nearestTick(now)
+func (w *Watcher) checkBurst(gen uint64) {
 	w.mu.Lock()
-	if w.pending {
-		if triggerRank[trigger] > triggerRank[w.trigger] {
-			w.trigger = trigger
-		}
-		w.tick = w.tick || trigger == triggerHeartbeat
-		// Only a trigger near the phase moves the check, so steady traffic
-		// cannot hold it off.
-		if nearTick && tickAt.Add(Grace).After(w.deadline) {
-			w.deadline = tickAt.Add(Grace)
-		}
-		// The check is pending from before this tick (the phone slept past its
-		// timer). Measure gaps here, so a service that misses this tick shows it.
-		if nearTick && w.triggerAt.Before(tickAt.Add(-tickWindow)) {
-			w.triggerAt = now
-		}
+	b := w.open
+	if b == nil || b.gen != gen {
+		// Settled already by a later heartbeat.
 		w.mu.Unlock()
 		return
 	}
-	w.pending = true
-	w.trigger = trigger
-	w.tick = trigger == triggerHeartbeat
-	w.triggerAt = now
-	w.deadline = now.Add(Grace)
-	if nearTick {
-		w.deadline = tickAt.Add(Grace)
-	}
-	w.armed = w.deadline
-	wait := max(w.deadline.Sub(now), 0)
+	w.open = nil
+	r := w.evalBurst(b, w.now())
 	w.mu.Unlock()
-	w.clk.AfterFunc(wait, w.check)
+	r.run()
 }
 
-// nearestTick returns the client phase nearest to t, ok false when the phase
-// is unknown or t is more than tickWindow from it.
-func (w *Watcher) nearestTick(t time.Time) (tickAt time.Time, ok bool) {
-	off, known := w.phaseOffset(t)
-	if !known || off < -tickWindow || off > tickWindow {
-		return time.Time{}, false
+// gaps formats the gap of every service at t, -1 for one not registered.
+// Caller holds w.mu.
+func (w *Watcher) gaps(t time.Time) string {
+	out := make([]string, 0, len(services))
+	for _, name := range services {
+		s := w.svcs[name]
+		if s.action == nil {
+			out = append(out, string(name)+":-1")
+			continue
+		}
+		out = append(out, fmt.Sprintf("%s:%d", name, max(t.Sub(s.last), 0).Milliseconds()))
 	}
-	return t.Add(-off), true
+	return strings.Join(out, ",")
 }
 
-// Register marks svc connected with its dead-path action and its reconnect
-// for an off-phase heartbeat, and resets its timestamp, so a fresh stream is
-// not stale. The returned func unregisters it, and is a no-op once a newer
-// Register for svc happened.
+func joinMembers(b *burst) string {
+	names := make([]string, 0, len(b.members))
+	for _, m := range b.members {
+		names = append(names, string(m))
+	}
+	return strings.Join(names, ",")
+}
+
+func burstTrigger(b *burst) string {
+	if len(b.members) < 2 {
+		return triggerLone
+	}
+	return triggerBurst
+}
+
+// skipLate closes a burst whose check the phone slept past, after a newer
+// burst opened. The newer burst covers the missing services. Caller holds
+// w.mu.
+func (w *Watcher) skipLate(b *burst, now time.Time) checkResult {
+	var r checkResult
+	due := b.start.Add(w.burstDelay)
+	r.logf("hbwatch: check trigger=%s members=%s gaps=%s wait=%d late=%d skipped=late",
+		burstTrigger(b), joinMembers(b), w.gaps(b.start), now.Sub(b.start).Milliseconds(), now.Sub(due).Milliseconds())
+	if len(b.members) >= 2 {
+		w.refBurst = b.start
+	}
+	return r
+}
+
+// evalBurst runs the check of burst b at now. Gaps are measured at the burst
+// start, so a frame that landed during the burst counts as no gap. Caller
+// holds w.mu.
+func (w *Watcher) evalBurst(b *burst, now time.Time) checkResult {
+	var r checkResult
+	at := b.start
+	gateOpen := w.testHBActive(now)
+	trigger := burstTrigger(b)
+
+	extra := ""
+	if late := now.Sub(at.Add(w.burstDelay)); late > lateAfter {
+		extra += fmt.Sprintf(" late=%d", late.Milliseconds())
+	}
+	if !gateOpen {
+		extra += " gate=closed"
+	}
+	r.logf("hbwatch: check trigger=%s members=%s gaps=%s wait=%d%s",
+		trigger, joinMembers(b), w.gaps(at), now.Sub(at).Milliseconds(), extra)
+
+	limit := w.period / 2
+	if trigger == triggerBurst {
+		w.refBurst = at
+		for _, m := range b.members {
+			w.svcs[m].clearOffBurst()
+		}
+	} else {
+		limit = w.period + Tolerance
+		w.judgeLone(b.members[0], at, now, gateOpen, &r)
+	}
+	for _, name := range services {
+		if !b.has(name) {
+			w.staleCheck(name, at, limit, now, gateOpen, &r)
+		}
+	}
+	return r
+}
+
+// judgeLone handles the only member of a lone burst at at. Off the reference
+// burst on two lone bursts in a row at the same offset, the service has a
+// wrong server skew and is reconnected. Caller holds w.mu.
+func (w *Watcher) judgeLone(svc Service, at, now time.Time, gateOpen bool, r *checkResult) {
+	s := w.svcs[svc]
+	if w.registered() < 2 || w.refBurst.IsZero() || at.Sub(w.refBurst) > 2*w.period {
+		return
+	}
+	off := centered(at.Sub(w.refBurst), w.period)
+	if off.Abs() <= w.burstDelay {
+		// On time at the reference burst; the others missed it.
+		s.clearOffBurst()
+		return
+	}
+	confirm := !s.offBurstAt.IsZero() && at.Sub(s.offBurstAt) <= w.period*3/2 &&
+		centered(off-s.offBurst, w.period).Abs() <= offBurstMatch
+	s.offBurstAt, s.offBurst = at, off
+	r.logf("hbwatch: offburst svc=%s off=%d confirm=%t", svc, off.Milliseconds(), confirm)
+	if !confirm || s.reconnect == nil || !gateOpen || !w.mayAct(s, now) {
+		return
+	}
+	s.lastAction = now
+	s.clearOffBurst()
+	r.logf("hbwatch: offphase svc=%s off=%d action=%s", svc, off.Milliseconds(), ActionReconnect)
+	r.actions = append(r.actions, s.reconnect)
+}
+
+// staleCheck runs the action of svc when its gap at at is over limit. Caller
+// holds w.mu.
+func (w *Watcher) staleCheck(svc Service, at time.Time, limit time.Duration, now time.Time, gateOpen bool, r *checkResult) {
+	s := w.svcs[svc]
+	if s.action == nil {
+		return
+	}
+	gap := max(at.Sub(s.last), 0)
+	if gap <= limit || !gateOpen || !w.mayAct(s, now) {
+		return
+	}
+	s.lastAction = now
+	r.logf("hbwatch: stale svc=%s gap=%d action=%s", svc, gap.Milliseconds(), s.kind)
+	r.actions = append(r.actions, s.action)
+}
+
+// registered counts the services with a registered action. Caller holds w.mu.
+func (w *Watcher) registered() int {
+	n := 0
+	for _, s := range w.svcs {
+		if s.action != nil {
+			n++
+		}
+	}
+	return n
+}
+
+// CheckNow triggers a check after the grace, for a device wake or a path
+// update. Wakes that land while one is pending collapse into it.
+func (w *Watcher) CheckNow() {
+	w.mu.Lock()
+	if w.wakePending {
+		w.mu.Unlock()
+		return
+	}
+	w.wakePending = true
+	w.wakeAt = w.now()
+	w.mu.Unlock()
+	w.clk.AfterFunc(Grace, w.checkWake)
+}
+
+// checkWake applies the period plus tolerance rule, measured at the wake. A
+// burst that is open covers the wake.
+func (w *Watcher) checkWake() {
+	w.mu.Lock()
+	w.wakePending = false
+	at := w.wakeAt
+	now := w.now()
+	var r checkResult
+	extra := ""
+	if late := now.Sub(at.Add(Grace)); late > lateAfter {
+		extra += fmt.Sprintf(" late=%d", late.Milliseconds())
+	}
+	if w.open != nil {
+		r.logf("hbwatch: check trigger=%s members= gaps=%s wait=%d%s skipped=burst",
+			triggerWake, w.gaps(at), now.Sub(at).Milliseconds(), extra)
+		w.mu.Unlock()
+		r.run()
+		return
+	}
+	gateOpen := w.testHBActive(now)
+	if !gateOpen {
+		extra += " gate=closed"
+	}
+	r.logf("hbwatch: check trigger=%s members= gaps=%s wait=%d%s",
+		triggerWake, w.gaps(at), now.Sub(at).Milliseconds(), extra)
+	for _, name := range services {
+		w.staleCheck(name, at, w.period+Tolerance, now, gateOpen, &r)
+	}
+	w.mu.Unlock()
+	r.run()
+}
+
+// Register marks svc connected with its stale action and its reconnect for
+// a wrong server skew, and resets its timestamp and off-burst state, so a
+// fresh stream is not stale. The returned func unregisters it, and is a no-op
+// once a newer Register for svc happened.
 func (w *Watcher) Register(svc Service, kind string, action, reconnect func()) (unregister func()) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -305,6 +464,7 @@ func (w *Watcher) Register(svc Service, kind string, action, reconnect func()) (
 	s.reconnect = reconnect
 	s.kind = kind
 	s.last = w.now()
+	s.clearOffBurst()
 	return func() {
 		w.mu.Lock()
 		defer w.mu.Unlock()
@@ -321,74 +481,6 @@ func (w *Watcher) Reset(svc Service) {
 	defer w.mu.Unlock()
 	if s, ok := w.svcs[svc]; ok {
 		s.last = w.now()
-	}
-}
-
-func (w *Watcher) check() {
-	w.mu.Lock()
-	now := w.now()
-	if w.deadline.After(w.armed) {
-		// A later trigger moved the check.
-		w.armed = w.deadline
-		wait := max(w.deadline.Sub(now), 0)
-		w.mu.Unlock()
-		w.clk.AfterFunc(wait, w.check)
-		return
-	}
-	w.pending = false
-	trigger := w.trigger
-	tick := w.tick
-	at := w.triggerAt
-	gateOpen := w.testHBActive(now)
-	limit := w.period + Tolerance
-	if tick {
-		// The heartbeat of another service marks the tick. A service with no
-		// frame since the previous tick missed this one.
-		limit = w.period / 2
-	}
-
-	gaps := make([]string, 0, len(services))
-	type fire struct {
-		svc    Service
-		kind   string
-		gap    time.Duration
-		action func()
-	}
-	var fires []fire
-	for _, name := range services {
-		s := w.svcs[name]
-		if s.action == nil {
-			gaps = append(gaps, string(name)+":-1")
-			continue
-		}
-		// A frame that landed during the grace counts as no gap.
-		gap := max(at.Sub(s.last), 0)
-		gaps = append(gaps, fmt.Sprintf("%s:%d", name, gap.Milliseconds()))
-		if gap <= limit || !gateOpen {
-			continue
-		}
-		// One action per period. Tick arrival jitters, so the next tick may
-		// come a little under one period after the last action.
-		if !s.lastAction.IsZero() && now.Sub(s.lastAction) < w.period-Tolerance {
-			continue
-		}
-		s.lastAction = now
-		if s.kind == ActionReconnect {
-			s.lastReconnect = now
-		}
-		fires = append(fires, fire{svc: name, kind: s.kind, gap: gap, action: s.action})
-	}
-	w.mu.Unlock()
-
-	gate := ""
-	if !gateOpen {
-		gate = " gate=closed"
-	}
-	log.Infof("hbwatch: check trigger=%s gaps=%s tick=%t wait=%d%s",
-		trigger, strings.Join(gaps, ","), tick, now.Sub(at).Milliseconds(), gate)
-	for _, f := range fires {
-		log.Infof("hbwatch: stale svc=%s gap=%d action=%s", f.svc, f.gap.Milliseconds(), f.kind)
-		f.action()
 	}
 }
 
@@ -424,9 +516,8 @@ func def() *Watcher {
 		return w
 	}
 	period := PeriodFromEnv()
-	log.Infof("hbwatch: enabled period=%s grace=%s tolerance=%s", period, Grace, Tolerance)
 	w := New(realClock{}, period)
-	w.phaseFn = testhb.ClientPhase
+	log.Infof("hbwatch: enabled period=%s burst=%d tolerance=%s", period, w.burstDelay.Milliseconds(), Tolerance)
 	defaultWatcher.Store(w)
 	return w
 }
@@ -469,6 +560,15 @@ func PeriodFromEnv() time.Duration {
 		return defaultPeriod
 	}
 	return time.Duration(v) * time.Second
+}
+
+// burstDelayFromEnv returns NB_TEST_HB_BURST_DELAY_MS, default BurstDelay.
+func burstDelayFromEnv() time.Duration {
+	v, err := strconv.Atoi(os.Getenv(envBurstDelay))
+	if err != nil || v <= 0 {
+		return BurstDelay
+	}
+	return time.Duration(v) * time.Millisecond
 }
 
 // Seen records a heartbeat on the default Watcher. No-op when disabled.
