@@ -38,17 +38,20 @@ type LogLevel struct {
 }
 
 type Debug struct {
-	conn DaemonConn
+	conn       DaemonConn
+	classifier errorClassifier
 }
 
-func NewDebug(conn DaemonConn) *Debug {
-	return &Debug{conn: conn}
+// NewDebug wires up a Debug service. translator or prefs may be nil, in which
+// case classification falls back to the bare error key.
+func NewDebug(conn DaemonConn, translator ErrorTranslator, prefs LanguagePreference) *Debug {
+	return &Debug{conn: conn, classifier: errorClassifier{translator: translator, prefs: prefs}}
 }
 
 func (s *Debug) Bundle(ctx context.Context, p DebugBundleParams) (DebugBundleResult, error) {
 	cli, err := s.conn.Client()
 	if err != nil {
-		return DebugBundleResult{}, err
+		return DebugBundleResult{}, s.classifier.classify(err)
 	}
 	resp, err := cli.DebugBundle(ctx, &proto.DebugBundleRequest{
 		Anonymize:      p.Anonymize,
@@ -59,7 +62,7 @@ func (s *Debug) Bundle(ctx context.Context, p DebugBundleParams) (DebugBundleRes
 		CliVersion:     version.NetbirdVersion(),
 	})
 	if err != nil {
-		return DebugBundleResult{}, err
+		return DebugBundleResult{}, s.classifier.classify(err)
 	}
 	return DebugBundleResult{
 		Path:                resp.GetPath(),
@@ -71,11 +74,11 @@ func (s *Debug) Bundle(ctx context.Context, p DebugBundleParams) (DebugBundleRes
 func (s *Debug) GetLogLevel(ctx context.Context) (LogLevel, error) {
 	cli, err := s.conn.Client()
 	if err != nil {
-		return LogLevel{}, err
+		return LogLevel{}, s.classifier.classify(err)
 	}
 	resp, err := cli.GetLogLevel(ctx, &proto.GetLogLevelRequest{})
 	if err != nil {
-		return LogLevel{}, err
+		return LogLevel{}, s.classifier.classify(err)
 	}
 	return LogLevel{Level: resp.GetLevel().String()}, nil
 }
@@ -104,29 +107,33 @@ func (s *Debug) RegisterUILog(ctx context.Context, path string) error {
 func (s *Debug) StartBundleCapture(ctx context.Context, timeoutSeconds int32) error {
 	cli, err := s.conn.Client()
 	if err != nil {
-		return err
+		return s.classifier.classify(err)
 	}
 	req := &proto.StartBundleCaptureRequest{}
 	if timeoutSeconds > 0 {
 		req.Timeout = durationpb.New(time.Duration(timeoutSeconds) * time.Second)
 	}
-	_, err = cli.StartBundleCapture(ctx, req)
-	return err
+	if _, err := cli.StartBundleCapture(ctx, req); err != nil {
+		return s.classifier.classify(err)
+	}
+	return nil
 }
 
 func (s *Debug) StopBundleCapture(ctx context.Context) error {
 	cli, err := s.conn.Client()
 	if err != nil {
-		return err
+		return s.classifier.classify(err)
 	}
-	_, err = cli.StopBundleCapture(ctx, &proto.StopBundleCaptureRequest{})
-	return err
+	if _, err := cli.StopBundleCapture(ctx, &proto.StopBundleCaptureRequest{}); err != nil {
+		return s.classifier.classify(err)
+	}
+	return nil
 }
 
 func (s *Debug) SetLogLevel(ctx context.Context, lvl LogLevel) error {
 	cli, err := s.conn.Client()
 	if err != nil {
-		return err
+		return s.classifier.classify(err)
 	}
 	// proto.LogLevel_value keys are upper-case enum names; callers pass
 	// lowercase logrus names. Upper-case before lookup or a valid level
@@ -135,6 +142,8 @@ func (s *Debug) SetLogLevel(ctx context.Context, lvl LogLevel) error {
 	if !ok {
 		level = int32(proto.LogLevel_INFO)
 	}
-	_, err = cli.SetLogLevel(ctx, &proto.SetLogLevelRequest{Level: proto.LogLevel(level)})
-	return err
+	if _, err := cli.SetLogLevel(ctx, &proto.SetLogLevelRequest{Level: proto.LogLevel(level)}); err != nil {
+		return s.classifier.classify(err)
+	}
+	return nil
 }

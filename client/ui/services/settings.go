@@ -53,7 +53,6 @@ type ConfigParams struct {
 
 type Config struct {
 	ManagementURL                 string `json:"managementUrl"`
-	AdminURL                      string `json:"adminUrl"`
 	ConfigFile                    string `json:"configFile"`
 	LogFile                       string `json:"logFile"`
 	PreSharedKeySet               bool   `json:"preSharedKeySet"`
@@ -88,7 +87,6 @@ type SetConfigParams struct {
 	ProfileName                   string  `json:"profileName"`
 	Username                      string  `json:"username"`
 	ManagementURL                 string  `json:"managementUrl"`
-	AdminURL                      string  `json:"adminUrl"`
 	InterfaceName                 *string `json:"interfaceName,omitempty"`
 	WireguardPort                 *int64  `json:"wireguardPort,omitempty"`
 	MTU                           *int64  `json:"mtu,omitempty"`
@@ -139,18 +137,19 @@ func NewSettings(conn DaemonConn, translator ErrorTranslator, prefs LanguagePref
 func (s *Settings) GetConfig(ctx context.Context, p ConfigParams) (Config, error) {
 	cli, err := s.conn.Client()
 	if err != nil {
-		return Config{}, err
+		return Config{}, s.classifier.classify(err)
 	}
 	resp, err := cli.GetConfig(ctx, &proto.GetConfigRequest{
 		ProfileName: p.ProfileName,
 		Username:    p.Username,
 	})
 	if err != nil {
-		return Config{}, err
+		// Reading another user's profile is refused here, and the settings
+		// screen puts the result straight in front of the user.
+		return Config{}, s.classifier.classify(err)
 	}
 	return Config{
 		ManagementURL:                 resp.GetManagementUrl(),
-		AdminURL:                      resp.GetAdminURL(),
 		ConfigFile:                    resp.GetConfigFile(),
 		LogFile:                       resp.GetLogFile(),
 		PreSharedKeySet:               resp.GetPreSharedKey() != "",
@@ -183,13 +182,12 @@ func (s *Settings) GetConfig(ctx context.Context, p ConfigParams) (Config, error
 func (s *Settings) SetConfig(ctx context.Context, p SetConfigParams) (SaveOutcome, error) {
 	cli, err := s.conn.Client()
 	if err != nil {
-		return SaveOutcome{}, err
+		return SaveOutcome{}, s.classifier.classify(err)
 	}
 	req := &proto.SetConfigRequest{
 		ProfileName:                   p.ProfileName,
 		Username:                      p.Username,
 		ManagementUrl:                 p.ManagementURL,
-		AdminURL:                      p.AdminURL,
 		InterfaceName:                 p.InterfaceName,
 		WireguardPort:                 p.WireguardPort,
 		Mtu:                           p.MTU,
@@ -217,7 +215,7 @@ func (s *Settings) SetConfig(ctx context.Context, p SetConfigParams) (SaveOutcom
 		SshJWTCacheTTL:                p.SSHJWTCacheTTL,
 	}
 	if _, err := cli.SetConfig(ctx, req); err != nil {
-		if _, refused := privilegeErrorInfo(err); refused {
+		if privilegeRefused(err) {
 			return s.setConfigElevated(ctx, p, req, err)
 		}
 		// Classified so the frontend gets the daemon's guidance instead of the
@@ -261,7 +259,7 @@ func (s *Settings) setConfigElevated(ctx context.Context, p SetConfigParams, req
 
 	cli, err := s.conn.Client()
 	if err != nil {
-		return SaveOutcome{}, err
+		return SaveOutcome{}, s.classifier.classify(err)
 	}
 	if _, err := cli.SetConfig(ctx, req); err != nil {
 		return SaveOutcome{}, s.classifier.classify(err)

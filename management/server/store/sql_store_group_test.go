@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -69,10 +68,6 @@ func TestSqlStore_GetGroupsByIDs(t *testing.T) {
 }
 
 func TestSqlStore_CreateGroup(t *testing.T) {
-	if os.Getenv("CI") == "true" {
-		t.Log("Skipping MySQL test on CI")
-	}
-	t.Setenv("NETBIRD_STORE_ENGINE", string(types.MysqlStoreEngine))
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
@@ -257,6 +252,33 @@ func TestSqlStore_AddAndRemoveResourceFromGroup(t *testing.T) {
 	group, err = store.GetGroupByID(context.Background(), LockingStrengthNone, accountID, groupID)
 	require.NoError(t, err)
 	require.NotContains(t, group.Resources, *res)
+}
+
+func TestSqlStore_GetResourceGroupsScopedToAccount(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	ctx := context.Background()
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	resourceID := "ctc4nci7qv9061u6ilfg"
+	groupID := "cs1tnh0hhcjnqoiuebeg"
+	res := &types.Resource{ID: resourceID, Type: types.ResourceTypeHost}
+
+	otherAccountID := "other-account"
+	require.NoError(t, store.SaveAccount(ctx, newAccountWithId(ctx, otherAccountID, "other-user", "other.com")))
+	foreignGroup := &types.Group{ID: "foreign-group", AccountID: otherAccountID, Name: "foreign", Issued: types.GroupIssuedAPI}
+	require.NoError(t, store.CreateGroup(ctx, foreignGroup))
+
+	// Both accounts reference the same resource ID; a lookup must only see its own account.
+	require.NoError(t, store.AddResourceToGroup(ctx, accountID, groupID, res))
+	require.NoError(t, store.AddResourceToGroup(ctx, otherAccountID, foreignGroup.ID, res))
+
+	groups, err := store.GetResourceGroups(ctx, LockingStrengthNone, accountID, resourceID)
+	require.NoError(t, err)
+	require.Len(t, groups, 1, "only groups of the requested account should be returned")
+	require.Equal(t, groupID, groups[0].ID)
+	require.Equal(t, accountID, groups[0].AccountID)
 }
 
 func TestSqlStore_SaveGroups_LargeBatch(t *testing.T) {

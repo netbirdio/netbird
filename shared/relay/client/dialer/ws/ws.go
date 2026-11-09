@@ -31,8 +31,13 @@ func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn,
 		return nil, err
 	}
 
+	host, err := requestHost(wsURL, serverName)
+	if err != nil {
+		return nil, err
+	}
+
 	var underlying net.Conn
-	opts := createDialOptions(serverName, &underlying)
+	opts := createDialOptions(serverName, host, &underlying)
 
 	wsConn, resp, err := websocket.Dial(ctx, wsURL, opts)
 	if err != nil {
@@ -76,6 +81,22 @@ func prepareURL(address string) (string, error) {
 	}
 	parsed.Path = relay.WebSocketURLPath
 	return parsed.String(), nil
+}
+
+// requestHost keeps the server name in the Host header when dialing by IP, so
+// proxies that route by host still match.
+func requestHost(wsURL, serverName string) (string, error) {
+	if serverName == "" {
+		return "", nil
+	}
+	parsed, err := url.Parse(wsURL)
+	if err != nil {
+		return "", fmt.Errorf("parse relay URL %q: %w", wsURL, err)
+	}
+	if port := parsed.Port(); port != "" {
+		return net.JoinHostPort(serverName, port), nil
+	}
+	return serverName, nil
 }
 
 // httpClientNbDialer builds the http client used by the websocket library.

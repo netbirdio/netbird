@@ -136,6 +136,25 @@ func TestSqlStore_MarkPATUsed(t *testing.T) {
 	require.NoError(t, err)
 	now := time.Now().UTC()
 	require.WithinRange(t, pat.LastUsed.UTC(), now.Add(-15*time.Second), now, "LastUsed should be within 1 second of now")
+
+	recent := now.Add(-types.PATLastUsedUpdateInterval / 2).Truncate(time.Second)
+	require.NoError(t, store.(*SqlStore).db.Model(&types.PersonalAccessToken{}).Where("id = ?", patID).Update("last_used", recent).Error)
+	require.NoError(t, store.MarkPATUsed(context.Background(), patID))
+	pat, err = store.GetPATByID(context.Background(), LockingStrengthNone, userID, patID)
+	require.NoError(t, err)
+	assert.True(t, recent.Equal(pat.LastUsed.UTC()), "LastUsed within the update interval must not be rewritten")
+
+	stale := now.Add(-2 * types.PATLastUsedUpdateInterval)
+	require.NoError(t, store.(*SqlStore).db.Model(&types.PersonalAccessToken{}).Where("id = ?", patID).Update("last_used", stale).Error)
+	require.NoError(t, store.MarkPATUsed(context.Background(), patID))
+	pat, err = store.GetPATByID(context.Background(), LockingStrengthNone, userID, patID)
+	require.NoError(t, err)
+	assert.True(t, pat.LastUsed.UTC().After(stale), "LastUsed older than the update interval must be rewritten")
+
+	err = store.MarkPATUsed(context.Background(), "unknown-pat")
+	sErr, ok := status.FromError(err)
+	require.True(t, ok, "unknown pat must return a status error")
+	assert.Equal(t, status.NotFound, sErr.Type())
 }
 
 func TestSqlStore_SavePAT(t *testing.T) {

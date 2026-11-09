@@ -202,13 +202,19 @@ func (s *Server) cancelTcpipForwardHandler(ctx ssh.Context, _ *ssh.Server, req *
 }
 
 // handleRemoteForwardListener handles incoming connections for remote port forwarding.
-func (s *Server) handleRemoteForwardListener(ctx ssh.Context, ln net.Listener, host string, port uint32) {
+func (s *Server) handleRemoteForwardListener(ctx ssh.Context, ln net.Listener, key forwardKey, host string, port uint32) {
 	logger := s.getRequestLogger(ctx)
 
 	defer func() {
 		if err := ln.Close(); err != nil {
 			logger.Debugf("remote forward listener close error for %s: %v", net.JoinHostPort(host, strconv.Itoa(int(port))), err)
 		}
+		// The client may have closed the connection, or the connection may have been
+		// revoked, without an explicit cancel-tcpip-forward; remove the entry so a later
+		// forward request for this key does not find a dead listener here. Only remove it
+		// if it is still this listener: a later tcpip-forward on the same host:port may
+		// already have stored a fresh one.
+		s.removeRemoteForwardListenerIfCurrent(key, ln)
 	}()
 
 	acceptChan := make(chan acceptResult, 1)
@@ -322,7 +328,7 @@ func (s *Server) setupDirectForward(ctx ssh.Context, logger *log.Entry, sshConn 
 
 	forwardAddr := "-R " + net.JoinHostPort(payload.Host, strconv.Itoa(int(actualPort)))
 	s.addConnectionPortForward(ctx.User(), ctx.RemoteAddr(), forwardAddr)
-	go s.handleRemoteForwardListener(ctx, ln, payload.Host, actualPort)
+	go s.handleRemoteForwardListener(ctx, ln, key, payload.Host, actualPort)
 
 	response := make([]byte, 4)
 	binary.BigEndian.PutUint32(response, actualPort)

@@ -19,8 +19,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/curve25519"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	sshauth "github.com/netbirdio/netbird/shared/sessionauth"
 )
 
@@ -229,7 +229,7 @@ type Server struct {
 	serviceAgentStop    func()
 	serviceAgentStopped bool
 	authorizer          *sshauth.Authorizer
-	netstackNet         *netstack.Net
+	netstackNet         *wgbackend.NetstackNet
 	// agentToken holds the raw token bytes for agent-mode auth.
 	agentToken []byte
 	// invalidAgentToken latches when AgentTokenHex was provided but failed
@@ -339,7 +339,7 @@ type Config struct {
 	SessionRecorder func(SessionTick)
 	DisableAuth     bool
 	AgentTokenHex   string
-	NetstackNet     *netstack.Net
+	NetstackNet     *wgbackend.NetstackNet
 	// Auth is the fine-grained authorization to open with, applied before the
 	// server accepts anything: a server that starts listening with an empty
 	// authorizer refuses the connections that arrive in the meantime. Nil

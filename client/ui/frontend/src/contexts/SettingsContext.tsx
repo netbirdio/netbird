@@ -9,12 +9,12 @@ import {
     type ReactNode,
 } from "react";
 import { Events } from "@wailsio/runtime";
-import { Autostart, Settings as SettingsSvc, Version } from "@bindings/services";
+import { Autostart, Settings as SettingsSvc } from "@bindings/services";
 import type { Config } from "@bindings/services/models.js";
 import i18next from "@/lib/i18n";
 import { useProfile } from "@/contexts/ProfileContext.tsx";
 import { SettingsSkeleton } from "@/modules/settings/SettingsSkeleton.tsx";
-import { errorCommand, errorDialog, formatErrorMessage as errorMessage } from "@/lib/errors.ts";
+import { errorDialogFor } from "@/lib/errors.ts";
 
 const SAVE_DEBOUNCE_MS = 400;
 
@@ -34,7 +34,6 @@ export type GuardedField =
 
 type SettingsContextValue = {
     config: Config;
-    guiVersion: string;
     setField: <K extends keyof Config>(k: K, v: Config[K]) => void;
     saveField: <K extends keyof Config>(k: K, v: Config[K]) => Promise<void>;
     saveFields: (partial: Partial<Config>, opts?: { preSharedKey?: string }) => Promise<void>;
@@ -71,7 +70,6 @@ type LoadedConfig = { profileName: string; data: Config };
 const useSettingsState = () => {
     const { username, activeProfileId, loaded: profileLoaded } = useProfile();
     const [loaded, setLoaded] = useState<LoadedConfig | null>(null);
-    const [guiVersion, setGuiVersion] = useState<string>("—");
     const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const loadedRef = useRef<LoadedConfig | null>(null);
     // Set when the daemon's config changed while a save was pending, so the read
@@ -121,10 +119,7 @@ const useSettingsState = () => {
                 setLoaded({ profileName: activeProfileId, data });
             } catch (e) {
                 if (cancelled || !showError) return;
-                await errorDialog({
-                    Title: i18next.t("settings.error.loadTitle"),
-                    Message: errorMessage(e),
-                });
+                await errorDialogFor(i18next.t("settings.error.loadTitle"), e);
             }
         };
 
@@ -142,16 +137,6 @@ const useSettingsState = () => {
             off();
         };
     }, [profileLoaded, activeProfileId, username]);
-
-    useEffect(() => {
-        let cancelled = false;
-        Version.GUI().then((v) => {
-            if (!cancelled) setGuiVersion(v);
-        });
-        return () => {
-            cancelled = true;
-        };
-    }, []);
 
     useEffect(
         () => () => {
@@ -182,11 +167,7 @@ const useSettingsState = () => {
                 // holds before reporting, so the UI never shows a value the
                 // daemon does not have.
                 await reload(profileName);
-                await errorDialog({
-                    Title: i18next.t("settings.error.saveTitle"),
-                    Message: errorMessage(e),
-                    Command: errorCommand(e),
-                });
+                await errorDialogFor(i18next.t("settings.error.saveTitle"), e);
             }
         },
         [username, reload],
@@ -273,11 +254,7 @@ const useSettingsState = () => {
                 // through here at all; this is a prompt that could not be raised,
                 // which carries the command that would have done it.
                 await reload(cur.profileName);
-                await errorDialog({
-                    Title: i18next.t("settings.error.saveTitle"),
-                    Message: errorMessage(e),
-                    Command: errorCommand(e),
-                });
+                await errorDialogFor(i18next.t("settings.error.saveTitle"), e);
                 return;
             }
             // Either the change went through or the user declined it. The daemon
@@ -308,7 +285,6 @@ const useSettingsState = () => {
 
     return {
         config: loaded?.data ?? null,
-        guiVersion,
         setField,
         saveField,
         saveFields,
@@ -318,15 +294,13 @@ const useSettingsState = () => {
 };
 
 export const SettingsProvider = ({ children }: { children: ReactNode }) => {
-    const { config, guiVersion, setField, saveField, saveFields, saveGuardedField, saveNow } =
+    const { config, setField, saveField, saveFields, saveGuardedField, saveNow } =
         useSettingsState();
 
     const value = useMemo<SettingsContextValue | null>(
         () =>
-            config
-                ? { config, guiVersion, setField, saveField, saveFields, saveGuardedField, saveNow }
-                : null,
-        [config, guiVersion, setField, saveField, saveFields, saveGuardedField, saveNow],
+            config ? { config, setField, saveField, saveFields, saveGuardedField, saveNow } : null,
+        [config, setField, saveField, saveFields, saveGuardedField, saveNow],
     );
 
     if (!value) {
@@ -366,10 +340,7 @@ export const AutostartSettingsProvider = ({ children }: { children: ReactNode })
             await Autostart.SetEnabled(enabled);
         } catch (e) {
             setAutostart((s) => (s ? { ...s, enabled: !enabled } : s));
-            await errorDialog({
-                Title: i18next.t("settings.general.autostart.errorTitle"),
-                Message: errorMessage(e),
-            });
+            await errorDialogFor(i18next.t("settings.general.autostart.errorTitle"), e);
         }
     }, []);
 

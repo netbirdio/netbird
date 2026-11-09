@@ -10,10 +10,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-
-	wgdevice "golang.zx2c4.com/wireguard/device"
 
 	"github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/iface/configurer"
@@ -21,6 +18,7 @@ import (
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/monotime"
 )
@@ -69,6 +67,7 @@ type WGIFaceOpts struct {
 type WGIface struct {
 	tun           WGTunDevice
 	userspaceBind bool
+	tunOwnedByOS  bool // the OS keeps the interface after the tun is closed
 	mu            sync.Mutex
 
 	configurer     device.WGConfigurer
@@ -223,7 +222,9 @@ func (w *WGIface) Close() error {
 		result = multierror.Append(result, fmt.Errorf("failed to close wireguard interface %s: %w", w.Name(), err))
 	}
 
-	if nbnetstack.IsEnabled() {
+	// The OS owns this interface (iOS utun) and the next start reuses it, so do not wait
+	// for its removal or destroy it.
+	if nbnetstack.IsEnabled() || w.tunOwnedByOS {
 		return errors.FormatErrorOrNil(result)
 	}
 
@@ -271,7 +272,7 @@ func (w *WGIface) GetDevice() *device.FilteredDevice {
 }
 
 // GetWGDevice returns the WireGuard device
-func (w *WGIface) GetWGDevice() *wgdevice.Device {
+func (w *WGIface) GetWGDevice() *wgbackend.Device {
 	return w.tun.Device()
 }
 
@@ -344,7 +345,7 @@ func (w *WGIface) waitUntilRemoved() error {
 }
 
 // GetNet returns the netstack.Net for the netstack device
-func (w *WGIface) GetNet() *netstack.Net {
+func (w *WGIface) GetNet() *wgbackend.NetstackNet {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 

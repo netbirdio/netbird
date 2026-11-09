@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/idp/dex"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
@@ -503,6 +505,26 @@ func TestGenerateProperties(t *testing.T) {
 	if properties["custom_domains_validated"] != int64(2) {
 		t.Errorf("expected 2 custom_domains_validated, got %v", properties["custom_domains_validated"])
 	}
+}
+
+func TestGeneratePropertiesReportsMCP(t *testing.T) {
+	ds := mockDatasource{}
+	worker := Worker{dataSource: ds, connManager: ds}
+
+	properties := worker.generateProperties(context.Background())
+	assert.Equal(t, false, properties["mcp_enabled"], "a worker without an MCP source reports MCP off")
+	assert.Equal(t, false, properties["mcp_oauth_enabled"], "a worker without an MCP source reports OAuth off")
+	assert.Equal(t, 0, properties["mcp_tool_calls_last_day"], "no calls reported without an MCP source")
+	assert.Equal(t, 0, properties["mcp_active_users_last_day"], "no users reported without an MCP source")
+
+	worker.mcp = func() MCPMetrics {
+		return MCPMetrics{Enabled: true, OAuthEnabled: true, ToolCallsLastDay: 42, UsersLastDay: 3}
+	}
+	properties = worker.generateProperties(context.Background())
+	assert.Equal(t, true, properties["mcp_enabled"], "MCP reported on")
+	assert.Equal(t, true, properties["mcp_oauth_enabled"], "the OAuth broker reported on")
+	assert.Equal(t, 42, properties["mcp_tool_calls_last_day"], "tool calls of the last day")
+	assert.Equal(t, 3, properties["mcp_active_users_last_day"], "distinct callers of the last day")
 }
 
 func TestExtractIdpType(t *testing.T) {

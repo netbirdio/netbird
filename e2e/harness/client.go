@@ -65,11 +65,7 @@ func StartClient(ctx context.Context, c *Combined, setupKey string, opts ...Clie
 		opt(&o)
 	}
 
-	root, err := repoRoot(ctx)
-	if err != nil {
-		return nil, err
-	}
-	clientImage, err := resolveImage(ctx, root, "NB_E2E_CLIENT_IMAGE", defaultClientImage, clientDockerfile)
+	clientImage, err := ClientImage(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -103,6 +99,34 @@ func StartClient(ctx context.Context, c *Combined, setupKey string, opts ...Clie
 		return nil, fmt.Errorf("start client container: %w", err)
 	}
 	return &Client{container: ctr, name: o.name}, nil
+}
+
+// ClientImage returns the client image StartClient runs, building it from this
+// module's source unless NB_E2E_CLIENT_IMAGE names a published one. A suite that
+// runs the agent outside a harness container, such as in a Kubernetes cluster,
+// uses it to get the same build.
+func ClientImage(ctx context.Context) (string, error) {
+	root, err := repoRoot(ctx)
+	if err != nil {
+		return "", err
+	}
+	return resolveImage(ctx, root, "NB_E2E_CLIENT_IMAGE", defaultClientImage, clientDockerfile)
+}
+
+// Exec runs a command inside the client container and returns its exit code and
+// combined output. It reaches whatever the agent routes, so a suite can check
+// access the request helpers here do not model, such as plain HTTP to a routed
+// address.
+func (cl *Client) Exec(ctx context.Context, cmd ...string) (int, string, error) {
+	code, reader, err := cl.container.Exec(ctx, cmd, tcexec.Multiplexed())
+	if err != nil {
+		return 0, "", fmt.Errorf("exec %v: %w", cmd, err)
+	}
+	out, err := io.ReadAll(reader)
+	if err != nil {
+		return code, string(out), fmt.Errorf("read output of %v: %w", cmd, err)
+	}
+	return code, string(out), nil
 }
 
 // Hostname returns the container hostname the agent reports to management —

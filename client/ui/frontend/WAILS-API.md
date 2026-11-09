@@ -110,7 +110,7 @@ Settings.SetConfig(p: SetConfigParams): Promise<void>     // partial update
 Settings.GetFeatures(): Promise<Features>                 // operator-disabled UI sections
 ```
 
-`SetConfig` is a partial update: only fields you set are pushed to the daemon. `profileName` + `username` are always required; the typed fields in `SetConfigParams` are optional (`field?: T | null`). `managementUrl` and `adminUrl` are always-string for historical reasons.
+`SetConfig` is a partial update: only fields you set are pushed to the daemon. `profileName` + `username` are always required; the typed fields in `SetConfigParams` are optional (`field?: T | null`). `managementUrl` is always-string for historical reasons.
 
 **PSK mask quirk:** `GetConfig` returns existing pre-shared keys as `"**********"`. If you send the mask back, `wgtypes.ParseKey` fails on the next connect. `SettingsContext.save` drops the field when it equals `"**********"`. See `modules/settings/SettingsContext.tsx`.
 
@@ -242,7 +242,7 @@ The tray also reads a tray-only synthetic `"Error"` for icon purposes; the front
 
 `Config` (read-only mirror, all required):
 ```ts
-{ managementUrl, adminUrl, configFile, logFile, preSharedKey, interfaceName: string;
+{ managementUrl, configFile, logFile, preSharedKey, interfaceName: string;
   wireguardPort, mtu, sshJwtCacheTtl: number;
   disableAutoConnect, serverSshAllowed,
   rosenpassEnabled, rosenpassPermissive,
@@ -254,7 +254,7 @@ The tray also reads a tray-only synthetic `"Error"` for icon purposes; the front
   disableSshAuth: boolean; }
 ```
 
-`SetConfigParams` has all `Config` fields as `field?: T | null` (partial update), plus the write-only `disableFirewall?: boolean | null`, plus `profileName` / `username` / `managementUrl` / `adminUrl` as required strings.
+`SetConfigParams` has all `Config` fields as `field?: T | null` (partial update), plus the write-only `disableFirewall?: boolean | null`, plus `profileName` / `username` / `managementUrl` as required strings.
 
 `Features`: `{ disableProfiles, disableUpdateSettings, disableNetworks: boolean }`.
 

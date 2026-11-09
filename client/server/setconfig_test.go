@@ -1,6 +1,7 @@
 package server
 
 import (
+	"os"
 	"os/user"
 	"path/filepath"
 	"reflect"
@@ -57,6 +58,10 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	// without an identity the gate would (correctly) refuse the SSH fields.
 	ctx := privilegedTestCtx()
 	s := New(ctx, "console", "", false, false, false, false)
+
+	// The gate resolves the handle and hands the profile down in the context;
+	// driving the handler directly skips it, so the test stands in for it.
+	ctx = withTarget(ctx, ic.ConfigPath)
 
 	rosenpassEnabled := true
 	rosenpassPermissive := true
@@ -133,7 +138,10 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, "https://new-api.netbird.io:443", cfg.ManagementURL.String())
-	require.Equal(t, "https://new-admin.netbird.io:443", cfg.AdminURL.String())
+	// Older clients still send the deprecated admin URL; it must be ignored.
+	raw, err := os.ReadFile(cfgPath)
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "new-admin.netbird.io", "deprecated AdminURL must not be persisted")
 	require.Equal(t, rosenpassEnabled, cfg.RosenpassEnabled)
 	require.Equal(t, rosenpassPermissive, cfg.RosenpassPermissive)
 	require.NotNil(t, cfg.ServerSSHAllowed)
@@ -190,11 +198,11 @@ func verifyAllFieldsCovered(t *testing.T, req *proto.SetConfigRequest) {
 		"CleanNATExternalIPs":   true, // control flag for clearing
 		"CleanDNSLabels":        true, // control flag for clearing
 		"LazyConnectionEnabled": true, // deprecated: proto field retained for compat, no longer applied
+		"AdminURL":              true, // deprecated: proto field retained for compat, no longer applied
 	}
 
 	expectedFields := map[string]bool{
 		"ManagementUrl":                 true,
-		"AdminURL":                      true,
 		"RosenpassEnabled":              true,
 		"RosenpassPermissive":           true,
 		"ServerSSHAllowed":              true,
@@ -259,7 +267,6 @@ func TestCLIFlags_MappedToSetConfig(t *testing.T) {
 	// This map must be updated when adding new config-related CLI flags.
 	flagToField := map[string]string{
 		"management-url":                    "ManagementUrl",
-		"admin-url":                         "AdminURL",
 		"enable-rosenpass":                  "RosenpassEnabled",
 		"rosenpass-permissive":              "RosenpassPermissive",
 		"allow-server-ssh":                  "ServerSSHAllowed",
@@ -298,6 +305,7 @@ func TestCLIFlags_MappedToSetConfig(t *testing.T) {
 	fieldsWithoutCLIFlags := map[string]bool{
 		"DisableNotifications":  true, // Only settable via UI
 		"LazyConnectionEnabled": true, // deprecated: no longer settable (managed by server + NB_LAZY_CONN)
+		"AdminURL":              true, // deprecated: the admin-url flag is no longer functional
 	}
 
 	// Get all SetConfigRequest fields to verify our map is complete.

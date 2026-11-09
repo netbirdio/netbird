@@ -11,20 +11,20 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	wgdevice "golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 // idleTUN never reports an up event, so the wireguard-go device stays down: no socket is
 // opened, no peer goroutine starts, and the configuration state is all the tests observe.
 type idleTUN struct {
-	events chan tun.Event
+	events chan wgbackend.TUNEvent
 	closed chan struct{}
 }
 
 func newIdleTUN() *idleTUN {
-	return &idleTUN{events: make(chan tun.Event), closed: make(chan struct{})}
+	return &idleTUN{events: make(chan wgbackend.TUNEvent), closed: make(chan struct{})}
 }
 
 func (t *idleTUN) File() *os.File { return nil }
@@ -40,7 +40,7 @@ func (t *idleTUN) MTU() (int, error) { return 1420, nil }
 
 func (t *idleTUN) Name() (string, error) { return "idle", nil }
 
-func (t *idleTUN) Events() <-chan tun.Event { return t.events }
+func (t *idleTUN) Events() <-chan wgbackend.TUNEvent { return t.events }
 
 func (t *idleTUN) Close() error {
 	close(t.closed)
@@ -142,12 +142,12 @@ func TestRemoveEndpointAddressKeepsThePeerAndStopsTheKeepalive(t *testing.T) {
 	endpoint := &net.UDPAddr{IP: net.IPv4(192, 0, 2, 10), Port: 51820}
 	prefixes := []netip.Prefix{netip.MustParsePrefix("100.64.0.1/32")}
 	require.NoError(t, c.UpdatePeer(peerKey, prefixes, 25*time.Second, endpoint, nil), "add peer")
-	before := c.device.LookupPeer(wgdevice.NoisePublicKey(priv.PublicKey()))
+	before := c.device.LookupPeer(wgbackend.NoisePublicKey(priv.PublicKey()))
 	require.NotNil(t, before, "the peer must be on the device")
 
 	require.NoError(t, c.RemoveEndpointAddress(peerKey), "remove endpoint address")
 
-	assert.Same(t, before, c.device.LookupPeer(wgdevice.NoisePublicKey(priv.PublicKey())),
+	assert.Same(t, before, c.device.LookupPeer(wgbackend.NoisePublicKey(priv.PublicKey())),
 		"the peer object must survive the endpoint removal")
 	stats, err := c.FullStats()
 	require.NoError(t, err, "read device stats")

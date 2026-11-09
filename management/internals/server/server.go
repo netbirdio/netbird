@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -40,6 +41,15 @@ const (
 	ContainerKeyBaseServer = "baseServer"
 
 	applicationName = "management"
+
+	// shutdownTimeout stays below the 10s that systemd (TimeoutStopSec) and Docker grant
+	// before killing the process.
+	shutdownTimeout = 9 * time.Second
+	grpcStopTimeout = 3 * time.Second
+	// shutdownCloseReserve is kept from the release for closing the stores.
+	shutdownCloseReserve = 2 * time.Second
+	// shutdownIdPReserve is kept from the extension shutdown hooks for stopping the embedded IdP.
+	shutdownIdPReserve = 1 * time.Second
 )
 
 type Server interface {
@@ -149,7 +159,7 @@ func (s *BaseServer) Start(ctx context.Context) error {
 	return nil
 }
 
-func (s *BaseServer) start(ctx context.Context) error {
+func (s *BaseServer) start(ctx context.Context) (err error) {
 	srvCtx, cancel := context.WithCancel(ctx)
 	s.cancel = cancel
 	s.errCh = make(chan error, 4)
@@ -161,10 +171,18 @@ func (s *BaseServer) start(ctx context.Context) error {
 	s.PeersManager()
 	s.GeoLocationManager()
 
-	err := s.Metrics().Expose(srvCtx, s.mgmtMetricsPort, "/metrics")
+	err = s.Metrics().Expose(srvCtx, s.mgmtMetricsPort, "/metrics")
 	if err != nil {
 		return fmt.Errorf("failed to expose metrics: %v", err)
 	}
+	if err := s.PeerLiveness().Start(srvCtx); err != nil {
+		return fmt.Errorf("start peer liveness: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			s.releasePeerLiveness(ctx)
+		}
+	}()
 	s.EphemeralManager().LoadInitialPeers(srvCtx)
 
 	tlsEnabled, err := s.setupTLS(srvCtx)
@@ -188,7 +206,7 @@ func (s *BaseServer) start(ctx context.Context) error {
 			idpManager = metrics.EmbeddedType
 		}
 
-		metricsWorker := metrics.NewWorker(srvCtx, installationID, s.Store(), s.PeersUpdateManager(), idpManager)
+		metricsWorker := metrics.NewWorker(srvCtx, installationID, s.Store(), s.PeersUpdateManager(), idpManager, s.mcpMetrics())
 		go metricsWorker.Run(srvCtx)
 	}
 
@@ -297,9 +315,23 @@ func (s *BaseServer) setupTLS(ctx context.Context) (bool, error) {
 	}
 }
 
-// Stop attempts a graceful shutdown, waiting up to 5 seconds for active connections to finish
+// releasePeerLiveness retires the liveness instance after a failed start, so its peers do
+// not stay connected until the instance row goes stale.
+func (s *BaseServer) releasePeerLiveness(ctx context.Context) {
+	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout-shutdownCloseReserve)
+	defer cancel()
+	if err := s.PeerLiveness().Release(releaseCtx); err != nil {
+		log.WithContext(ctx).Errorf("release peer liveness after failed start: %v", err)
+	}
+}
+
+// Stop attempts a graceful shutdown within shutdownTimeout. Releasing the peer liveness
+// instance may use the budget left after stopping the services and gRPC streams,
+// except for shutdownCloseReserve, which stays for closing the stores; the extension hooks
+// leave shutdownIdPReserve for stopping the embedded IdP. It returns an error when the
+// instance could not be released or the shutdown ran out of time.
 func (s *BaseServer) Stop() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	defer s.RunStopHandlers()
 	if s.domainCleanupStop != nil {
@@ -318,12 +350,20 @@ func (s *BaseServer) Stop() error {
 	if s.certListener != nil {
 		_ = s.certListener.Close()
 	}
-	s.GRPCServer().Stop()
+	s.ManagementGRPCServer().StartDraining()
+	s.stopGRPCServer()
+	deadline, _ := ctx.Deadline()
+	releaseCtx, cancelRelease := context.WithDeadline(ctx, deadline.Add(-shutdownCloseReserve))
+	releaseErr := s.PeerLiveness().Release(releaseCtx)
+	cancelRelease()
+
 	if s.proxyAuthClose != nil {
 		s.proxyAuthClose()
 		s.proxyAuthClose = nil
 	}
-	runExtensionShutdownHooks(ctx, s.grpcExtensions)
+	hooksCtx, cancelHooks := context.WithDeadline(ctx, deadline.Add(-shutdownIdPReserve))
+	runExtensionShutdownHooks(hooksCtx, s.grpcExtensions)
+	cancelHooks()
 	_ = s.Store().Close(ctx)
 	_ = s.EventStore().Close(ctx)
 	if s.update != nil {
@@ -338,12 +378,29 @@ func (s *BaseServer) Stop() error {
 	case err := <-s.Errors():
 		if err != nil {
 			log.WithContext(ctx).Infof("stopped Management Service: %v", err)
-			return nil
+			return releaseErr
 		}
 		log.WithContext(ctx).Infof("stopped Management Service")
-		return nil
+		return releaseErr
 	case <-ctx.Done():
-		return ctx.Err()
+		return errors.Join(releaseErr, ctx.Err())
+	}
+}
+
+// stopGRPCServer stops the gRPC server, which waits for the stream handlers to finish
+// their teardown, but gives up waiting after grpcStopTimeout so a stuck handler cannot
+// block the shutdown.
+func (s *BaseServer) stopGRPCServer() {
+	stopped := make(chan struct{})
+	go func() {
+		s.GRPCServer().Stop()
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+	case <-time.After(grpcStopTimeout):
+		log.Warnf("gRPC server did not stop within %s, continuing shutdown", grpcStopTimeout)
 	}
 }
 
