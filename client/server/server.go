@@ -2466,8 +2466,8 @@ func (s *Server) RespondApproval(ctx context.Context, msg *proto.RespondApproval
 	if !ok {
 		log.Warnf("refusing approval response for %s: the caller's identity cannot be verified on this control channel", msg.GetRequestId())
 		// Same envelope as the privileged-config refusals, so the CLI and the UI
-		// present the guidance instead of a raw gRPC error: see privilegeError.
-		return nil, privilegeError(unidentifiableCallerSummary(), reinstallCommand())
+		// present the guidance instead of a raw gRPC error: see ipcauth.PrivilegeError.
+		return nil, ipcauth.PrivilegeError(unidentifiableCallerSummary(), reinstallCommand())
 	}
 	log.Infof("approval response for %s from caller %s: accept=%t view_only=%t",
 		msg.GetRequestId(), id, msg.GetAccept(), msg.GetViewOnly())
