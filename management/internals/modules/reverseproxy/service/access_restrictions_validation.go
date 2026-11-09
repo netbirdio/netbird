@@ -96,10 +96,23 @@ func validateCIDRList(field string, cidrs []string) error {
 
 func normalizeCountryList(field string, codes []string) error {
 	for i, code := range codes {
-		if len(code) != 2 {
+		if !isAlpha2Code(code) {
 			return fmt.Errorf("%s[%d]: %q must be a 2-letter ISO 3166-1 alpha-2 code", field, i, code)
 		}
 		codes[i] = strings.ToUpper(code)
 	}
 	return nil
+}
+
+func isAlpha2Code(code string) bool {
+	if len(code) != 2 {
+		return false
+	}
+	for i := 0; i < len(code); i++ {
+		c := code[i]
+		if (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') {
+			return false
+		}
+	}
+	return true
 }
