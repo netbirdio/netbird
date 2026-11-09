@@ -100,7 +100,11 @@ func sysHardwareUUID() string {
 		log.Warnf("failed to get system hardware UUID: %s", err)
 		return ""
 	}
-	for _, l := range strings.Split(string(out), "\n") {
+	return parseIoRegUUID(string(out))
+}
+
+func parseIoRegUUID(out string) string {
+	for _, l := range strings.Split(out, "\n") {
 		if strings.Contains(l, `"IOPlatformUUID"`) {
 			return cleanHardwareUUID(trimIoRegLine(l))
 		}
