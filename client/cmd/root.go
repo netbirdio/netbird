@@ -372,8 +372,8 @@ func addManagementURLFlag(cmd *cobra.Command) {
 // addLoginFlags registers the flags shared by the commands that log in a peer.
 func addLoginFlags(cmd *cobra.Command) {
 	addManagementURLFlag(cmd)
-	cmd.PersistentFlags().StringVarP(&setupKey, "setup-key", "k", "", "Setup key obtained from the Management Service Dashboard (used to register peer)")
-	cmd.PersistentFlags().StringVar(&setupKeyPath, "setup-key-file", "", "The path to a setup key obtained from the Management Service Dashboard (used to register peer) This is ignored if the setup-key flag is provided.")
+	cmd.PersistentFlags().StringVarP(&setupKey, "setup-key", "k", "", "Setup key obtained from the Management Service Dashboard (used to register peer). Cannot be used with --setup-key-file.")
+	cmd.PersistentFlags().StringVar(&setupKeyPath, "setup-key-file", "", "The path to a setup key obtained from the Management Service Dashboard (used to register peer). Cannot be used with --setup-key.")
 	cmd.MarkFlagsMutuallyExclusive("setup-key", "setup-key-file")
 	cmd.PersistentFlags().StringVar(&preSharedKey, preSharedKeyFlag, "", "Sets WireGuard PreSharedKey property. If set, then only peers that have the same key can communicate.")
 	cmd.PersistentFlags().StringVarP(&hostName, "hostname", "n", "", "Sets a custom hostname for the device")
