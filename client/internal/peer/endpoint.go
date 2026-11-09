@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -15,10 +16,22 @@ const (
 	fallbackDelay      = 5 * time.Second
 )
 
+// wgPath names the transport a WireGuard endpoint points at.
+type wgPath string
+
+const (
+	wgPathICE   wgPath = "ice"
+	wgPathRelay wgPath = "relay"
+)
+
 type EndpointUpdater struct {
 	log       *logrus.Entry
 	wgConfig  WgConfig
 	initiator bool
+
+	// keepAlive and path are read by the delayed update goroutine without mu.
+	keepAlive atomic.Int64
+	path      atomic.Value
 
 	// mu protects cancelFunc
 	mu         sync.Mutex
@@ -27,16 +40,20 @@ type EndpointUpdater struct {
 }
 
 func NewEndpointUpdater(log *logrus.Entry, wgConfig WgConfig, initiator bool) *EndpointUpdater {
-	return &EndpointUpdater{
+	e := &EndpointUpdater{
 		log:       log,
 		wgConfig:  wgConfig,
 		initiator: initiator,
 	}
+	e.keepAlive.Store(int64(defaultWgKeepAlive))
+	return e
 }
 
-func (e *EndpointUpdater) ConfigureWGEndpoint(addr *net.UDPAddr, presharedKey *wgtypes.Key) error {
+func (e *EndpointUpdater) ConfigureWGEndpoint(addr *net.UDPAddr, presharedKey *wgtypes.Key, path wgPath) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
+	e.setPath(path)
 
 	if e.initiator {
 		e.log.Debugf("configure up WireGuard as initiator")
@@ -47,14 +64,49 @@ func (e *EndpointUpdater) ConfigureWGEndpoint(addr *net.UDPAddr, presharedKey *w
 	return e.configureAsResponder(addr, presharedKey)
 }
 
-func (e *EndpointUpdater) SwitchWGEndpoint(addr *net.UDPAddr, presharedKey *wgtypes.Key) error {
+func (e *EndpointUpdater) SwitchWGEndpoint(addr *net.UDPAddr, presharedKey *wgtypes.Key, path wgPath) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	// prevent to run new update while cancel the previous update
 	e.waitForCloseTheDelayedUpdate()
 
+	e.setPath(path)
 	return e.updateWireGuardPeer(addr, presharedKey)
+}
+
+// DisableRelayKeepalive sets the persistent keepalive of a relayed peer to 0. It
+// leaves the endpoint, allowed IPs and preshared key as they are. It does nothing
+// when the current path is not relay. The next configure or switch restores the
+// default keepalive.
+func (e *EndpointUpdater) DisableRelayKeepalive() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.currentPath() != wgPathRelay || e.keepAlive.Load() == 0 {
+		return nil
+	}
+	e.keepAlive.Store(0)
+	e.logKeepalive()
+	return e.wgConfig.WgInterface.UpdatePeer(e.wgConfig.RemoteKey, nil, 0, nil, nil)
+}
+
+func (e *EndpointUpdater) setPath(path wgPath) {
+	e.path.Store(path)
+	e.keepAlive.Store(int64(defaultWgKeepAlive))
+}
+
+func (e *EndpointUpdater) currentPath() wgPath {
+	path, _ := e.path.Load().(wgPath)
+	return path
+}
+
+func (e *EndpointUpdater) logKeepalive() {
+	key := e.wgConfig.RemoteKey
+	if len(key) > 8 {
+		key = key[:8]
+	}
+	e.log.Infof("wgka: peer=%s path=%s keepalive=%d", key, e.currentPath(), time.Duration(e.keepAlive.Load())/time.Second)
 }
 
 func (e *EndpointUpdater) RemoveWgPeer() error {
@@ -124,10 +176,11 @@ func (e *EndpointUpdater) scheduleDelayedUpdate(ctx context.Context, addr *net.U
 }
 
 func (e *EndpointUpdater) updateWireGuardPeer(endpoint *net.UDPAddr, presharedKey *wgtypes.Key) error {
+	e.logKeepalive()
 	return e.wgConfig.WgInterface.UpdatePeer(
 		e.wgConfig.RemoteKey,
 		e.wgConfig.AllowedIps,
-		defaultWgKeepAlive,
+		time.Duration(e.keepAlive.Load()),
 		endpoint,
 		presharedKey,
 	)

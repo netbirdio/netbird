@@ -3,6 +3,7 @@ package peer
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -35,6 +36,12 @@ type WGWatcher struct {
 	initialHandshake time.Time
 
 	resetCh chan struct{}
+
+	// relayIdleFn is set before the watcher runs. When set, the watcher stops its
+	// periodic check after a fresh handshake on the relay path and calls it once.
+	relayIdleFn func()
+	relayPath   atomic.Bool
+	pathCh      chan struct{}
 }
 
 func NewWGWatcher(log *log.Entry, wgIfaceStater WGInterfaceStater, peerKey string, stateDump *stateDump) *WGWatcher {
@@ -44,7 +51,29 @@ func NewWGWatcher(log *log.Entry, wgIfaceStater WGInterfaceStater, peerKey strin
 		peerKey:       peerKey,
 		stateDump:     stateDump,
 		resetCh:       make(chan struct{}, 1),
+		pathCh:        make(chan struct{}, 1),
 	}
+}
+
+// EnableRelayIdle makes the watcher stop its periodic check on the relay path once a
+// handshake is seen, and call onIdle at that point. On the relay path a dead remote
+// or relay socket is reported by the relay itself. Call it before EnableWgWatcher.
+func (w *WGWatcher) EnableRelayIdle(onIdle func()) {
+	w.relayIdleFn = onIdle
+}
+
+// SetRelayPath tells the watcher which path the endpoint uses. A switch away from
+// relay restarts the periodic check if it was stopped.
+func (w *WGWatcher) SetRelayPath(relay bool) {
+	w.relayPath.Store(relay)
+	select {
+	case w.pathCh <- struct{}{}:
+	default:
+	}
+}
+
+func (w *WGWatcher) idleOnRelay() bool {
+	return w.relayIdleFn != nil && w.relayPath.Load()
 }
 
 // PrepareInitialHandshake reads the peer's current WireGuard handshake time. It must be
@@ -83,6 +112,7 @@ func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, onDisconnectedFn
 	defer timer.Stop()
 
 	lastHandshake := initialHandshake
+	idle := false
 
 	for {
 		select {
@@ -109,14 +139,29 @@ func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, onDisconnectedFn
 			}
 
 			lastHandshake = *handshake
+			w.stateDump.WGcheckSuccess()
+
+			if w.idleOnRelay() && ctx.Err() == nil {
+				w.log.Infof("WireGuard watcher idle on relay path, periodic check stopped")
+				idle = true
+				w.relayIdleFn()
+				continue
+			}
 
 			resetTime := time.Until(handshake.Add(checkPeriod))
 			timer.Reset(resetTime)
-			w.stateDump.WGcheckSuccess()
 
 			w.log.Debugf("WireGuard watcher reset timer: %v", resetTime)
+		case <-w.pathCh:
+			if !idle || w.relayPath.Load() {
+				continue
+			}
+			w.log.Infof("WireGuard watcher left relay path, periodic check restarted")
+			idle = false
+			timer.Reset(checkPeriod)
 		case <-w.resetCh:
 			w.log.Infof("WireGuard watcher received peer reset, restarting handshake timeout")
+			idle = false
 			lastHandshake = time.Time{}
 			enabledTime = time.Now()
 			timer.Stop()

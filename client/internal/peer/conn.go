@@ -147,6 +147,9 @@ type Conn struct {
 	dumpState *stateDump
 
 	endpointUpdater *EndpointUpdater
+	// relayWgKaOff drops the WireGuard keepalive and the periodic watcher check on
+	// the relay path once a handshake is seen. Test knob NB_TEST_RELAY_WG_KA_OFF.
+	relayWgKaOff bool
 
 	// Connection stage timestamps for metrics
 	metricsRecorder MetricsRecorder
@@ -210,6 +213,7 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 		dumpState:          dumpState,
 		endpointUpdater:    NewEndpointUpdater(connLog, config.WgConfig, isController(config)),
 		metricsRecorder:    services.MetricsRecorder,
+		relayWgKaOff:       isRelayWgKaOff(),
 	}
 
 	return conn, nil
@@ -474,10 +478,11 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 	conn.enableWgWatcherIfNeeded(updateTime)
 
 	presharedKey := conn.presharedKey(iceConnInfo.RosenpassPubKey)
-	if err = conn.endpointUpdater.ConfigureWGEndpoint(ep, presharedKey); err != nil {
+	if err = conn.endpointUpdater.ConfigureWGEndpoint(ep, presharedKey, wgPathICE); err != nil {
 		conn.handleConfigurationFailure(err, wgProxy)
 		return
 	}
+	conn.setWatcherRelayPath(false)
 	wgConfigWorkaround()
 
 	if conn.wgProxyRelay != nil {
@@ -521,9 +526,10 @@ func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
 		conn.wgProxyRelay.Work()
 
 		presharedKey := conn.presharedKey(conn.rosenpassRemoteKey)
-		if err := conn.endpointUpdater.SwitchWGEndpoint(conn.wgProxyRelay.EndpointAddr(), presharedKey); err != nil {
+		if err := conn.endpointUpdater.SwitchWGEndpoint(conn.wgProxyRelay.EndpointAddr(), presharedKey, wgPathRelay); err != nil {
 			conn.Log.Errorf("failed to switch to relay conn: %v", err)
 		}
+		conn.setWatcherRelayPath(true)
 
 		conn.currentConnPriority = conntype.Relay
 	} else {
@@ -599,13 +605,14 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	}
 	updateTime := time.Now()
 	conn.enableWgWatcherIfNeeded(updateTime)
-	if err := conn.endpointUpdater.ConfigureWGEndpoint(wgProxy.EndpointAddr(), conn.presharedKey(rci.rosenpassPubKey)); err != nil {
+	if err := conn.endpointUpdater.ConfigureWGEndpoint(wgProxy.EndpointAddr(), conn.presharedKey(rci.rosenpassPubKey), wgPathRelay); err != nil {
 		if err := wgProxy.CloseConn(); err != nil {
 			conn.Log.Warnf("Failed to close relay connection: %v", err)
 		}
 		conn.Log.Errorf("Failed to update WireGuard peer configuration: %v", err)
 		return
 	}
+	conn.setWatcherRelayPath(true)
 	if !controller {
 		wgProxy.Work()
 	}
@@ -869,6 +876,9 @@ func (conn *Conn) enableWgWatcherIfNeeded(enabledTime time.Time) {
 	wgWatcherCtx, wgWatcherCancel := context.WithCancel(conn.ctx)
 	conn.wgWatcher = watcher
 	conn.wgWatcherCancel = wgWatcherCancel
+	if conn.relayWgKaOff {
+		watcher.EnableRelayIdle(func() { conn.onWGRelayIdle(wgWatcherCtx) })
+	}
 
 	conn.wgWatcherWg.Add(1)
 	go func() {
@@ -876,6 +886,28 @@ func (conn *Conn) enableWgWatcherIfNeeded(enabledTime time.Time) {
 		onDisconnected := func() { conn.onWGDisconnected(wgWatcherCtx) }
 		watcher.EnableWgWatcher(wgWatcherCtx, enabledTime, onDisconnected, conn.onWGHandshakeSuccess, conn.onWGCheckSuccess)
 	}()
+}
+
+// setWatcherRelayPath tells the watcher the current endpoint path. Caller must hold conn.mu.
+func (conn *Conn) setWatcherRelayPath(relay bool) {
+	if !conn.relayWgKaOff || conn.wgWatcher == nil {
+		return
+	}
+	conn.wgWatcher.SetRelayPath(relay)
+}
+
+// onWGRelayIdle drops the keepalive of a relayed peer once the watcher saw a
+// handshake on the relay path.
+func (conn *Conn) onWGRelayIdle(watcherCtx context.Context) {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
+	if conn.ctx.Err() != nil || watcherCtx.Err() != nil || conn.currentConnPriority != conntype.Relay {
+		return
+	}
+	if err := conn.endpointUpdater.DisableRelayKeepalive(); err != nil {
+		conn.Log.Warnf("failed to disable keepalive on relay path: %v", err)
+	}
 }
 
 // disableWgWatcherIfNeeded cancels and drops the watcher once no transport is active. It never

@@ -3,7 +3,11 @@ package peer
 import (
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
+	"sync"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -41,4 +45,28 @@ func OverrideRelayURLs() ([]string, bool) {
 		return nil, false
 	}
 	return urls, true
+}
+
+// EnvKeyNBTestRelayWgKaOff is a test knob. When true, a relayed peer keeps the
+// WireGuard persistent keepalive only until the first handshake, then sets it to 0,
+// and the WireGuard watcher stops its periodic check on the relay path.
+const EnvKeyNBTestRelayWgKaOff = "NB_TEST_RELAY_WG_KA_OFF"
+
+var relayWgKaOff = sync.OnceValue(func() bool {
+	val := os.Getenv(EnvKeyNBTestRelayWgKaOff)
+	if val == "" {
+		return false
+	}
+	off, err := strconv.ParseBool(val)
+	if err != nil {
+		log.Warnf("failed to parse %s: %v", EnvKeyNBTestRelayWgKaOff, err)
+		return false
+	}
+	log.Infof("wgka: %s=%t", EnvKeyNBTestRelayWgKaOff, off)
+	return off
+})
+
+// isRelayWgKaOff reports the NB_TEST_RELAY_WG_KA_OFF knob, read once per process.
+func isRelayWgKaOff() bool {
+	return relayWgKaOff()
 }
