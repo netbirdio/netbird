@@ -58,10 +58,10 @@ func TestGeoLite_Lookup(t *testing.T) {
 // shortTimeouts makes stalled requests fail fast for the duration of a test.
 func shortTimeouts(t *testing.T) {
 	t.Helper()
-	head, download := headRequestTimeout, downloadTimeout
-	headRequestTimeout, downloadTimeout = 100*time.Millisecond, 100*time.Millisecond
+	head, download, update := headRequestTimeout, downloadTimeout, updateTimeout
+	headRequestTimeout, downloadTimeout, updateTimeout = 100*time.Millisecond, 100*time.Millisecond, 100*time.Millisecond
 	t.Cleanup(func() {
-		headRequestTimeout, downloadTimeout = head, download
+		headRequestTimeout, downloadTimeout, updateTimeout = head, download, update
 	})
 }
 
@@ -141,17 +141,29 @@ func TestEnsureDatabase(t *testing.T) {
 		oldFile = "GeoLite2-City_20240305.mmdb"
 		newFile = "GeoLite2-City_20991231.mmdb"
 	)
+	// Refuses an existing file, like the geonames import that would append to it.
 	writeNew := func(_ context.Context, dir, name string) error {
-		return os.WriteFile(path.Join(dir, name), []byte("new"), 0o600)
+		f, err := os.OpenFile(path.Join(dir, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			return err
+		}
+		_, err = f.WriteString("new")
+		return errors.Join(err, f.Close())
 	}
 	writePartial := func(_ context.Context, dir, name string) error {
 		require.NoError(t, os.WriteFile(path.Join(dir, name), []byte("partial"), 0o600))
 		return errors.New("connection reset")
 	}
+	// A download that only ends when its context does, like a mirror stalling mid-body.
+	stall := func(ctx context.Context, _, _ string) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
 
 	tests := []struct {
 		name       string
 		existing   bool
+		leftover   bool   // partial download left by a crash
 		mirrorFile string // filename the mirror announces, empty when the mirror fails
 		autoUpdate bool
 		download   downloadFunc
@@ -161,15 +173,21 @@ func TestEnsureDatabase(t *testing.T) {
 		{name: "update check fails, existing database is used", existing: true, autoUpdate: true, want: oldFile, wantFiles: []string{oldFile}},
 		{name: "download fails, existing database is used and partial file removed", existing: true, mirrorFile: "GeoLite2-City_20991231.tar.gz", autoUpdate: true, download: writePartial, want: oldFile, wantFiles: []string{oldFile}},
 		{name: "successful update removes the old database", existing: true, mirrorFile: "GeoLite2-City_20991231.tar.gz", autoUpdate: true, download: writeNew, want: newFile, wantFiles: []string{newFile}},
+		{name: "stalled download falls back to existing database", existing: true, mirrorFile: "GeoLite2-City_20991231.tar.gz", autoUpdate: true, download: stall, want: oldFile, wantFiles: []string{oldFile}},
+		{name: "partial file left by a crash is replaced", existing: true, leftover: true, mirrorFile: "GeoLite2-City_20991231.tar.gz", autoUpdate: true, download: writeNew, want: newFile, wantFiles: []string{newFile}},
 		{name: "no database and update check fails", autoUpdate: true},
 		{name: "auto update off uses existing database without a download", existing: true, want: oldFile, wantFiles: []string{oldFile}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			shortTimeouts(t)
 			dataDir := t.TempDir()
 			if tt.existing {
 				require.NoError(t, util.CopyFileContents(mmdbPath, path.Join(dataDir, oldFile)))
+			}
+			if tt.leftover {
+				require.NoError(t, os.WriteFile(path.Join(dataDir, newFile+".tmp"), []byte("partial"), 0o600))
 			}
 			mirror := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				if tt.mirrorFile == "" {

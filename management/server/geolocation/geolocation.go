@@ -108,10 +108,18 @@ type downloadFunc func(ctx context.Context, dataDir, filename string) error
 // wanted one is in place.
 func ensureDatabase(ctx context.Context, dataDir, pattern, url string, autoUpdate bool, download downloadFunc) (string, error) {
 	globPattern := filepath.Join(dataDir, pattern)
+	existing := getExistingDatabases(globPattern)
 
-	filename, err := getDatabaseFilename(ctx, url, globPattern, autoUpdate)
+	updateCtx := ctx
+	if len(existing) > 0 {
+		var cancel context.CancelFunc
+		updateCtx, cancel = context.WithTimeout(ctx, updateTimeout)
+		defer cancel()
+	}
+
+	filename, err := getDatabaseFilename(updateCtx, url, globPattern, autoUpdate)
 	if err == nil {
-		err = ensureFile(ctx, dataDir, filename, download)
+		err = ensureFile(updateCtx, dataDir, filename, download)
 	}
 	if err == nil {
 		if cleanupErr := cleanupOldDatabases(ctx, globPattern, filename); cleanupErr != nil {
@@ -120,7 +128,6 @@ func ensureDatabase(ctx context.Context, dataDir, pattern, url string, autoUpdat
 		return filename, nil
 	}
 
-	existing := getExistingDatabases(globPattern)
 	if len(existing) == 0 {
 		return "", err
 	}
@@ -129,8 +136,9 @@ func ensureDatabase(ctx context.Context, dataDir, pattern, url string, autoUpdat
 	return fallback, nil
 }
 
-// ensureFile downloads filename into dataDir unless it exists. A failed download removes
-// what it left behind, so a partial file is never picked up as a database.
+// ensureFile downloads filename into dataDir unless it exists. The download goes to a
+// temporary name and is renamed into place once complete, so a crash never leaves a partial
+// file that looks like a usable database.
 func ensureFile(ctx context.Context, dataDir, filename string, download downloadFunc) error {
 	target := path.Join(dataDir, filename)
 	if exists, _ := fileExists(target); exists {
@@ -138,13 +146,26 @@ func ensureFile(ctx context.Context, dataDir, filename string, download download
 	}
 
 	log.WithContext(ctx).Infof("Geolocation database file %s not found, file will be downloaded", filename)
-	if err := download(ctx, dataDir, filename); err != nil {
-		if removeErr := os.Remove(target); removeErr != nil && !os.IsNotExist(removeErr) {
-			log.WithContext(ctx).Warnf("Failed to remove incomplete database %s: %v", target, removeErr)
-		}
+	tmpFile := filename + ".tmp"
+	tmp := path.Join(dataDir, tmpFile)
+	// A crash may have left one behind, and the geonames import would append to it.
+	removeIncompleteFile(ctx, tmp)
+
+	err := download(ctx, dataDir, tmpFile)
+	if err == nil {
+		err = os.Rename(tmp, target)
+	}
+	if err != nil {
+		removeIncompleteFile(ctx, tmp)
 		return fmt.Errorf("download %s: %w", filename, err)
 	}
 	return nil
+}
+
+func removeIncompleteFile(ctx context.Context, file string) {
+	if err := os.Remove(file); err != nil && !os.IsNotExist(err) {
+		log.WithContext(ctx).Warnf("Failed to remove incomplete database %s: %v", file, err)
+	}
 }
 
 func openDB(mmdbPath string) (*maxminddb.Reader, error) {

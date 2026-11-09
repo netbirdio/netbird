@@ -63,7 +63,9 @@ func loadDatabase(ctx context.Context, checksumURL string, fileURL string, extra
 	}
 	checksumFile := path.Join(temp, checksumFilename)
 
-	err = downloadFile(ctx, checksumURL, checksumFile)
+	checksumCtx, cancel := context.WithTimeout(ctx, headRequestTimeout)
+	err = downloadFile(checksumCtx, checksumURL, checksumFile)
+	cancel()
 	if err != nil {
 		return err
 	}
