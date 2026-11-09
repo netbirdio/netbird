@@ -41,10 +41,10 @@ type AgentNetworkAccessLog struct {
 	// BlockedBy is the policy or account budget rule id whose cap denied the
 	// request (llm_policy.blocked_by); which of the two follows DenyReason's
 	// llm_policy.* / llm_account.* prefix.
-	BlockedBy string `gorm:"index"`
+	BlockedBy string
 	// ErrorSource says who produced a failed (>= 400) response: provider,
 	// proxy, policy, or auth (error.source). Empty for successful requests.
-	ErrorSource string `gorm:"index"`
+	ErrorSource string
 	// ErrorDetail is the admin-facing explanation: the proxy's transport error
 	// (proxy.error) or management's cap detail (llm_policy.detail).
 	ErrorDetail  string `gorm:"type:text"`
