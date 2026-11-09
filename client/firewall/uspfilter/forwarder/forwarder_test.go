@@ -1,14 +1,72 @@
 package forwarder
 
 import (
+	"context"
 	"net/netip"
+	"runtime"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
+	"gvisor.dev/gvisor/pkg/tcpip/stack"
+	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
+
+	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 )
+
+type recordingFlowLogger struct {
+	nftypes.FlowLogger
+	events []nftypes.EventFields
+}
+
+func (r *recordingFlowLogger) StoreEvent(e nftypes.EventFields) { r.events = append(r.events, e) }
+
+// Refusing an ICMP packet that would leave through the overlay ends its own flow once. The rule ID of a
+// separate flow registered in the opposite direction must survive.
+func TestRefuseOverlayEgress_KeepsReverseRuleID(t *testing.T) {
+	loopback := netip.MustParseAddr("127.0.0.1")
+	remote := netip.MustParseAddr("10.0.0.2")
+
+	logger := nblog.NewFromLogrus(logrus.StandardLogger())
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		assert.NoError(t, logger.Stop(ctx))
+	})
+
+	flows := &recordingFlowLogger{}
+	f := &Forwarder{
+		logger:     logger,
+		ctx:        context.Background(),
+		ip:         addrFromNetipAddr(loopback),
+		flowLogger: flows,
+	}
+
+	forward := buildKey(remote, loopback, 0, 0)
+	reverse := buildKey(loopback, remote, 0, 0)
+	f.ruleIdMap.Store(forward, []byte("forward"))
+	f.ruleIdMap.Store(reverse, []byte("reverse"))
+
+	id := stack.TransportEndpointID{
+		RemoteAddress: addrFromNetipAddr(remote),
+		LocalAddress:  addrFromNetipAddr(loopback),
+	}
+	require.True(t, f.refuseOverlayEgress(uuid.New(), id, 8, 0), "packet routed back into the overlay is refused")
+
+	require.Len(t, flows.events, 1)
+	assert.Equal(t, nftypes.TypeDrop, flows.events[0].Type)
+
+	_, forwardLeft := f.ruleIdMap.Load(forward)
+	assert.False(t, forwardLeft, "the refused flow's rule ID is removed")
+	_, reverseLeft := f.ruleIdMap.Load(reverse)
+	assert.True(t, reverseLeft, "a separate reverse registration is not removed")
+}
 
 const echoRequestSize = 8
 
@@ -159,4 +217,85 @@ func TestParseICMPv4_RejectsFragment(t *testing.T) {
 
 	_, _, _, _, ok := parseICMPv4(pkt)
 	assert.False(t, ok)
+}
+
+func TestEgressesOverlay(t *testing.T) {
+	loopback := netip.MustParseAddr("127.0.0.1")
+
+	logger := nblog.NewFromLogrus(logrus.StandardLogger())
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		assert.NoError(t, logger.Stop(ctx))
+	})
+
+	newForwarder := func(ip netip.Addr, netstack bool) *Forwarder {
+		return &Forwarder{
+			logger:   logger,
+			ctx:      context.Background(),
+			ip:       addrFromNetipAddr(ip),
+			netstack: netstack,
+		}
+	}
+
+	// The host picks 127.0.0.1 as source for this destination, so it stands in for the overlay address.
+	assert.True(t, newForwarder(loopback, false).egressesOverlay(loopback))
+	assert.True(t, newForwarder(loopback, false).egressesOverlay(netip.AddrFrom16(loopback.As16())), "v4-mapped destination")
+	assert.False(t, newForwarder(netip.MustParseAddr("100.10.0.1"), false).egressesOverlay(loopback))
+	assert.False(t, newForwarder(loopback, true).egressesOverlay(loopback), "netstack mode has no kernel interface")
+}
+
+// A UDP flow whose destination the host cannot connect to is reported as dropped when the host routes
+// the flow, and as an ordinary end in netstack mode where there is no host route lookup to blame.
+func TestHandleUDP_DialError(t *testing.T) {
+	// A link-local destination without a zone cannot be connected to. Windows falls back to a default
+	// zone instead, but refuses the reserved 240.0.0.0/4 range.
+	unreachable := netip.MustParseAddr("fe80::1")
+	if runtime.GOOS == "windows" {
+		unreachable = netip.MustParseAddr("240.0.0.1")
+	}
+	remote := netip.MustParseAddr("10.0.0.2")
+
+	tests := []struct {
+		name     string
+		netstack bool
+		want     []nftypes.Type
+	}{
+		{"host routed", false, []nftypes.Type{nftypes.TypeStart, nftypes.TypeDrop}},
+		{"netstack", true, []nftypes.Type{nftypes.TypeStart, nftypes.TypeEnd}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger := nblog.NewFromLogrus(logrus.StandardLogger())
+			t.Cleanup(func() {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+				assert.NoError(t, logger.Stop(ctx))
+			})
+
+			flows := &recordingFlowLogger{}
+			f := &Forwarder{
+				logger:     logger,
+				ctx:        context.Background(),
+				netstack:   tc.netstack,
+				flowLogger: flows,
+			}
+			f.udpForwarder = newUDPForwarder(1500, logger, flows)
+			t.Cleanup(f.udpForwarder.cancel)
+
+			id := stack.TransportEndpointID{
+				RemoteAddress: addrFromNetipAddr(remote),
+				RemotePort:    40000,
+				LocalAddress:  addrFromNetipAddr(unreachable),
+				LocalPort:     53,
+			}
+			require.False(t, f.handleUDP(udp.NewForwarderRequest(nil, id, nil)), "a failed dial is not handled")
+
+			var got []nftypes.Type
+			for _, e := range flows.events {
+				got = append(got, e.Type)
+			}
+			assert.Equal(t, tc.want, got, "exactly one closing event is sent")
+		})
+	}
 }

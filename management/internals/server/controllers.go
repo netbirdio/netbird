@@ -11,6 +11,8 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nmapcontroller "github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness"
+	peerlivenesscontroller "github.com/netbirdio/netbird/management/internals/controllers/peerliveness/controller"
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral"
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/internals/shared/grpc"
@@ -25,6 +27,12 @@ import (
 func (s *BaseServer) PeersUpdateManager() network_map.PeersUpdateManager {
 	return Create(s, func() network_map.PeersUpdateManager {
 		return update_channel.NewPeersUpdateManager(s.Metrics())
+	})
+}
+
+func (s *BaseServer) PeerLiveness() peerliveness.Controller {
+	return Create(s, func() peerliveness.Controller {
+		return peerlivenesscontroller.NewController(s.Store())
 	})
 }
 

@@ -12,9 +12,16 @@ function openUrl(url: string) {
 
 export const DaemonUnavailableOverlay = () => {
     const { t } = useTranslation();
-    const { isDaemonUnavailable } = useStatus();
+    const { isDaemonUnavailable, isDaemonAccessDenied } = useStatus();
 
     if (!isDaemonUnavailable) return null;
+
+    const title = isDaemonAccessDenied
+        ? t("daemon.accessDenied.title")
+        : t("daemon.unavailable.title");
+    const description = isDaemonAccessDenied
+        ? t("daemon.accessDenied.description")
+        : t("daemon.unavailable.description");
 
     return (
         <div
@@ -32,20 +39,18 @@ export const DaemonUnavailableOverlay = () => {
                 </div>
 
                 <div className={"flex flex-col items-center gap-1"}>
-                    <p className={"text-base font-medium text-nb-gray-50"}>
-                        {t("daemon.unavailable.title")}
-                    </p>
-                    <p className={"text-sm text-nb-gray-300"}>
-                        {t("daemon.unavailable.description")}
-                    </p>
+                    <p className={"text-base font-medium text-nb-gray-50"}>{title}</p>
+                    <p className={"text-sm text-nb-gray-300"}>{description}</p>
                 </div>
 
-                <div className={"wails-no-draggable"}>
-                    <Button variant={"secondary"} size={"xs"} onClick={() => openUrl(DOCS_URL)}>
-                        <BookText size={14} />
-                        {t("daemon.unavailable.docsLink")}
-                    </Button>
-                </div>
+                {!isDaemonAccessDenied && (
+                    <div className={"wails-no-draggable"}>
+                        <Button variant={"secondary"} size={"xs"} onClick={() => openUrl(DOCS_URL)}>
+                            <BookText size={14} />
+                            {t("daemon.unavailable.docsLink")}
+                        </Button>
+                    </div>
+                )}
             </div>
         </div>
     );

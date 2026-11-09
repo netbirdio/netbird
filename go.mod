@@ -64,6 +64,7 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/google/go-tpm v0.9.8
 	github.com/google/gopacket v1.1.19
+	github.com/google/jsonschema-go v0.4.3
 	github.com/google/nftables v0.3.0
 	github.com/gopacket/gopacket v1.4.0
 	github.com/grafana/pyroscope-go v1.4.2
@@ -82,6 +83,7 @@ require (
 	github.com/miekg/dns v1.1.72
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/moby/moby/api v1.54.1
+	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/netbirdio/dex v0.244.1-0.20261021152327-0319b501f1a6
 	github.com/netbirdio/dex/api/v2 v2.0.0-20261021115841-9f3e6d4c2ce3
 	github.com/netbirdio/go-nat v0.0.0-20260821095157-6b2c8c5c74e8
@@ -148,7 +150,12 @@ require (
 	howett.net/plist v1.0.2-0.20250314012144-ee69052608d9
 )
 
-require golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173 // indirect
+require (
+	github.com/segmentio/asm v1.1.3 // indirect
+	github.com/segmentio/encoding v0.5.4 // indirect
+	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
+	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173 // indirect
+)
 
 require (
 	cloud.google.com/go/auth v0.20.0 // indirect
@@ -281,7 +288,7 @@ require (
 	github.com/mattermost/xml-roundtrip-validator v0.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/mattn/go-sqlite3 v1.14.42 // indirect
+	github.com/mattn/go-sqlite3 v1.14.42
 	github.com/mdelapenya/tlscert v0.2.0 // indirect
 	github.com/mdlayher/genetlink v1.3.2 // indirect
 	github.com/mdlayher/netlink v1.7.3-0.20250113171957-fbb4dce95f42 // indirect
