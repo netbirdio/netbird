@@ -94,7 +94,7 @@ func (hc *Sender) StartHealthCheck(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
-			hc.HealthCheck <- struct{}{}
+			hc.requestHealthCheck()
 		case <-timeoutTicker.C:
 			if hc.alive {
 				hc.alive = false
@@ -114,5 +114,12 @@ func (hc *Sender) StartHealthCheck(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		}
+	}
+}
+
+func (hc *Sender) requestHealthCheck() {
+	select {
+	case hc.HealthCheck <- struct{}{}:
+	default:
 	}
 }
