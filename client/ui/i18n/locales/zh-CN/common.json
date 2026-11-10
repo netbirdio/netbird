@@ -678,7 +678,7 @@
         "message": "在 WireGuard® 之上通过 Rosenpass 添加后量子密钥交换。"
     },
     "settings.security.rosenpass.deprecated": {
-        "message": "已废弃：将来可能会删除Rosenpass 支持。"
+        "message": "已废弃：将来可能会删除 Rosenpass 支持。"
     },
     "settings.security.rosenpassPermissive.label": {
         "message": "启用宽松模式"
