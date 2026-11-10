@@ -93,5 +93,9 @@ func legacyMigrate(ctx context.Context, gormDB *gorm.DB) error {
 	if err := migratePostAuto(ctx, gormDB); err != nil {
 		return fmt.Errorf("migratePostAuto: %w", err)
 	}
+	// SQLite rebuilds a table to drop a column and loses its indexes, so the post-auto migrations leave some missing.
+	if err := gormDB.AutoMigrate(storeModels()...); err != nil {
+		return fmt.Errorf("auto migrate after post migrations: %w", err)
+	}
 	return nil
 }

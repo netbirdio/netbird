@@ -32,10 +32,13 @@ type Set struct {
 	// pre-versioned database to the baseline schema.
 	Baseline int64
 	// LegacyTables mark a pre-versioned database: when any of them exists
-	// without the version table, Legacy runs before the versioned migrations.
+	// without the version table, Legacy runs and the Baseline is stamped. Such
+	// a database is refused while the set has migrations above the Baseline.
 	LegacyTables []string
-	// Legacy brings a pre-versioned database to the Baseline schema. Nil
-	// disables the bootstrap, and such a database then fails the baseline migration.
+	// Legacy brings a pre-versioned database to the Baseline schema and runs
+	// only on a database without migrations above the Baseline, because it
+	// migrates the current models. Nil disables the bootstrap, and such a
+	// database then fails the baseline migration.
 	Legacy func(ctx context.Context, gormDB *gorm.DB) error
 }
 

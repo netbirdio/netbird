@@ -191,3 +191,34 @@ func TestMigrationsMatchAutoMigrate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
 }
+
+func assertAccessLogSchemaEmpty(t *testing.T, dataDir string) {
+	t.Helper()
+	conn, err := db.OpenSqliteFile(context.Background(), dataDir, sqliteFileName)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	tables, err := conn.DB(nil).Migrator().GetTables()
+	require.NoError(t, err)
+	assert.Empty(t, tables, "no table, version table included, may exist")
+}
+
+func TestOpenConn_ModeCheckFailsOnEmptyDatabase(t *testing.T) {
+	unsetStoreEnv(t)
+	dataDir := t.TempDir()
+
+	_, err := OpenConn(context.Background(), dataDir, db.SqliteStoreEngine, migrate.ModeCheck)
+
+	require.Error(t, err)
+	assertAccessLogSchemaEmpty(t, dataDir)
+}
+
+func TestOpenConn_ModeSkipLeavesSchemaEmpty(t *testing.T) {
+	unsetStoreEnv(t)
+	dataDir := t.TempDir()
+
+	conn, err := OpenConn(context.Background(), dataDir, db.SqliteStoreEngine, migrate.ModeSkip)
+
+	require.NoError(t, err)
+	require.NoError(t, conn.Close())
+	assertAccessLogSchemaEmpty(t, dataDir)
+}

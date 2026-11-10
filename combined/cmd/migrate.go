@@ -30,8 +30,7 @@ func withMigrationTargets(cmd *cobra.Command, fn func(ctx context.Context, targe
 		return fmt.Errorf("load config: %w", err)
 	}
 	cfg.ApplyAdminDefaults()
-	applyServerStoreEnv(cfg.Server.Store)
-	if err := applyActivityStoreEnv(cfg.Server.ActivityStore); err != nil {
+	if err := applyStoreEnv(cfg.Server); err != nil {
 		return err
 	}
 	mgmtConfig, err := adminManagementConfig(cfg)

@@ -78,3 +78,27 @@ func TestApplyAdminDatadirOverrideKeepsExplicitIDPStorage(t *testing.T) {
 	require.Equal(t, newDatadir, datadir)
 	require.Equal(t, explicitFile, cfg.EmbeddedIdP.Storage.Config.File)
 }
+
+func TestResolveMigrateDatadirMatchesServer(t *testing.T) {
+	oldMgmtDataDir := mgmtDataDir
+	t.Cleanup(func() { mgmtDataDir = oldMgmtDataDir })
+
+	for _, tc := range []struct {
+		name       string
+		configDir  string
+		flag       string
+		serverFlag string
+	}{
+		{name: "empty config datadir", configDir: "", flag: "", serverFlag: defaultMgmtDataDir},
+		{name: "non-empty config datadir", configDir: "/srv/from-config", flag: "", serverFlag: defaultMgmtDataDir},
+		{name: "explicit flag", configDir: "/srv/from-config", flag: "/srv/flag", serverFlag: "/srv/flag"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mgmtDataDir = tc.serverFlag
+			serverConfig := &nbconfig.Config{Datadir: tc.configDir}
+			ApplyCommandLineOverrides(serverConfig)
+
+			require.Equal(t, serverConfig.Datadir, resolveMigrateDatadir(tc.flag))
+		})
+	}
+}

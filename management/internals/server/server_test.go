@@ -12,8 +12,10 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 type noopEphemeralManager struct{}
@@ -28,8 +30,9 @@ func newStartTestServer(t *testing.T, liveness peerliveness.Controller) *BaseSer
 	t.Setenv(geolocationDisabledKey, "true")
 
 	srv := NewServer(&Config{NbConfig: &nbconfig.Config{
-		Datadir:    t.TempDir(),
-		HttpConfig: &nbconfig.HttpServerConfig{CertFile: "missing.pem", CertKey: "missing.key"},
+		Datadir:     t.TempDir(),
+		StoreConfig: nbconfig.StoreConfig{Engine: types.SqliteStoreEngine},
+		HttpConfig:  &nbconfig.HttpServerConfig{CertFile: "missing.pem", CertKey: "missing.key"},
 	}})
 	Inject[peers.Manager](srv, peers.NewMockManager(gomock.NewController(t)))
 	Inject[telemetry.AppMetrics](srv, &telemetry.MockAppMetrics{ExposeFunc: func(context.Context, int, string) error { return nil }})
@@ -51,4 +54,18 @@ func TestStart_DoesNotReleasePeerLivenessWhenItFailsToStart(t *testing.T) {
 	liveness.EXPECT().Start(gomock.Any()).Return(errors.New("boom"))
 
 	require.Error(t, newStartTestServer(t, liveness).Start(context.Background()))
+}
+
+func TestMigrationMode(t *testing.T) {
+	newServer := func(configured string) *BaseServer {
+		return NewServer(&Config{NbConfig: &nbconfig.Config{
+			StoreConfig: nbconfig.StoreConfig{MigrationMode: configured},
+		}})
+	}
+
+	t.Setenv(migrate.ModeEnv, "")
+	require.Equal(t, migrate.ModeCheck, newServer("check").MigrationMode())
+
+	t.Setenv(migrate.ModeEnv, "skip")
+	require.Equal(t, migrate.ModeSkip, newServer("check").MigrationMode())
 }

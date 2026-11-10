@@ -5,12 +5,14 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/pressly/goose/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/management/internals/shared/db"
@@ -156,10 +158,7 @@ func TestRun_LegacyDatabaseRunsBootstrapAndStampsBaseline(t *testing.T) {
 	require.NoError(t, conn.DB(nil).Exec("CREATE TABLE things (id TEXT PRIMARY KEY, name TEXT)").Error)
 
 	legacyRuns := 0
-	set := testSet(map[string]string{
-		"20260101000000_baseline.sql": baselineSQL,
-		"20260201000000_color.sql":    secondSQL,
-	})
+	set := testSet(map[string]string{"20260101000000_baseline.sql": baselineSQL})
 	set.Legacy = func(_ context.Context, gormDB *gorm.DB) error {
 		legacyRuns++
 		return gormDB.Exec("CREATE TABLE legacy_marker (id TEXT)").Error
@@ -169,10 +168,8 @@ func TestRun_LegacyDatabaseRunsBootstrapAndStampsBaseline(t *testing.T) {
 	require.NoError(t, runner.Run(context.Background(), ModeAuto))
 
 	assert.Equal(t, 1, legacyRuns)
-	migrator := conn.DB(nil).Migrator()
-	assert.True(t, migrator.HasTable("legacy_marker"))
-	assert.True(t, migrator.HasColumn("things", "color"))
-	assert.Equal(t, []int64{testBaseline, testSecond}, appliedVersions(t, runner))
+	assert.True(t, conn.DB(nil).Migrator().HasTable("legacy_marker"))
+	assert.Equal(t, []int64{testBaseline}, appliedVersions(t, runner))
 
 	require.NoError(t, runner.Run(context.Background(), ModeAuto))
 	assert.Equal(t, 1, legacyRuns)
@@ -267,20 +264,138 @@ func TestRun_SqliteBackupKeepsOnlyTheNewestCopy(t *testing.T) {
 	set.Legacy = func(context.Context, *gorm.DB) error { return nil }
 	require.NoError(t, newRunner(t, conn, set).Run(context.Background(), ModeAuto))
 
-	backups, err := filepath.Glob(filepath.Join(dir, db.SqliteFileName+backupInfix+"*"))
-	require.NoError(t, err)
-	require.Equal(t, []string{filepath.Join(dir, db.SqliteFileName+backupInfix+"0")}, backups)
+	assert.Equal(t, []string{db.SqliteFileName + backupInfix + "0"}, backupNames(t, dir))
 
+	forgetBackedUpFiles()
 	files["20260201000000_color.sql"] = secondSQL
 	require.NoError(t, newRunner(t, conn, testSet(files)).Run(context.Background(), ModeAuto))
 
-	backups, err = filepath.Glob(filepath.Join(dir, db.SqliteFileName+backupInfix+"*"))
-	require.NoError(t, err)
-	require.Len(t, backups, 1)
-	assert.Equal(t, filepath.Join(dir, db.SqliteFileName+backupInfix+"20260101000000"), backups[0])
-	info, err := os.Stat(backups[0])
+	backups := backupNames(t, dir)
+	require.Equal(t, []string{db.SqliteFileName + backupInfix + "20260101000000"}, backups)
+	info, err := os.Stat(filepath.Join(dir, backups[0]))
 	require.NoError(t, err)
 	assert.Positive(t, info.Size())
+}
+
+func TestRun_SqliteBackupSurvivesFailedRunsAndRestarts(t *testing.T) {
+	dir := t.TempDir()
+	conn, err := db.OpenSqliteFile(context.Background(), dir, db.SqliteFileName)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	files := map[string]string{"20260101000000_baseline.sql": baselineSQL}
+	require.NoError(t, newRunner(t, conn, testSet(files)).Run(context.Background(), ModeAuto))
+	require.NoError(t, conn.DB(nil).Exec("INSERT INTO things (id, name) VALUES ('1', 'before')").Error)
+
+	older := filepath.Join(dir, db.SqliteFileName+backupInfix+"1")
+	require.NoError(t, os.WriteFile(older, []byte("older copy"), 0o600))
+
+	files["20260201000000_broken.sql"] = "-- +goose Up\nALTER TABLE missing ADD COLUMN x TEXT;\n"
+	broken := testSet(files)
+	for range 2 {
+		forgetBackedUpFiles()
+		require.Error(t, newRunner(t, conn, broken).Run(context.Background(), ModeAuto))
+	}
+
+	original := filepath.Join(dir, db.SqliteFileName+backupInfix+"20260101000000")
+	assert.Equal(t, "before", backupThingName(t, original))
+	assert.FileExists(t, older, "a failed run must not prune older backups")
+
+	files["20260201000000_broken.sql"] = secondSQL
+	forgetBackedUpFiles()
+	require.NoError(t, newRunner(t, conn, testSet(files)).Run(context.Background(), ModeAuto))
+	assert.NoFileExists(t, older, "a completed run prunes older backups")
+	assert.FileExists(t, original)
+}
+
+func TestRun_SqliteBackupOfSetsSharingAFileKeepsThePreRunCopy(t *testing.T) {
+	dir := t.TempDir()
+	conn, err := db.OpenSqliteFile(context.Background(), dir, "shared.db")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	require.NoError(t, conn.DB(nil).Exec("CREATE TABLE things (id TEXT PRIMARY KEY, name TEXT)").Error)
+	require.NoError(t, conn.DB(nil).Exec("INSERT INTO things VALUES ('1', 'original')").Error)
+	require.NoError(t, conn.DB(nil).Exec("CREATE TABLE gadgets (id TEXT PRIMARY KEY)").Error)
+
+	first := testSet(map[string]string{"20260101000000_baseline.sql": baselineSQL})
+	first.Name, first.Table = "first", "first_schema_migrations"
+	first.Legacy = func(_ context.Context, gormDB *gorm.DB) error {
+		return gormDB.Exec("UPDATE things SET name = 'mutated'").Error
+	}
+	second := testSet(map[string]string{"20260101000000_baseline.sql": "-- +goose Up\nCREATE TABLE gadgets (id TEXT PRIMARY KEY);\n"})
+	second.Name, second.Table, second.LegacyTables = "second", "second_schema_migrations", []string{"gadgets"}
+	second.Legacy = func(context.Context, *gorm.DB) error { return nil }
+
+	require.NoError(t, newRunner(t, conn, first).Run(context.Background(), ModeAuto))
+	require.NoError(t, newRunner(t, conn, second).Run(context.Background(), ModeAuto))
+
+	backups := backupNames(t, dir)
+	require.Len(t, backups, 1)
+	assert.Equal(t, "original", backupThingName(t, filepath.Join(dir, backups[0])))
+}
+
+func TestRun_SqliteBackupPruneLeavesForeignFiles(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "data[1]*")
+	require.NoError(t, os.Mkdir(dir, 0o700))
+	conn, err := db.OpenSqliteFile(context.Background(), dir, db.SqliteFileName)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	files := map[string]string{"20260101000000_baseline.sql": baselineSQL}
+	require.NoError(t, newRunner(t, conn, testSet(files)).Run(context.Background(), ModeAuto))
+
+	foreign := []string{
+		db.SqliteFileName + backupInfix + "before-upgrade",
+		db.SqliteFileName + backupInfix + "007",
+		db.SqliteFileName + backupInfix + "-5",
+		db.SqliteFileName + backupInfix + "1.old",
+		db.SqliteFileName + ".bak",
+		"other.db" + backupInfix + "1",
+	}
+	for _, name := range append(foreign, db.SqliteFileName+backupInfix+"1") {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600))
+	}
+
+	forgetBackedUpFiles()
+	files["20260201000000_color.sql"] = secondSQL
+	require.NoError(t, newRunner(t, conn, testSet(files)).Run(context.Background(), ModeAuto))
+
+	assert.NoFileExists(t, filepath.Join(dir, db.SqliteFileName+backupInfix+"1"))
+	for _, name := range foreign {
+		assert.FileExists(t, filepath.Join(dir, name))
+	}
+	assert.FileExists(t, filepath.Join(dir, db.SqliteFileName+backupInfix+"20260101000000"))
+}
+
+func backupNames(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	var names []string
+	for _, entry := range entries {
+		if strings.Contains(entry.Name(), backupInfix) {
+			names = append(names, entry.Name())
+		}
+	}
+	return names
+}
+
+func backupThingName(t *testing.T, path string) string {
+	t.Helper()
+	backup, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := backup.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	var name string
+	require.NoError(t, backup.Raw("SELECT name FROM things WHERE id = '1'").Scan(&name).Error)
+	return name
+}
+
+func forgetBackedUpFiles() {
+	backedUpMu.Lock()
+	defer backedUpMu.Unlock()
+	clear(backedUpFiles)
 }
 
 func TestRun_GoMigrationsShareTheSequence(t *testing.T) {
@@ -329,10 +444,7 @@ func TestStatusAndPending_LeaveLegacyDatabaseUntouched(t *testing.T) {
 	require.NoError(t, conn.DB(nil).Exec("CREATE TABLE things (id TEXT PRIMARY KEY, name TEXT)").Error)
 
 	legacyRuns := 0
-	set := testSet(map[string]string{
-		"20260101000000_baseline.sql": baselineSQL,
-		"20260201000000_color.sql":    secondSQL,
-	})
+	set := testSet(map[string]string{"20260101000000_baseline.sql": baselineSQL})
 	set.Legacy = func(context.Context, *gorm.DB) error {
 		legacyRuns++
 		return nil
@@ -341,18 +453,32 @@ func TestStatusAndPending_LeaveLegacyDatabaseUntouched(t *testing.T) {
 
 	statuses, err := runner.Status(context.Background())
 	require.NoError(t, err)
-	require.Len(t, statuses, 2)
-	for _, status := range statuses {
-		assert.Equal(t, goose.StatePending, status.State)
-	}
+	require.Len(t, statuses, 1)
+	assert.Equal(t, goose.StatePending, statuses[0].State)
 	pending, err := runner.Pending(context.Background())
 	require.NoError(t, err)
-	assert.Len(t, pending, 2)
+	assert.Len(t, pending, 1)
 	assert.False(t, conn.DB(nil).Migrator().HasTable("test_schema_migrations"))
 
 	require.NoError(t, runner.Run(context.Background(), ModeAuto))
 	assert.Equal(t, 1, legacyRuns, "the bootstrap must still run after status and plan")
-	assert.Equal(t, []int64{testBaseline, testSecond}, appliedVersions(t, runner))
+	assert.Equal(t, []int64{testBaseline}, appliedVersions(t, runner))
+}
+
+func TestStatusAndPending_LeaveFreshDatabaseUntouched(t *testing.T) {
+	conn := openSqlite(t)
+	runner := newRunner(t, conn, testSet(map[string]string{"20260101000000_baseline.sql": baselineSQL}))
+
+	statuses, err := runner.Status(context.Background())
+	require.NoError(t, err)
+	require.Len(t, statuses, 1)
+	assert.Equal(t, goose.StatePending, statuses[0].State)
+	pending, err := runner.Pending(context.Background())
+	require.NoError(t, err)
+	assert.Len(t, pending, 1)
+
+	assert.False(t, conn.DB(nil).Migrator().HasTable("test_schema_migrations"))
+	require.ErrorContains(t, runner.Run(context.Background(), ModeCheck), "no version table, run `migrate up` first")
 }
 
 func threeVersionFiles() map[string]string {
@@ -416,21 +542,17 @@ func TestUpTo_LegacyDatabaseRunsBootstrapFirst(t *testing.T) {
 	conn := openSqlite(t)
 	require.NoError(t, conn.DB(nil).Exec("CREATE TABLE things (id TEXT PRIMARY KEY, name TEXT)").Error)
 	legacyRuns := 0
-	set := testSet(threeVersionFiles())
+	set := testSet(map[string]string{"20260101000000_baseline.sql": baselineSQL})
 	set.Legacy = func(context.Context, *gorm.DB) error {
 		legacyRuns++
 		return nil
 	}
 	runner := newRunner(t, conn, set)
 
-	require.NoError(t, runner.UpTo(context.Background(), testSecond))
+	require.NoError(t, runner.UpTo(context.Background(), testBaseline))
 
 	assert.Equal(t, 1, legacyRuns)
-	assert.Equal(t, []int64{testBaseline, testSecond}, appliedVersions(t, runner))
-	pending, err := runner.Pending(context.Background())
-	require.NoError(t, err)
-	require.Len(t, pending, 1)
-	assert.Equal(t, testThird, pending[0].Version)
+	assert.Equal(t, []int64{testBaseline}, appliedVersions(t, runner))
 
 	backups, err := filepath.Glob(filepath.Join(filepath.Dir(sqliteFile(t, conn)), db.SqliteFileName+backupInfix+"*"))
 	require.NoError(t, err)
@@ -457,4 +579,85 @@ func TestHasVersion(t *testing.T) {
 	runner := newRunner(t, openSqlite(t), testSet(threeVersionFiles()))
 	assert.True(t, runner.HasVersion(testSecond))
 	assert.False(t, runner.HasVersion(testSecond+1))
+}
+
+func legacyConn(t *testing.T) (*db.Conn, string) {
+	t.Helper()
+	dir := t.TempDir()
+	conn, err := db.OpenSqliteFile(context.Background(), dir, db.SqliteFileName)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	require.NoError(t, conn.DB(nil).Exec("CREATE TABLE things (id TEXT PRIMARY KEY, name TEXT)").Error)
+	return conn, dir
+}
+
+func TestRun_LegacyDatabaseWithMigrationsAboveBaselineIsRefusedUntouched(t *testing.T) {
+	conn, dir := legacyConn(t)
+	legacyRuns := 0
+	set := testSet(threeVersionFiles())
+	set.Legacy = func(context.Context, *gorm.DB) error {
+		legacyRuns++
+		return nil
+	}
+	runner := newRunner(t, conn, set)
+
+	for name, run := range map[string]func() error{
+		"auto":  func() error { return runner.Run(context.Background(), ModeAuto) },
+		"check": func() error { return runner.Run(context.Background(), ModeCheck) },
+		"upto":  func() error { return runner.UpTo(context.Background(), testBaseline) },
+	} {
+		err := run()
+		require.ErrorContains(t, err, "database predates versioned migrations", name)
+		require.ErrorContains(t, err, "baseline 20260101000000", name)
+	}
+
+	assert.Zero(t, legacyRuns)
+	assert.False(t, conn.DB(nil).Migrator().HasTable("test_schema_migrations"))
+	assert.Empty(t, backupNames(t, dir))
+	assert.True(t, runner.IsLegacy())
+	assert.Equal(t, testBaseline, runner.Baseline())
+}
+
+func TestRun_LegacyDatabaseWithGoMigrationAboveBaselineIsRefused(t *testing.T) {
+	conn, _ := legacyConn(t)
+	set := testSet(map[string]string{"20260101000000_baseline.sql": baselineSQL})
+	set.Go = []*goose.Migration{goose.NewGoMigration(testSecond, &goose.GoFunc{RunTx: func(context.Context, *sql.Tx) error { return nil }}, nil)}
+	set.Legacy = func(context.Context, *gorm.DB) error { return nil }
+
+	require.ErrorContains(t, newRunner(t, conn, set).Run(context.Background(), ModeAuto), "database predates versioned migrations")
+	assert.False(t, conn.DB(nil).Migrator().HasTable("test_schema_migrations"))
+}
+
+func TestCheckLegacy_AllowsFreshAndVersionedDatabases(t *testing.T) {
+	fresh := newRunner(t, openSqlite(t), testSet(threeVersionFiles()))
+	assert.NoError(t, fresh.CheckLegacy())
+	assert.False(t, fresh.IsLegacy())
+
+	conn := openSqlite(t)
+	versioned := newRunner(t, conn, testSet(threeVersionFiles()))
+	require.NoError(t, versioned.Run(context.Background(), ModeAuto))
+	assert.NoError(t, versioned.CheckLegacy())
+}
+
+func TestNew_RejectsNonTransactionalGoMigration(t *testing.T) {
+	set := testSet(map[string]string{"20260101000000_baseline.sql": baselineSQL})
+	set.Go = []*goose.Migration{goose.NewGoMigration(testSecond, &goose.GoFunc{RunDB: func(context.Context, *sql.DB) error { return nil }}, nil)}
+
+	_, err := New(openSqlite(t).DB(nil), db.SqliteStoreEngine, set)
+	require.ErrorContains(t, err, "must use RunTx")
+}
+
+func TestNew_RejectsMigrationsBelowTheBaseline(t *testing.T) {
+	conn := openSqlite(t)
+	set := testSet(map[string]string{
+		"20251201000000_early.sql":    thirdSQL,
+		"20260101000000_baseline.sql": baselineSQL,
+	})
+	_, err := New(conn.DB(nil), db.SqliteStoreEngine, set)
+	require.ErrorContains(t, err, "below the baseline")
+
+	set = testSet(map[string]string{"20260101000000_baseline.sql": baselineSQL})
+	set.Go = []*goose.Migration{goose.NewGoMigration(testBaseline-1, &goose.GoFunc{RunTx: func(context.Context, *sql.Tx) error { return nil }}, nil)}
+	_, err = New(conn.DB(nil), db.SqliteStoreEngine, set)
+	require.ErrorContains(t, err, "below the baseline")
 }

@@ -9,7 +9,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -32,6 +34,18 @@ const (
 	backupInfix      = ".bak."
 )
 
+var (
+	backedUpMu    sync.Mutex
+	backedUpFiles = map[string]struct{}{}
+)
+
+// sqliteBackup is a copy of a database file the current run wrote, tagged with
+// the schema version the copy holds.
+type sqliteBackup struct {
+	file    string
+	version int64
+}
+
 // Runner applies one Set to one database.
 type Runner struct {
 	gormDB   *gorm.DB
@@ -52,7 +66,9 @@ type PendingMigration struct {
 	SQL string
 }
 
-// New prepares set for the database behind gormDB. Only Postgres and SQLite are supported.
+// New prepares set for the database behind gormDB. Only Postgres and SQLite
+// are supported. Go migrations must run in a transaction, and no migration may
+// predate the baseline.
 func New(gormDB *gorm.DB, engine db.Engine, set Set) (*Runner, error) {
 	var dialect goose.Dialect
 	var dir string
@@ -63,6 +79,12 @@ func New(gormDB *gorm.DB, engine db.Engine, set Set) (*Runner, error) {
 		dialect, dir = goose.DialectSQLite3, SqliteDir
 	default:
 		return nil, fmt.Errorf("%s migrations: engine %s is not supported", set.Name, engine)
+	}
+
+	for _, migration := range set.Go {
+		if migration.UpFnNoTxContext != nil {
+			return nil, fmt.Errorf("%s migrations: go migration %d must use RunTx, RunDB holds the pool's only SQLite connection", set.Name, migration.Version)
+		}
 	}
 
 	files, err := fs.Sub(set.Files, dir)
@@ -81,6 +103,11 @@ func New(gormDB *gorm.DB, engine db.Engine, set Set) (*Runner, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("%s migrations for %s: %w", set.Name, engine, err)
+	}
+	for _, source := range provider.ListSources() {
+		if source.Version < set.Baseline {
+			return nil, fmt.Errorf("%s migrations: %s has version %d below the baseline %d", set.Name, describe(source), source.Version, set.Baseline)
+		}
 	}
 
 	return &Runner{
@@ -134,11 +161,11 @@ func (r *Runner) HasVersion(version int64) bool {
 	return false
 }
 
-// Status lists every migration of the set with its applied state. On a
-// database that predates versioning everything is pending, and the version
-// table is left for the bootstrap to create.
+// Status lists every migration of the set with its applied state. Without a
+// version table, whether the database is fresh or predates versioning,
+// everything is pending and the database is left untouched.
 func (r *Runner) Status(ctx context.Context) ([]*goose.MigrationStatus, error) {
-	if r.isLegacy() {
+	if !r.versionTableExists() {
 		sources := r.provider.ListSources()
 		statuses := make([]*goose.MigrationStatus, 0, len(sources))
 		for _, source := range sources {
@@ -243,6 +270,9 @@ func (r *Runner) Stamp(ctx context.Context) error {
 }
 
 func (r *Runner) check(ctx context.Context) error {
+	if err := r.CheckLegacy(); err != nil {
+		return err
+	}
 	if !r.versionTableExists() {
 		return fmt.Errorf("%s migrations: database has no version table, run `migrate up` first", r.set.Name)
 	}
@@ -265,16 +295,31 @@ func (r *Runner) apply(ctx context.Context, version int64) error {
 	}
 	defer unlock()
 
+	if err := r.CheckLegacy(); err != nil {
+		return err
+	}
+
 	fresh := !r.versionTableExists() && !r.hasLegacyTables()
 	backedUp := r.engine != db.SqliteStoreEngine || fresh
+	var written sqliteBackup
 	backup := func() error {
 		if backedUp {
 			return nil
 		}
 		backedUp = true
-		return r.backupSqlite(ctx)
+		var err error
+		written, err = r.backupSqlite(ctx)
+		return err
 	}
 
+	if err := r.migrate(ctx, version, backup); err != nil {
+		return err
+	}
+	r.pruneBackups(ctx, written)
+	return nil
+}
+
+func (r *Runner) migrate(ctx context.Context, version int64, backup func() error) error {
 	if err := r.bootstrapLegacy(ctx, backup); err != nil {
 		return err
 	}
@@ -302,7 +347,7 @@ func (r *Runner) apply(ctx context.Context, version int64) error {
 // bootstrapLegacy runs the set's Legacy path on a database that has tables
 // but no version table, then stamps the baseline.
 func (r *Runner) bootstrapLegacy(ctx context.Context, backup func() error) error {
-	if r.set.Legacy == nil || !r.isLegacy() {
+	if r.set.Legacy == nil || !r.IsLegacy() {
 		return nil
 	}
 
@@ -351,8 +396,11 @@ func (r *Runner) up(ctx context.Context, version int64) ([]*goose.MigrationResul
 }
 
 // lock serialises concurrent runners of the same set on Postgres with a
-// session advisory lock. goose holds one pooled connection for the whole run,
-// so the lock takes a second one. SQLite has a single writer and needs no lock.
+// session advisory lock, held on a pooled connection of its own because goose
+// holds one pooled connection for the whole run. SQLite is served by a single
+// instance and needs no lock. The lock lives and dies with one session, so the
+// runner needs a session-pinned connection: a transaction-pooling PgBouncer in
+// front of the database is not supported.
 func (r *Runner) lock(ctx context.Context) (func(), error) {
 	if r.engine != db.PostgresStoreEngine {
 		return func() {}, nil
@@ -378,7 +426,12 @@ func (r *Runner) lock(ctx context.Context) (func(), error) {
 	return func() {
 		unlockCtx, cancel := context.WithTimeout(context.Background(), unlockTimeout)
 		defer cancel()
-		if _, err := conn.ExecContext(unlockCtx, "SELECT pg_advisory_unlock(hashtext($1))", r.set.Table); err != nil {
+		var released bool
+		err := conn.QueryRowContext(unlockCtx, "SELECT pg_advisory_unlock(hashtext($1))", r.set.Table).Scan(&released)
+		if err == nil && !released {
+			err = errors.New("lock was not held by the connection")
+		}
+		if err != nil {
 			log.WithContext(ctx).Warnf("%s migrations: release lock: %v, discarding the connection", r.set.Name, err)
 			// A session lock survives on a pooled connection, so the connection must not go back to the pool.
 			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
@@ -411,43 +464,83 @@ func (r *Runner) acquireLock(ctx context.Context, conn *sql.Conn) error {
 	}
 }
 
-// backupSqlite copies the database file next to itself before the schema
-// changes, keeping only the newest copy.
-func (r *Runner) backupSqlite(ctx context.Context) error {
+// sqliteFile returns the absolute path of the SQLite database file, empty for
+// an in-memory database.
+func (r *Runner) sqliteFile() (string, error) {
 	var file string
 	if err := r.gormDB.Raw("SELECT file FROM pragma_database_list WHERE name = 'main'").Scan(&file).Error; err != nil {
-		return fmt.Errorf("%s migrations: locate database file: %w", r.set.Name, err)
+		return "", fmt.Errorf("%s migrations: locate database file: %w", r.set.Name, err)
 	}
 	if file == "" {
-		return nil
+		return "", nil
+	}
+	abs, err := filepath.Abs(file)
+	if err != nil {
+		return "", fmt.Errorf("%s migrations: resolve %s: %w", r.set.Name, file, err)
+	}
+	return abs, nil
+}
+
+// backupSqlite copies the database file next to itself before the schema
+// changes. The first set of a process to reach a file takes the copy, which
+// holds the state before any set of that process changed it; later sets on the
+// same file get the zero value.
+func (r *Runner) backupSqlite(ctx context.Context) (sqliteBackup, error) {
+	file, err := r.sqliteFile()
+	if err != nil || file == "" {
+		return sqliteBackup{}, err
+	}
+
+	backedUpMu.Lock()
+	defer backedUpMu.Unlock()
+	if _, done := backedUpFiles[file]; done {
+		return sqliteBackup{}, nil
 	}
 
 	version, err := r.recordedVersion()
 	if err != nil {
-		return err
+		return sqliteBackup{}, err
 	}
 	target := fmt.Sprintf("%s%s%d", file, backupInfix, version)
 	if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("%s migrations: replace backup %s: %w", r.set.Name, target, err)
+		return sqliteBackup{}, fmt.Errorf("%s migrations: replace backup %s: %w", r.set.Name, target, err)
 	}
 	if err := r.gormDB.Exec("VACUUM INTO " + quoteLiteral(target)).Error; err != nil {
-		return fmt.Errorf("%s migrations: back up %s: %w", r.set.Name, file, err)
+		return sqliteBackup{}, fmt.Errorf("%s migrations: back up %s: %w", r.set.Name, file, err)
 	}
+	backedUpFiles[file] = struct{}{}
 	log.WithContext(ctx).Infof("%s migrations: wrote backup %s", r.set.Name, target)
+	return sqliteBackup{file: file, version: version}, nil
+}
 
-	previous, err := filepath.Glob(filepath.Join(filepath.Dir(file), filepath.Base(file)+backupInfix+"*"))
-	if err != nil {
-		return fmt.Errorf("%s migrations: list backups: %w", r.set.Name, err)
+// pruneBackups removes the backups of the database file that hold an older
+// version than written, doing nothing for the zero value. Only names of the form <file>.bak.<version> are
+// considered, so files an operator placed next to the database survive.
+func (r *Runner) pruneBackups(ctx context.Context, written sqliteBackup) {
+	if written.file == "" {
+		return
 	}
-	for _, path := range previous {
-		if path == target {
+
+	entries, err := os.ReadDir(filepath.Dir(written.file))
+	if err != nil {
+		log.WithContext(ctx).Warnf("%s migrations: list backups: %v", r.set.Name, err)
+		return
+	}
+	prefix := filepath.Base(written.file) + backupInfix
+	for _, entry := range entries {
+		suffix, ok := strings.CutPrefix(entry.Name(), prefix)
+		if !ok || entry.IsDir() {
 			continue
 		}
+		version, err := strconv.ParseInt(suffix, 10, 64)
+		if err != nil || version < 0 || strconv.FormatInt(version, 10) != suffix || version >= written.version {
+			continue
+		}
+		path := filepath.Join(filepath.Dir(written.file), entry.Name())
 		if err := os.Remove(path); err != nil {
-			return fmt.Errorf("%s migrations: remove old backup %s: %w", r.set.Name, path, err)
+			log.WithContext(ctx).Warnf("%s migrations: remove old backup %s: %v", r.set.Name, path, err)
 		}
 	}
-	return nil
 }
 
 // recordedVersion is the highest applied version, read without goose so that
@@ -463,10 +556,30 @@ func (r *Runner) recordedVersion() (int64, error) {
 	return version, nil
 }
 
-// isLegacy reports a database created before versioned migrations: tables of
+// IsLegacy reports a database created before versioned migrations: tables of
 // the set exist, but no version table does.
-func (r *Runner) isLegacy() bool {
+func (r *Runner) IsLegacy() bool {
 	return !r.versionTableExists() && r.hasLegacyTables()
+}
+
+// Baseline returns the version the legacy bootstrap stamps.
+func (r *Runner) Baseline() int64 {
+	return r.set.Baseline
+}
+
+// CheckLegacy refuses a database that predates versioned migrations when the
+// set has migrations above its baseline: the legacy bootstrap migrates to the
+// current models, which already contain what those migrations change.
+func (r *Runner) CheckLegacy() error {
+	if !r.IsLegacy() {
+		return nil
+	}
+	for _, source := range r.provider.ListSources() {
+		if source.Version > r.set.Baseline {
+			return fmt.Errorf("%s migrations: database predates versioned migrations; start the release that introduced them (baseline %d) once before upgrading to this one", r.set.Name, r.set.Baseline)
+		}
+	}
+	return nil
 }
 
 func (r *Runner) versionTableExists() bool {

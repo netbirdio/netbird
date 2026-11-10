@@ -169,6 +169,17 @@ func applyAccessLogStoreEnv(storeConfig StoreConfig) {
 	}
 }
 
+// applyStoreEnv exports the server, activity and access log store settings as
+// the environment the stores read when they open.
+func applyStoreEnv(server ServerConfig) error {
+	applyServerStoreEnv(server.Store)
+	if err := applyActivityStoreEnv(server.ActivityStore); err != nil {
+		return err
+	}
+	applyAccessLogStoreEnv(server.AccessLogStore)
+	return nil
+}
+
 func initializeConfig() error {
 	var err error
 	config, err = LoadConfig(configPath)
@@ -184,12 +195,9 @@ func initializeConfig() error {
 		return fmt.Errorf("failed to initialize log: %w", err)
 	}
 
-	applyServerStoreEnv(config.Server.Store)
-
-	if err := applyActivityStoreEnv(config.Server.ActivityStore); err != nil {
+	if err := applyStoreEnv(config.Server); err != nil {
 		return err
 	}
-	applyAccessLogStoreEnv(config.Server.AccessLogStore)
 
 	log.Infof("Starting combined NetBird server")
 	logConfig(config)

@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"text/tabwriter"
 
@@ -182,9 +183,17 @@ func plan(ctx context.Context, out io.Writer, targets []Target, to int64) error 
 		if err != nil {
 			return err
 		}
-		if len(pending) == 0 {
+		legacy := target.Runner.IsLegacy()
+		if legacy {
+			baseline := target.Runner.Baseline()
+			fmt.Fprintf(out, "-- %s: predates versioned migrations: the legacy bootstrap runs and baseline %d is stamped\n", target.Name, baseline)
+			if err := target.Runner.CheckLegacy(); err != nil {
+				fmt.Fprintf(out, "-- %s: %v\n", target.Name, err)
+			}
+			pending = slices.DeleteFunc(pending, func(m migrate.PendingMigration) bool { return m.Version <= baseline })
+		}
+		if len(pending) == 0 && !legacy {
 			fmt.Fprintf(out, "-- %s: nothing pending\n", target.Name)
-			continue
 		}
 		for _, migration := range pending {
 			fmt.Fprintf(out, "-- %s: %d %s\n", target.Name, migration.Version, migration.Path)

@@ -28,7 +28,7 @@ func AddMigrationTarget(open TargetOpener) {
 func newMigrateCommand() *cobra.Command {
 	migrateCmd := migratecmd.NewCommand(withMigrationTargets)
 	migrateCmd.PersistentFlags().StringVar(&nbconfig.MgmtConfigPath, "config", defaultMgmtConfig, "Netbird config file location")
-	migrateCmd.PersistentFlags().StringVar(&adminDatadir, "datadir", "", "server data directory location, overrides the config file")
+	migrateCmd.PersistentFlags().StringVar(&adminDatadir, "datadir", "", "server data directory location, defaults to "+defaultMgmtDataDir+" like the management server")
 	return migrateCmd
 }
 
@@ -39,10 +39,11 @@ func withMigrationTargets(cmd *cobra.Command, fn func(ctx context.Context, targe
 
 	ctx := context.WithValue(cmd.Context(), hook.ExecutionContextKey, hook.SystemSource) //nolint:staticcheck
 
-	config, datadir, err := loadAdminMgmtConfig(ctx, false)
+	config, _, err := loadAdminMgmtConfig(ctx, false)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	datadir := resolveMigrateDatadir(adminDatadir)
 
 	targets, err := openMigrationTargets(ctx, config, datadir)
 	if err != nil {
@@ -51,6 +52,16 @@ func withMigrationTargets(cmd *cobra.Command, fn func(ctx context.Context, targe
 	defer migratecmd.CloseAll(targets) //nolint:errcheck
 
 	return fn(ctx, targets)
+}
+
+// resolveMigrateDatadir returns the data directory the management server uses:
+// the datadir flag if given, otherwise the server default. The config file's
+// Datadir is ignored by the server and therefore by migrate.
+func resolveMigrateDatadir(flagValue string) string {
+	if flagValue != "" {
+		return flagValue
+	}
+	return defaultMgmtDataDir
 }
 
 func openMigrationTargets(ctx context.Context, config *nbconfig.Config, datadir string) ([]migratecmd.Target, error) {

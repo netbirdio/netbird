@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/management/internals/shared/db"
 	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
@@ -34,6 +35,16 @@ func testTarget(t *testing.T, name string) Target {
 
 func testTargetWith(t *testing.T, name string, files map[string]string) Target {
 	t.Helper()
+	return newTarget(t, name, files, false)
+}
+
+func testLegacyTarget(t *testing.T, name string, files map[string]string) Target {
+	t.Helper()
+	return newTarget(t, name, files, true)
+}
+
+func newTarget(t *testing.T, name string, files map[string]string, legacy bool) Target {
+	t.Helper()
 	fsys := fstest.MapFS{}
 	for file, content := range files {
 		fsys[migrate.SqliteDir+"/"+file] = &fstest.MapFile{Data: []byte(content)}
@@ -43,12 +54,18 @@ func testTargetWith(t *testing.T, name string, files map[string]string) Target {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 
-	runner, err := migrate.New(conn.DB(nil), conn.Engine(), migrate.Set{
+	set := migrate.Set{
 		Name:     name,
 		Table:    name + "_schema_migrations",
 		Files:    fsys,
 		Baseline: baseline,
-	})
+	}
+	if legacy {
+		require.NoError(t, conn.DB(nil).Exec("CREATE TABLE things (id TEXT PRIMARY KEY)").Error)
+		set.LegacyTables = []string{"things"}
+		set.Legacy = func(context.Context, *gorm.DB) error { return nil }
+	}
+	runner, err := migrate.New(conn.DB(nil), conn.Engine(), set)
 	require.NoError(t, err)
 	return Target{Name: name, Runner: runner, Close: func() error { return nil }}
 }
@@ -151,4 +168,32 @@ func TestUpAndPlan_ValidateTheVersionAgainstSelectedTargetsOnly(t *testing.T) {
 	}
 	assert.Empty(t, applied(t, store))
 	assert.Empty(t, applied(t, activity))
+}
+
+func TestPlan_LegacyDatabaseShowsTheBootstrapInsteadOfTheBaselineSQL(t *testing.T) {
+	store := testLegacyTarget(t, "store", map[string]string{"20260101000000_baseline.sql": allFiles["20260101000000_baseline.sql"]})
+
+	out, err := execute(t, []Target{store}, "plan")
+	require.NoError(t, err)
+
+	assert.Contains(t, out, "-- store: predates versioned migrations: the legacy bootstrap runs and baseline 20260101000000 is stamped")
+	assert.NotContains(t, out, "CREATE TABLE")
+	assert.NotContains(t, out, "nothing pending")
+	assert.True(t, store.Runner.IsLegacy())
+}
+
+func TestPlan_LegacyDatabaseWithNewerMigrationsPrintsTheRefusal(t *testing.T) {
+	store := testLegacyTarget(t, "store", allFiles)
+
+	out, err := execute(t, []Target{store}, "plan")
+	require.NoError(t, err)
+
+	assert.Contains(t, out, "predates versioned migrations: the legacy bootstrap runs and baseline 20260101000000 is stamped")
+	assert.Contains(t, out, "database predates versioned migrations; start the release that introduced them (baseline 20260101000000)")
+	assert.Contains(t, out, "20260201000000_color.sql")
+	assert.Contains(t, out, "20260301000000_size.sql")
+	assert.NotContains(t, out, "20260101000000_baseline.sql")
+
+	_, err = execute(t, []Target{store}, "up")
+	require.ErrorContains(t, err, "database predates versioned migrations")
 }

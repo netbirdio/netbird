@@ -3,10 +3,13 @@ package cmd
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
+	migratecmd "github.com/netbirdio/netbird/management/cmd/migrate"
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 )
@@ -60,4 +63,33 @@ func TestApplyAccessLogStoreEnv(t *testing.T) {
 	require.Equal(t, "postgres", os.Getenv(accesslogsmanager.StoreEngineEnv))
 	require.Equal(t, "postgres-dsn", os.Getenv(accesslogsmanager.PostgresDSNEnv))
 	require.Equal(t, "access_logs.db", os.Getenv(accesslogsmanager.SqliteFileEnv))
+}
+
+func TestMigrationTargetsUseConfiguredAccessLogFile(t *testing.T) {
+	for _, key := range []string{accesslogsmanager.StoreEngineEnv, accesslogsmanager.PostgresDSNEnv, accesslogsmanager.SqliteFileEnv} {
+		t.Setenv(key, "")
+		require.NoError(t, os.Unsetenv(key))
+	}
+
+	dataDir := t.TempDir()
+	accessLogFile := filepath.Join(t.TempDir(), "custom_access_logs.db")
+	configFile := filepath.Join(t.TempDir(), "config.yaml")
+	yaml := "server:\n  authSecret: secret\n  dataDir: " + dataDir + "\n  store:\n    encryptionKey: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n  accessLogStore:\n    file: " + accessLogFile + "\n"
+	require.NoError(t, os.WriteFile(configFile, []byte(yaml), 0o600))
+
+	oldConfigPath := configPath
+	configPath = configFile
+	t.Cleanup(func() { configPath = oldConfigPath })
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	err := withMigrationTargets(cmd, func(_ context.Context, targets []migratecmd.Target) error {
+		require.NotEmpty(t, targets)
+		return nil
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, accessLogFile, os.Getenv(accesslogsmanager.SqliteFileEnv))
+	require.FileExists(t, accessLogFile)
+	require.NoFileExists(t, filepath.Join(dataDir, "access_logs.db"))
 }

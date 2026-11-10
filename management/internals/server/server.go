@@ -171,6 +171,7 @@ func (s *BaseServer) start(ctx context.Context) (err error) {
 	// Building the stores first runs the schema migrations before anything else touches the database.
 	s.Store()
 	s.EventStore()
+	s.AccessLogDBConn()
 
 	s.PeersManager()
 	s.GeoLocationManager()

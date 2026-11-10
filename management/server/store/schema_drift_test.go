@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/internals/shared/db"
@@ -70,4 +71,67 @@ func assertMigrationsMatchLegacy(t *testing.T, ctx context.Context, migrated, le
 	got, err := migrate.SchemaSnapshot(migrated.DB(nil), MigrationTable)
 	require.NoError(t, err)
 	require.Equal(t, want, got)
+}
+
+func assertSqliteSchemaEmpty(t *testing.T, dataDir string) {
+	t.Helper()
+	conn, err := db.OpenSqliteFile(context.Background(), dataDir, db.SqliteFileName)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	tables, err := conn.DB(nil).Migrator().GetTables()
+	require.NoError(t, err)
+	assert.Empty(t, tables, "no table, version table included, may exist")
+}
+
+func TestStoreMigrationMode_CheckFailsOnEmptyDatabase(t *testing.T) {
+	t.Setenv("NB_STORE_ENGINE_SQLITE_FILE", "")
+	ctx := context.Background()
+
+	t.Run("NewStore", func(t *testing.T) {
+		dataDir := t.TempDir()
+
+		_, err := NewStore(ctx, types.SqliteStoreEngine, dataDir, nil, migrate.ModeCheck)
+
+		require.Error(t, err)
+		assertSqliteSchemaEmpty(t, dataDir)
+	})
+
+	t.Run("NewSqlStore", func(t *testing.T) {
+		dataDir := t.TempDir()
+		conn, err := db.OpenSqliteFile(ctx, dataDir, db.SqliteFileName)
+		require.NoError(t, err)
+
+		_, err = NewSqlStore(ctx, conn, nil, migrate.ModeCheck)
+
+		require.Error(t, err)
+		require.NoError(t, conn.Close())
+		assertSqliteSchemaEmpty(t, dataDir)
+	})
+}
+
+func TestStoreMigrationMode_SkipLeavesSchemaEmpty(t *testing.T) {
+	t.Setenv("NB_STORE_ENGINE_SQLITE_FILE", "")
+	ctx := context.Background()
+
+	t.Run("NewStore", func(t *testing.T) {
+		dataDir := t.TempDir()
+
+		store, err := NewStore(ctx, types.SqliteStoreEngine, dataDir, nil, migrate.ModeSkip)
+
+		require.NoError(t, err)
+		require.NoError(t, store.Close(ctx))
+		assertSqliteSchemaEmpty(t, dataDir)
+	})
+
+	t.Run("NewSqlStore", func(t *testing.T) {
+		dataDir := t.TempDir()
+		conn, err := db.OpenSqliteFile(ctx, dataDir, db.SqliteFileName)
+		require.NoError(t, err)
+
+		store, err := NewSqlStore(ctx, conn, nil, migrate.ModeSkip)
+
+		require.NoError(t, err)
+		require.NoError(t, store.Close(ctx))
+		assertSqliteSchemaEmpty(t, dataDir)
+	})
 }

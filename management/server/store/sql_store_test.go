@@ -6,7 +6,9 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"runtime"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -19,6 +21,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/shared/db"
 	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -504,5 +507,73 @@ func TestMigrateLegacyLivenessWithDuplicatePeerKeys(t *testing.T) {
 			Where("peer_id NOT IN (?)", migrated.db.Table("peers").Select("id")).Count(&orphans).Error)
 		assert.Zero(t, orphans, "no connection row outlives a deleted duplicate peer")
 		assert.True(t, newer.Equal(peerLastSeen(t, migrated, "peer-kept-duplicate")))
+	})
+}
+
+func sqliteIndexNames(t *testing.T, conn *db.Conn) map[string]string {
+	t.Helper()
+	var rows []struct{ Name, TblName string }
+	require.NoError(t, conn.DB(nil).Raw(
+		"SELECT name, tbl_name FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_%'").Scan(&rows).Error)
+	indexes := make(map[string]string, len(rows))
+	for _, row := range rows {
+		indexes[row.Name] = row.TblName
+	}
+	return indexes
+}
+
+func TestLegacyBootstrapKeepsBaselineIndexes(t *testing.T) {
+	ctx := context.Background()
+
+	openFresh := func(t *testing.T) *db.Conn {
+		t.Helper()
+		conn, err := db.OpenSqliteFile(ctx, t.TempDir(), db.SqliteFileName)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = conn.Close() })
+		return conn
+	}
+
+	fresh := openFresh(t)
+	_, err := NewSqlStore(ctx, fresh, nil, migrate.ModeAuto)
+	require.NoError(t, err)
+	want := sqliteIndexNames(t, fresh)
+	require.Contains(t, want, "idx_groups_account_id")
+
+	assertBaselineIndexes := func(t *testing.T, conn *db.Conn, tables ...string) {
+		t.Helper()
+		got := sqliteIndexNames(t, conn)
+		for name, table := range want {
+			if len(tables) > 0 && !slices.Contains(tables, table) {
+				continue
+			}
+			assert.Contains(t, got, name, "index %s of table %s is missing", name, table)
+		}
+	}
+
+	for _, fixture := range []string{"../testdata/storev1.sql", "../testdata/store.sql"} {
+		t.Run(filepath.Base(fixture), func(t *testing.T) {
+			conn := openFresh(t)
+			require.NoError(t, LoadSQL(conn.DB(nil), fixture))
+			_, err := NewSqlStore(ctx, conn, nil, migrate.ModeAuto)
+			require.NoError(t, err)
+			assertBaselineIndexes(t, conn)
+		})
+	}
+
+	t.Run("cost aggregates", func(t *testing.T) {
+		conn := openFresh(t)
+		runner, err := migrate.New(conn.DB(nil), conn.Engine(), MigrationSet())
+		require.NoError(t, err)
+		require.NoError(t, runner.Run(ctx, migrate.ModeAuto))
+
+		for _, table := range []string{"agent_network_access_log", "agent_network_request_usage"} {
+			require.NoError(t, conn.DB(nil).Exec("ALTER TABLE "+table+" ADD COLUMN cost_usd real").Error)
+			require.NoError(t, conn.DB(nil).Exec("ALTER TABLE "+table+" ADD COLUMN cache_cost_usd real").Error)
+		}
+		require.NoError(t, conn.DB(nil).Migrator().DropTable(MigrationTable))
+
+		_, err = NewSqlStore(ctx, conn, nil, migrate.ModeAuto)
+		require.NoError(t, err)
+		assertBaselineIndexes(t, conn, "agent_network_access_log", "agent_network_request_usage")
 	})
 }

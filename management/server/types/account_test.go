@@ -1307,3 +1307,30 @@ func TestForcesRoutingPeerDNSResolution(t *testing.T) {
 			"a domain target pointing at a non-domain resource must not force resolution")
 	})
 }
+
+func TestAccount_AddAllGroupAssignsPublicIDs(t *testing.T) {
+	first, second := &Account{}, &Account{}
+	require.NoError(t, first.AddAllGroup(false))
+	require.NoError(t, second.AddAllGroup(false))
+
+	firstGroup, err := first.GetGroupAll()
+	require.NoError(t, err)
+	secondGroup, err := second.GetGroupAll()
+	require.NoError(t, err)
+	require.Len(t, first.Policies, 1)
+	require.Len(t, second.Policies, 1)
+
+	publicIDs := []string{firstGroup.PublicID, first.Policies[0].PublicID, secondGroup.PublicID, second.Policies[0].PublicID}
+	seen := make(map[string]struct{}, len(publicIDs))
+	for _, publicID := range publicIDs {
+		assert.NotEmpty(t, publicID)
+		seen[publicID] = struct{}{}
+	}
+	assert.Len(t, seen, len(publicIDs), "public IDs must be unique")
+
+	disabled := &Account{}
+	require.NoError(t, disabled.AddAllGroup(true))
+	disabledGroup, err := disabled.GetGroupAll()
+	require.NoError(t, err)
+	assert.NotEmpty(t, disabledGroup.PublicID)
+}

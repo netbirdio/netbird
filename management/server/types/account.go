@@ -1479,9 +1479,10 @@ func getPoliciesSourcePeers(policies []*Policy, groups map[string]*Group) map[st
 func (a *Account) AddAllGroup(disableDefaultPolicy bool) error {
 	if len(a.Groups) == 0 {
 		allGroup := &Group{
-			ID:     xid.New().String(),
-			Name:   "All",
-			Issued: GroupIssuedAPI,
+			ID:       xid.New().String(),
+			PublicID: xid.New().String(),
+			Name:     "All",
+			Issued:   GroupIssuedAPI,
 		}
 		for _, peer := range a.Peers {
 			allGroup.Peers = append(allGroup.Peers, peer.ID)
@@ -1496,6 +1497,7 @@ func (a *Account) AddAllGroup(disableDefaultPolicy bool) error {
 
 		defaultPolicy := &Policy{
 			ID:          id,
+			PublicID:    xid.New().String(),
 			Name:        DefaultRuleName,
 			Description: DefaultRuleDescription,
 			Enabled:     true,

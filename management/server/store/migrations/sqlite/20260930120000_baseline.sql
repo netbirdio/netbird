@@ -38,7 +38,7 @@ CREATE INDEX `idx_routes_account_id` ON `routes`(`account_id`);
 CREATE TABLE `name_server_groups` (`id` text,`account_id` text,`public_id` text,`name` text,`description` text,`name_servers` text,`groups` text,`primary` numeric,`domains` text,`enabled` numeric,`search_domains_enabled` numeric,PRIMARY KEY (`id`),CONSTRAINT `fk_accounts_name_server_groups_g` FOREIGN KEY (`account_id`) REFERENCES `accounts`(`id`));
 CREATE INDEX `idx_name_server_groups_account_id` ON `name_server_groups`(`account_id`);
 CREATE TABLE `installations` (`id` integer PRIMARY KEY AUTOINCREMENT,`installation_id_value` text);
-CREATE TABLE `extra_settings` (`peer_approval_enabled` numeric,`user_approval_required` numeric,`integrated_validator` text,`integrated_validator_groups` text);
+CREATE TABLE IF NOT EXISTS `extra_settings` (`peer_approval_enabled` numeric,`user_approval_required` numeric,`integrated_validator` text,`integrated_validator_groups` text);
 CREATE TABLE `posture_checks` (`id` text,`name` text,`description` text,`account_id` text,`public_id` text,`checks` text,PRIMARY KEY (`id`),CONSTRAINT `fk_accounts_posture_checks` FOREIGN KEY (`account_id`) REFERENCES `accounts`(`id`));
 CREATE INDEX `idx_posture_checks_account_id` ON `posture_checks`(`account_id`);
 CREATE TABLE `network_addresses` (`net_ip` text,`mac` text);
