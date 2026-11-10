@@ -134,6 +134,11 @@ func DecodeEnvelope(ctx context.Context, env *proto.NetworkMapEnvelope) (*types.
 			return nil, fmt.Errorf("invalid envelope: policies[%d] is nil", i)
 		}
 		policy := decodePolicyCompact(pc, pc.Id, peerIDByIndex)
+		if policy == nil {
+			log.Warnf("envelope: policies[%d] (%s) uses unsupported protocol %s, skipping; upgrade the client to enforce it",
+				i, pc.Id, pc.Protocol)
+			continue
+		}
 		c.Policies = append(c.Policies, policy)
 		policyByID[pc.Id] = policy
 	}
@@ -375,13 +380,21 @@ func decodePeerCompact(pc *proto.PeerCompact, peerID string) *nmdata.Peer {
 	return peer
 }
 
+// decodePolicyCompact rebuilds a policy from its wire form. It returns nil when
+// the rule names a protocol this build does not know, which a newer management
+// can ship; the policy is then not enforced at all rather than enforced as
+// something wider than it was written to be.
 func decodePolicyCompact(pc *proto.PolicyCompact, policyID string, peerIDByIndex []string) *nmdata.Policy {
+	protocol, ok := protocolFromProto(pc.Protocol)
+	if !ok {
+		return nil
+	}
 	rule := &nmdata.PolicyRule{
 		ID:                  policyID, // 1 rule per policy → reuse synthesized id
 		PolicyID:            policyID,
 		Enabled:             true,
 		Action:              string(actionFromProto(pc.Action)),
-		Protocol:            string(protocolFromProto(pc.Protocol)),
+		Protocol:            string(protocol),
 		Bidirectional:       pc.Bidirectional,
 		Ports:               uint32SliceToStrings(pc.Ports),
 		PortRanges:          portRangesFromProto(pc.PortRanges),
@@ -389,6 +402,8 @@ func decodePolicyCompact(pc *proto.PolicyCompact, policyID string, peerIDByIndex
 		Destinations:        pc.DestinationGroupIds,
 		AuthorizedUser:      pc.AuthorizedUser,
 		AuthorizedGroups:    authorizedGroupsFromProto(pc.AuthorizedGroups),
+		SessionPubKey:       pc.SessionPubKey,
+		SessionDisplayName:  pc.SessionDisplayName,
 		SourceResource:      resourceFromProto(pc.SourceResource, peerIDByIndex),
 		DestinationResource: resourceFromProto(pc.DestinationResource, peerIDByIndex),
 	}
@@ -563,27 +578,36 @@ func portRangesFromProto(ranges []*proto.PortInfo_Range) []nmdata.RulePortRange 
 	return out
 }
 
+// actionFromProto maps a wire action. An action this build does not recognise
+// denies: a firewall decision must not default to letting traffic through.
 func actionFromProto(a proto.RuleAction) types.PolicyTrafficActionType {
-	if a == proto.RuleAction_DROP {
-		return types.PolicyTrafficActionDrop
+	if a == proto.RuleAction_ACCEPT {
+		return types.PolicyTrafficActionAccept
 	}
-	return types.PolicyTrafficActionAccept
+	return types.PolicyTrafficActionDrop
 }
 
-func protocolFromProto(p proto.RuleProtocol) types.PolicyRuleProtocolType {
+// protocolFromProto maps a wire protocol. ok is false for a value this build
+// does not recognise, and the caller must then discard the rule rather than
+// substitute a protocol: substituting ALL widens the rule to every IP protocol
+// and, because an ALL match short-circuits the port comparison, past the
+// rule's own port restriction.
+func protocolFromProto(p proto.RuleProtocol) (types.PolicyRuleProtocolType, bool) {
 	switch p {
 	case proto.RuleProtocol_TCP:
-		return types.PolicyRuleProtocolTCP
+		return types.PolicyRuleProtocolTCP, true
 	case proto.RuleProtocol_UDP:
-		return types.PolicyRuleProtocolUDP
+		return types.PolicyRuleProtocolUDP, true
 	case proto.RuleProtocol_ICMP:
-		return types.PolicyRuleProtocolICMP
+		return types.PolicyRuleProtocolICMP, true
 	case proto.RuleProtocol_ALL:
-		return types.PolicyRuleProtocolALL
+		return types.PolicyRuleProtocolALL, true
 	case proto.RuleProtocol_NETBIRD_SSH:
-		return types.PolicyRuleProtocolNetbirdSSH
+		return types.PolicyRuleProtocolNetbirdSSH, true
+	case proto.RuleProtocol_NETBIRD_VNC:
+		return types.PolicyRuleProtocolNetbirdVNC, true
 	default:
-		return types.PolicyRuleProtocolALL
+		return "", false
 	}
 }
 

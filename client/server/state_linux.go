@@ -9,6 +9,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/ssh/config"
+	vncserver "github.com/netbirdio/netbird/client/vnc/server"
 )
 
 // registerStates registers all states that need crash recovery cleanup.
@@ -18,4 +19,7 @@ func registerStates(mgr *statemanager.Manager) {
 	mgr.RegisterState(&nftables.ShutdownState{})
 	mgr.RegisterState(&iptables.ShutdownState{})
 	mgr.RegisterState(&config.ShutdownState{})
+	// Virtual VNC sessions leave an X server and a desktop behind if the daemon
+	// dies without stopping them.
+	mgr.RegisterState(&vncserver.ShutdownState{})
 }

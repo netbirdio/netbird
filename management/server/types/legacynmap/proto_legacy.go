@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/netbirdio/netbird/client/ssh/auth"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -15,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/netiputil"
+	auth "github.com/netbirdio/netbird/shared/sessionauth"
 )
 
 func ToProtocolRoutes(routes []*nbroute.Route) []*proto.Route {

@@ -29,6 +29,8 @@ const (
 	FlagAllowServerSSH          = "allow-server-ssh"
 	FlagEnableSSHRoot           = "enable-ssh-root"
 	FlagDisableSSHAuth          = "disable-ssh-auth"
+	FlagAllowServerVNC          = "allow-server-vnc"
+	FlagDisableVNCApproval      = "disable-vnc-approval"
 )
 
 // Error codes for the ways asking for privileges can fail.
@@ -82,17 +84,19 @@ type SaveOutcome struct {
 // root/administrator. Only the fields that are set are changed: a nil pointer, or
 // an empty management URL, leaves that setting alone.
 //
-// The management URL is in here because pointing a host with the SSH server
-// running at another management identity hands the decision of who may open a
-// shell on it to whoever runs that server, which is the same power as enabling
-// the SSH server in the first place.
+// The management URL is in here because pointing a host with a remote-access
+// server running at another management identity hands the decision of who may
+// open a shell on it, or reach its desktop, to whoever runs that server, which is
+// the same power as enabling that server in the first place.
 type GuardedSettings struct {
-	ProfileName      string `json:"profileName"`
-	Username         string `json:"username"`
-	ManagementURL    string `json:"managementUrl,omitempty"`
-	ServerSSHAllowed *bool  `json:"serverSshAllowed,omitempty"`
-	EnableSSHRoot    *bool  `json:"enableSshRoot,omitempty"`
-	DisableSSHAuth   *bool  `json:"disableSshAuth,omitempty"`
+	ProfileName        string `json:"profileName"`
+	Username           string `json:"username"`
+	ManagementURL      string `json:"managementUrl,omitempty"`
+	ServerSSHAllowed   *bool  `json:"serverSshAllowed,omitempty"`
+	EnableSSHRoot      *bool  `json:"enableSshRoot,omitempty"`
+	DisableSSHAuth     *bool  `json:"disableSshAuth,omitempty"`
+	ServerVNCAllowed   *bool  `json:"serverVncAllowed,omitempty"`
+	DisableVNCApproval *bool  `json:"disableVncApproval,omitempty"`
 }
 
 // guardedSetting is one setting to change, in the two spellings this needs: the
