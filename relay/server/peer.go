@@ -169,11 +169,8 @@ func (p *Peer) CloseGracefully(ctx context.Context) {
 }
 
 func (p *Peer) Close() {
-	p.connMu.Lock()
-	defer p.connMu.Unlock()
-
 	p.ctxCancel()
-	if err := p.conn.Close(); err != nil {
+	if err := p.conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		p.log.Errorf(errCloseConn, err)
 	}
 }
