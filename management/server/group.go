@@ -90,6 +90,10 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 			return err
 		}
 
+		if err = validateGroupResources(ctx, transaction, accountID, newGroup.Resources); err != nil {
+			return err
+		}
+
 		newGroup.AccountID = accountID
 
 		events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
@@ -137,6 +141,7 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 
 	var eventsToStore []func()
 	var snap *affectedpeers.Snapshot
+	var unchanged bool
 	change := affectedpeers.Change{ChangedGroupIDs: []string{newGroup.ID}}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -146,21 +151,31 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 
 		newGroup.AccountID = accountID
 
-		events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
-		eventsToStore = append(eventsToStore, events...)
-
-		oldGroup, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, newGroup.ID)
+		oldGroup, err := transaction.GetGroupByID(ctx, store.LockingStrengthNoKeyUpdate, accountID, newGroup.ID)
 		if err != nil {
 			return status.Errorf(status.NotFound, "group with ID %s not found", newGroup.ID)
 		}
+
+		if err = validateGroupResources(ctx, transaction, accountID, addedResources(oldGroup, newGroup)); err != nil {
+			return err
+		}
+
+		newGroup.PublicID = oldGroup.PublicID
+
+		if newGroup.Equal(oldGroup) {
+			log.WithContext(ctx).Tracef("group update skipped because equal to stored one - group id %s", newGroup.ID)
+			unchanged = true
+			return nil
+		}
+
+		events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
+		eventsToStore = append(eventsToStore, events...)
 
 		peersToAdd := util.Difference(newGroup.Peers, oldGroup.Peers)
 		peersToRemove := util.Difference(oldGroup.Peers, newGroup.Peers)
 		if err = syncGroupMembership(ctx, transaction, accountID, newGroup.ID, peersToAdd, peersToRemove); err != nil {
 			return err
 		}
-
-		newGroup.PublicID = oldGroup.PublicID
 
 		if err = transaction.UpdateGroup(ctx, newGroup); err != nil {
 			return err
@@ -187,6 +202,10 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 	})
 	if err != nil {
 		return err
+	}
+
+	if unchanged {
+		return nil
 	}
 
 	for _, storeEvent := range eventsToStore {
@@ -235,6 +254,52 @@ func validateGroupPeers(ctx context.Context, transaction store.Store, accountID 
 	return nil
 }
 
+// validateGroupResources rejects resources that do not exist in the account.
+func validateGroupResources(ctx context.Context, transaction store.Store, accountID string, resources []types.Resource) error {
+	for _, res := range resources {
+		if err := validateGroupResource(ctx, transaction, accountID, res); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateGroupResource(ctx context.Context, transaction store.Store, accountID string, res types.Resource) error {
+	var err error
+	switch res.Type {
+	case types.ResourceTypePeer:
+		_, err = transaction.GetPeerByID(ctx, store.LockingStrengthNone, accountID, res.ID)
+	case types.ResourceTypeHost, types.ResourceTypeSubnet, types.ResourceTypeDomain:
+		_, err = transaction.GetNetworkResourceByID(ctx, store.LockingStrengthNone, accountID, res.ID)
+	default:
+		return status.Errorf(status.InvalidArgument, "resource %s has invalid type %q", res.ID, res.Type)
+	}
+	if err == nil {
+		return nil
+	}
+	if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
+		return status.Errorf(status.InvalidArgument, "resource with ID %s not found", res.ID)
+	}
+	return err
+}
+
+// addedResources returns the resources in newGroup that are not in oldGroup, so
+// pre-existing dangling references do not block unrelated updates.
+func addedResources(oldGroup, newGroup *types.Group) []types.Resource {
+	existing := make(map[types.Resource]struct{}, len(oldGroup.Resources))
+	for _, res := range oldGroup.Resources {
+		existing[res] = struct{}{}
+	}
+
+	var added []types.Resource
+	for _, res := range newGroup.Resources {
+		if _, ok := existing[res]; !ok {
+			added = append(added, res)
+		}
+	}
+	return added
+}
+
 // CreateGroups adds new groups to the account.
 // Note: This function does not acquire the global lock.
 // It is the caller's responsibility to ensure proper locking is in place before invoking this method.
@@ -259,6 +324,10 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 		var events []func()
 		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 			if err = validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
+				return err
+			}
+
+			if err = validateGroupResources(ctx, transaction, accountID, newGroup.Resources); err != nil {
 				return err
 			}
 
@@ -352,11 +421,21 @@ func (am *DefaultAccountManager) updateSingleGroup(ctx context.Context, accountI
 
 		newGroup.AccountID = accountID
 
-		oldGroup, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, newGroup.ID)
+		oldGroup, err := transaction.GetGroupByID(ctx, store.LockingStrengthNoKeyUpdate, accountID, newGroup.ID)
 		if err != nil {
 			return err
 		}
+
+		if err := validateGroupResources(ctx, transaction, accountID, addedResources(oldGroup, newGroup)); err != nil {
+			return err
+		}
+
 		newGroup.PublicID = oldGroup.PublicID
+
+		if newGroup.Equal(oldGroup) {
+			log.WithContext(ctx).Tracef("group update skipped because equal to stored one - group id %s", newGroup.ID)
+			return nil
+		}
 
 		events = am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
 

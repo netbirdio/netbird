@@ -10,8 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"gorm.io/driver/mysql"
+	"github.com/jackc/pgx/v5/stdlib"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -101,18 +102,19 @@ func OpenSqliteFile(ctx context.Context, dataDir, storeFile string) (*Conn, erro
 	return conn, nil
 }
 
-// OpenPostgres opens a Postgres database through gorm and a pgx pool sized by pool.
-func OpenPostgres(ctx context.Context, dsn string, pool PoolConfig) (*Conn, error) {
-	gormDB, err := gorm.Open(postgres.Open(dsn), GormConfig())
+// OpenPostgres opens a Postgres database through gorm and a pgx pool sized by
+// pool, applying the configured timeouts to every session.
+func OpenPostgres(ctx context.Context, dsn string, pool PoolConfig, opts ...Option) (*Conn, error) {
+	gormDB, err := openGormPostgres(ctx, dsn)
 	if err != nil {
 		return nil, err
 	}
-	pgxPool, err := newPgxPool(ctx, dsn, pool)
+	pgxPool, err := OpenPgxPool(ctx, dsn, pool)
 	if err != nil {
 		closeGorm(gormDB)
 		return nil, err
 	}
-	conn, err := NewConn(ctx, gormDB, PostgresStoreEngine, pgxPool)
+	conn, err := NewConn(ctx, gormDB, PostgresStoreEngine, pgxPool, opts...)
 	if err != nil {
 		pgxPool.Close()
 		closeGorm(gormDB)
@@ -121,23 +123,14 @@ func OpenPostgres(ctx context.Context, dsn string, pool PoolConfig) (*Conn, erro
 	return conn, nil
 }
 
-// MysqlDSN adds the connection parameters every MySQL handle needs, keeping
-// the options already present in dsn.
-func MysqlDSN(dsn string) string {
-	separator := "?"
-	if strings.Contains(dsn, "?") {
-		separator = "&"
-	}
-	return dsn + separator + "charset=utf8&parseTime=True&loc=Local"
-}
-
-// OpenMysql opens a MySQL database through gorm.
-func OpenMysql(ctx context.Context, dsn string) (*Conn, error) {
-	gormDB, err := gorm.Open(mysql.Open(MysqlDSN(dsn)), GormConfig())
+// OpenPostgresWithoutPool opens a Postgres database through gorm alone, for
+// repositories that never take the pgx read paths.
+func OpenPostgresWithoutPool(ctx context.Context, dsn string, opts ...Option) (*Conn, error) {
+	gormDB, err := openGormPostgres(ctx, dsn)
 	if err != nil {
 		return nil, err
 	}
-	conn, err := NewConn(ctx, gormDB, MysqlStoreEngine, nil)
+	conn, err := NewConn(ctx, gormDB, PostgresStoreEngine, nil, opts...)
 	if err != nil {
 		closeGorm(gormDB)
 		return nil, err
@@ -145,12 +138,29 @@ func OpenMysql(ctx context.Context, dsn string) (*Conn, error) {
 	return conn, nil
 }
 
-func newPgxPool(ctx context.Context, dsn string, cfg PoolConfig) (*pgxpool.Pool, error) {
+func openGormPostgres(ctx context.Context, dsn string) (*gorm.DB, error) {
+	config, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("parse database config: %w", err)
+	}
+	sqlDB := stdlib.OpenDB(*config, stdlib.OptionAfterConnect(sessionTimeouts()))
+	gormDB, err := gorm.Open(postgres.New(postgres.Config{Conn: sqlDB}), GormConfig())
+	if err != nil {
+		_ = sqlDB.Close()
+		return nil, err
+	}
+	return gormDB, nil
+}
+
+// OpenPgxPool opens a pgx pool to dsn sized by cfg, applying the configured
+// timeouts to every session, and verifies it with a ping.
+func OpenPgxPool(ctx context.Context, dsn string, cfg PoolConfig) (*pgxpool.Pool, error) {
 	config, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse database config: %w", err)
 	}
 
+	config.AfterConnect = sessionTimeouts()
 	config.MaxConns = cfg.MaxConns
 	config.MinConns = cfg.MinConns
 	config.MaxConnLifetime = cfg.MaxConnLifetime

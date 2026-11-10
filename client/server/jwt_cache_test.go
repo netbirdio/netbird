@@ -13,11 +13,11 @@ import (
 const testTTL = time.Minute
 
 func unixCaller(uid uint32) ipcauth.Identity {
-	return ipcauth.Identity{UID: uid, GID: uid}
+	return ipcauth.KnownForTest(ipcauth.Identity{UID: uid, GID: uid})
 }
 
 func windowsCaller(sid string) ipcauth.Identity {
-	return ipcauth.Identity{SID: sid}
+	return ipcauth.KnownForTest(ipcauth.Identity{SID: sid})
 }
 
 func TestJWTCache_ServesTheOwner(t *testing.T) {

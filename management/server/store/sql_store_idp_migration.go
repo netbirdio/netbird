@@ -55,7 +55,6 @@ func (s *SqlStore) ListUsers(ctx context.Context) ([]*types.User, error) {
 }
 
 // txDeferFKConstraints defers foreign key constraint checks for the duration of the transaction.
-// MySQL is already handled by s.transaction (SET FOREIGN_KEY_CHECKS = 0).
 func (s *SqlStore) txDeferFKConstraints(tx *gorm.DB) error {
 	if s.conn.Engine() == types.SqliteStoreEngine {
 		return tx.Exec("PRAGMA defer_foreign_keys = ON").Error

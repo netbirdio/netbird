@@ -18,11 +18,9 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-multierror"
-	"github.com/pion/ice/v4"
+	"github.com/netbirdio/ice/v4"
 	"github.com/pion/stun/v3"
 	log "github.com/sirupsen/logrus"
-	wgdevice "golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/anonymize"
@@ -36,6 +34,7 @@ import (
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/certproof"
 	"github.com/netbirdio/netbird/client/internal/debug"
@@ -245,7 +244,7 @@ type Engine struct {
 	// wgInterface. Reaching the device through wgInterface requires
 	// syncMsgMux, which handleSync holds while it adds and removes peers;
 	// SetPerformance must stay reachable exactly when that work is stuck.
-	wgDevice atomic.Pointer[wgdevice.Device]
+	wgDevice atomic.Pointer[wgbackend.Device]
 
 	udpMux *udpmux.UniversalUDPMuxDefault
 
@@ -2703,7 +2702,7 @@ func (e *Engine) stopDNSForwarder() {
 	e.dnsForwardMgr = nil
 }
 
-func (e *Engine) GetNet() (*netstack.Net, error) {
+func (e *Engine) GetNet() (*wgbackend.NetstackNet, error) {
 	e.syncMsgMux.Lock()
 	intf := e.wgInterface
 	e.syncMsgMux.Unlock()
