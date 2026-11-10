@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/networks/resources/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/store"
+	nbtypes "github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -464,7 +465,7 @@ func Test_UpdateResourceUnchangedSkipsWrite(t *testing.T) {
 		StoreEventFunc: func(context.Context, string, string, string, activity.ActivityDescriber, map[string]any) {
 			events++
 		},
-		ExpandAndUpdateAffectedFunc: func(context.Context, string, *affectedpeers.Snapshot, affectedpeers.Change) {
+		ExpandAndUpdateAffectedFunc: func(context.Context, string, *affectedpeers.Snapshot, affectedpeers.Change, nbtypes.UpdateReason) {
 			fanOuts++
 		},
 	}

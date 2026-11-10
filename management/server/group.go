@@ -124,7 +124,7 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 		storeEvent()
 	}
 
-	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationCreate})
 
 	return nil
 }
@@ -212,7 +212,7 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 		storeEvent()
 	}
 
-	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 
 	return nil
 }
@@ -365,7 +365,7 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 		storeEvent()
 	}
 
-	go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids())
+	go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids(), types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationCreate})
 
 	return globalErr
 }
@@ -406,7 +406,7 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 		storeEvent()
 	}
 
-	go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids())
+	go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids(), types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 
 	return globalErr
 }
@@ -616,7 +616,7 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 	affected := make(affectedPeerSet)
 	affected.add(snap.Expand(ctx, accountID, change))
 	affected.add(ipv6Snap.Expand(ctx, accountID, ipv6Change))
-	go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids())
+	go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids(), types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationDelete})
 
 	return allErrors
 }
@@ -674,7 +674,7 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 		return err
 	}
 
-	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 
 	return nil
 }
@@ -710,7 +710,7 @@ func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID
 		return err
 	}
 
-	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 
 	return nil
 }
@@ -747,7 +747,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 		return err
 	}
 
-	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 
 	return nil
 }
@@ -785,7 +785,7 @@ func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accoun
 		return err
 	}
 
-	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 
 	return nil
 }
