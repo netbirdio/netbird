@@ -167,7 +167,7 @@ func extractUserAgent(ctx context.Context) string {
 // extractDeviceName extracts device name from context or returns the default system name
 func extractDeviceName(ctx context.Context, defaultName string) string {
 	v, ok := ctx.Value(DeviceNameCtxKey).(string)
-	if !ok {
+	if !ok || v == "" {
 		return defaultName
 	}
 	return v
