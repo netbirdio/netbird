@@ -3,9 +3,10 @@
 // each service against the heartbeat burst of the others, not against the
 // client phase. A test heartbeat that arrives while no burst is open starts
 // one; test heartbeats within the burst delay join it, and the burst is
-// checked when the delay runs out. In a burst of two or more services a
-// registered service that did not join and sent nothing for half a period is
-// stale. A service that comes alone, on two lone bursts in a row at the same
+// checked when the delay runs out. When the phone sleeps before that, the
+// next heartbeat or wake judges the burst instead. In a burst of two or more
+// services a registered service that did not join and sent nothing for half a
+// period is stale. A service that comes alone, on two lone bursts in a row at the same
 // offset from the last full burst, has a wrong server skew and is reconnected
 // so the server takes a new skew. Wakes check after a short grace with the
 // period plus tolerance rule.
@@ -182,19 +183,18 @@ func (w *Watcher) Seen(svc Service) {
 		return
 	}
 	now := w.now()
+	// Set before the settle below, so a heartbeat that comes after the burst
+	// delay is not judged stale by its own arrival.
+	s.last = now
 	// The check of the open burst is due but has not run: the phone slept past
-	// its timer, or the timer is about to fire. Settle it before this
-	// heartbeat counts.
+	// its timer, or the timer is about to fire. Judge that burst now, so a
+	// stream that missed it is found at the next tick even when the phone
+	// never stays awake for the burst delay.
 	var prev checkResult
 	if b := w.open; b != nil && now.After(b.start.Add(w.burstDelay)) {
 		w.open = nil
-		if now.Sub(b.start.Add(w.burstDelay)) > lateAfter {
-			prev = w.skipLate(b, now)
-		} else {
-			prev = w.evalBurst(b, now)
-		}
+		prev = w.evalBurst(b, now)
 	}
-	s.last = now
 	if svc != Relay {
 		w.lastTestHB = now
 	}
@@ -295,20 +295,6 @@ func burstTrigger(b *burst) string {
 	return triggerBurst
 }
 
-// skipLate closes a burst whose check the phone slept past, after a newer
-// burst opened. The newer burst covers the missing services. Caller holds
-// w.mu.
-func (w *Watcher) skipLate(b *burst, now time.Time) checkResult {
-	var r checkResult
-	due := b.start.Add(w.burstDelay)
-	r.logf("hbwatch: check trigger=%s members=%s gaps=%s wait=%d late=%d skipped=late",
-		burstTrigger(b), joinMembers(b), w.gaps(b.start), now.Sub(b.start).Milliseconds(), now.Sub(due).Milliseconds())
-	if len(b.members) >= 2 {
-		w.refBurst = b.start
-	}
-	return r
-}
-
 // evalBurst runs the check of burst b at now. Gaps are measured at the burst
 // start, so a frame that landed during the burst counts as no gap. Caller
 // holds w.mu.
@@ -401,27 +387,39 @@ func (w *Watcher) registered() int {
 }
 
 // CheckNow triggers a check after the grace, for a device wake or a path
-// update. Wakes that land while one is pending collapse into it.
+// update. A wake that lands while one is pending replaces it: the timer of
+// the pending one can sleep with the phone, and its wake time is then old.
 func (w *Watcher) CheckNow() {
 	w.mu.Lock()
+	w.wakeAt = w.now()
 	if w.wakePending {
 		w.mu.Unlock()
 		return
 	}
 	w.wakePending = true
-	w.wakeAt = w.now()
 	w.mu.Unlock()
 	w.clk.AfterFunc(Grace, w.checkWake)
 }
 
 // checkWake applies the period plus tolerance rule, measured at the wake. A
-// burst that is open covers the wake.
+// burst that opened at the wake covers it. A burst whose check the phone slept
+// past is judged first.
 func (w *Watcher) checkWake() {
 	w.mu.Lock()
-	w.wakePending = false
 	at := w.wakeAt
 	now := w.now()
+	if rest := min(Grace-now.Sub(at), Grace); rest > 0 {
+		// A newer wake took over this timer; its frames get the grace too.
+		w.mu.Unlock()
+		w.clk.AfterFunc(rest, w.checkWake)
+		return
+	}
+	w.wakePending = false
 	var r checkResult
+	if b := w.open; b != nil && at.After(b.start.Add(w.burstDelay)) {
+		w.open = nil
+		r = w.evalBurst(b, now)
+	}
 	extra := ""
 	if late := now.Sub(at.Add(Grace)); late > lateAfter {
 		extra += fmt.Sprintf(" late=%d", late.Milliseconds())

@@ -500,20 +500,104 @@ func TestGateClosesAfterModeOff(t *testing.T) {
 }
 
 // The phone sleeps past the burst timer and the next burst opens before the
-// old check ran. The old check is closed without action; the new burst acts
-// on the missing service.
-func TestLateCheckSkippedByNewBurst(t *testing.T) {
+// old check ran. The old burst was full, so its late check finds nothing; the
+// new burst acts on the missing service.
+func TestLateCheckJudgedByNextBurst(t *testing.T) {
 	clk, w, c, h := setup(t)
 	heartbeats(clk, w, tickAt(1), onTime...)
 	heartbeats(clk, w, tickAt(2), onTime...)
 	clk.jump(tickAt(3).Sub(clk.Now()))
 	// Seen before any advance: the old timer has not run yet.
 	w.Seen(Management)
+	assert.Len(t, lines(h, "hbwatch: check trigger=burst", "members=management,signal,relay", "late="), 1,
+		"old burst judged late by the next heartbeat")
+	assert.Empty(t, lines(h, "hbwatch: check ", "skipped=late"), "no burst is dropped unjudged")
+	assert.Equal(t, 0, c.total(), "full old burst, no action")
 	heartbeats(clk, w, tickAt(3), hb{Signal, 300 * ms})
-	assert.Len(t, lines(h, "hbwatch: check ", "skipped=late"), 1, "old check skipped")
 	clk.advanceTo(tickAt(3).Add(BurstDelay))
 	assert.Equal(t, 1, c.get(Relay), "new burst acts on the missing relay")
 	assert.Equal(t, 1, c.total(), "no other action")
+}
+
+// sleepTick delivers Management and Signal at tick n on a phone that woke for
+// them and sleeps again before any timer runs.
+func sleepTick(clk *fakeClock, w *Watcher, n int) {
+	clk.jump(tickAt(n).Sub(clk.Now()))
+	w.Seen(Management)
+	clk.jump(300 * ms)
+	w.Seen(Signal)
+}
+
+// Relay goes silent while the phone sleeps before every burst check. The next
+// tick judges the last burst, so the relay acts once per missed tick and the
+// first action comes one period after the first missed burst.
+func TestSleepSilentStreamFoundAtNextTick(t *testing.T) {
+	clk, w, c, h := setup(t)
+	heartbeats(clk, w, tickAt(1), onTime...)
+	sleepTick(clk, w, 2)
+	require.Equal(t, 0, c.total(), "first missed burst is not judged yet")
+	for n := 3; n <= 5; n++ {
+		sleepTick(clk, w, n)
+		assert.Equal(t, n-2, c.get(Relay), "relay acts at tick %d for the burst it missed", n)
+	}
+	assert.Len(t, lines(h, "hbwatch: stale svc=relay"), 3, "one stale line per missed tick")
+	assert.Equal(t, 0, c.get(Management), "management sent every heartbeat")
+	assert.Equal(t, 0, c.get(Signal), "signal sent every heartbeat")
+	// The phone stays awake: the timers left over from the sleeps add nothing.
+	clk.advance(BurstDelay - ms)
+	assert.Equal(t, 3, c.get(Relay), "one action per period")
+}
+
+// A heartbeat that comes after the burst delay, on a phone that slept in
+// between, settles the burst it missed. Its own arrival shows it is alive.
+func TestSleepLateHeartbeatNotStale(t *testing.T) {
+	for _, late := range []time.Duration{5500 * ms, 7 * time.Second} {
+		clk, w, c, _ := setup(t)
+		heartbeats(clk, w, tickAt(1), onTime...)
+		sleepTick(clk, w, 2)
+		clk.jump(tickAt(2).Add(late).Sub(clk.Now()))
+		w.Seen(Relay)
+		assert.Equal(t, 0, c.total(), "relay %s late is alive, no action", late)
+		clk.advance(BurstDelay)
+		assert.Equal(t, 0, c.total(), "relay %s late, first off-burst tick, no action", late)
+	}
+}
+
+// The phone sleeps before the grace of a wake. The next wake replaces it: the
+// check waits the grace again and measures at the new wake.
+func TestWakeAfterSleepUsesNewestWake(t *testing.T) {
+	clk, w, c, h := setup(t)
+	heartbeats(clk, w, tickAt(1), onTime...)
+	clk.advanceTo(tickAt(1).Add(18 * time.Second))
+	w.CheckNow()
+	// Asleep before the grace; every stream goes silent.
+	clk.jump(32 * time.Second)
+	w.CheckNow()
+	clk.advance(0)
+	require.Empty(t, lines(h, "hbwatch: check trigger=wake"), "the timer of the old wake does not check")
+	require.Equal(t, 0, c.total(), "no action inside the grace of the new wake")
+	clk.advance(Grace)
+	assert.Len(t, lines(h, "hbwatch: check trigger=wake", "wait=2000"), 1, "one check, at the new wake + 2 s")
+	for _, svc := range services {
+		assert.Equal(t, 1, c.get(svc), "silent for 50 s at the new wake: %s", svc)
+	}
+}
+
+// The phone sleeps before the burst check and every stream dies. A wake with
+// no heartbeat finds the old burst still open; it does not cover the wake.
+func TestWakeSettlesOverdueBurst(t *testing.T) {
+	clk, w, c, h := setup(t)
+	heartbeats(clk, w, tickAt(1), onTime...)
+	clk.jump(50 * time.Second)
+	w.CheckNow()
+	clk.jump(Grace)
+	// The wake timer runs before the burst timer, which still has time left.
+	w.checkWake()
+	assert.Len(t, lines(h, "hbwatch: check trigger=burst", "late="), 1, "old burst judged at the wake")
+	assert.Empty(t, lines(h, "hbwatch: check trigger=wake", "skipped=burst"), "old burst does not cover the wake")
+	for _, svc := range services {
+		assert.Equal(t, 1, c.get(svc), "silent for 50 s at the wake: %s", svc)
+	}
 }
 
 // A burst check that runs over 1 s after B + 5 s logs late=.
