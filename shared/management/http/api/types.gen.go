@@ -2916,7 +2916,7 @@ type EDRFalconRequest struct {
 	Groups []string `json:"groups"`
 
 	// LastSyncedInterval The devices last seen requirement interval in hours. Minimum value is 24 hours.
-	LastSyncedInterval *int `json:"last_synced_interval,omitempty"`
+	LastSyncedInterval int `json:"last_synced_interval"`
 
 	// Secret CrowdStrike API client secret
 	Secret string `json:"secret"`

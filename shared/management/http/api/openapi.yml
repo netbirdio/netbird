@@ -4237,6 +4237,7 @@ components:
         - cloud_id
         - groups
         - zta_score_threshold
+        - last_synced_interval
     EDRFalconResponse:
       type: object
       description: Represents a Falcon EDR integration
