@@ -1641,3 +1641,21 @@ func TestEngine_SyncResponsePersistence(t *testing.T) {
 	_, err = e.GetLatestSyncResponse()
 	require.Error(t, err)
 }
+
+func TestToRoutes_CountryRoute(t *testing.T) {
+	routes := toRoutes([]*mgmtProto.Route{{
+		ID:          "route-us",
+		NetID:       "us-exit",
+		Network:     "192.0.2.0/32",
+		NetworkType: int64(route.CountryNetwork),
+		Countries:   []string{"US", "CA"},
+		Peer:        "exit-key",
+		Masquerade:  true,
+	}})
+
+	require.Len(t, routes, 1)
+	assert.True(t, routes[0].IsCountry(), "the network type should mark a country route")
+	assert.Equal(t, []string{"US", "CA"}, routes[0].Countries, "countries should be kept")
+	assert.Equal(t, route.HAUniqueID("us-exit|US, CA"), routes[0].GetHAUniqueID(),
+		"routes for different countries must not share an HA group")
+}

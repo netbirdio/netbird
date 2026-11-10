@@ -44,6 +44,7 @@ func ToProtocolRoute(route *nmdata.Route) *proto.Route {
 		NetID:         string(route.NetID),
 		Network:       route.Network.String(),
 		Domains:       route.Domains.ToPunycodeList(),
+		Countries:     route.Countries,
 		NetworkType:   int64(route.NetworkType),
 		Peer:          route.Peer,
 		Metric:        int64(route.Metric),
@@ -186,6 +187,7 @@ func ToProtocolRoutesFirewallRules(rules []*types.RouteFirewallRule) []*proto.Ro
 			PortInfo:     GetProtoPortInfo(rule),
 			IsDynamic:    rule.IsDynamic,
 			Domains:      rule.Domains.ToPunycodeList(),
+			Countries:    rule.Countries,
 			PolicyID:     []byte(rule.PolicyID),
 			RouteID:      string(rule.RouteID),
 		}

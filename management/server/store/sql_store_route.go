@@ -16,17 +16,17 @@ import (
 )
 
 func (s *SqlStore) getRoutes(ctx context.Context, accountID string) ([]route.Route, error) {
-	const query = `SELECT id, account_id, public_id, network, domains, keep_route, net_id, description, peer, peer_groups, network_type, masquerade, metric, enabled, groups, access_control_groups, skip_auto_apply FROM routes WHERE account_id = $1`
+	const query = `SELECT id, account_id, public_id, network, domains, countries, keep_route, net_id, description, peer, peer_groups, network_type, masquerade, metric, enabled, groups, access_control_groups, skip_auto_apply FROM routes WHERE account_id = $1`
 	rows, err := s.pgxPool().Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
 	}
 	routes, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (route.Route, error) {
 		var r route.Route
-		var network, domains, peerGroups, groups, accessGroups []byte
+		var network, domains, countries, peerGroups, groups, accessGroups []byte
 		var keepRoute, masquerade, enabled, skipAutoApply sql.NullBool
 		var metric sql.NullInt64
-		err := row.Scan(&r.ID, &r.AccountID, &r.PublicID, &network, &domains, &keepRoute, &r.NetID, &r.Description, &r.Peer, &peerGroups, &r.NetworkType, &masquerade, &metric, &enabled, &groups, &accessGroups, &skipAutoApply)
+		err := row.Scan(&r.ID, &r.AccountID, &r.PublicID, &network, &domains, &countries, &keepRoute, &r.NetID, &r.Description, &r.Peer, &peerGroups, &r.NetworkType, &masquerade, &metric, &enabled, &groups, &accessGroups, &skipAutoApply)
 		if err == nil {
 			if keepRoute.Valid {
 				r.KeepRoute = keepRoute.Bool
@@ -48,6 +48,9 @@ func (s *SqlStore) getRoutes(ctx context.Context, accountID string) ([]route.Rou
 			}
 			if domains != nil {
 				_ = json.Unmarshal(domains, &r.Domains)
+			}
+			if countries != nil {
+				_ = json.Unmarshal(countries, &r.Countries)
 			}
 			if peerGroups != nil {
 				_ = json.Unmarshal(peerGroups, &r.PeerGroups)
