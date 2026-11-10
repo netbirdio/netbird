@@ -108,10 +108,30 @@ func (r *Runner) Run(ctx context.Context, mode Mode) error {
 	case ModeCheck:
 		return r.check(ctx)
 	case ModeAuto:
-		return r.apply(ctx)
+		return r.apply(ctx, goose.MaxVersion)
 	default:
 		return fmt.Errorf("%s migrations: unknown mode %q", r.set.Name, mode)
 	}
+}
+
+// UpTo applies the pending migrations up to and including version, the way
+// ModeAuto applies all of them: under the lock, after the legacy bootstrap and
+// the SQLite backup.
+func (r *Runner) UpTo(ctx context.Context, version int64) error {
+	if version < 1 {
+		return fmt.Errorf("%s migrations: invalid target version %d", r.set.Name, version)
+	}
+	return r.apply(ctx, version)
+}
+
+// HasVersion reports whether the set contains a migration with version.
+func (r *Runner) HasVersion(version int64) bool {
+	for _, source := range r.provider.ListSources() {
+		if source.Version == version {
+			return true
+		}
+	}
+	return false
 }
 
 // Status lists every migration of the set with its applied state. On a
@@ -135,6 +155,12 @@ func (r *Runner) Status(ctx context.Context) ([]*goose.MigrationStatus, error) {
 
 // Pending lists the migrations the database has not applied, in version order.
 func (r *Runner) Pending(ctx context.Context) ([]PendingMigration, error) {
+	return r.PendingUpTo(ctx, goose.MaxVersion)
+}
+
+// PendingUpTo lists the migrations up to and including version that the
+// database has not applied, in version order.
+func (r *Runner) PendingUpTo(ctx context.Context, version int64) ([]PendingMigration, error) {
 	statuses, err := r.Status(ctx)
 	if err != nil {
 		return nil, err
@@ -142,7 +168,7 @@ func (r *Runner) Pending(ctx context.Context) ([]PendingMigration, error) {
 
 	var pending []PendingMigration
 	for _, status := range statuses {
-		if status.State != goose.StatePending {
+		if status.State != goose.StatePending || status.Source.Version > version {
 			continue
 		}
 		migration := PendingMigration{
@@ -232,7 +258,7 @@ func (r *Runner) check(ctx context.Context) error {
 	return nil
 }
 
-func (r *Runner) apply(ctx context.Context) error {
+func (r *Runner) apply(ctx context.Context, version int64) error {
 	unlock, err := r.lock(ctx)
 	if err != nil {
 		return err
@@ -253,7 +279,7 @@ func (r *Runner) apply(ctx context.Context) error {
 		return err
 	}
 
-	pending, err := r.Pending(ctx)
+	pending, err := r.PendingUpTo(ctx, version)
 	if err != nil {
 		return err
 	}
@@ -266,7 +292,7 @@ func (r *Runner) apply(ctx context.Context) error {
 	}
 
 	log.WithContext(ctx).Infof("%s migrations: applying %d pending", r.set.Name, len(pending))
-	results, err := r.up(ctx)
+	results, err := r.up(ctx, version)
 	for _, result := range results {
 		log.WithContext(ctx).Infof("%s migrations: applied %s in %s", r.set.Name, describe(result.Source), result.Duration.Round(time.Millisecond))
 	}
@@ -299,10 +325,10 @@ func (r *Runner) hasLegacyTables() bool {
 	return false
 }
 
-func (r *Runner) up(ctx context.Context) ([]*goose.MigrationResult, error) {
+func (r *Runner) up(ctx context.Context, version int64) ([]*goose.MigrationResult, error) {
 	var applied []*goose.MigrationResult
 	for attempt := 1; ; attempt++ {
-		results, err := r.provider.Up(ctx)
+		results, err := r.provider.UpTo(ctx, version)
 		var partial *goose.PartialError
 		if errors.As(err, &partial) {
 			results = partial.Applied

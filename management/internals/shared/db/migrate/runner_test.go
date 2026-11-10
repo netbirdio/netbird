@@ -354,3 +354,107 @@ func TestStatusAndPending_LeaveLegacyDatabaseUntouched(t *testing.T) {
 	assert.Equal(t, 1, legacyRuns, "the bootstrap must still run after status and plan")
 	assert.Equal(t, []int64{testBaseline, testSecond}, appliedVersions(t, runner))
 }
+
+func threeVersionFiles() map[string]string {
+	return map[string]string{
+		"20260101000000_baseline.sql": baselineSQL,
+		"20260201000000_color.sql":    secondSQL,
+		"20260301000000_other.sql":    thirdSQL,
+	}
+}
+
+func TestUpTo_StopsAtTheTargetVersion(t *testing.T) {
+	conn := openSqlite(t)
+	runner := newRunner(t, conn, testSet(threeVersionFiles()))
+
+	require.NoError(t, runner.UpTo(context.Background(), testSecond))
+
+	assert.Equal(t, []int64{testBaseline, testSecond}, appliedVersions(t, runner))
+	assert.True(t, conn.DB(nil).Migrator().HasColumn("things", "color"))
+	assert.False(t, conn.DB(nil).Migrator().HasTable("other_things"))
+
+	pending, err := runner.Pending(context.Background())
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+	assert.Equal(t, testThird, pending[0].Version)
+
+	require.NoError(t, runner.UpTo(context.Background(), testSecond), "a second run up to the same version is a no-op")
+	require.NoError(t, runner.Run(context.Background(), ModeAuto))
+	assert.Equal(t, []int64{testBaseline, testSecond, testThird}, appliedVersions(t, runner))
+}
+
+func TestUpTo_AppliesOlderVersionsMergedOutOfOrder(t *testing.T) {
+	conn := openSqlite(t)
+	files := map[string]string{
+		"20260101000000_baseline.sql": baselineSQL,
+		"20260301000000_other.sql":    thirdSQL,
+	}
+	require.NoError(t, newRunner(t, conn, testSet(files)).Run(context.Background(), ModeAuto))
+
+	runner := newRunner(t, conn, testSet(threeVersionFiles()))
+	require.NoError(t, runner.UpTo(context.Background(), testSecond))
+
+	assert.Equal(t, []int64{testBaseline, testSecond, testThird}, appliedVersions(t, runner))
+}
+
+func TestUpTo_LeavesOlderMissingVersionsAboveTheTarget(t *testing.T) {
+	conn := openSqlite(t)
+	files := map[string]string{
+		"20260101000000_baseline.sql": baselineSQL,
+		"20260301000000_other.sql":    thirdSQL,
+	}
+	require.NoError(t, newRunner(t, conn, testSet(files)).Run(context.Background(), ModeAuto))
+
+	runner := newRunner(t, conn, testSet(threeVersionFiles()))
+	require.NoError(t, runner.UpTo(context.Background(), testBaseline))
+
+	assert.Equal(t, []int64{testBaseline, testThird}, appliedVersions(t, runner))
+	assert.False(t, conn.DB(nil).Migrator().HasColumn("things", "color"))
+}
+
+func TestUpTo_LegacyDatabaseRunsBootstrapFirst(t *testing.T) {
+	conn := openSqlite(t)
+	require.NoError(t, conn.DB(nil).Exec("CREATE TABLE things (id TEXT PRIMARY KEY, name TEXT)").Error)
+	legacyRuns := 0
+	set := testSet(threeVersionFiles())
+	set.Legacy = func(context.Context, *gorm.DB) error {
+		legacyRuns++
+		return nil
+	}
+	runner := newRunner(t, conn, set)
+
+	require.NoError(t, runner.UpTo(context.Background(), testSecond))
+
+	assert.Equal(t, 1, legacyRuns)
+	assert.Equal(t, []int64{testBaseline, testSecond}, appliedVersions(t, runner))
+	pending, err := runner.Pending(context.Background())
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+	assert.Equal(t, testThird, pending[0].Version)
+
+	backups, err := filepath.Glob(filepath.Join(filepath.Dir(sqliteFile(t, conn)), db.SqliteFileName+backupInfix+"*"))
+	require.NoError(t, err)
+	assert.Len(t, backups, 1, "a legacy database is backed up before the bootstrap")
+}
+
+func TestUpTo_RejectsInvalidVersion(t *testing.T) {
+	runner := newRunner(t, openSqlite(t), testSet(threeVersionFiles()))
+	require.Error(t, runner.UpTo(context.Background(), 0))
+	assert.Empty(t, appliedVersions(t, runner))
+}
+
+func TestPendingUpTo_FiltersLaterVersions(t *testing.T) {
+	runner := newRunner(t, openSqlite(t), testSet(threeVersionFiles()))
+
+	pending, err := runner.PendingUpTo(context.Background(), testSecond)
+	require.NoError(t, err)
+	require.Len(t, pending, 2)
+	assert.Equal(t, testBaseline, pending[0].Version)
+	assert.Equal(t, testSecond, pending[1].Version)
+}
+
+func TestHasVersion(t *testing.T) {
+	runner := newRunner(t, openSqlite(t), testSet(threeVersionFiles()))
+	assert.True(t, runner.HasVersion(testSecond))
+	assert.False(t, runner.HasVersion(testSecond+1))
+}

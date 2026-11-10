@@ -32,39 +32,59 @@ type Opener func(cmd *cobra.Command, fn func(ctx context.Context, targets []Targ
 
 // NewCommand builds the migrate command tree on top of open.
 func NewCommand(open Opener) *cobra.Command {
+	var names []string
+	var upTo, planTo int64
+	selected := func(cmd *cobra.Command, fn func(ctx context.Context, targets []Target) error) error {
+		return open(cmd, func(ctx context.Context, targets []Target) error {
+			targets, err := selectTargets(targets, names)
+			if err != nil {
+				return err
+			}
+			return fn(ctx, targets)
+		})
+	}
+
 	migrateCmd := &cobra.Command{
 		Use:          "migrate",
 		Short:        "Manage the database schema versions of the server",
 		SilenceUsage: true,
 	}
-	migrateCmd.AddCommand(
-		&cobra.Command{
-			Use:   "up",
-			Short: "Apply pending schema migrations and exit",
-			RunE: func(cmd *cobra.Command, _ []string) error {
-				return open(cmd, func(ctx context.Context, targets []Target) error {
-					return up(ctx, cmd.OutOrStdout(), targets)
-				})
-			},
+	migrateCmd.PersistentFlags().StringSliceVar(&names, "target", nil, "limit the command to these databases (store, accesslogs, activity, ...); all when empty. Every configured database is still opened")
+
+	upCmd := &cobra.Command{
+		Use:   "up",
+		Short: "Apply pending schema migrations and exit",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return selected(cmd, func(ctx context.Context, targets []Target) error {
+				return up(ctx, cmd.OutOrStdout(), targets, upTo)
+			})
 		},
+	}
+	upCmd.Flags().Int64Var(&upTo, "to", 0, "apply pending migrations up to and including this version only; all when 0")
+
+	planCmd := &cobra.Command{
+		Use:   "plan",
+		Short: "Print the pending migrations and their SQL without applying them",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return selected(cmd, func(ctx context.Context, targets []Target) error {
+				return plan(ctx, cmd.OutOrStdout(), targets, planTo)
+			})
+		},
+	}
+	planCmd.Flags().Int64Var(&planTo, "to", 0, "show pending migrations up to and including this version only; all when 0")
+
+	migrateCmd.AddCommand(
+		upCmd,
 		&cobra.Command{
 			Use:   "status",
 			Short: "Print every migration with its applied state",
 			RunE: func(cmd *cobra.Command, _ []string) error {
-				return open(cmd, func(ctx context.Context, targets []Target) error {
+				return selected(cmd, func(ctx context.Context, targets []Target) error {
 					return status(ctx, cmd.OutOrStdout(), targets)
 				})
 			},
 		},
-		&cobra.Command{
-			Use:   "plan",
-			Short: "Print the pending migrations and their SQL without applying them",
-			RunE: func(cmd *cobra.Command, _ []string) error {
-				return open(cmd, func(ctx context.Context, targets []Target) error {
-					return plan(ctx, cmd.OutOrStdout(), targets)
-				})
-			},
-		},
+		planCmd,
 	)
 	return migrateCmd
 }
@@ -113,12 +133,21 @@ func CloseAll(targets []Target) error {
 	return firstErr
 }
 
-func up(ctx context.Context, out io.Writer, targets []Target) error {
-	for _, target := range targets {
-		if err := target.Runner.Run(ctx, migrate.ModeAuto); err != nil {
+func up(ctx context.Context, out io.Writer, targets []Target, to int64) error {
+	suffix := ""
+	if to == 0 {
+		to = goose.MaxVersion
+	} else {
+		if err := checkVersion(targets, to); err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "%s: schema is current\n", target.Name)
+		suffix = fmt.Sprintf(" up to %d", to)
+	}
+	for _, target := range targets {
+		if err := target.Runner.UpTo(ctx, to); err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "%s: schema is current%s\n", target.Name, suffix)
 	}
 	return nil
 }
@@ -142,9 +171,14 @@ func status(ctx context.Context, out io.Writer, targets []Target) error {
 	return w.Flush()
 }
 
-func plan(ctx context.Context, out io.Writer, targets []Target) error {
+func plan(ctx context.Context, out io.Writer, targets []Target, to int64) error {
+	if to == 0 {
+		to = goose.MaxVersion
+	} else if err := checkVersion(targets, to); err != nil {
+		return err
+	}
 	for _, target := range targets {
-		pending, err := target.Runner.Pending(ctx)
+		pending, err := target.Runner.PendingUpTo(ctx, to)
 		if err != nil {
 			return err
 		}
@@ -162,6 +196,48 @@ func plan(ctx context.Context, out io.Writer, targets []Target) error {
 		}
 	}
 	return nil
+}
+
+// selectTargets keeps the targets named in names, in their opening order, and
+// every target when names is empty.
+func selectTargets(targets []Target, names []string) ([]Target, error) {
+	if len(names) == 0 {
+		return targets, nil
+	}
+
+	available := make([]string, 0, len(targets))
+	byName := make(map[string]Target, len(targets))
+	for _, target := range targets {
+		available = append(available, target.Name)
+		byName[target.Name] = target
+	}
+
+	wanted := make(map[string]bool, len(names))
+	for _, name := range names {
+		if _, ok := byName[name]; !ok {
+			return nil, fmt.Errorf("unknown target %q, available: %s", name, strings.Join(available, ", "))
+		}
+		wanted[name] = true
+	}
+
+	var selected []Target
+	for _, target := range targets {
+		if wanted[target.Name] {
+			selected = append(selected, target)
+		}
+	}
+	return selected, nil
+}
+
+// checkVersion rejects a target version that is no migration of any selected
+// database, so a mistyped version does not silently act as a cutoff.
+func checkVersion(targets []Target, version int64) error {
+	for _, target := range targets {
+		if target.Runner.HasVersion(version) {
+			return nil
+		}
+	}
+	return fmt.Errorf("version %d is not a migration of the selected databases, see `migrate status`", version)
 }
 
 func sourceName(source *goose.Source) string {
