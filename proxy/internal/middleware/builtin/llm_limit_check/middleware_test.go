@@ -91,9 +91,10 @@ func TestInvoke_AllowStampsAttributionMetadata(t *testing.T) {
 func TestInvoke_DenyConvertsToProxyDeny(t *testing.T) {
 	mgmt := &fakeMgmt{
 		checkResp: &proto.CheckLLMPolicyLimitsResponse{
-			Decision:   "deny",
-			DenyCode:   "llm_policy.token_cap_exceeded",
-			DenyReason: "group token cap exhausted on policy pol-X (used 1000 of 1000)",
+			Decision:         "deny",
+			SelectedPolicyId: "pol-X",
+			DenyCode:         "llm_policy.token_cap_exceeded",
+			DenyReason:       "group token cap exhausted on policy pol-X (used 1000 of 1000)",
 		},
 	}
 	m := New(mgmt, nil)
@@ -113,6 +114,9 @@ func TestInvoke_DenyConvertsToProxyDeny(t *testing.T) {
 	assert.Equal(t, "LLM policy limit exceeded", out.DenyReason.Message, "public deny message must be generic")
 	assert.NotContains(t, out.DenyReason.Message, "exhausted", "internal quota detail must not reach the caller")
 	assert.NotContains(t, out.DenyReason.Message, "1000", "internal cap numbers must not reach the caller")
+	// The admin's access log does get the blocking policy and the detail.
+	assert.Equal(t, "pol-X", lookupKV(out.Metadata, middleware.KeyLLMPolicyBlockedBy))
+	assert.Equal(t, "group token cap exhausted on policy pol-X (used 1000 of 1000)", lookupKV(out.Metadata, middleware.KeyLLMPolicyDetail))
 }
 
 // TestInvoke_ModelDenyMessages proves a model-allowlist rejection gets a
@@ -221,6 +225,8 @@ func TestMetadataKeys_Allowlist(t *testing.T) {
 		middleware.KeyLLMAttributionWindowS,
 		middleware.KeyLLMPolicyDecision,
 		middleware.KeyLLMPolicyReason,
+		middleware.KeyLLMPolicyBlockedBy,
+		middleware.KeyLLMPolicyDetail,
 	}
 	assert.ElementsMatch(t, want, keys)
 }

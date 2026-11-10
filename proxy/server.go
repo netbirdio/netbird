@@ -396,7 +396,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	go s.newManagementMappingWorker(runCtx, s.mgmtClient)
 
-	tlsConfig, err := s.configureTLS(ctx)
+	tlsConfig, err := s.configureTLS(runCtx)
 	if err != nil {
 		return err
 	}
@@ -869,6 +869,7 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 	}
 
 	go s.acme.WatchWildcards(ctx)
+	go s.acme.WatchExpiry(ctx)
 
 	if s.ACMEChallengeType == "http-01" {
 		s.http = &http.Server{
@@ -2115,7 +2116,7 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	s.warnIfGeoUnavailable(mapping.GetDomain(), mapping.GetAccessRestrictions())
 
 	maxSessionAge := time.Duration(mapping.GetAuth().GetMaxSessionAgeSeconds()) * time.Second
-	config, err := auth.NewDomainConfig(mapping.GetDomain(), schemes, mapping.GetAuth().GetSessionKey(), maxSessionAge, accountID, svcID, ipRestrictions, mapping.GetPrivate(), mapping.GetAuth().GetAllowedGroupIds(), auth.WithTargetResolver(resolver))
+	config, err := auth.NewDomainConfig(mapping.GetDomain(), schemes, mapping.GetAuth().GetSessionKey(), maxSessionAge, accountID, svcID, ipRestrictions, mapping.GetPrivate(), mapping.GetAuth().GetAllowedGroupIds(), auth.WithTargetResolver(resolver), auth.WithAgentNetwork(m.AgentNetworkFlags()))
 	if err != nil {
 		return fmt.Errorf("auth setup for domain %s: %w", mapping.GetDomain(), err)
 	}
