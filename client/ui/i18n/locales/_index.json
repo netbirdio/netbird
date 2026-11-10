@@ -12,6 +12,9 @@
         {"code": "zh-CN", "displayName": "简体中文", "englishName": "Simplified Chinese"},
         {"code": "ja", "displayName": "日本語", "englishName": "Japanese"},
         {"code": "gl", "displayName": "Galego", "englishName": "Galician"},
-        {"code": "he", "displayName": "עברית", "englishName": "Hebrew"}
+        {"code": "he", "displayName": "עברית", "englishName": "Hebrew"},
+        {"code": "pl", "displayName": "Polski", "englishName": "Polish"},
+        {"code": "ko", "displayName": "한국어", "englishName": "Korean"},
+        {"code": "zh-HK", "displayName": "繁體中文（香港）", "englishName": "Traditional Chinese (Hong Kong)"}
     ]
 }
