@@ -449,8 +449,12 @@ func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 		}
 	}
 
-	if err := m.family4.UpdateSet(set, v4Prefixes); err != nil {
-		return err
+	// A set exists per family only once a rule of that family uses it, so skip a family with
+	// nothing to add rather than look up a set that may not be there.
+	if len(v4Prefixes) > 0 {
+		if err := m.family4.UpdateSet(set, v4Prefixes); err != nil {
+			return err
+		}
 	}
 
 	if m.hasIPv6() && len(v6Prefixes) > 0 {

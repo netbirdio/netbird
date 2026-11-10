@@ -1,10 +1,13 @@
 package acl
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +18,7 @@ import (
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/acl/id"
+	"github.com/netbirdio/netbird/client/internal/routemanager/common"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/netiputil"
@@ -38,7 +42,10 @@ type DefaultManager struct {
 	routeRules         map[id.RuleID]firewall.Rule
 	previousConfigHash uint64
 	hasAppliedConfig   bool
-	mutex              sync.Mutex
+	countryPrefixes    common.CountryPrefixesFunc
+	// unfilledCountryRules are country route rules whose set could not be filled yet.
+	unfilledCountryRules map[id.RuleID]struct{}
+	mutex                sync.Mutex
 }
 
 // peerRuleGroup collapses a set of single-source FirewallRules sharing
@@ -73,10 +80,18 @@ type peerRuleKey struct {
 
 func NewDefaultManager(fm firewall.Manager) *DefaultManager {
 	return &DefaultManager{
-		firewall:       fm,
-		peerRulesPairs: make(map[id.RuleID][]firewall.Rule),
-		routeRules:     make(map[id.RuleID]firewall.Rule),
+		firewall:             fm,
+		peerRulesPairs:       make(map[id.RuleID][]firewall.Rule),
+		routeRules:           make(map[id.RuleID]firewall.Rule),
+		unfilledCountryRules: make(map[id.RuleID]struct{}),
 	}
+}
+
+// SetCountryPrefixes sets how the prefixes matched by country route rules are fetched.
+func (d *DefaultManager) SetCountryPrefixes(fetch common.CountryPrefixesFunc) {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+	d.countryPrefixes = fetch
 }
 
 // ApplyFiltering firewall rules to the local firewall manager processed by ACL policy.
@@ -348,6 +363,7 @@ func (d *DefaultManager) applyPeerGroup(g *peerRuleGroup) (id.RuleID, []firewall
 
 func (d *DefaultManager) applyRouteACLs(rules []*mgmProto.RouteFirewallRule, dynamicResolver bool) error {
 	newRouteRules := make(map[id.RuleID]firewall.Rule, len(rules))
+	countryPrefixes := make(map[string][]netip.Prefix)
 	var merr *multierror.Error
 
 	// Apply new rules - firewall manager will return the existing rule if already present
@@ -360,6 +376,18 @@ func (d *DefaultManager) applyRouteACLs(rules []*mgmProto.RouteFirewallRule, dyn
 				merr = multierror.Append(merr, fmt.Errorf("add route rule: %w", err))
 			}
 			continue
+		}
+
+		if d.needsCountryFill(rule, addedRule.ID(), newRouteRules) {
+			if err := d.fillCountrySet(rule, countryPrefixes); err != nil {
+				// Kept tracked, so the next update retries the fill. A partly filled set makes an
+				// accept rule permit less, but a drop rule covers only its prefixes: best-effort by
+				// design, as with domain sets. Past the iptables cap of 65,536 the retry never fills.
+				d.unfilledCountryRules[addedRule.ID()] = struct{}{}
+				merr = multierror.Append(merr, fmt.Errorf("fill country set: %w", err))
+			} else {
+				delete(d.unfilledCountryRules, addedRule.ID())
+			}
 		}
 		newRouteRules[addedRule.ID()] = addedRule
 	}
@@ -377,7 +405,26 @@ func (d *DefaultManager) applyRouteACLs(rules []*mgmProto.RouteFirewallRule, dyn
 	}
 
 	d.routeRules = newRouteRules
+	for ruleID := range d.unfilledCountryRules {
+		if _, exists := newRouteRules[ruleID]; !exists {
+			delete(d.unfilledCountryRules, ruleID)
+		}
+	}
 	return nberrors.FormatErrorOrNil(merr)
+}
+
+// needsCountryFill reports whether a country rule's set still has to be filled: the rule is new
+// in the firewall, or an earlier fill failed. A rule repeated within one update is filled once.
+func (d *DefaultManager) needsCountryFill(rule *mgmProto.RouteFirewallRule, ruleID id.RuleID, thisUpdate map[id.RuleID]firewall.Rule) bool {
+	if len(rule.Countries) == 0 {
+		return false
+	}
+	if _, seen := thisUpdate[ruleID]; seen {
+		return false
+	}
+	_, applied := d.routeRules[ruleID]
+	_, unfilled := d.unfilledCountryRules[ruleID]
+	return !applied || unfilled
 }
 
 func (d *DefaultManager) applyRouteACL(rule *mgmProto.RouteFirewallRule, dynamicResolver bool) (firewall.Rule, error) {
@@ -647,8 +694,40 @@ func convertPortInfo(portInfo *mgmProto.PortInfo) *firewall.Port {
 	return nil
 }
 
+// fillCountrySet loads the prefixes of the rule's countries into the set the rule matches. The
+// backends keep a set per address family and the other family's set may not exist, so only the
+// family of the rule's sources is loaded. resolved caches the prefixes for this update.
+func (d *DefaultManager) fillCountrySet(rule *mgmProto.RouteFirewallRule, resolved map[string][]netip.Prefix) error {
+	key := strings.Join(rule.Countries, ",")
+	prefixes, ok := resolved[key]
+	if !ok {
+		var err error
+		prefixes, err = common.ResolveCountries(context.Background(), d.countryPrefixes, rule.Countries)
+		if err != nil {
+			return err
+		}
+		resolved[key] = prefixes
+	}
+
+	source, err := netip.ParsePrefix(rule.SourceRanges[0])
+	if err != nil {
+		return fmt.Errorf("parse source range: %w", err)
+	}
+	isV6 := firewall.UnmapPrefix(source).Addr().Is6()
+	familyPrefixes := slices.DeleteFunc(slices.Clone(prefixes), func(p netip.Prefix) bool {
+		return p.Addr().Is6() != isV6
+	})
+
+	return d.firewall.UpdateSet(firewall.NewCountrySet(rule.Countries), familyPrefixes)
+}
+
 func determineDestination(rule *mgmProto.RouteFirewallRule, dynamicResolver bool, sources []netip.Prefix) (firewall.Network, error) {
 	var destination firewall.Network
+
+	if len(rule.Countries) > 0 {
+		destination.Set = firewall.NewCountrySet(rule.Countries)
+		return destination, nil
+	}
 
 	if rule.IsDynamic {
 		if dynamicResolver {

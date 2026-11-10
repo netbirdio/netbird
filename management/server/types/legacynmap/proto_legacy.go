@@ -31,6 +31,7 @@ func ToProtocolRoute(route *nbroute.Route) *proto.Route {
 		NetID:         string(route.NetID),
 		Network:       route.Network.String(),
 		Domains:       route.Domains.ToPunycodeList(),
+		Countries:     route.Countries,
 		NetworkType:   int64(route.NetworkType),
 		Peer:          route.Peer,
 		Metric:        int64(route.Metric),

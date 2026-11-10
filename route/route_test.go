@@ -106,3 +106,25 @@ func TestExpandV6ExitPairs(t *testing.T) {
 		})
 	}
 }
+
+func TestCountryRoute(t *testing.T) {
+	r := &Route{
+		ID:          "r1",
+		NetID:       "us-exit",
+		Network:     netip.MustParsePrefix("192.0.2.0/32"),
+		NetworkType: CountryNetwork,
+		Countries:   []string{"US", "CA"},
+	}
+
+	assert.True(t, r.IsCountry(), "a country network type is a country route")
+	assert.False(t, r.IsDynamic(), "a country route is not a DNS route")
+	assert.Equal(t, "US, CA", r.NetString(), "NetString should list the countries, not the placeholder")
+	assert.Equal(t, HAUniqueID("us-exit|US, CA"), r.GetHAUniqueID(), "the HA ID should group routes by network ID and countries")
+	assert.Equal(t, CountryNetwork, ToPrefixType(r.NetworkType.String()), "the type should survive its string form")
+
+	copied := r.Copy()
+	assert.True(t, r.Equal(copied), "a copy should equal the original")
+	copied.Countries[0] = "DE"
+	assert.Equal(t, "US", r.Countries[0], "the copy must not share the countries slice")
+	assert.False(t, r.Equal(copied), "routes with different countries are not equal")
+}

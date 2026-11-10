@@ -667,13 +667,14 @@ func (c *NetworkMapComponents) getDefaultPermit(r *route.Route, includeIPv6 bool
 		Protocol:     string(PolicyRuleProtocolALL),
 		Domains:      r.Domains,
 		IsDynamic:    r.IsDynamic(),
+		Countries:    r.Countries,
 		RouteID:      r.ID,
 	}
 
 	rules := []*RouteFirewallRule{&rule}
 
 	isDefaultV4 := r.Network.Addr().Is4() && r.Network.Bits() == 0
-	if includeIPv6 && (r.IsDynamic() || isDefaultV4) {
+	if includeIPv6 && (r.IsDynamic() || r.IsCountry() || isDefaultV4) {
 		ruleV6 := rule
 		ruleV6.SourceRanges = []string{"::/0"}
 		if isDefaultV4 {
