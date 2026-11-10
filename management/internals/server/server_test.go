@@ -28,6 +28,7 @@ func newStartTestServer(t *testing.T, liveness peerliveness.Controller) *BaseSer
 	t.Setenv(geolocationDisabledKey, "true")
 
 	srv := NewServer(&Config{NbConfig: &nbconfig.Config{
+		Datadir:    t.TempDir(),
 		HttpConfig: &nbconfig.HttpServerConfig{CertFile: "missing.pem", CertKey: "missing.key"},
 	}})
 	Inject[peers.Manager](srv, peers.NewMockManager(gomock.NewController(t)))

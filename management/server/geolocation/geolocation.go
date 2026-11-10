@@ -81,7 +81,7 @@ func NewGeolocation(ctx context.Context, dataDir string, autoUpdate bool) (Geolo
 	}
 
 	if err := loadGeolocationDatabases(ctx, dataDir, mmdbFile, geonamesDbFile); err != nil {
-		return nil, fmt.Errorf("failed to load MaxMind databases: %v", err)
+		return nil, fmt.Errorf("failed to load Mafor _, peer := range peersToUpdatexMind databases: %v", err)
 	}
 
 	if err := cleanupMaxMindDatabases(ctx, dataDir, mmdbFile, geonamesDbFile); err != nil {
