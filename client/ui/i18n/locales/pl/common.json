@@ -8,6 +8,9 @@
     "tray.status.daemonUnavailable": {
         "message": "Nie działa"
     },
+    "tray.status.daemonAccessDenied": {
+        "message": "Brak dostępu"
+    },
     "tray.status.error": {
         "message": "Błąd"
     },
@@ -30,19 +33,19 @@
         "message": "Sesja wygaśnie za {remaining}"
     },
     "tray.session.unit.lessThanMinute": {
-        "message": "w mniej niż minutę"
+        "message": "mniej niż minutę"
     },
     "tray.session.unit.minute": {
         "message": "1 minutę"
     },
     "tray.session.unit.minutes": {
-        "message": "{count} minut"
+        "message": "{count} min"
     },
     "tray.session.unit.hour": {
         "message": "1 godzinę"
     },
     "tray.session.unit.hours": {
-        "message": "{count} godzin"
+        "message": "{count} godz."
     },
     "tray.session.unit.day": {
         "message": "1 dzień"
@@ -630,7 +633,7 @@
         "message": "Włącz DNS"
     },
     "settings.network.dns.help": {
-        "message": "Stosuj ustawienia DNS zarządzane przez NetBird w systemowym resolverze."
+        "message": "Stosuj ustawienia DNS zarządzane przez NetBird w systemowym mechanizmie rozpoznawania nazw."
     },
     "settings.network.clientRoutes.label": {
         "message": "Włącz trasy klienckie"
@@ -673,6 +676,9 @@
     },
     "settings.security.rosenpass.help": {
         "message": "Dodaj postkwantową wymianę kluczy przez Rosenpass jako warstwę nad WireGuard®."
+    },
+    "settings.security.rosenpass.deprecated": {
+        "message": "Przestarzałe: obsługa Rosenpass może zostać usunięta w przyszłej wersji."
     },
     "settings.security.rosenpassPermissive.label": {
         "message": "Włącz tryb zezwalający"
@@ -1331,6 +1337,12 @@
     "daemon.unavailable.docsLink": {
         "message": "Dokumentacja"
     },
+    "daemon.accessDenied.title": {
+        "message": "Brak dostępu do usługi NetBird"
+    },
+    "daemon.accessDenied.description": {
+        "message": "Administrator ograniczył usługę NetBird na tym urządzeniu do wybranych użytkowników lub grup, a Twoje konto do nich nie należy. Skontaktuj się z administratorem, aby uzyskać dostęp."
+    },
     "daemon.outdated.title": {
         "message": "Klient NetBird jest nieaktualny"
     },
@@ -1361,6 +1373,9 @@
     "error.daemon_unreachable": {
         "message": "Demon NetBird nie odpowiada. Sprawdź, czy usługa działa."
     },
+    "error.daemon_access_denied": {
+        "message": "Twoje konto nie ma uprawnień do korzystania z usługi NetBird na tym urządzeniu. Skontaktuj się z administratorem, aby uzyskać dostęp."
+    },
     "error.settings_locked": {
         "message": "Nie można zmienić ustawień na tym urządzeniu: administrator zablokował je."
     },
@@ -1368,7 +1383,7 @@
         "message": "To ustawienie jest zarządzane przez Twoją organizację i nie może być zmienione."
     },
     "error.unknown": {
-        "message": "Operacja nie powiodła się."
+        "message": "Operacja się nie powiodła."
     },
     "error.elevation_unavailable": {
         "message": "NetBird nie może poprosić systemu o uprawnienia wymagane do wprowadzenia tej zmiany. Zamiast tego uruchom:"
@@ -1377,10 +1392,10 @@
         "message": "Nie udało się zastosować zmiany z podwyższonymi uprawnieniami. Zamiast tego uruchom:"
     },
     "settings.ssh.privilege.actorRoot": {
-        "message": "uprawnienia użytkownika root"
+        "message": "Uprawnienia użytkownika root"
     },
     "settings.ssh.privilege.actorAdministrator": {
-        "message": "uprawnienia administratora"
+        "message": "Uprawnienia administratora"
     },
     "settings.ssh.privilege.hint": {
         "message": "Wymagane są {actor}. Zamiast tego uruchom:"
@@ -1393,5 +1408,23 @@
     },
     "settings.ssh.privilege.authorizePending": {
         "message": "Oczekiwanie na autoryzację…"
+    },
+    "profile.ownedByAnother.name": {
+        "message": "Inny użytkownik"
+    },
+    "profile.ownedByAnother.hint": {
+        "message": "Aktywny profil należy do innego użytkownika. Tylko jego właściciel może go zmienić lub rozłączyć."
+    },
+    "error.privilege_required": {
+        "message": "Ta czynność wymaga podwyższonych uprawnień."
+    },
+    "error.session_held": {
+        "message": "Inny użytkownik ma połączenie na tym komputerze."
+    },
+    "error.not_profile_owner": {
+        "message": "Ten profil należy do innego użytkownika."
+    },
+    "error.profile_unowned": {
+        "message": "Ten profil nie ma jeszcze właściciela."
     }
 }
