@@ -5,10 +5,13 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/shared/testhb"
 )
 
 const (
-	defaultHeartbeatTimeout = defaultHealthCheckInterval + 10*time.Second
+	heartbeatMargin         = 10 * time.Second
+	defaultHeartbeatTimeout = defaultHealthCheckInterval + heartbeatMargin
 )
 
 type ReceiverOptions struct {
@@ -33,10 +36,20 @@ type Receiver struct {
 // NewReceiver creates a new healthcheck receiver and start the timer in the background
 func NewReceiver(log *log.Entry) *Receiver {
 	opts := ReceiverOptions{
-		HeartbeatTimeout: defaultHeartbeatTimeout,
+		HeartbeatTimeout: heartbeatTimeoutFromEnv(),
 		AttemptThreshold: getAttemptThresholdFromEnv(),
 	}
 	return NewReceiverWithOpts(log, opts)
+}
+
+// heartbeatTimeoutFromEnv returns the default timeout, or the test heartbeat
+// period plus the margin when the client asks the server for a longer period.
+func heartbeatTimeoutFromEnv() time.Duration {
+	period, ok := testhb.ClientPeriod()
+	if !ok {
+		return defaultHeartbeatTimeout
+	}
+	return max(defaultHeartbeatTimeout, period+heartbeatMargin)
 }
 
 func NewReceiverWithOpts(log *log.Entry, opts ReceiverOptions) *Receiver {

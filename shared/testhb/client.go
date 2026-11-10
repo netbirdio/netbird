@@ -80,6 +80,28 @@ func ClientPhase() (phase, period time.Duration, ok bool) {
 	return time.Duration(s.phaseMs) * time.Millisecond, time.Duration(s.periodSec) * time.Second, true
 }
 
+// ClientPeriod returns the heartbeat period the client asks for. ok is false
+// when the switch is off.
+func ClientPeriod() (time.Duration, bool) {
+	if !dynamicEnabled(os.Getenv(EnvDynamic)) {
+		return 0, false
+	}
+	return time.Duration(periodSecFromEnv(os.Getenv)) * time.Second, true
+}
+
+func periodSecFromEnv(getenv func(string) string) int64 {
+	v := getenv(EnvPeriod)
+	if v == "" {
+		return defaultPeriodSec
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || n <= 0 {
+		log.Warnf("invalid %s %q, using %d", EnvPeriod, v, defaultPeriodSec)
+		return defaultPeriodSec
+	}
+	return n
+}
+
 func (s schedule) value(now time.Time) string {
 	return fmt.Sprintf("p=%d;period=%d;t=%d", s.phaseMs, s.periodSec, now.UnixMilli())
 }
@@ -88,15 +110,7 @@ func scheduleFromEnv(getenv func(string) string, pubKey string) (schedule, bool)
 	if !dynamicEnabled(getenv(EnvDynamic)) {
 		return schedule{}, false
 	}
-	period := int64(defaultPeriodSec)
-	if v := getenv(EnvPeriod); v != "" {
-		n, err := strconv.ParseInt(v, 10, 64)
-		if err != nil || n <= 0 {
-			log.Warnf("invalid %s %q, using %d", EnvPeriod, v, defaultPeriodSec)
-		} else {
-			period = n
-		}
-	}
+	period := periodSecFromEnv(getenv)
 	periodMs := period * 1000
 
 	if v := getenv(EnvPhase); v != "" {

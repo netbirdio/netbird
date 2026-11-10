@@ -6,6 +6,8 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/shared/testhb"
 )
 
 func TestNewReceiver(t *testing.T) {
@@ -93,6 +95,30 @@ func TestReceiverHealthCheckAttemptThreshold(t *testing.T) {
 					return
 				}
 				t.Fatalf("should have timed out before %s", testTimeout)
+			}
+		})
+	}
+}
+
+func TestHeartbeatTimeoutFromEnv(t *testing.T) {
+	tests := []struct {
+		name    string
+		dynamic string
+		period  string
+		want    time.Duration
+	}{
+		{name: "stock", want: defaultHeartbeatTimeout},
+		{name: "period without the switch", period: "60", want: defaultHeartbeatTimeout},
+		{name: "short period keeps the default", dynamic: "1", period: "20", want: defaultHeartbeatTimeout},
+		{name: "default test period", dynamic: "1", want: 40 * time.Second},
+		{name: "60 s period", dynamic: "1", period: "60", want: 70 * time.Second},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(testhb.EnvDynamic, tc.dynamic)
+			t.Setenv(testhb.EnvPeriod, tc.period)
+			if got := heartbeatTimeoutFromEnv(); got != tc.want {
+				t.Errorf("heartbeatTimeoutFromEnv() = %s, want %s", got, tc.want)
 			}
 		})
 	}
