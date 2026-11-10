@@ -26,6 +26,7 @@ const (
 	handlerTypeDynamic = iota
 	handlerTypeDnsInterceptor
 	handlerTypeStatic
+	handlerTypeCountry
 )
 
 const (
@@ -1163,12 +1164,18 @@ func HandlerFromRoute(params common.HandlerParams) RouteHandler {
 		dns := nbdns.NewServiceViaMemory(params.WgInterface)
 		dnsAddr := netip.AddrPortFrom(dns.RuntimeIP(), uint16(dns.RuntimePort()))
 		return dynamic.NewRoute(params, dnsAddr)
+	case handlerTypeCountry:
+		return static.NewCountryRoute(params)
 	default:
 		return static.NewRoute(params)
 	}
 }
 
 func handlerType(rt *route.Route, useNewDNSRoute bool) int {
+	if rt.IsCountry() {
+		return handlerTypeCountry
+	}
+
 	if !rt.IsDynamic() {
 		return handlerTypeStatic
 	}
