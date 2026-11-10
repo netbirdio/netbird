@@ -9,7 +9,7 @@ then
 fi
 
 old_pwd=$(pwd)
-script_path=$(dirname $(realpath "$0"))
+script_path=$(dirname "$(realpath "$0")")
 cd "$script_path"
 go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.26
 go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.1
