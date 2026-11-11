@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -16,7 +17,8 @@ func markFlagRequires(cmd *cobra.Command, flag, required string) {
 	if f == nil {
 		panic(fmt.Sprintf("mark flag %q as requiring %q: flag not defined", flag, required))
 	}
-	requirements := append(f.Annotations[requiresFlagAnnotation], required)
+	requirements := slices.Clone(f.Annotations[requiresFlagAnnotation])
+	requirements = append(requirements, required)
 	if err := cmd.Flags().SetAnnotation(flag, requiresFlagAnnotation, requirements); err != nil {
 		panic(fmt.Sprintf("mark flag %q as requiring %q: %v", flag, required, err))
 	}
