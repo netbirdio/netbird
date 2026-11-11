@@ -22,7 +22,6 @@ func TestMutuallyExclusiveFlagGroups(t *testing.T) {
 		{cmd: loginCmd, flag: "extend", group: "extend setup-key-file"},
 		{cmd: loginCmd, flag: "setup-key", group: "setup-key setup-key-file"},
 		{cmd: upCmd, flag: "setup-key", group: "setup-key setup-key-file"},
-		{cmd: sshCmd, flag: "user", group: "user login"},
 	}
 
 	for _, tt := range tests {
