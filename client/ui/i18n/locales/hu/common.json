@@ -8,6 +8,9 @@
     "tray.status.daemonUnavailable": {
         "message": "Nem fut"
     },
+    "tray.status.daemonAccessDenied": {
+        "message": "Nincs hozzáférés"
+    },
     "tray.status.error": {
         "message": "Hiba"
     },
@@ -674,6 +677,9 @@
     "settings.security.rosenpass.help": {
         "message": "Post-kvantum kulcscsere hozzáadása Rosenpass segítségével a WireGuard® tetejére."
     },
+    "settings.security.rosenpass.deprecated": {
+        "message": "Elavult: a Rosenpass támogatása egy későbbi kiadásban megszűnhet."
+    },
     "settings.security.rosenpassPermissive.label": {
         "message": "Engedékeny mód engedélyezése"
     },
@@ -1331,6 +1337,12 @@
     "daemon.unavailable.docsLink": {
         "message": "Dokumentáció"
     },
+    "daemon.accessDenied.title": {
+        "message": "Nincs hozzáférés a NetBird szolgáltatáshoz"
+    },
+    "daemon.accessDenied.description": {
+        "message": "A rendszergazda ezen az eszközön kiválasztott felhasználókra vagy csoportokra korlátozta a NetBird szolgáltatást, és az Ön fiókja nincs köztük. A hozzáférésért forduljon a rendszergazdához."
+    },
     "daemon.outdated.title": {
         "message": "A NetBird Kliens elavult"
     },
@@ -1360,6 +1372,9 @@
     },
     "error.daemon_unreachable": {
         "message": "A NetBird szolgáltatás nem válaszol. Kérjük, ellenőrizze, hogy fut-e a szolgáltatás."
+    },
+    "error.daemon_access_denied": {
+        "message": "Az Ön fiókja nem használhatja a NetBird szolgáltatást ezen az eszközön. A hozzáférésért forduljon a rendszergazdához."
     },
     "error.settings_locked": {
         "message": "A beállítások ezen az eszközön nem módosíthatók: egy rendszergazda zárolta őket."
@@ -1411,17 +1426,5 @@
     },
     "error.profile_unowned": {
         "message": "Ennek a profilnak még nincs tulajdonosa."
-    },
-    "tray.status.daemonAccessDenied": {
-        "message": "Nincs hozzáférés"
-    },
-    "daemon.accessDenied.title": {
-        "message": "Nincs hozzáférés a NetBird szolgáltatáshoz"
-    },
-    "daemon.accessDenied.description": {
-        "message": "A rendszergazda ezen az eszközön kiválasztott felhasználókra vagy csoportokra korlátozta a NetBird szolgáltatást, és az Ön fiókja nincs köztük. A hozzáférésért forduljon a rendszergazdához."
-    },
-    "error.daemon_access_denied": {
-        "message": "Az Ön fiókja nem használhatja a NetBird szolgáltatást ezen az eszközön. A hozzáférésért forduljon a rendszergazdához."
     }
 }

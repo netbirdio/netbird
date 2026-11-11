@@ -30,13 +30,13 @@ func NewStore() *Store {
 // Returns true if the peer was replaced, false if it was added for the first time.
 func (s *Store) AddPeer(peer IPeer) bool {
 	s.peersLock.Lock()
-	defer s.peersLock.Unlock()
-	odlPeer, ok := s.peers[peer.ID()]
-	if ok {
-		odlPeer.Close()
-	}
-
+	oldPeer, ok := s.peers[peer.ID()]
 	s.peers[peer.ID()] = peer
+	s.peersLock.Unlock()
+
+	if ok {
+		oldPeer.Close()
+	}
 	return ok
 }
 
