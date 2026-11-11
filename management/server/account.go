@@ -25,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/formatter/hook"
 	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/account"
@@ -85,6 +86,7 @@ type DefaultAccountManager struct {
 
 	settingsManager settings.Manager
 	serviceManager  service.Manager
+	peerLiveness    peerliveness.Controller
 
 	// config contains the management server configuration
 	config *nbconfig.Config
@@ -228,6 +230,7 @@ func BuildManager(
 	permissionsManager permissions.Manager,
 	disableDefaultPolicy bool,
 	sharedCacheStore cacheStore.StoreInterface,
+	peerLiveness peerliveness.Controller,
 ) (*DefaultAccountManager, error) {
 	start := time.Now()
 	defer func() {
@@ -254,6 +257,7 @@ func BuildManager(
 		settingsManager:          settingsManager,
 		permissionsManager:       permissionsManager,
 		disableDefaultPolicy:     disableDefaultPolicy,
+		peerLiveness:             peerLiveness,
 	}
 
 	am.certChallenges = newCertChallengeRefresher(am.refreshCertificateChallenges)
@@ -1012,6 +1016,7 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 		log.WithContext(ctx).Errorf("failed deleting account %s. error: %s", accountID, err)
 		return err
 	}
+	am.peerLiveness.ForgetAccount(account.Id)
 	am.peerLoginExpiry.Cancel(ctx, []string{account.Id})
 	am.peerInactivityExpiry.Cancel(ctx, []string{account.Id})
 	am.certChallenges.Forget(account.Id)
@@ -2046,27 +2051,15 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID 
 	return peer, netMap, postureChecks, dnsfwdPort, nil
 }
 
-// OnPeerDisconnected is invoked when a sync stream ends. It marks the
-// peer disconnected only when the stored SessionStartedAt matches the
-// nanosecond token derived from streamStartTime — i.e. only when this
-// is the stream that currently owns the peer's session. A mismatch
-// means a newer stream has already replaced us, so the disconnect is
-// dropped.
+// OnPeerDisconnected is invoked when a sync stream ends. It releases the
+// peer's connection only when the stored session matches the nanosecond
+// token derived from streamStartTime — i.e. only when this is the stream
+// that currently owns the peer's session. A mismatch means a newer stream
+// has already replaced us, so the disconnect is dropped.
 func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string, streamStartTime time.Time) error {
 	if err := am.MarkPeerDisconnected(ctx, peerPubKey, accountID, streamStartTime.UnixNano()); err != nil {
 		log.WithContext(ctx).Warnf("failed marking peer as disconnected %s %v", peerPubKey, err)
 	}
-	return nil
-}
-
-// MarkPeersDisconnected marks the peers of the given sessions disconnected in batched writes,
-// skipping every peer whose stored session differs from the given one.
-func (am *DefaultAccountManager) MarkPeersDisconnected(ctx context.Context, sessions []types.PeerSession) error {
-	marked, err := am.Store.MarkPeersDisconnectedIfSameSession(ctx, sessions)
-	if err != nil {
-		return fmt.Errorf("mark peers disconnected: %w", err)
-	}
-	log.WithContext(ctx).Infof("marked %d of %d peers as disconnected", marked, len(sessions))
 	return nil
 }
 

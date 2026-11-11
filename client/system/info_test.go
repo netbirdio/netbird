@@ -36,6 +36,19 @@ func Test_CustomHostname(t *testing.T) {
 	assert.Equal(t, want, got.Hostname)
 }
 
+func Test_EmptyCustomHostnameFallsBackToSystem(t *testing.T) {
+	// Callers such as the embedded client always set the key, empty when no
+	// name was configured. Management rejects an empty hostname at
+	// registration, so the system name has to be used instead.
+	// nolint
+	ctx := context.WithValue(context.Background(), DeviceNameCtxKey, "")
+
+	got := GetInfo(ctx)
+	assert.Equal(t, GetInfo(context.Background()).Hostname, got.Hostname,
+		"an empty device name should fall back to the system hostname")
+	assert.NotEmpty(t, got.Hostname, "hostname reported to management must not be empty")
+}
+
 func TestGetInfoWithChecksTimeout_Success(t *testing.T) {
 	info, ok := GetInfoWithChecksTimeout(context.Background(), 30*time.Second, nil)
 	assert.True(t, ok, "expected gathering to complete within the timeout")

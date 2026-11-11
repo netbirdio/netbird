@@ -12,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 )
 
 func TestInvokingUserFallsBackToProcessUser(t *testing.T) {
@@ -295,4 +297,22 @@ func assertNoEntries(t *testing.T, root string) {
 		return nil
 	})
 	require.NoError(t, err)
+}
+
+// A foreground up or login only knows the active profile's ID. A profile created
+// since the ID-keyed layout lives in the shared directory, so the path has to
+// come from where the profile actually is.
+func TestProfileFilePathFindsSharedDirectoryProfile(t *testing.T) {
+	withTestSM(t, func(sm *ServiceManager, id ipcauth.Identity) {
+		origOverride := ConfigDirOverride
+		ConfigDirOverride = ""
+		t.Cleanup(func() { ConfigDirOverride = origOverride })
+
+		created, err := sm.AddProfile("work", &id)
+		require.NoError(t, err)
+
+		got, err := (&Profile{ID: created.ID}).FilePath()
+		require.NoError(t, err)
+		assert.Equal(t, created.Path, got, "the path must be the profile's own file")
+	})
 }

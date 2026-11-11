@@ -121,6 +121,7 @@ func (m *managerImpl) UpdateRecord(ctx context.Context, accountID, userID, zoneI
 	var record *records.Record
 	var snap *affectedpeers.Snapshot
 	var change affectedpeers.Change
+	var unchanged bool
 
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		zone, err = transaction.GetZoneByID(ctx, store.LockingStrengthUpdate, accountID, zoneID)
@@ -134,6 +135,10 @@ func (m *managerImpl) UpdateRecord(ctx context.Context, accountID, userID, zoneI
 		}
 
 		hasChanges := record.Name != updatedRecord.Name || record.Type != updatedRecord.Type || record.Content != updatedRecord.Content
+		if !hasChanges && record.TTL == updatedRecord.TTL {
+			unchanged = true
+			return nil
+		}
 
 		record.Name = updatedRecord.Name
 		record.Type = updatedRecord.Type
@@ -168,6 +173,10 @@ func (m *managerImpl) UpdateRecord(ctx context.Context, accountID, userID, zoneI
 
 	meta := record.EventMeta(zone.ID, zone.Name)
 	m.accountManager.StoreEvent(ctx, userID, record.ID, accountID, activity.DNSRecordUpdated, meta)
+
+	if unchanged {
+		return record, nil
+	}
 
 	m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 

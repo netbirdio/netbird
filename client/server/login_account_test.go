@@ -152,6 +152,7 @@ func TestLogin_ProfileSwitchDropsAccountPromptAndPendingFlow(t *testing.T) {
 	_, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath:    otherPath,
 		ManagementURL: "https://api.netbird.io:443",
+		Owner:         testProfileOwner(),
 	})
 	require.NoError(t, err)
 	breakProfilePrivateKey(t, otherPath)
@@ -170,7 +171,7 @@ func TestLogin_ProfileSwitchDropsAccountPromptAndPendingFlow(t *testing.T) {
 
 	generation := s.jwtCache.currentGeneration()
 
-	_, err = s.Login(userCtx(), &proto.LoginRequest{ProfileName: &other, Username: &username})
+	_, err = s.Login(withTarget(userCtx(), otherPath), &proto.LoginRequest{ProfileName: &other, Username: &username})
 	require.Error(t, err, "the broken key must stop the login before a flow is built")
 
 	active, err := s.profileManager.GetActiveProfileState()
@@ -197,9 +198,11 @@ func TestLogin_ProfileSwitchRejectsJWTObtainedUnderPreviousConfig(t *testing.T) 
 	}
 
 	other := "other-profile"
+	otherPath := filepath.Join(filepath.Dir(cfgPath), other+".json")
 	_, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
-		ConfigPath:    filepath.Join(filepath.Dir(cfgPath), other+".json"),
+		ConfigPath:    otherPath,
 		ManagementURL: "https://api.netbird.io:443",
+		Owner:         testProfileOwner(),
 	})
 	require.NoError(t, err)
 
@@ -212,7 +215,7 @@ func TestLogin_ProfileSwitchRejectsJWTObtainedUnderPreviousConfig(t *testing.T) 
 	fetcher := &jwtStoringMDMFetcher{cache: s.jwtCache, caller: unprivilegedIdentity()}
 	s.mdmLoader = mdm.NewLoader(fetcher)
 
-	_, err = s.Login(userCtx(), &proto.LoginRequest{ProfileName: &other, Username: &username})
+	_, err = s.Login(withTarget(userCtx(), otherPath), &proto.LoginRequest{ProfileName: &other, Username: &username})
 	require.Error(t, err)
 
 	require.Greater(t, fetcher.generation, generation, "the token was not cached after the switch dropped the previous profile's state")

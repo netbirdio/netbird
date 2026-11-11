@@ -118,6 +118,7 @@ func (s *SqlStore) GetResourceGroups(ctx context.Context, lockStrength LockingSt
 
 	result := tx.
 		Preload(clause.Associations).
+		Where(accountIDCondition, accountID).
 		Where("resources LIKE ?", likePattern).
 		Find(&groups)
 

@@ -586,7 +586,7 @@ func (c *GrpcClient) IsHealthy() bool {
 
 func (c *GrpcClient) login(req *proto.LoginRequest) (*proto.LoginResponse, error) {
 	if !c.ready() {
-		return nil, errors.New(errMsgNoMgmtConnection)
+		return nil, gstatus.Error(codes.Unavailable, errMsgNoMgmtConnection)
 	}
 
 	serverKey, err := c.getServerPublicKey()
@@ -1056,6 +1056,7 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 		SysSerialNumber:  info.SystemSerialNumber,
 		SysManufacturer:  info.SystemManufacturer,
 		SysProductName:   info.SystemProductName,
+		SysHardwareUUID:  info.SystemHardwareUUID,
 		Environment: &proto.Environment{
 			Cloud:    info.Environment.Cloud,
 			Platform: info.Environment.Platform,

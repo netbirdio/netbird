@@ -15,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/version"
 )
 
 var (
@@ -100,6 +101,34 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	if resp.GetFullStatus() == nil {
+		output := nbstatus.OutputOverview{
+			DaemonVersion: resp.GetDaemonVersion(),
+			CliVersion:    version.NetbirdVersion(),
+			DaemonStatus:  nbstatus.DaemonStatus(status),
+		}
+		var outputString string
+		var err error
+		switch {
+		case jsonFlag:
+			outputString, err = output.JSON()
+		case yamlFlag:
+			outputString, err = output.YAML()
+		default:
+			outputString = fmt.Sprintf("Daemon status: %s\n"+
+				"Daemon version: %s\nCLI version: %s\n\n"+
+				"Detailed status is unavailable: the connection belongs to another user.\n",
+				status, resp.GetDaemonVersion(), version.NetbirdVersion())
+		}
+
+		if err != nil {
+			return err
+		}
+
+		cmd.Print(outputString)
+		return nil
+	}
+
 	if ipv4Flag {
 		cmd.Print(parseInterfaceIP(resp.GetFullStatus().GetLocalPeerState().GetIP()))
 		return nil
@@ -167,10 +196,7 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 func getStatus(ctx context.Context, fullPeerStatus bool, shouldRunProbes bool) (*proto.StatusResponse, error) {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
-		//nolint
-		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
-			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
+		return nil, daemonConnectError(err)
 	}
 	defer conn.Close()
 

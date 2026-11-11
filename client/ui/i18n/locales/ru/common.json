@@ -8,6 +8,9 @@
     "tray.status.daemonUnavailable": {
         "message": "Не запущено"
     },
+    "tray.status.daemonAccessDenied": {
+        "message": "Нет доступа"
+    },
     "tray.status.error": {
         "message": "Ошибка"
     },
@@ -674,6 +677,9 @@
     "settings.security.rosenpass.help": {
         "message": "Добавить постквантовый обмен ключами через Rosenpass поверх WireGuard®."
     },
+    "settings.security.rosenpass.deprecated": {
+        "message": "Устаревший: поддержка Rosenpass может быть удалена в будущем релизе."
+    },
     "settings.security.rosenpassPermissive.label": {
         "message": "Включить разрешающий режим"
     },
@@ -1331,6 +1337,12 @@
     "daemon.unavailable.docsLink": {
         "message": "Документация"
     },
+    "daemon.accessDenied.title": {
+        "message": "Нет доступа к службе NetBird"
+    },
+    "daemon.accessDenied.description": {
+        "message": "Администратор ограничил доступ к службе NetBird на этом устройстве выбранными пользователями или группами, и ваша учётная запись в их число не входит. Обратитесь к администратору за доступом."
+    },
     "daemon.outdated.title": {
         "message": "Клиент NetBird устарел"
     },
@@ -1360,6 +1372,9 @@
     },
     "error.daemon_unreachable": {
         "message": "Демон NetBird не отвечает. Проверьте, запущена ли служба."
+    },
+    "error.daemon_access_denied": {
+        "message": "Вашей учётной записи не разрешено использовать службу NetBird на этом устройстве. Обратитесь к администратору за доступом."
     },
     "error.settings_locked": {
         "message": "Настройки на этом устройстве изменить нельзя: администратор заблокировал их."
@@ -1393,5 +1408,23 @@
     },
     "settings.ssh.privilege.authorizePending": {
         "message": "Ожидание авторизации…"
+    },
+    "profile.ownedByAnother.name": {
+        "message": "Другой пользователь"
+    },
+    "profile.ownedByAnother.hint": {
+        "message": "Активный профиль принадлежит другому пользователю. Изменить его или отключить может только владелец."
+    },
+    "error.privilege_required": {
+        "message": "Для этого действия нужны повышенные права."
+    },
+    "error.session_held": {
+        "message": "Другой пользователь подключил эту машину."
+    },
+    "error.not_profile_owner": {
+        "message": "Этот профиль принадлежит другому пользователю."
+    },
+    "error.profile_unowned": {
+        "message": "У этого профиля пока нет владельца."
     }
 }

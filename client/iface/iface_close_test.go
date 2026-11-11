@@ -4,9 +4,14 @@ package iface
 
 import (
 	"errors"
+	"net"
+	"os"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/iface/device"
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
@@ -116,3 +121,50 @@ func TestWGIface_CloseReleasesMutexBeforeTunClose(t *testing.T) {
 		t.Fatal("WGIface.Close() never returned after the tun was unblocked")
 	}
 }
+
+// TestWGIface_CloseKeepsOSOwnedInterface covers iOS, where the utun belongs to the
+// NEPacketTunnelProvider session and Go closes only its dup of the fd. The interface
+// stays up, so waiting for its removal ran into the 5 s timeout on every engine stop
+// and then failed on "ifconfig destroy", which the iOS sandbox does not allow.
+func TestWGIface_CloseKeepsOSOwnedInterface(t *testing.T) {
+	// Without the fix Close tries to destroy the interface after the timeout. The
+	// test uses the loopback interface as the one that stays up, so never run it
+	// as root.
+	if os.Geteuid() == 0 {
+		t.Skip("must not run as root")
+	}
+
+	ifaces, err := net.Interfaces()
+	require.NoError(t, err)
+	var name string
+	for _, i := range ifaces {
+		if i.Flags&net.FlagLoopback != 0 {
+			name = i.Name
+			break
+		}
+	}
+	require.NotEmpty(t, name, "test needs a loopback interface that stays up")
+
+	w := &WGIface{
+		tun:            &osOwnedTunDevice{name: name},
+		tunOwnedByOS:   true,
+		wgProxyFactory: fakeProxyFactory{},
+	}
+
+	start := time.Now()
+	err = w.Close()
+	elapsed := time.Since(start)
+
+	assert.NoError(t, err, "Close must not try to remove an interface the OS owns")
+	assert.Less(t, elapsed, time.Second, "Close must not wait for an interface the OS owns to go away")
+}
+
+// osOwnedTunDevice closes at once and reports the name of an interface that
+// stays up after Close.
+type osOwnedTunDevice struct {
+	fakeTunDevice
+	name string
+}
+
+func (d *osOwnedTunDevice) DeviceName() string { return d.name }
+func (d *osOwnedTunDevice) Close() error       { return nil }
