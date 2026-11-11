@@ -580,4 +580,9 @@ func init() {
 	forCmd.Flags().AddFlagSet(anonymizeFlags)
 	forCmd.Flags().Bool("capture", false, "Capture packets during the debug duration and include in bundle")
 	forCmd.Flags().Bool(noUpDownFlag, false, "Keep the daemon running instead of bringing it down and up before collecting. The bundle only includes the network map if a sync arrives during the run")
+
+	for _, cmd := range []*cobra.Command{debugBundleCmd, forCmd} {
+		markFlagRequires(cmd, "upload-bundle-url", "upload-bundle")
+		markFlagRequires(cmd, "upload-bundle-insecure", "upload-bundle")
+	}
 }
