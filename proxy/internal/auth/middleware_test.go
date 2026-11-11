@@ -370,12 +370,13 @@ func TestProtect_PrivateService_TunnelPeerGroupsPropagate(t *testing.T) {
 }
 
 // TestProtect_PrivateService_TunnelPeerDenied verifies the deny path: when
-// ValidateTunnelPeer rejects the peer, a Private service 403s and never reaches
+// ValidateTunnelPeer rejects the peer, a Private service refuses and never reaches
 // the upstream handler (no fall-through to unauthenticated pass-through).
 func TestProtect_PrivateService_TunnelPeerDenied(t *testing.T) {
 	validator := &stubTunnelValidator{resp: &proto.ValidateTunnelPeerResponse{
-		Valid:        false,
-		DeniedReason: "not_in_group",
+		Valid:            false,
+		DeniedReason:     "not_in_group",
+		HasPrivateAccess: true,
 	}}
 	mw := NewMiddleware(log.StandardLogger(), validator, nil)
 	kp := generateTestKeyPair(t)
@@ -398,7 +399,7 @@ func TestProtect_PrivateService_TunnelPeerDenied(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	assert.Equal(t, http.StatusForbidden, rec.Code, "private service must 403 when the tunnel peer is rejected")
+	assert.Equal(t, http.StatusForbidden, rec.Code, "private service must 403 a rejected peer with other private access")
 	assert.False(t, reached, "denied private request must not reach the upstream handler")
 }
 

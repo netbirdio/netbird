@@ -34,14 +34,14 @@ func serveProtected(t *testing.T, mw *Middleware, clientIP netip.Addr, callerAcc
 
 // TestPrivateDenyIsAttributedToAuth covers a peer the private gateway refuses:
 // before, denyPrivate set no origin and the access log reported the proxy's
-// own 403 as the provider's.
+// own refusal as the provider's.
 func TestPrivateDenyIsAttributedToAuth(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 	require.NoError(t, mw.AddDomain(testServerHost, nil, "", 0, "acct-1", "svc-1", nil, true, nil, WithAgentNetwork(true, false)))
 
 	rec, cd := serveProtected(t, mw, testTunnelIP, "")
 
-	assert.Equal(t, http.StatusForbidden, rec.Code, "an unvalidated tunnel peer must be refused")
+	assert.Equal(t, http.StatusNotFound, rec.Code, "a caller outside the overlay must be refused with 404")
 	assert.Equal(t, proxy.OriginAuth, cd.GetOrigin(), "the proxy's own refusal is an auth rejection")
 	assert.True(t, cd.GetAgentNetwork(), "the rejection is logged as an agent-network request")
 }
@@ -72,7 +72,7 @@ func TestCrossAccountDenyIsNotAgentNetwork(t *testing.T) {
 
 	rec, cd := serveProtected(t, mw, testTunnelIP, "acct-other")
 
-	assert.Equal(t, http.StatusForbidden, rec.Code, "a request from another account must be refused")
+	assert.Equal(t, http.StatusNotFound, rec.Code, "a request from another account must be refused with 404")
 	assert.Equal(t, proxy.OriginAuth, cd.GetOrigin(), "the refusal is still the proxy's")
 	assert.False(t, cd.GetAgentNetwork(), "another account's request is not this gateway's agent-network traffic")
 }

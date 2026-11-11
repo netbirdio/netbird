@@ -183,3 +183,25 @@ func hostNoPort(url string) string {
 	}
 	return host
 }
+
+// TestAuthRefused keeps a private service's 404 and 503 refusals out of the
+// successful-auth count, while the same statuses from a backend stay neutral.
+func TestAuthRefused(t *testing.T) {
+	tests := []struct {
+		status int
+		origin proxy.ResponseOrigin
+		want   bool
+	}{
+		{http.StatusUnauthorized, proxy.OriginAuth, true},
+		{http.StatusForbidden, proxy.OriginBackend, true},
+		{http.StatusNotFound, proxy.OriginAuth, true},
+		{http.StatusServiceUnavailable, proxy.OriginAuth, true},
+		{http.StatusNotFound, proxy.OriginBackend, false},
+		{http.StatusNotFound, proxy.OriginNoRoute, false},
+		{http.StatusServiceUnavailable, proxy.OriginProxyError, false},
+		{http.StatusOK, proxy.OriginAuth, false},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, authRefused(tt.status, tt.origin), "status %d from %s", tt.status, tt.origin)
+	}
+}

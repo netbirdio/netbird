@@ -313,7 +313,7 @@ func TestPrivateService_FailsClosedOnTunnelPeerFailure(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Equal(t, http.StatusNotFound, w.Code)
 	assert.False(t, called)
 }
 
