@@ -33,7 +33,9 @@ func init() {
 	loginCmd.PersistentFlags().BoolVar(&showQR, showQRFlag, false, showQRDesc)
 	loginCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
 	loginCmd.PersistentFlags().BoolVar(&extendSessionFlag, "extend", false,
-		"refresh the SSO session expiry without tearing down the tunnel (requires an active connection)")
+		"refresh the SSO session expiry without tearing down the tunnel (requires an active connection). Cannot be used with --setup-key or --setup-key-file.")
+	loginCmd.MarkFlagsMutuallyExclusive("extend", "setup-key")
+	loginCmd.MarkFlagsMutuallyExclusive("extend", "setup-key-file")
 }
 
 var loginCmd = &cobra.Command{
@@ -69,9 +71,6 @@ var loginCmd = &cobra.Command{
 		}
 
 		if extendSessionFlag {
-			if providedSetupKey != "" {
-				return fmt.Errorf("--extend cannot be combined with a setup key; setup keys can only enrol new peers")
-			}
 			if err := doExtendSession(ctx, cmd, activeProf); err != nil {
 				return fmt.Errorf("extend session failed: %v", err)
 			}
