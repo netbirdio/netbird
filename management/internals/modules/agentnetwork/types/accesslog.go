@@ -38,9 +38,19 @@ type AgentNetworkAccessLog struct {
 	SelectedPolicyID   string `gorm:"index"`                                           // llm.selected_policy_id
 	Decision           string `gorm:"index"`                                           // llm_policy.decision (allow/deny)
 	DenyReason         string // llm_policy.reason (raw code, mapped in the UI)
-	InputTokens        int64
-	OutputTokens       int64
-	TotalTokens        int64
+	// BlockedBy is the policy or account budget rule id whose cap denied the
+	// request (llm_policy.blocked_by); which of the two follows DenyReason's
+	// llm_policy.* / llm_account.* prefix.
+	BlockedBy string
+	// ErrorSource says who produced a failed (>= 400) response: provider,
+	// proxy, policy, or auth (error.source). Empty for successful requests.
+	ErrorSource string
+	// ErrorDetail is the admin-facing explanation: the proxy's transport error
+	// (proxy.error) or management's cap detail (llm_policy.detail).
+	ErrorDetail  string `gorm:"type:text"`
+	InputTokens  int64
+	OutputTokens int64
+	TotalTokens  int64
 	// Prompt-cache buckets: read + write token counts.
 	CachedInputTokens   int64
 	CacheCreationTokens int64
@@ -128,6 +138,12 @@ func (a *AgentNetworkAccessLog) ToAPIResponse() api.AgentNetworkAccessLog {
 	out.SelectedPolicyId = strPtr(a.SelectedPolicyID)
 	out.Decision = strPtr(a.Decision)
 	out.DenyReason = strPtr(a.DenyReason)
+	out.BlockedBy = strPtr(a.BlockedBy)
+	if a.ErrorSource != "" {
+		src := api.AgentNetworkAccessLogErrorSource(a.ErrorSource)
+		out.ErrorSource = &src
+	}
+	out.ErrorDetail = strPtr(a.ErrorDetail)
 	out.RequestPrompt = strPtr(a.RequestPrompt)
 	out.ResponseCompletion = strPtr(a.ResponseCompletion)
 

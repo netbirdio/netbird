@@ -38,7 +38,8 @@ func TestRenderDeny_AnthropicSurfaceMirrorsVendorShape(t *testing.T) {
 	errObj, ok := body["error"].(map[string]any)
 	require.True(t, ok, "error must be an object")
 	assert.Equal(t, "permission_error", errObj["type"], "403 maps to permission_error")
-	assert.Equal(t, "LLM policy limit exceeded", errObj["message"])
+	assert.Equal(t, "NetBird: LLM policy limit exceeded", errObj["message"],
+		"the vendor message names NetBird, so the client does not blame the provider")
 
 	// The NetBird fields stay put so existing consumers keep working.
 	assert.Equal(t, "llm_policy.budget_cap_exceeded", body["code"])
@@ -61,7 +62,8 @@ func TestRenderDeny_OpenAISurfaceMirrorsVendorShape(t *testing.T) {
 	require.True(t, ok, "error must be an object")
 	assert.Equal(t, "invalid_request_error", errObj["type"])
 	assert.Equal(t, "llm_policy.model_blocked", errObj["code"], "the NetBird code rides in the vendor code field")
-	assert.Equal(t, "model is not in the policy allowlist", errObj["message"])
+	assert.Equal(t, "NetBird: model is not in the policy allowlist", errObj["message"],
+		"the vendor message names NetBird, so the client does not blame the provider")
 }
 
 // TestRenderDeny_RateLimitStatusMapsToVendorRateLimit pins the mapping a
