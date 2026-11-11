@@ -199,9 +199,7 @@ func (p *Peer) handleHealthcheckEvents(ctx context.Context, hc *healthcheck.Send
 			}
 			if _, err := p.Write(ctx, p.enc.Healthcheck()); err != nil {
 				p.log.Errorf("failed to send healthcheck message: %s", err)
-				if cErr := p.conn.Close(); cErr != nil && !errors.Is(cErr, net.ErrClosed) {
-					p.log.Errorf(errCloseConn, cErr)
-				}
+				p.Close()
 				return
 			}
 		case _, ok := <-hc.Timeout:
