@@ -157,6 +157,7 @@ func (r *family) deleteIpSet(setName string, nfset *nftables.Set) error {
 	return nil
 }
 
+// UpdateSet adds the given prefixes to the existing set.
 func (r *family) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 	nfset, err := r.conn.GetSetByName(r.workTable, set.HashedName())
 	if err != nil {
