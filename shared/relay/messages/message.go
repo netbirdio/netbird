@@ -83,12 +83,14 @@ type ProtocolVersion uint8
 
 // Encoder marshals server-originated messages with the protocol version selected for one connection.
 type Encoder struct {
-	version ProtocolVersion
+	version    ProtocolVersion
+	maxMsgSize int
 }
 
-// NewEncoder returns an Encoder that stamps every message with the given protocol version.
-func NewEncoder(version ProtocolVersion) Encoder {
-	return Encoder{version: version}
+// NewEncoder returns an Encoder that stamps every message with the given protocol version
+// and splits peer state messages to fit maxMsgSize.
+func NewEncoder(version ProtocolVersion, maxMsgSize int) Encoder {
+	return Encoder{version: version, maxMsgSize: maxMsgSize}
 }
 
 func (m MsgType) String() string {
@@ -161,12 +163,12 @@ func (e Encoder) Healthcheck() []byte {
 
 // PeersOnline creates the peers online notification messages.
 func (e Encoder) PeersOnline(ids []PeerID) ([][]byte, error) {
-	return marshalPeerIDs(e.version, ids, byte(MsgTypePeersOnline))
+	return marshalPeerIDs(e.version, ids, byte(MsgTypePeersOnline), e.maxMsgSize)
 }
 
 // PeersWentOffline creates the peers went offline notification messages.
 func (e Encoder) PeersWentOffline(ids []PeerID) ([][]byte, error) {
-	return marshalPeerIDs(e.version, ids, byte(MsgTypePeersWentOffline))
+	return marshalPeerIDs(e.version, ids, byte(MsgTypePeersWentOffline), e.maxMsgSize)
 }
 
 // ReadVersion returns the protocol version carried in the frame header. Zero is invalid.
@@ -339,7 +341,7 @@ func UnmarshalAuthMsg(msg []byte) (*PeerID, []byte, error) {
 // instance URL. This URL will be used by choose the common Relay server in case if the peers are in different Relay
 // servers.
 func MarshalAuthResponse(address string) ([]byte, error) {
-	return NewEncoder(CurrentProtocolVersion).AuthResponse(address)
+	return NewEncoder(CurrentProtocolVersion, MaxMessageSize).AuthResponse(address)
 }
 
 // UnmarshalAuthResponse it is a confirmation message to auth success
@@ -354,7 +356,7 @@ func UnmarshalAuthResponse(msg []byte) (string, error) {
 // The close message is used to close the connection gracefully between the client and the server. The server and the
 // client can send this message. After receiving this message, the server or client will close the connection.
 func MarshalCloseMsg() []byte {
-	return NewEncoder(CurrentProtocolVersion).CloseMsg()
+	return NewEncoder(CurrentProtocolVersion, MaxMessageSize).CloseMsg()
 }
 
 // MarshalTransportMsg creates a transport message.

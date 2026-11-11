@@ -4,32 +4,32 @@ import (
 	"fmt"
 )
 
-func MarshalSubPeerStateMsg(ids []PeerID) ([][]byte, error) {
-	return marshalPeerIDs(CurrentProtocolVersion, ids, byte(MsgTypeSubscribePeerState))
+func MarshalSubPeerStateMsg(ids []PeerID, maxMsgSize int) ([][]byte, error) {
+	return marshalPeerIDs(CurrentProtocolVersion, ids, byte(MsgTypeSubscribePeerState), maxMsgSize)
 }
 
 func UnmarshalSubPeerStateMsg(buf []byte) ([]PeerID, error) {
 	return unmarshalPeerIDs(buf)
 }
 
-func MarshalUnsubPeerStateMsg(ids []PeerID) ([][]byte, error) {
-	return marshalPeerIDs(CurrentProtocolVersion, ids, byte(MsgTypeUnsubscribePeerState))
+func MarshalUnsubPeerStateMsg(ids []PeerID, maxMsgSize int) ([][]byte, error) {
+	return marshalPeerIDs(CurrentProtocolVersion, ids, byte(MsgTypeUnsubscribePeerState), maxMsgSize)
 }
 
 func UnmarshalUnsubPeerStateMsg(buf []byte) ([]PeerID, error) {
 	return unmarshalPeerIDs(buf)
 }
 
-func MarshalPeersOnline(ids []PeerID) ([][]byte, error) {
-	return marshalPeerIDs(CurrentProtocolVersion, ids, byte(MsgTypePeersOnline))
+func MarshalPeersOnline(ids []PeerID, maxMsgSize int) ([][]byte, error) {
+	return marshalPeerIDs(CurrentProtocolVersion, ids, byte(MsgTypePeersOnline), maxMsgSize)
 }
 
 func UnmarshalPeersOnlineMsg(buf []byte) ([]PeerID, error) {
 	return unmarshalPeerIDs(buf)
 }
 
-func MarshalPeersWentOffline(ids []PeerID) ([][]byte, error) {
-	return marshalPeerIDs(CurrentProtocolVersion, ids, byte(MsgTypePeersWentOffline))
+func MarshalPeersWentOffline(ids []PeerID, maxMsgSize int) ([][]byte, error) {
+	return marshalPeerIDs(CurrentProtocolVersion, ids, byte(MsgTypePeersWentOffline), maxMsgSize)
 }
 
 func UnMarshalPeersWentOffline(buf []byte) ([]PeerID, error) {
@@ -37,12 +37,16 @@ func UnMarshalPeersWentOffline(buf []byte) ([]PeerID, error) {
 }
 
 // marshalPeerIDs is a generic function to marshal peer IDs with a specific message type
-func marshalPeerIDs(version ProtocolVersion, ids []PeerID, msgType byte) ([][]byte, error) {
+func marshalPeerIDs(version ProtocolVersion, ids []PeerID, msgType byte, maxMsgSize int) ([][]byte, error) {
 	if len(ids) == 0 {
 		return nil, fmt.Errorf("no list of peer ids provided")
 	}
 
-	const maxPeersPerMessage = (MaxMessageSize - sizeOfProtoHeader) / peerIDSize
+	maxPeersPerMessage := (min(maxMsgSize, MaxMessageSize) - sizeOfProtoHeader) / peerIDSize
+	if maxPeersPerMessage < 1 {
+		return nil, fmt.Errorf("max message size %d holds no peer id", maxMsgSize)
+	}
+
 	var messages [][]byte
 
 	for i := 0; i < len(ids); i += maxPeersPerMessage {

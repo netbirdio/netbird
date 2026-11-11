@@ -35,7 +35,7 @@ func TestPeer_DropsFramesItCannotHandle(t *testing.T) {
 			_, bobID := acceptPeer(t, relay, "bob")
 
 			alice.deliver(t, tc.frame)
-			subscribe, err := messages.MarshalSubPeerStateMsg([]messages.PeerID{bobID})
+			subscribe, err := messages.MarshalSubPeerStateMsg([]messages.PeerID{bobID}, messages.MaxMessageSize)
 			require.NoError(t, err)
 			alice.deliver(t, subscribe[0])
 
@@ -94,6 +94,6 @@ func TestPeer_GracefulCloseCarriesConnectionVersion(t *testing.T) {
 	relay.Shutdown(context.Background())
 
 	frames := conn.waitFrames(t, 2)
-	assert.Equal(t, messages.NewEncoder(messages.ProtocolV1).CloseMsg(), frames[1], "the close message must carry the connection version")
+	assert.Equal(t, messages.NewEncoder(messages.ProtocolV1, messages.MaxMessageSize).CloseMsg(), frames[1], "the close message must carry the connection version")
 	assert.True(t, conn.isClosed(), "the connection must be closed after the close message")
 }

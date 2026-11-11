@@ -51,7 +51,7 @@ func NewPeer(metrics *metrics.Metrics, id messages.PeerID, version messages.Prot
 		log:       log.WithField("peer_id", id.String()),
 		id:        id,
 		version:   version,
-		enc:       messages.NewEncoder(version),
+		enc:       messages.NewEncoder(version, conn.MaxMessageSize()),
 		conn:      conn,
 		store:     store,
 		notifier:  notifier,
@@ -282,13 +282,13 @@ func (p *Peer) handleUnsubscribePeerState(msg []byte) {
 func (p *Peer) sendPeersOnline(peers []messages.PeerID) {
 	msgs, err := p.enc.PeersOnline(peers)
 	if err != nil {
-		p.log.Errorf("failed to marshal peer location message: %s", err)
+		p.log.Errorf("failed to marshal peers online message: %s", err)
 		return
 	}
 
 	for n, msg := range msgs {
 		if _, err := p.Write(p.ctx, msg); err != nil {
-			p.log.Errorf("failed to write %d. peers offline message: %s", n, err)
+			p.log.Errorf("failed to write %d. peers online message: %s", n, err)
 		}
 	}
 }
@@ -299,13 +299,13 @@ func (p *Peer) sendPeersWentOffline(peers []messages.PeerID) {
 
 	msgs, err := p.enc.PeersWentOffline(peers)
 	if err != nil {
-		p.log.Errorf("failed to marshal peer location message: %s", err)
+		p.log.Errorf("failed to marshal peers went offline message: %s", err)
 		return
 	}
 
 	for n, msg := range msgs {
 		if _, err := p.Write(p.ctx, msg); err != nil {
-			p.log.Errorf("failed to write %d. peers offline message: %s", n, err)
+			p.log.Errorf("failed to write %d. peers went offline message: %s", n, err)
 		}
 	}
 }
