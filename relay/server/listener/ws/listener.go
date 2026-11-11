@@ -47,7 +47,7 @@ func (l *Listener) Bind() error {
 		}
 	}
 
-	listener, err := net.Listen("tcp", addr)
+	listener, err := listenTCP(addr)
 	if err != nil {
 		return err
 	}
