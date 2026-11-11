@@ -19,12 +19,15 @@ import (
 	"time"
 )
 
-// A stalled connection must not block management startup, so every request is bounded.
-// Filename lookups and checksums are tiny, database downloads move tens of megabytes.
+// A stalled connection must not block management startup. Filename lookups only read
+// headers, so they get a fixed timeout. Downloads can be slow on constrained links, so they
+// are cancelled only when no data arrives for downloadIdleTimeout.
 var (
-	headRequestTimeout = 30 * time.Second
-	downloadTimeout    = 10 * time.Minute
+	headRequestTimeout  = 30 * time.Second
+	downloadIdleTimeout = time.Minute
 )
+
+var errDownloadStalled = errors.New("download stalled")
 
 // decompressTarGzFile decompresses a .tar.gz file.
 func decompressTarGzFile(filepath, destDir string) error {
@@ -160,8 +163,10 @@ func verifyChecksum(filepath, expectedChecksum string) error {
 
 // downloadFile downloads a file from a URL and saves it to a local file path.
 func downloadFile(ctx context.Context, url, filepath string) error {
-	ctx, cancel := context.WithTimeout(ctx, downloadTimeout)
-	defer cancel()
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	idle := time.AfterFunc(downloadIdleTimeout, func() { cancel(errDownloadStalled) })
+	defer idle.Stop()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -169,13 +174,13 @@ func downloadFile(ctx context.Context, url, filepath string) error {
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		return downloadError(ctx, err)
 	}
 	defer resp.Body.Close()
 
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(&idleReader{r: resp.Body, idle: idle})
 	if err != nil {
-		return err
+		return downloadError(ctx, err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -189,6 +194,28 @@ func downloadFile(ctx context.Context, url, filepath string) error {
 	defer out.Close()
 
 	_, err = io.Copy(out, bytes.NewBuffer(bodyBytes))
+	return err
+}
+
+// idleReader pushes the idle deadline back whenever data arrives.
+type idleReader struct {
+	r    io.Reader
+	idle *time.Timer
+}
+
+func (r *idleReader) Read(p []byte) (int, error) {
+	n, err := r.r.Read(p)
+	if n > 0 {
+		r.idle.Reset(downloadIdleTimeout)
+	}
+	return n, err
+}
+
+// downloadError names a stall, which would otherwise surface as a bare "context canceled".
+func downloadError(ctx context.Context, err error) error {
+	if errors.Is(context.Cause(ctx), errDownloadStalled) {
+		return fmt.Errorf("no data received for %s: %w", downloadIdleTimeout, err)
+	}
 	return err
 }
 

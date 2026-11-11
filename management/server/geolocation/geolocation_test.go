@@ -57,10 +57,10 @@ func TestGeoLite_Lookup(t *testing.T) {
 // shortTimeouts makes stalled requests fail fast for the duration of a test.
 func shortTimeouts(t *testing.T) {
 	t.Helper()
-	head, download := headRequestTimeout, downloadTimeout
-	headRequestTimeout, downloadTimeout = 100*time.Millisecond, 100*time.Millisecond
+	head, idle := headRequestTimeout, downloadIdleTimeout
+	headRequestTimeout, downloadIdleTimeout = 100*time.Millisecond, 100*time.Millisecond
 	t.Cleanup(func() {
-		headRequestTimeout, downloadTimeout = head, download
+		headRequestTimeout, downloadIdleTimeout = head, idle
 	})
 }
 
@@ -114,4 +114,24 @@ func TestDownloadFile_StalledBodyTimesOut(t *testing.T) {
 	err := downloadFile(context.Background(), srv.URL, path.Join(t.TempDir(), "db"))
 	require.Error(t, err)
 	assert.Less(t, time.Since(start), 5*time.Second, "a stalled download must give up instead of blocking startup")
+	assert.Contains(t, err.Error(), "no data received", "the error must name the stall")
+}
+
+func TestDownloadFile_SlowDownloadCompletes(t *testing.T) {
+	shortTimeouts(t)
+	// Each chunk arrives within the idle timeout, the whole body takes several times longer.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		for range 8 {
+			_, _ = w.Write([]byte("x"))
+			w.(http.Flusher).Flush()
+			time.Sleep(50 * time.Millisecond)
+		}
+	}))
+	defer srv.Close()
+	target := path.Join(t.TempDir(), "db")
+
+	require.NoError(t, downloadFile(context.Background(), srv.URL, target))
+	content, err := os.ReadFile(target)
+	require.NoError(t, err)
+	assert.Equal(t, "xxxxxxxx", string(content), "a slow download that keeps sending data must finish")
 }

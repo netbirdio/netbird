@@ -50,7 +50,7 @@ func loadGeolocationDatabases(ctx context.Context, dataDir string, mmdbFile stri
 				geoLiteCityTarGZURL,
 				extractFunc,
 			); err != nil {
-				return fmt.Errorf("download %s: %w", file, err)
+				return fmt.Errorf("load %s: %w", file, err)
 			}
 
 		case geonamesdbFile:
@@ -68,7 +68,7 @@ func loadGeolocationDatabases(ctx context.Context, dataDir string, mmdbFile stri
 				geoLiteCityZipURL,
 				extractFunc,
 			); err != nil {
-				return fmt.Errorf("download %s: %w", file, err)
+				return fmt.Errorf("load %s: %w", file, err)
 			}
 		}
 	}
@@ -90,9 +90,7 @@ func loadDatabase(ctx context.Context, checksumURL string, fileURL string, extra
 	}
 	checksumFile := path.Join(temp, checksumFilename)
 
-	checksumCtx, cancel := context.WithTimeout(ctx, headRequestTimeout)
-	err = downloadFile(checksumCtx, checksumURL, checksumFile)
-	cancel()
+	err = downloadFile(ctx, checksumURL, checksumFile)
 	if err != nil {
 		return err
 	}
