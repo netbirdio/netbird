@@ -3,6 +3,7 @@ package messages
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -200,7 +201,8 @@ func TestMarshalPeerIDs_SplitsByMaxMessageSize(t *testing.T) {
 func TestMarshalPeerIDs_MaxMessageSizeTooSmall(t *testing.T) {
 	ids := generateTestPeerIDs(testPeerCount)
 
-	for _, maxMsgSize := range []int{-1, 0, sizeOfProtoHeader, sizeOfProtoHeader + peerIDSize - 1} {
+	// math.MinInt and its neighbor wrap around to a huge positive size once the header is subtracted.
+	for _, maxMsgSize := range []int{math.MinInt, math.MinInt + 1, -1, 0, sizeOfProtoHeader, sizeOfProtoHeader + peerIDSize - 1} {
 		_, err := MarshalPeersOnline(ids, maxMsgSize)
 		assert.Error(t, err, "max message size %d cannot hold a peer ID", maxMsgSize)
 	}

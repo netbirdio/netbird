@@ -42,10 +42,10 @@ func marshalPeerIDs(version ProtocolVersion, ids []PeerID, msgType byte, maxMsgS
 		return nil, fmt.Errorf("no list of peer ids provided")
 	}
 
-	maxPeersPerMessage := (min(maxMsgSize, MaxMessageSize) - sizeOfProtoHeader) / peerIDSize
-	if maxPeersPerMessage < 1 {
+	if maxMsgSize < sizeOfProtoHeader+peerIDSize {
 		return nil, fmt.Errorf("max message size %d holds no peer id", maxMsgSize)
 	}
+	maxPeersPerMessage := (min(maxMsgSize, MaxMessageSize) - sizeOfProtoHeader) / peerIDSize
 
 	var messages [][]byte
 
