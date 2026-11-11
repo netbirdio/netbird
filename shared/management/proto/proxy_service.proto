@@ -429,9 +429,10 @@ message ValidateTunnelPeerResponse {
   // services can read names rather than opaque ids.
   repeated string peer_group_names = 7;
   // has_private_access is set only on a not_in_group denial: true when the
-  // peer may reach at least one other private service in the account. The
-  // proxy answers 403 then, and 404 otherwise, so a peer with no private
-  // access cannot tell a private service exists.
+  // peer may reach at least one other private service in the account. For a
+  // private domain that is not an Agent Network gateway, the proxy answers
+  // 403 then, and 404 otherwise, so a peer with no private access cannot tell
+  // a private service exists. Agent Network gateways answer 401 regardless.
   bool has_private_access = 8;
 }
 

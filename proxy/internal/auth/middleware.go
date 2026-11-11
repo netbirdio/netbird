@@ -397,12 +397,23 @@ func (mw *Middleware) denyForbidden(w http.ResponseWriter, r *http.Request, conf
 // denyPrivate writes status and closes the connection, so a client refused
 // before joining the overlay cannot keep retrying on the same warm socket.
 // Go's HTTP/2 server turns the exact lowercase "close" token into a GOAWAY.
+// A 404 renders the unknown-host error page, so the body does not reveal
+// that the service exists.
 func denyPrivate(w http.ResponseWriter, r *http.Request, status int) {
 	markAuthRejected(r)
 	h := w.Header()
 	h.Set("Connection", "close")
 	h.Set("Cache-Control", "no-store")
-	http.Error(w, http.StatusText(status), status)
+	if status != http.StatusNotFound {
+		http.Error(w, http.StatusText(status), status)
+		return
+	}
+	var requestID string
+	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+		requestID = cd.GetRequestID()
+	}
+	web.ServeErrorPage(w, r, status, proxy.ServiceNotFoundTitle, proxy.ServiceNotFoundMessage, requestID,
+		web.ErrorStatus{Proxy: true, Destination: false})
 }
 
 // privatePreAuthStatus is the status of a private-domain refusal made before

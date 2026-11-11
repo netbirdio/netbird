@@ -132,6 +132,9 @@ func TestPrivateRefusalStatus(t *testing.T) {
 				assert.Equal(t, proxy.OriginAuth, cd.GetOrigin(), "a refusal is attributed to auth")
 				assert.Equal(t, "close", rec.Header().Get("Connection"), "a private refusal closes the connection")
 			}
+			if tt.wantStatus == http.StatusNotFound {
+				assert.Contains(t, rec.Body.String(), proxy.ServiceNotFoundTitle, "a concealed private 404 renders the unknown-host page")
+			}
 		})
 	}
 }

@@ -2576,9 +2576,10 @@ type ValidateTunnelPeerResponse struct {
 	// services can read names rather than opaque ids.
 	PeerGroupNames []string `protobuf:"bytes,7,rep,name=peer_group_names,json=peerGroupNames,proto3" json:"peer_group_names,omitempty"`
 	// has_private_access is set only on a not_in_group denial: true when the
-	// peer may reach at least one other private service in the account. The
-	// proxy answers 403 then, and 404 otherwise, so a peer with no private
-	// access cannot tell a private service exists.
+	// peer may reach at least one other private service in the account. For a
+	// private domain that is not an Agent Network gateway, the proxy answers
+	// 403 then, and 404 otherwise, so a peer with no private access cannot tell
+	// a private service exists. Agent Network gateways answer 401 regardless.
 	HasPrivateAccess bool `protobuf:"varint,8,opt,name=has_private_access,json=hasPrivateAccess,proto3" json:"has_private_access,omitempty"`
 }
 

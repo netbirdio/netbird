@@ -92,8 +92,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !exists {
-		p.serveRouteError(w, r, http.StatusNotFound, "Service Not Found",
-			"The requested service could not be found. Please check the URL, try refreshing, or check if the peer is running. If that doesn't work, see our documentation for help.")
+		p.serveRouteError(w, r, http.StatusNotFound, ServiceNotFoundTitle, ServiceNotFoundMessage)
 		return
 	}
 
@@ -163,6 +162,13 @@ func targetRequiresMiddleware(target *PathTarget) bool {
 
 // serveRouteError marks the request as un-routed on any captured-data
 // context and renders the proxy error page.
+// ServiceNotFoundTitle and ServiceNotFoundMessage are the error page an unknown
+// host receives. A refused private service reuses them so its 404 reads the same.
+const (
+	ServiceNotFoundTitle   = "Service Not Found"
+	ServiceNotFoundMessage = "The requested service could not be found. Please check the URL, try refreshing, or check if the peer is running. If that doesn't work, see our documentation for help."
+)
+
 func (p *ReverseProxy) serveRouteError(w http.ResponseWriter, r *http.Request, status int, title, message string) {
 	if cd := CapturedDataFromContext(r.Context()); cd != nil {
 		cd.SetOrigin(OriginNoRoute)
