@@ -43,7 +43,7 @@ func (r *family) createIpSet(setName string, input setInput) (*nftables.Set, err
 	elements := r.convertPrefixesToSet(prefixes)
 	nElements := len(elements)
 
-	maxElements := maxPrefixesSet * 2
+	maxElements := r.af.setBatchSize * 2
 	initialElements := elements[:min(maxElements, nElements)]
 
 	if err := r.conn.AddSet(nfset, initialElements); err != nil {
@@ -170,7 +170,7 @@ func (r *family) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 
 	// Add in batches sized like createIpSet so a large update does not
 	// exceed the netlink message size limit.
-	maxElements := maxPrefixesSet * 2
+	maxElements := r.af.setBatchSize * 2
 	for start := 0; start < len(elements); start += maxElements {
 		end := min(start+maxElements, len(elements))
 		if err := r.conn.SetAddElements(nfset, elements[start:end]); err != nil {
