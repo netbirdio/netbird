@@ -12,14 +12,14 @@ func Test_sysInfo(t *testing.T) {
 		t.Errorf("failed to get system serial number: %s", err)
 	}
 
-	prodName, err := sysProductName()
+	prodName, hardwareUUID, err := sysProduct()
 	if err != nil {
-		t.Errorf("failed to get system product name: %s", err)
+		t.Errorf("failed to get system product: %s", err)
 	}
 
 	manufacturer, err := sysManufacturer()
 	if err != nil {
 		t.Errorf("failed to get system manufacturer: %s", err)
 	}
-	log.Infof("Windows sys info: %s, %s, %s", serialNum, prodName, manufacturer)
+	log.Infof("Windows sys info: %s, %s, %s, %s", serialNum, prodName, manufacturer, hardwareUUID)
 }

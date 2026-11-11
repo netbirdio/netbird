@@ -15,6 +15,7 @@ func TestExtractPeerMeta_RemovesNulAndInvalidUTF8(t *testing.T) {
 		OS:              "\x00\x00\x00\x00\x00\x00s",
 		OSVersion:       "11\xff",
 		SysSerialNumber: "SN\x00\x00",
+		SysHardwareUUID: "4C4C4544-0042-3510-8051-B4C04F4E3332\x00",
 		Environment:     &proto.Environment{Cloud: "\x00aws"},
 		NetworkAddresses: []*proto.NetworkAddress{
 			{NetIP: "192.168.0.1/24", Mac: "e0:d5\x00"},
@@ -26,6 +27,7 @@ func TestExtractPeerMeta_RemovesNulAndInvalidUTF8(t *testing.T) {
 	assert.Equal(t, "s", meta.OS)
 	assert.Equal(t, "11", meta.OSVersion)
 	assert.Equal(t, "SN", meta.SystemSerialNumber)
+	assert.Equal(t, "4C4C4544-0042-3510-8051-B4C04F4E3332", meta.SystemHardwareUUID)
 	assert.Equal(t, "aws", meta.Environment.Cloud)
 	assert.Equal(t, "e0:d5", meta.NetworkAddresses[0].Mac)
 	assert.Equal(t, "C:\\x.exe", meta.Files[0].Path)

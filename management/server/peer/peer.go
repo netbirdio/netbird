@@ -185,6 +185,7 @@ type PeerSystemMeta struct { //nolint:revive
 	SystemSerialNumber string
 	SystemProductName  string
 	SystemManufacturer string
+	SystemHardwareUUID string
 	Environment        Environment `gorm:"serializer:json"`
 	Flags              Flags       `gorm:"serializer:json"`
 	Files              []File      `gorm:"serializer:json"`
@@ -212,6 +213,7 @@ func (p PeerSystemMeta) isEmpty() bool {
 		p.SystemSerialNumber == "" &&
 		p.SystemProductName == "" &&
 		p.SystemManufacturer == "" &&
+		p.SystemHardwareUUID == "" &&
 		p.Environment.Cloud == "" &&
 		p.Environment.Platform == "" &&
 		len(p.Files) == 0 &&
@@ -415,6 +417,9 @@ func diffMeta(oldMeta, newMeta PeerSystemMeta, oldLocation, newLocation Location
 	}
 	if oldMeta.SystemManufacturer != newMeta.SystemManufacturer {
 		add("system_manufacturer", oldMeta.SystemManufacturer, newMeta.SystemManufacturer)
+	}
+	if oldMeta.SystemHardwareUUID != newMeta.SystemHardwareUUID {
+		add("system_hardware_uuid", oldMeta.SystemHardwareUUID, newMeta.SystemHardwareUUID)
 	}
 	if oldMeta.Environment.Cloud != newMeta.Environment.Cloud {
 		add("environment_cloud", oldMeta.Environment.Cloud, newMeta.Environment.Cloud)

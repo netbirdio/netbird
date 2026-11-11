@@ -8,6 +8,9 @@
     "tray.status.daemonUnavailable": {
         "message": "Не запущено"
     },
+    "tray.status.daemonAccessDenied": {
+        "message": "Немає доступу"
+    },
     "tray.status.error": {
         "message": "Помилка"
     },
@@ -674,6 +677,9 @@
     "settings.security.rosenpass.help": {
         "message": "Додати постквантовий обмін ключами через Rosenpass поверх WireGuard®."
     },
+    "settings.security.rosenpass.deprecated": {
+        "message": "Застаріло: підтримку Rosenpass може бути вилучено в одному з майбутніх випусків."
+    },
     "settings.security.rosenpassPermissive.label": {
         "message": "Увімкнути дозвільний режим"
     },
@@ -1331,6 +1337,12 @@
     "daemon.unavailable.docsLink": {
         "message": "Документація"
     },
+    "daemon.accessDenied.title": {
+        "message": "Немає доступу до служби NetBird"
+    },
+    "daemon.accessDenied.description": {
+        "message": "Адміністратор обмежив доступ до служби NetBird на цьому пристрої вибраними користувачами або групами, і ваш обліковий запис до них не входить. Зверніться до адміністратора щодо доступу."
+    },
     "daemon.outdated.title": {
         "message": "Клієнт NetBird застарів"
     },
@@ -1360,6 +1372,9 @@
     },
     "error.daemon_unreachable": {
         "message": "Служба NetBird не відповідає. Будь ласка, перевірте, чи запущена служба."
+    },
+    "error.daemon_access_denied": {
+        "message": "Вашому обліковому запису не дозволено використовувати службу NetBird на цьому пристрої. Зверніться до адміністратора щодо доступу."
     },
     "error.settings_locked": {
         "message": "Налаштування на цьому пристрої змінити неможливо: адміністратор їх заблокував."
@@ -1411,17 +1426,5 @@
     },
     "error.profile_unowned": {
         "message": "Цей профіль ще не має власника."
-    },
-    "tray.status.daemonAccessDenied": {
-        "message": "Немає доступу"
-    },
-    "daemon.accessDenied.title": {
-        "message": "Немає доступу до служби NetBird"
-    },
-    "daemon.accessDenied.description": {
-        "message": "Адміністратор обмежив доступ до служби NetBird на цьому пристрої вибраними користувачами або групами, і ваш обліковий запис до них не входить. Зверніться до адміністратора щодо доступу."
-    },
-    "error.daemon_access_denied": {
-        "message": "Вашому обліковому запису не дозволено використовувати службу NetBird на цьому пристрої. Зверніться до адміністратора щодо доступу."
     }
 }
