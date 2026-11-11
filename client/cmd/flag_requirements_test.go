@@ -105,3 +105,20 @@ func TestDebugUploadFlagsRequireUploadBundle(t *testing.T) {
 		}
 	}
 }
+
+func TestMarkFlagRequiresAppends(t *testing.T) {
+	cmd := &cobra.Command{Use: "bundle"}
+	cmd.Flags().Bool("upload", false, "")
+	cmd.Flags().Bool("auth", false, "")
+	cmd.Flags().String("url", "", "")
+	markFlagRequires(cmd, "url", "upload")
+	markFlagRequires(cmd, "url", "auth")
+
+	assert.Equal(t, []string{"upload", "auth"}, cmd.Flags().Lookup("url").Annotations[requiresFlagAnnotation], "both requirements are kept")
+
+	require.NoError(t, cmd.Flags().Set("url", "https://self-hosted.example"))
+	require.NoError(t, cmd.Flags().Set("upload", "true"))
+	err := validateFlagRequirements(cmd, commandLineFlags(cmd))
+	require.Error(t, err)
+	assert.Equal(t, "--url requires --auth", err.Error(), "the second requirement is enforced")
+}

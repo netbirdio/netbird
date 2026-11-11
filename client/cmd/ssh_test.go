@@ -738,6 +738,12 @@ func TestSSHCommand_DeprecatedLoginFlag(t *testing.T) {
 			expectWarn:   true,
 		},
 		{
+			name:         "empty login still warns",
+			args:         []string{"--login=", "hostname"},
+			expectedUser: "",
+			expectWarn:   true,
+		},
+		{
 			name:         "user does not warn",
 			args:         []string{"--user", "bob", "hostname"},
 			expectedUser: "bob",
@@ -754,7 +760,10 @@ func TestSSHCommand_DeprecatedLoginFlag(t *testing.T) {
 
 			require.NoError(t, validateSSHArgsWithoutFlagParsing(cmd, tt.args))
 
-			assert.Equal(t, tt.expectedUser, username, "resolved username")
+			// An empty --login falls back to the invoking user, which differs per host.
+			if tt.expectedUser != "" {
+				assert.Equal(t, tt.expectedUser, username, "resolved username")
+			}
 			if tt.expectWarn {
 				assert.Equal(t, "Flag --login has been deprecated, use --user instead\n", stderr.String(), "deprecation notice")
 			} else {

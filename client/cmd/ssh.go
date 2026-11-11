@@ -423,6 +423,18 @@ func createSSHFlagSet() (*flag.FlagSet, *sshFlags) {
 	return fs, flags
 }
 
+// isFlagSet reports whether name was passed on the command line, even with an
+// empty value.
+func isFlagSet(fs *flag.FlagSet, name string) bool {
+	set := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			set = true
+		}
+	})
+	return set
+}
+
 func validateSSHArgsWithoutFlagParsing(cmd *cobra.Command, args []string) error {
 	if len(args) < 1 {
 		return errors.New(hostArgumentRequired)
@@ -452,7 +464,7 @@ func validateSSHArgsWithoutFlagParsing(cmd *cobra.Command, args []string) error 
 
 	// Cobra does not parse the flags of this command, so it cannot print the
 	// deprecation notice itself.
-	if flags.Login != "" {
+	if isFlagSet(fs, sshLoginFlag) {
 		cmd.PrintErrf("Flag --%s has been deprecated, %s\n", sshLoginFlag, sshLoginDeprecation)
 	}
 

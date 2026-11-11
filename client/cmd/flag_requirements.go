@@ -12,7 +12,12 @@ const requiresFlagAnnotation = "netbird_requires_flag"
 // markFlagRequires records that flag on cmd only has an effect together with
 // required. It panics if flag is not defined on cmd, like cobra's own flag groups.
 func markFlagRequires(cmd *cobra.Command, flag, required string) {
-	if err := cmd.Flags().SetAnnotation(flag, requiresFlagAnnotation, []string{required}); err != nil {
+	f := cmd.Flags().Lookup(flag)
+	if f == nil {
+		panic(fmt.Sprintf("mark flag %q as requiring %q: flag not defined", flag, required))
+	}
+	requirements := append(f.Annotations[requiresFlagAnnotation], required)
+	if err := cmd.Flags().SetAnnotation(flag, requiresFlagAnnotation, requirements); err != nil {
 		panic(fmt.Sprintf("mark flag %q as requiring %q: %v", flag, required, err))
 	}
 }
