@@ -197,6 +197,10 @@ func downloadFile(ctx context.Context, url, filepath string) error {
 	return err
 }
 
+// idleReadSize caps a single read, because a chunked body keeps reading from the network
+// until the buffer is full and would otherwise outlast the idle deadline on a slow link.
+const idleReadSize = 32 << 10
+
 // idleReader pushes the idle deadline back whenever data arrives.
 type idleReader struct {
 	r    io.Reader
@@ -204,6 +208,9 @@ type idleReader struct {
 }
 
 func (r *idleReader) Read(p []byte) (int, error) {
+	if len(p) > idleReadSize {
+		p = p[:idleReadSize]
+	}
 	n, err := r.r.Read(p)
 	if n > 0 {
 		r.idle.Reset(downloadIdleTimeout)

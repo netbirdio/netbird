@@ -1,6 +1,7 @@
 package geolocation
 
 import (
+	"bytes"
 	"context"
 	"net"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -121,10 +123,10 @@ func TestDownloadFile_SlowDownloadCompletes(t *testing.T) {
 	shortTimeouts(t)
 	// Each chunk arrives within the idle timeout, the whole body takes several times longer.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		for range 8 {
+		for range 20 {
 			_, _ = w.Write([]byte("x"))
 			w.(http.Flusher).Flush()
-			time.Sleep(50 * time.Millisecond)
+			time.Sleep(20 * time.Millisecond)
 		}
 	}))
 	defer srv.Close()
@@ -133,5 +135,15 @@ func TestDownloadFile_SlowDownloadCompletes(t *testing.T) {
 	require.NoError(t, downloadFile(context.Background(), srv.URL, target))
 	content, err := os.ReadFile(target)
 	require.NoError(t, err)
-	assert.Equal(t, "xxxxxxxx", string(content), "a slow download that keeps sending data must finish")
+	assert.Equal(t, strings.Repeat("x", 20), string(content), "a slow download that keeps sending data must finish")
+}
+
+func TestIdleReader_CapsReadSize(t *testing.T) {
+	idle := time.NewTimer(time.Hour)
+	defer idle.Stop()
+	r := &idleReader{r: bytes.NewReader(make([]byte, 2*idleReadSize)), idle: idle}
+
+	n, err := r.Read(make([]byte, 2*idleReadSize))
+	require.NoError(t, err)
+	assert.Equal(t, idleReadSize, n, "a single read must not exceed idleReadSize")
 }
