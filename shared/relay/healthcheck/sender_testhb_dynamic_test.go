@@ -95,3 +95,39 @@ func waitForMs(ms int64) {
 		time.Sleep(time.Millisecond)
 	}
 }
+
+// Dynamic mode, client sent no schedule (a stock client): the testhb ticker
+// never fires for it, so the sender must keep the stock interval.
+func TestSenderTestHBDynamicNoSchedule(t *testing.T) {
+	if os.Getenv("NB_TEST_HB_MODE") == "" {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestSenderTestHBDynamicNoSchedule$", "-test.v")
+		cmd.Env = append(os.Environ(), "NB_TEST_HB_MODE=dynamic")
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+		return
+	}
+
+	hc := NewSenderWithOpts(log.WithField("test", t.Name()), SenderOptions{
+		HealthCheckInterval: 200 * time.Millisecond,
+		HealthCheckTimeout:  100 * time.Millisecond,
+		PhaseKey:            "test-peer-key",
+	})
+	require.Equal(t, "test-peer-key", hc.phaseKey, "sender must follow testhb")
+	require.False(t, hc.clientSchedule.OK, "sender must have no client schedule")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go hc.StartHealthCheck(ctx)
+
+	for i := 0; i < 3; i++ {
+		select {
+		case _, ok := <-hc.HealthCheck:
+			require.True(t, ok, "sender stopped")
+			hc.OnHCResponse()
+		case <-hc.Timeout:
+			t.Fatal("health check timed out")
+		case <-time.After(time.Second):
+			t.Fatalf("health check %d not received", i)
+		}
+	}
+}

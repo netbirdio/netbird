@@ -128,10 +128,18 @@ func (hc *Sender) StartHealthCheck(ctx context.Context) {
 				hc.clientSchedule.PhaseMs, int64(hc.clientSchedule.Period/time.Second), hc.clientSchedule.SkewMs)
 		}
 	}
+	// stockTick stays nil, and never fires, unless the client sent no schedule.
+	var stockTick <-chan time.Time
 	if tick == nil {
 		ticker := time.NewTicker(hc.healthCheckInterval)
 		defer ticker.Stop()
 		tick = ticker.C
+	} else if !hc.clientSchedule.OK {
+		// Dynamic mode never fires for a client that sent no schedule, so a
+		// stock client keeps the stock interval while that mode is active.
+		ticker := time.NewTicker(hc.healthCheckInterval)
+		defer ticker.Stop()
+		stockTick = ticker.C
 	}
 
 	timeoutTicker := time.NewTicker(hc.timeout)
@@ -154,6 +162,11 @@ func (hc *Sender) StartHealthCheck(ctx context.Context) {
 				hc.log.Infof("testhb: sent relay heartbeat key=%s mode=%s t=%d%s",
 					hc.phaseKey, mode, time.Now().UnixMilli(), testhb.LogSuffix(mode, hc.clientSchedule))
 			}
+		case <-stockTick:
+			if testhb.CurrentMode() != testhb.ModeDynamic || hc.testHBMuted() {
+				continue
+			}
+			hc.HealthCheck <- struct{}{}
 		case <-timeoutTicker.C:
 			// No acks come back while the sends are muted, so do not count them.
 			if hc.testHBMuted() {
