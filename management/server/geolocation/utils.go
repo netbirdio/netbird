@@ -20,12 +20,10 @@ import (
 )
 
 // A stalled connection must not block management startup, so every request is bounded.
-// Filename lookups and checksums are tiny, database downloads move tens of megabytes. An
-// update with a database already on disk gets one overall deadline before it falls back.
+// Filename lookups and checksums are tiny, database downloads move tens of megabytes.
 var (
 	headRequestTimeout = 30 * time.Second
 	downloadTimeout    = 10 * time.Minute
-	updateTimeout      = 5 * time.Minute
 )
 
 // decompressTarGzFile decompresses a .tar.gz file.

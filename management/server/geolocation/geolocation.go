@@ -68,14 +68,24 @@ const (
 )
 
 func NewGeolocation(ctx context.Context, dataDir string, autoUpdate bool) (Geolocation, error) {
-	mmdbFile, err := ensureDatabase(ctx, dataDir, mmdbPattern, geoLiteCityTarGZURL, autoUpdate, downloadMMDB)
+	mmdbGlobPattern := filepath.Join(dataDir, mmdbPattern)
+	mmdbFile, err := getDatabaseFilename(ctx, geoLiteCityTarGZURL, mmdbGlobPattern, autoUpdate)
 	if err != nil {
-		return nil, fmt.Errorf("prepare MaxMind database: %w", err)
+		return nil, fmt.Errorf("get MaxMind database filename: %w", err)
 	}
 
-	geonamesDbFile, err := ensureDatabase(ctx, dataDir, geonamesdbPattern, geoLiteCityZipURL, autoUpdate, downloadGeonamesDB)
+	geonamesDbGlobPattern := filepath.Join(dataDir, geonamesdbPattern)
+	geonamesDbFile, err := getDatabaseFilename(ctx, geoLiteCityZipURL, geonamesDbGlobPattern, autoUpdate)
 	if err != nil {
-		return nil, fmt.Errorf("prepare geonames database: %w", err)
+		return nil, fmt.Errorf("get geonames database filename: %w", err)
+	}
+
+	if err := loadGeolocationDatabases(ctx, dataDir, mmdbFile, geonamesDbFile); err != nil {
+		return nil, fmt.Errorf("failed to load MaxMind databases: %v", err)
+	}
+
+	if err := cleanupMaxMindDatabases(ctx, dataDir, mmdbFile, geonamesDbFile); err != nil {
+		return nil, fmt.Errorf("failed to remove old MaxMind databases: %v", err)
 	}
 
 	mmdbPath := path.Join(dataDir, mmdbFile)
@@ -98,74 +108,6 @@ func NewGeolocation(ctx context.Context, dataDir string, autoUpdate bool) (Geolo
 	}
 
 	return geo, nil
-}
-
-// downloadFunc fetches a database and stores it as filename in dataDir.
-type downloadFunc func(ctx context.Context, dataDir, filename string) error
-
-// ensureDatabase returns a usable database file matching pattern in dataDir. When the update
-// fails it falls back to the newest file on disk, so old files are removed only after the
-// wanted one is in place.
-func ensureDatabase(ctx context.Context, dataDir, pattern, url string, autoUpdate bool, download downloadFunc) (string, error) {
-	globPattern := filepath.Join(dataDir, pattern)
-	existing := getExistingDatabases(globPattern)
-
-	updateCtx := ctx
-	if len(existing) > 0 {
-		var cancel context.CancelFunc
-		updateCtx, cancel = context.WithTimeout(ctx, updateTimeout)
-		defer cancel()
-	}
-
-	filename, err := getDatabaseFilename(updateCtx, url, globPattern, autoUpdate)
-	if err == nil {
-		err = ensureFile(updateCtx, dataDir, filename, download)
-	}
-	if err == nil {
-		if cleanupErr := cleanupOldDatabases(ctx, globPattern, filename); cleanupErr != nil {
-			log.WithContext(ctx).Warnf("Failed to remove old databases: %v", cleanupErr)
-		}
-		return filename, nil
-	}
-
-	if len(existing) == 0 {
-		return "", err
-	}
-	fallback := filepath.Base(existing[len(existing)-1])
-	log.WithContext(ctx).Warnf("Could not update geolocation database, using existing %s: %v", fallback, err)
-	return fallback, nil
-}
-
-// ensureFile downloads filename into dataDir unless it exists. The download goes to a
-// temporary name and is renamed into place once complete, so a crash never leaves a partial
-// file that looks like a usable database.
-func ensureFile(ctx context.Context, dataDir, filename string, download downloadFunc) error {
-	target := path.Join(dataDir, filename)
-	if exists, _ := fileExists(target); exists {
-		return nil
-	}
-
-	log.WithContext(ctx).Infof("Geolocation database file %s not found, file will be downloaded", filename)
-	tmpFile := filename + ".tmp"
-	tmp := path.Join(dataDir, tmpFile)
-	// A crash may have left one behind, and the geonames import would append to it.
-	removeIncompleteFile(ctx, tmp)
-
-	err := download(ctx, dataDir, tmpFile)
-	if err == nil {
-		err = os.Rename(tmp, target)
-	}
-	if err != nil {
-		removeIncompleteFile(ctx, tmp)
-		return fmt.Errorf("download %s: %w", filename, err)
-	}
-	return nil
-}
-
-func removeIncompleteFile(ctx context.Context, file string) {
-	if err := os.Remove(file); err != nil && !os.IsNotExist(err) {
-		log.WithContext(ctx).Warnf("Failed to remove incomplete database %s: %v", file, err)
-	}
 }
 
 func openDB(mmdbPath string) (*maxminddb.Reader, error) {
@@ -322,6 +264,24 @@ func cleanupOldDatabases(ctx context.Context, pattern string, currentFile string
 		err := os.Remove(db)
 		if err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func cleanupMaxMindDatabases(ctx context.Context, dataDir string, mmdbFile string, geonamesdbFile string) error {
+	for _, file := range []string{mmdbFile, geonamesdbFile} {
+		switch file {
+		case mmdbFile:
+			pattern := filepath.Join(dataDir, mmdbPattern)
+			if err := cleanupOldDatabases(ctx, pattern, file); err != nil {
+				return err
+			}
+		case geonamesdbFile:
+			pattern := filepath.Join(dataDir, geonamesdbPattern)
+			if err := cleanupOldDatabases(ctx, pattern, file); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

@@ -9,6 +9,7 @@ import (
 	"path"
 	"strconv"
 
+	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -25,27 +26,53 @@ const (
 	geonamesCsvFields = 14
 )
 
-// downloadMMDB downloads the MaxMind city database and stores it as mmdbFile in dataDir.
-func downloadMMDB(ctx context.Context, dataDir, mmdbFile string) error {
-	extractFunc := func(src string, dst string) error {
-		if err := decompressTarGzFile(src, dst); err != nil {
-			return err
+// loadGeolocationDatabases loads the MaxMind databases.
+func loadGeolocationDatabases(ctx context.Context, dataDir string, mmdbFile string, geonamesdbFile string) error {
+	for _, file := range []string{mmdbFile, geonamesdbFile} {
+		exists, _ := fileExists(path.Join(dataDir, file))
+		if exists {
+			continue
 		}
-		return copyFile(path.Join(dst, geoLiteCityMMDB), path.Join(dataDir, mmdbFile))
-	}
-	return loadDatabase(ctx, geoLiteCitySha256TarURL, geoLiteCityTarGZURL, extractFunc)
-}
 
-// downloadGeonamesDB downloads the city locations CSV and imports it into geonamesdbFile in dataDir.
-func downloadGeonamesDB(ctx context.Context, dataDir, geonamesdbFile string) error {
-	extractFunc := func(src string, dst string) error {
-		if err := decompressZipFile(src, dst); err != nil {
-			return err
+		log.WithContext(ctx).Infof("Geolocation database file %s not found, file will be downloaded", file)
+
+		switch file {
+		case mmdbFile:
+			extractFunc := func(src string, dst string) error {
+				if err := decompressTarGzFile(src, dst); err != nil {
+					return err
+				}
+				return copyFile(path.Join(dst, geoLiteCityMMDB), path.Join(dataDir, mmdbFile))
+			}
+			if err := loadDatabase(
+				ctx,
+				geoLiteCitySha256TarURL,
+				geoLiteCityTarGZURL,
+				extractFunc,
+			); err != nil {
+				return fmt.Errorf("download %s: %w", file, err)
+			}
+
+		case geonamesdbFile:
+			extractFunc := func(src string, dst string) error {
+				if err := decompressZipFile(src, dst); err != nil {
+					return err
+				}
+				extractedCsvFile := path.Join(dst, geoLiteCityCSV)
+				return importCsvToSqlite(dataDir, extractedCsvFile, geonamesdbFile)
+			}
+
+			if err := loadDatabase(
+				ctx,
+				geoLiteCitySha256ZipURL,
+				geoLiteCityZipURL,
+				extractFunc,
+			); err != nil {
+				return fmt.Errorf("download %s: %w", file, err)
+			}
 		}
-		extractedCsvFile := path.Join(dst, geoLiteCityCSV)
-		return importCsvToSqlite(dataDir, extractedCsvFile, geonamesdbFile)
 	}
-	return loadDatabase(ctx, geoLiteCitySha256ZipURL, geoLiteCityZipURL, extractFunc)
+	return nil
 }
 
 // loadDatabase downloads a file from the specified URL and verifies its checksum.
