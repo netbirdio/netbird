@@ -120,11 +120,14 @@ func profileHomeDir(uid string) (string, error) {
 		}
 	}()
 
-	dir, _, err := k.GetStringValue("ProfileImagePath")
+	dir, valType, err := k.GetStringValue("ProfileImagePath")
 	if err != nil {
 		return "", err
 	}
-	return dir, nil
+	if valType != registry.EXPAND_SZ {
+		return dir, nil
+	}
+	return registry.ExpandString(dir)
 }
 
 // CurrentUser returns the user this process runs as.
