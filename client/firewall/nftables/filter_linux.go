@@ -114,18 +114,20 @@ func (r *family) AddFilterRule(
 				nftRule: nftRule,
 				sources: sources,
 				id:      ruleID,
+				action:  action,
 			}
 		}
 		return nil, err
 	}
 
-	mangleRule := r.flushPreroutingPair(srcExprs, proto, sPort, dPort, userData, isRoute)
+	mangleRule := r.flushPreroutingPair(srcExprs, proto, sPort, dPort, userData, action, isRoute)
 
 	rule := &Rule{
 		nftRule:    nftRule,
 		mangleRule: mangleRule,
 		sources:    sources,
 		id:         ruleID,
+		action:     action,
 	}
 	r.filters[ruleID] = rule
 
@@ -157,7 +159,7 @@ func (r *family) finishIncompleteFilter(
 	if existing.nftRule != nil {
 		srcExprs = sourceMatchExprs(existing.nftRule.Exprs)
 	}
-	existing.mangleRule = r.flushPreroutingPair(srcExprs, proto, sPort, dPort, []byte(existing.id), false)
+	existing.mangleRule = r.flushPreroutingPair(srcExprs, proto, sPort, dPort, []byte(existing.id), existing.action, false)
 	return nil
 }
 
@@ -234,6 +236,7 @@ func (r *family) flushPreroutingPair(
 	proto firewall.Protocol,
 	sPort, dPort *firewall.Port,
 	userData []byte,
+	action firewall.Action,
 	isRoute bool,
 ) *nftables.Rule {
 	if isRoute || r.chainPrerouting == nil {
@@ -245,7 +248,7 @@ func (r *family) flushPreroutingPair(
 		log.Errorf("build mangle rule: %v", err)
 		return nil
 	}
-	mangleRule := r.queuePreroutingRule(mangleExprs, userData)
+	mangleRule := r.queuePreroutingRule(mangleExprs, userData, action)
 	if mangleRule == nil {
 		return nil
 	}
