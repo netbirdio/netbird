@@ -66,7 +66,11 @@ func TestApplyAccessLogStoreEnv(t *testing.T) {
 }
 
 func TestMigrationTargetsUseConfiguredAccessLogFile(t *testing.T) {
-	for _, key := range []string{accesslogsmanager.StoreEngineEnv, accesslogsmanager.PostgresDSNEnv, accesslogsmanager.SqliteFileEnv} {
+	for _, key := range []string{
+		accesslogsmanager.StoreEngineEnv, accesslogsmanager.PostgresDSNEnv, accesslogsmanager.SqliteFileEnv,
+		"NETBIRD_STORE_ENGINE", "NB_STORE_ENGINE_SQLITE_FILE", "NB_STORE_ENGINE_POSTGRES_DSN", "NETBIRD_STORE_ENGINE_POSTGRES_DSN",
+		"NB_ACTIVITY_EVENT_STORE_ENGINE", "NB_ACTIVITY_EVENT_POSTGRES_DSN", "NB_ACTIVITY_EVENT_SQLITE_FILE",
+	} {
 		t.Setenv(key, "")
 		require.NoError(t, os.Unsetenv(key))
 	}

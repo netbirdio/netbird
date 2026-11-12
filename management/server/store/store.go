@@ -1132,7 +1132,7 @@ func MigrateFileStoreToSqlite(ctx context.Context, dataDir string) error {
 	log.WithContext(ctx).Infof("%d account will be migrated from file store %s to sqlite store %s",
 		fsStoreAccounts, fileStorePath, sqlStorePath)
 
-	store, err := NewSqliteStoreFromFileStore(ctx, fstore, dataDir, nil, migrate.ModeSkip)
+	store, err := NewSqliteStoreFromFileStore(ctx, fstore, dataDir, nil, migrate.ModeAuto)
 	if err != nil {
 		return fmt.Errorf("failed creating file store: %s: %v", dataDir, err)
 	}

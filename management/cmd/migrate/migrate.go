@@ -54,6 +54,7 @@ func NewCommand(open Opener) *cobra.Command {
 
 	upCmd := &cobra.Command{
 		Use:   "up",
+		Args:  cobra.NoArgs,
 		Short: "Apply pending schema migrations and exit",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return selected(cmd, func(ctx context.Context, targets []Target) error {
@@ -65,6 +66,7 @@ func NewCommand(open Opener) *cobra.Command {
 
 	planCmd := &cobra.Command{
 		Use:   "plan",
+		Args:  cobra.NoArgs,
 		Short: "Print the pending migrations and their SQL without applying them",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return selected(cmd, func(ctx context.Context, targets []Target) error {
@@ -78,6 +80,7 @@ func NewCommand(open Opener) *cobra.Command {
 		upCmd,
 		&cobra.Command{
 			Use:   "status",
+			Args:  cobra.NoArgs,
 			Short: "Print every migration with its applied state",
 			RunE: func(cmd *cobra.Command, _ []string) error {
 				return selected(cmd, func(ctx context.Context, targets []Target) error {

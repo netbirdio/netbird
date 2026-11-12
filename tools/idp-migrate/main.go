@@ -223,9 +223,9 @@ func openStores(ctx context.Context, cfg *nbconfig.Config, dataDir string) (migr
 	cleanup := func() { _ = mainStore.Close(ctx) }
 
 	var migEventStore migration.EventStore
-	actStore, err := activitystore.NewSqlStore(ctx, dataDir, cfg.DataStoreEncryptionKey, migrate.ModeSkip)
+	actStore, err := activitystore.NewSqlStore(ctx, dataDir, cfg.DataStoreEncryptionKey, migrate.ModeAuto)
 	if err != nil {
-		log.Warnf("could not open activity store (events.db may not exist): %v", err)
+		log.Warnf("could not open activity store: %v", err)
 	} else {
 		migEventStore = actStore
 		prevCleanup := cleanup

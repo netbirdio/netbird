@@ -45,41 +45,60 @@ func replicaConns(t *testing.T, dsn string, n int) []*db.Conn {
 	return conns
 }
 
+// runConcurrently runs n runners of set at once, each on its own pool, and
+// returns their errors.
+func runConcurrently(t *testing.T, dsn string, n int, set func() Set) []error {
+	t.Helper()
+	replicas := replicaConns(t, dsn, n)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	for i := range n {
+		runner := newRunner(t, replicas[i], set())
+		wg.Go(func() {
+			<-start
+			errs[i] = runner.Run(context.Background(), ModeAuto)
+		})
+	}
+	close(start)
+	wg.Wait()
+	return errs
+}
+
+func TestRun_Postgres_ConcurrentRunnersApplyEveryMigrationOnce(t *testing.T) {
+	dsn := postgresDSN(t)
+	conn := openPostgres(t, dsn)
+	set := func() Set {
+		return testSet(map[string]string{
+			"20260101000000_baseline.sql": baselineSQL,
+			"20260201000000_color.sql":    secondSQL,
+		})
+	}
+
+	for _, err := range runConcurrently(t, dsn, 4, set) {
+		require.NoError(t, err)
+	}
+	assert.Equal(t, []int64{testBaseline, testSecond}, appliedVersions(t, newRunner(t, conn, set())))
+	require.NoError(t, conn.DB(nil).Exec("INSERT INTO things (id, name, color) VALUES ('a', 'b', 'c')").Error)
+}
+
 func TestRun_Postgres_ConcurrentRunnersApplyOnce(t *testing.T) {
 	dsn := postgresDSN(t)
 	conn := openPostgres(t, dsn)
 	require.NoError(t, conn.DB(nil).Exec("CREATE TABLE things (id TEXT PRIMARY KEY, name TEXT)").Error)
 
-	const runners = 4
 	var legacyRuns atomic.Int32
-	var started sync.WaitGroup
-	started.Add(runners)
 	set := func() Set {
 		s := testSet(map[string]string{"20260101000000_baseline.sql": baselineSQL})
 		s.Legacy = func(context.Context, *gorm.DB) error {
 			legacyRuns.Add(1)
-			started.Wait()
 			time.Sleep(500 * time.Millisecond)
 			return nil
 		}
 		return s
 	}
 
-	replicas := replicaConns(t, dsn, runners)
-	var wg sync.WaitGroup
-	errs := make([]error, runners)
-	for i := range runners {
-		runner := newRunner(t, replicas[i], set())
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			started.Done()
-			errs[i] = runner.Run(context.Background(), ModeAuto)
-		}()
-	}
-	wg.Wait()
-
-	for _, err := range errs {
+	for _, err := range runConcurrently(t, dsn, 4, set) {
 		require.NoError(t, err)
 	}
 	assert.EqualValues(t, 1, legacyRuns.Load())

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"os"
@@ -11,7 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/idp/dex"
+	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/idp/migration"
+	"github.com/netbirdio/netbird/management/server/store"
 )
 
 // TestMigrationServerInterface is a compile-time check that migrationServer
@@ -558,4 +561,19 @@ func TestApplyOverrides_SingleAccountDomainFromEnv(t *testing.T) {
 		require.Error(t, err)
 		assert.ErrorIs(t, err, migration.ErrUnusableDomain)
 	})
+}
+
+func TestOpenStores_CreatesMissingEventSchema(t *testing.T) {
+	for _, key := range []string{"NETBIRD_STORE_ENGINE", "NB_STORE_ENGINE_SQLITE_FILE", store.PostgresDsnEnv, "NB_ACTIVITY_EVENT_STORE_ENGINE", "NB_ACTIVITY_EVENT_SQLITE_FILE"} {
+		t.Setenv(key, "")
+		require.NoError(t, os.Unsetenv(key))
+	}
+	cfg := &nbconfig.Config{DataStoreEncryptionKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}
+
+	_, eventStore, cleanup, err := openStores(context.Background(), cfg, t.TempDir())
+	require.NoError(t, err)
+	defer cleanup()
+
+	require.NotNil(t, eventStore)
+	assert.Empty(t, eventStore.CheckSchema(migration.RequiredEventSchema))
 }

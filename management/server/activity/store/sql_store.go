@@ -64,18 +64,22 @@ func NewSqlStore(ctx context.Context, dataDir string, encryptionKey string, mode
 		return nil, fmt.Errorf("initialize database: %w", err)
 	}
 
+	store := &Store{
+		db:           db,
+		fieldEncrypt: fieldEncrypt,
+	}
+
 	runner, err := migrate.New(db, engine, MigrationSet(fieldEncrypt))
 	if err != nil {
+		_ = store.Close(ctx)
 		return nil, err
 	}
 	if err := runner.Run(ctx, mode); err != nil {
+		_ = store.Close(ctx)
 		return nil, err
 	}
 
-	return &Store{
-		db:           db,
-		fieldEncrypt: fieldEncrypt,
-	}, nil
+	return store, nil
 }
 
 func (store *Store) processResult(ctx context.Context, events []*eventWithNames) ([]*activity.Event, error) {

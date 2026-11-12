@@ -85,8 +85,8 @@ func TestNetworkMapProtoEquivalence(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	// skipMigration=true: this reads a restored production copy and must not
-	// alter its schema. Flip to false only if reads fail on an older dump.
+	// ModeSkip: this reads a restored production copy and must not alter its
+	// schema. Switch to migrate.ModeAuto only if reads fail on an older dump.
 	testStore, err := store.NewPostgresqlStore(ctx, dsn, nil, migrate.ModeSkip)
 	require.NoError(t, err, "connect to postgres")
 	t.Cleanup(func() { testStore.Close(ctx) })

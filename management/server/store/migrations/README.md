@@ -13,8 +13,11 @@ SQL files of the respective engine; Go migrations live next to
 - Every file starts with `-- +goose Up`. Postgres files continue with
   `SET LOCAL lock_timeout = '5s';` so a DDL statement waiting behind a long
   transaction fails and is retried instead of queueing every other query.
-- A migration runs in one transaction. `CREATE INDEX CONCURRENTLY` needs
-  `-- +goose NO TRANSACTION` at the top of the file.
+- A migration runs in one transaction. The exception is
+  `CREATE INDEX CONCURRENTLY`, which cannot run inside one: its file starts with
+  `-- +goose NO TRANSACTION` before `-- +goose Up`, and because `SET LOCAL` has
+  no effect outside a transaction it uses `SET lock_timeout = '5s';` instead and
+  ends with `RESET lock_timeout;`.
 - Go migrations use `goose.GoFunc.RunTx`, never `RunDB`: goose holds the pool's
   only SQLite connection while it runs, so a function that needs a second
   connection deadlocks.
@@ -22,8 +25,8 @@ SQL files of the respective engine; Go migrations live next to
   both run during a rollout and a rollback redeploys N-1. Add columns and
   tables in one release; drop, rename or tighten them one release later, after
   no code reads the old shape.
-- Row-heavy backfills do not belong in a migration. They run after startup in
-  batches, see the design notes in the runner package.
+- Row-heavy backfills do not belong in a migration. They run in application
+  code after startup, in batches, so a migration finishes in seconds.
 - `TestMigrationsMatchAutoMigrate` compares the schema the migrations produce
   with the schema gorm derives from the models; a model change without a
   migration fails it.

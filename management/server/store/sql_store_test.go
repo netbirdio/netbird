@@ -523,6 +523,9 @@ func sqliteIndexNames(t *testing.T, conn *db.Conn) map[string]string {
 }
 
 func TestLegacyBootstrapKeepsBaselineIndexes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
 	ctx := context.Background()
 
 	openFresh := func(t *testing.T) *db.Conn {
@@ -546,7 +549,7 @@ func TestLegacyBootstrapKeepsBaselineIndexes(t *testing.T) {
 			if len(tables) > 0 && !slices.Contains(tables, table) {
 				continue
 			}
-			assert.Contains(t, got, name, "index %s of table %s is missing", name, table)
+			assert.Equal(t, table, got[name], "index %s is missing or attached to the wrong table", name)
 		}
 	}
 
@@ -576,4 +579,20 @@ func TestLegacyBootstrapKeepsBaselineIndexes(t *testing.T) {
 		require.NoError(t, err)
 		assertBaselineIndexes(t, conn, "agent_network_access_log", "agent_network_request_usage")
 	})
+}
+
+func TestMigrateFileStoreToSqlite(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, storeFileName), []byte(`{"Accounts":{},"InstallationID":"file-store-installation"}`), 0o600))
+
+	require.NoError(t, MigrateFileStoreToSqlite(ctx, dataDir))
+
+	store, err := NewSqliteStore(ctx, dataDir, nil, migrate.ModeCheck)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close(ctx) })
+	assert.Equal(t, "file-store-installation", store.GetInstallationID())
 }
