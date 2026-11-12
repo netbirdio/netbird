@@ -83,7 +83,7 @@ func anSetupRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := anSetupCheckState(cmd, info); err != nil {
+	if err := anSetupCheckState(info); err != nil {
 		return err
 	}
 	provider, variant, err := anSetupPickProvider(def, info.GetProviders(), anSetupProvider)
@@ -254,10 +254,7 @@ func anSetupFetchInfo(cmd *cobra.Command) (*proto.GetAgentNetworkInfoResponse, e
 }
 
 // anSetupCheckState refuses every state but OK, an unknown one included.
-func anSetupCheckState(cmd *cobra.Command, info *proto.GetAgentNetworkInfoResponse) error {
-	if info.GetLoginExpired() {
-		cmd.PrintErrln("Your NetBird login expired. Run `netbird up` to sign in again before using Agent Networks.")
-	}
+func anSetupCheckState(info *proto.GetAgentNetworkInfoResponse) error {
 	switch info.GetState() {
 	case proto.GetAgentNetworkInfoResponse_OK:
 		if info.GetEndpoint() == "" {
