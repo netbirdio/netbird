@@ -53,6 +53,7 @@ const (
 
 	// maxPrefixesSet 1638 prefixes start to fail, taking some margin
 	maxPrefixesSet       = 1500
+	maxPrefixesSetV6     = 900
 	refreshRulesMapError = "refresh rules map: %w"
 )
 
