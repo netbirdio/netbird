@@ -129,9 +129,7 @@ func TestAllowance_RealStore_PolicyUserCap(t *testing.T) {
 	assert.Empty(t, l.GroupID, "user scope has no group")
 	assert.Equal(t, 1000.0, l.Cap)
 	assert.Equal(t, 300.0, l.Used)
-	assert.Equal(t, int64(3600), l.WindowSeconds)
-	assert.Equal(t, types.WindowStart(time.Now(), 3600), l.WindowStart, "window is epoch aligned")
-	assert.Equal(t, l.WindowStart.Add(time.Hour), l.ResetsAt, "resets at the end of the window")
+	assert.Equal(t, types.WindowStart(time.Now(), 3600).Add(time.Hour), l.ResetsAt, "resets at the end of the epoch-aligned window")
 }
 
 func TestAllowance_RealStore_PolicyGroupCap(t *testing.T) {
@@ -169,7 +167,6 @@ func TestAllowance_RealStore_AccountRuleMinWins(t *testing.T) {
 	spend(t, mgr, 100, 0)
 	a = peerAllowance(t, mgr)
 	assert.True(t, a.Exhausted, "the smaller account rule binds")
-	assert.Contains(t, a.ExhaustedReason, "account rule rule-1")
 	assert.Equal(t, 100.0, a.Limits[0].Used)
 	assert.Equal(t, 100.0, a.Limits[1].Used, "the policy window counted the same request")
 }
@@ -208,7 +205,6 @@ func TestAllowance_RealStore_ExhaustedPolicy(t *testing.T) {
 
 	a := peerAllowance(t, mgr)
 	assert.True(t, a.Exhausted)
-	assert.Contains(t, a.ExhaustedReason, "user token cap exhausted on policy pol-user")
 	require.Len(t, a.Limits, 1)
 	assert.Equal(t, 150.0, a.Limits[0].Used, "used may overshoot the cap")
 }
@@ -296,9 +292,6 @@ func TestAllowance_RealStore_ExhaustedMatchesSelector(t *testing.T) {
 				require.NoError(t, err)
 				a := peerAllowance(t, mgr)
 				assert.Equal(t, !res.Allow, a.Exhausted, "step %d: exhausted must equal the selector's deny", step)
-				if !res.Allow {
-					assert.Equal(t, res.DenyReason, a.ExhaustedReason, "step %d: same deny reason", step)
-				}
 			}
 			check(0)
 			for i, s := range tc.spends {

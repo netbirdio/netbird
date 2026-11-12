@@ -65,12 +65,7 @@ var agentNetworkStateToProto = map[types.PeerAgentNetworkState]proto.GetAgentNet
 }
 
 func agentNetworkInfoToProto(info *types.PeerAgentNetworkInfo) *proto.GetAgentNetworkInfoResponse {
-	resp := &proto.GetAgentNetworkInfoResponse{
-		State:        agentNetworkStateToProto[info.State],
-		UserEmail:    info.UserEmail,
-		LoginExpired: info.LoginExpired,
-		ComputedAt:   timestamppb.Now(),
-	}
+	resp := &proto.GetAgentNetworkInfoResponse{State: agentNetworkStateToProto[info.State]}
 	if info.Config == nil {
 		return resp
 	}
@@ -87,7 +82,6 @@ func agentNetworkInfoToProto(info *types.PeerAgentNetworkInfo) *proto.GetAgentNe
 		if a := p.Allowance; a != nil {
 			pp.Unlimited = a.Unlimited
 			pp.Exhausted = a.Exhausted
-			pp.ExhaustedReason = a.ExhaustedReason
 			for _, l := range a.Limits {
 				pp.Limits = append(pp.Limits, agentNetworkLimitToProto(l))
 			}
@@ -114,17 +108,15 @@ var (
 
 func agentNetworkLimitToProto(l types.AllowanceLimit) *proto.AgentNetworkLimit {
 	return &proto.AgentNetworkLimit{
-		Source:        allowanceSourceToProto[l.Source],
-		SourceId:      l.SourceID,
-		SourceName:    l.SourceName,
-		Unit:          allowanceUnitToProto[l.Unit],
-		Scope:         allowanceScopeToProto[l.Scope],
-		GroupId:       l.GroupID,
-		GroupName:     l.GroupName,
-		Cap:           l.Cap,
-		Used:          l.Used,
-		WindowSeconds: l.WindowSeconds,
-		WindowStart:   timestamppb.New(l.WindowStart),
-		ResetsAt:      timestamppb.New(l.ResetsAt),
+		Source:     allowanceSourceToProto[l.Source],
+		SourceId:   l.SourceID,
+		SourceName: l.SourceName,
+		Unit:       allowanceUnitToProto[l.Unit],
+		Scope:      allowanceScopeToProto[l.Scope],
+		GroupId:    l.GroupID,
+		GroupName:  l.GroupName,
+		Cap:        l.Cap,
+		Used:       l.Used,
+		ResetsAt:   timestamppb.New(l.ResetsAt),
 	}
 }

@@ -85,24 +85,12 @@ export const AgentNetworkUsageView = ({ info, error, setup }: ViewProps) => {
         );
     }
 
-    const now = info.computedAt ? new Date(info.computedAt) : new Date();
+    const now = new Date();
 
     return (
         <ScrollArea.Root dir={dir} type={"auto"} className={"min-h-0 flex-1 overflow-hidden"}>
             <ScrollArea.Viewport className={"h-full w-full"}>
                 <div className={"flex flex-col gap-3 px-6 py-4"}>
-                    {info.loginExpired && (
-                        <p
-                            role={"alert"}
-                            className={cn(
-                                "rounded-md border px-3 py-2 text-xs",
-                                "border-yellow-300 bg-yellow-100 text-yellow-800",
-                                "dark:border-yellow-700 dark:bg-yellow-900 dark:text-yellow-200",
-                            )}
-                        >
-                            {t("agentNetwork.loginExpired")}
-                        </p>
-                    )}
                     {error && (
                         <p className={"text-xs text-red-500"}>
                             {t("agentNetwork.error.stale", { error })}

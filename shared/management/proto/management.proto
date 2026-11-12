@@ -852,12 +852,8 @@ message GetAgentNetworkInfoResponse {
     USER_BLOCKED = 4;
   }
   State state = 1;
-  string user_email = 2;
   // endpoint is the account's proxy base URL, "https://<label>.<cluster>".
   string endpoint = 3;
-  // login_expired is true when the peer's NetBird login has expired.
-  bool login_expired = 4;
-  google.protobuf.Timestamp computed_at = 5;
   repeated AgentNetworkProvider providers = 6;
 }
 
@@ -876,7 +872,6 @@ message AgentNetworkProvider {
   // exhausted is true when the next request on this provider would be denied
   // for a spent cap.
   bool exhausted = 8;
-  string exhausted_reason = 9;
   // limits lists every cap that binds the caller on this provider. Token and
   // USD caps are separate entries.
   repeated AgentNetworkLimit limits = 10;
@@ -908,10 +903,7 @@ message AgentNetworkLimit {
   string group_name = 7;
   double cap = 8;
   double used = 9;
-  int64 window_seconds = 10;
-  // window_start is aligned to the unix epoch; resets_at is window_start
-  // plus window_seconds.
-  google.protobuf.Timestamp window_start = 11;
+  // resets_at is the end of the cap's current window.
   google.protobuf.Timestamp resets_at = 12;
 }
 

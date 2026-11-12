@@ -101,11 +101,9 @@ func TestGetAgentNetworkInfo_EncryptedRoundTrip(t *testing.T) {
 	}))
 	accountManager.EXPECT().GetAccountIDForPeerKey(gomock.Any(), clientKey.PublicKey().String()).Return("acct-1", nil)
 
-	windowStart := time.Date(2026, 11, 6, 0, 0, 0, 0, time.UTC)
+	resetsAt := time.Date(2026, 11, 7, 0, 0, 0, 0, time.UTC)
 	fake := &fakeAgentNetworkInfo{info: &types.PeerAgentNetworkInfo{
-		State:        types.PeerAgentNetworkOK,
-		UserEmail:    "user@example.com",
-		LoginExpired: true,
+		State: types.PeerAgentNetworkOK,
 		Config: &types.AgentConfig{
 			Configured: true,
 			Endpoint:   "https://violet.eu.proxy.netbird.io",
@@ -113,12 +111,11 @@ func TestGetAgentNetworkInfo_EncryptedRoundTrip(t *testing.T) {
 				ID: "prov-1", Name: "OpenAI", CatalogID: "openai_api", APIFlavor: "openai",
 				Models: []string{"gpt-5.4"},
 				Allowance: &types.ProviderAllowance{
-					Exhausted: true, ExhaustedReason: "user budget cap exhausted",
+					Exhausted: true,
 					Limits: []types.AllowanceLimit{{
 						Source: types.AllowanceSourcePolicy, SourceID: "pol-1", SourceName: "Engineers",
 						Unit: types.AllowanceUnitUSD, Scope: types.AllowanceScopeUser,
-						Cap: 5, Used: 5.5, WindowSeconds: 86400, WindowStart: windowStart,
-						ResetsAt: windowStart.Add(24 * time.Hour),
+						Cap: 5, Used: 5.5, ResetsAt: resetsAt,
 					}},
 				},
 			}},
@@ -134,17 +131,13 @@ func TestGetAgentNetworkInfo_EncryptedRoundTrip(t *testing.T) {
 	resp := &proto.GetAgentNetworkInfoResponse{}
 	require.NoError(t, encryption.DecryptMessage(serverKey.PublicKey(), clientKey, encResp.Body, resp))
 	assert.Equal(t, proto.GetAgentNetworkInfoResponse_OK, resp.State)
-	assert.Equal(t, "user@example.com", resp.UserEmail)
-	assert.True(t, resp.LoginExpired)
 	assert.Equal(t, "https://violet.eu.proxy.netbird.io", resp.Endpoint)
-	assert.NotNil(t, resp.ComputedAt, "computed_at must be set")
 	require.Len(t, resp.Providers, 1)
 	assert.Equal(t, "prov-1", resp.Providers[0].Id)
 	assert.Equal(t, "openai", resp.Providers[0].ApiFlavor)
 	assert.Equal(t, []string{"gpt-5.4"}, resp.Providers[0].Models)
 	assert.True(t, resp.Providers[0].Exhausted)
 	assert.False(t, resp.Providers[0].Unlimited)
-	assert.Equal(t, "user budget cap exhausted", resp.Providers[0].ExhaustedReason)
 	require.Len(t, resp.Providers[0].Limits, 1)
 	l := resp.Providers[0].Limits[0]
 	assert.Equal(t, proto.AgentNetworkLimit_POLICY, l.Source)
@@ -154,7 +147,5 @@ func TestGetAgentNetworkInfo_EncryptedRoundTrip(t *testing.T) {
 	assert.Equal(t, proto.AgentNetworkLimit_USER, l.Scope)
 	assert.Equal(t, 5.0, l.Cap)
 	assert.Equal(t, 5.5, l.Used)
-	assert.Equal(t, int64(86400), l.WindowSeconds)
-	assert.Equal(t, windowStart, l.WindowStart.AsTime())
-	assert.Equal(t, windowStart.Add(24*time.Hour), l.ResetsAt.AsTime())
+	assert.Equal(t, resetsAt, l.ResetsAt.AsTime())
 }

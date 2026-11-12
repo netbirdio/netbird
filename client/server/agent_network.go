@@ -46,11 +46,8 @@ func relayAgentNetworkInfo(ctx context.Context, fetch agentNetworkInfoFetcher) (
 	}
 
 	resp := &proto.GetAgentNetworkInfoResponse{
-		State:        agentNetworkStateFromMgm(info.GetState()),
-		UserEmail:    info.GetUserEmail(),
-		Endpoint:     info.GetEndpoint(),
-		LoginExpired: info.GetLoginExpired(),
-		ComputedAt:   info.GetComputedAt(),
+		State:    agentNetworkStateFromMgm(info.GetState()),
+		Endpoint: info.GetEndpoint(),
 	}
 	for _, p := range info.GetProviders() {
 		resp.Providers = append(resp.Providers, agentNetworkProviderFromMgm(p))
@@ -68,23 +65,20 @@ func agentNetworkProviderFromMgm(p *mgmProto.AgentNetworkProvider) *proto.AgentN
 		Models:           p.GetModels(),
 		Unlimited:        p.GetUnlimited(),
 		Exhausted:        p.GetExhausted(),
-		ExhaustedReason:  p.GetExhaustedReason(),
 	}
 	// The enums mirror the management ones value for value.
 	for _, l := range p.GetLimits() {
 		out.Limits = append(out.Limits, &proto.AgentNetworkLimit{
-			Source:        proto.AgentNetworkLimit_Source(l.GetSource()),
-			SourceId:      l.GetSourceId(),
-			SourceName:    l.GetSourceName(),
-			Unit:          proto.AgentNetworkLimit_Unit(l.GetUnit()),
-			Scope:         proto.AgentNetworkLimit_Scope(l.GetScope()),
-			GroupId:       l.GetGroupId(),
-			GroupName:     l.GetGroupName(),
-			Cap:           l.GetCap(),
-			Used:          l.GetUsed(),
-			WindowSeconds: l.GetWindowSeconds(),
-			WindowStart:   l.GetWindowStart(),
-			ResetsAt:      l.GetResetsAt(),
+			Source:     proto.AgentNetworkLimit_Source(l.GetSource()),
+			SourceId:   l.GetSourceId(),
+			SourceName: l.GetSourceName(),
+			Unit:       proto.AgentNetworkLimit_Unit(l.GetUnit()),
+			Scope:      proto.AgentNetworkLimit_Scope(l.GetScope()),
+			GroupId:    l.GetGroupId(),
+			GroupName:  l.GetGroupName(),
+			Cap:        l.GetCap(),
+			Used:       l.GetUsed(),
+			ResetsAt:   l.GetResetsAt(),
 		})
 	}
 	return out
