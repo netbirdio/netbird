@@ -117,6 +117,10 @@ func TestDynamicNeedsClientSchedule(t *testing.T) {
 	assert.True(t, active, "aligned must not need a client value")
 }
 
+// tickEarlyMs is how early a tick may read on the wall clock. On Windows the
+// timer and time.Now differ in precision, so a tick can read 1 ms early.
+const tickEarlyMs = 5
+
 func TestTickerDynamicFires(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -127,7 +131,7 @@ func TestTickerDynamicFires(t *testing.T) {
 		select {
 		case now := <-ch:
 			got := now.UnixMilli() % 2000
-			assert.True(t, got >= 400 && got < 460, "tick %d at ms %d mod 2000, want 400", i, got)
+			assert.True(t, got >= 400-tickEarlyMs && got < 460, "tick %d at ms %d mod 2000, want 400", i, got)
 		case <-time.After(3 * time.Second):
 			t.Fatalf("dynamic ticker did not fire, tick %d", i)
 		}
@@ -167,11 +171,12 @@ func TestTickerSwitchAlignedDynamic(t *testing.T) {
 		select {
 		case now := <-ch:
 			got := now.UnixMilli() % 3000
-			if got >= 1500 && got < 1560 {
+			if got >= 1500-tickEarlyMs && got < 1560 {
 				return
 			}
-			// At most one tick planned under aligned may still arrive.
-			assert.Less(t, got%1000, int64(60), "unexpected tick at ms %d mod 3000", got)
+			// At most one tick planned under aligned may still arrive, on a whole second.
+			ms := got % 1000
+			assert.True(t, ms < 60 || ms >= 1000-tickEarlyMs, "unexpected tick at ms %d mod 3000", got)
 		case <-deadline:
 			t.Fatal("no dynamic tick after the switch")
 		}
