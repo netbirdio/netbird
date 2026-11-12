@@ -46,11 +46,11 @@ func (m *managerImpl) fillAllowances(ctx context.Context, accountID, userID stri
 	}
 
 	ruleLimits := accountRuleLimits(base, rules, cache, now)
-	accountDeny, _, accountReason := checkAccountBudget(base, rules, cache, now)
+	accountDeny, _, _ := checkAccountBudget(base, rules, cache, now)
 	for i := range providers {
 		a := providerAllowance(base, candidates[i], cache, now, ruleLimits)
 		if accountDeny {
-			a.Exhausted, a.ExhaustedReason = true, accountReason
+			a.Exhausted = true
 		}
 		providers[i].Allowance = a
 	}
@@ -87,8 +87,8 @@ func providerAllowance(in PolicySelectionInput, candidates []*types.Policy, cach
 		}
 	}
 
-	if scored, _, reason := scoreCandidates(in, candidates, cache, now); len(scored) == 0 {
-		a.Exhausted, a.ExhaustedReason = true, reason
+	if scored, _, _ := scoreCandidates(in, candidates, cache, now); len(scored) == 0 {
+		a.Exhausted = true
 	}
 	return a
 }
@@ -115,17 +115,15 @@ func accountRuleLimits(in PolicySelectionInput, rules []*types.AccountBudgetRule
 
 func allowanceLimit(source types.AllowanceSource, id, name string, u capUsage) types.AllowanceLimit {
 	return types.AllowanceLimit{
-		Source:        source,
-		SourceID:      id,
-		SourceName:    name,
-		Unit:          u.unit,
-		Scope:         u.scope,
-		GroupID:       u.groupID,
-		Cap:           u.cap,
-		Used:          u.used,
-		WindowSeconds: u.windowSeconds,
-		WindowStart:   u.windowStart,
-		ResetsAt:      u.windowStart.Add(time.Duration(u.windowSeconds) * time.Second),
+		Source:     source,
+		SourceID:   id,
+		SourceName: name,
+		Unit:       u.unit,
+		Scope:      u.scope,
+		GroupID:    u.groupID,
+		Cap:        u.cap,
+		Used:       u.used,
+		ResetsAt:   u.windowStart.Add(time.Duration(u.windowSeconds) * time.Second),
 	}
 }
 

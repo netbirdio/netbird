@@ -1130,7 +1130,6 @@ message AgentNetworkProvider {
   // exhausted is true when the next request on this provider would be denied
   // for a spent cap.
   bool exhausted = 8;
-  string exhausted_reason = 9;
   // limits lists every cap that binds the caller on this provider. Token and
   // USD caps are separate entries.
   repeated AgentNetworkLimit limits = 10;
@@ -1162,9 +1161,6 @@ message AgentNetworkLimit {
   string group_name = 7;
   double cap = 8;
   double used = 9;
-  int64 window_seconds = 10;
-  // window_start is aligned to the unix epoch; resets_at is window_start
-  // plus window_seconds.
-  google.protobuf.Timestamp window_start = 11;
+  // resets_at is the end of the cap's current window.
   google.protobuf.Timestamp resets_at = 12;
 }

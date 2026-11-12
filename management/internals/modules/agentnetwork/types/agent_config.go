@@ -77,13 +77,12 @@ type AllowanceLimit struct {
 	Unit       AllowanceUnit
 	Scope      AllowanceScope
 	// GroupID and GroupName are set for group-scoped limits.
-	GroupID       string
-	GroupName     string
-	Cap           float64
-	Used          float64
-	WindowSeconds int64
-	WindowStart   time.Time
-	ResetsAt      time.Time
+	GroupID   string
+	GroupName string
+	Cap       float64
+	Used      float64
+	// ResetsAt is the end of the cap's current window.
+	ResetsAt time.Time
 }
 
 // ProviderAllowance is what the caller may still spend on one provider.
@@ -95,9 +94,8 @@ type ProviderAllowance struct {
 	Unlimited bool
 	// Exhausted mirrors the proxy: true exactly when the policy selector
 	// would deny the caller's next request on this provider.
-	Exhausted       bool
-	ExhaustedReason string
-	Limits          []AllowanceLimit
+	Exhausted bool
+	Limits    []AllowanceLimit
 }
 
 // PeerAgentNetworkState is the availability of Agent Networks for a peer.

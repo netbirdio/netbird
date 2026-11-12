@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/client/proto"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
@@ -21,8 +22,7 @@ func TestGetAgentNetworkInfo_ClientNotRunning(t *testing.T) {
 }
 
 func TestRelayAgentNetworkInfo(t *testing.T) {
-	windowStart := timestamppb.New(time.Now().Truncate(time.Hour))
-	resetsAt := timestamppb.New(windowStart.AsTime().Add(time.Hour))
+	resetsAt := timestamppb.New(time.Now().Truncate(time.Hour).Add(time.Hour))
 	resp, err := relayAgentNetworkInfo(context.Background(), func(context.Context) (*mgmProto.GetAgentNetworkInfoResponse, error) {
 		return &mgmProto.GetAgentNetworkInfoResponse{
 			State:    mgmProto.GetAgentNetworkInfoResponse_OK,
@@ -30,12 +30,12 @@ func TestRelayAgentNetworkInfo(t *testing.T) {
 			Providers: []*mgmProto.AgentNetworkProvider{{
 				Id: "prov-1", Name: "OpenAI", CatalogId: "openai_api", ApiFlavor: "openai",
 				AllModelsAllowed: true, Models: []string{"gpt-5.4"},
-				Exhausted: true, ExhaustedReason: "group token cap exhausted",
+				Exhausted: true,
 				Limits: []*mgmProto.AgentNetworkLimit{{
 					Source: mgmProto.AgentNetworkLimit_ACCOUNT_RULE, SourceId: "rule-1", SourceName: "Monthly",
 					Unit: mgmProto.AgentNetworkLimit_TOKENS, Scope: mgmProto.AgentNetworkLimit_GROUP,
 					GroupId: "grp-eng", GroupName: "Engineering", Cap: 1000, Used: 1000,
-					WindowSeconds: 3600, WindowStart: windowStart, ResetsAt: resetsAt,
+					ResetsAt: resetsAt,
 				}},
 			}},
 		}, nil
@@ -47,12 +47,12 @@ func TestRelayAgentNetworkInfo(t *testing.T) {
 	assert.Equal(t, &proto.AgentNetworkProvider{
 		Id: "prov-1", Name: "OpenAI", CatalogId: "openai_api", ApiFlavor: "openai",
 		AllModelsAllowed: true, Models: []string{"gpt-5.4"},
-		Exhausted: true, ExhaustedReason: "group token cap exhausted",
+		Exhausted: true,
 		Limits: []*proto.AgentNetworkLimit{{
 			Source: proto.AgentNetworkLimit_ACCOUNT_RULE, SourceId: "rule-1", SourceName: "Monthly",
 			Unit: proto.AgentNetworkLimit_TOKENS, Scope: proto.AgentNetworkLimit_GROUP,
 			GroupId: "grp-eng", GroupName: "Engineering", Cap: 1000, Used: 1000,
-			WindowSeconds: 3600, WindowStart: windowStart, ResetsAt: resetsAt,
+			ResetsAt: resetsAt,
 		}},
 	}, resp.Providers[0], "provider must relay field for field")
 }

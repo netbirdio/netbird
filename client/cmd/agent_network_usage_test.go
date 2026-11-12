@@ -20,15 +20,17 @@ import (
 
 var updateGolden = flag.Bool("update", false, "rewrite the golden files in testdata")
 
+const usageEmail = "ada@example.com"
+
+// usageNow is the local clock the reset countdowns are rendered against.
+var usageNow = time.Date(2026, 11, 6, 14, 18, 0, 0, time.UTC)
+
 func usageFixture() *proto.GetAgentNetworkInfoResponse {
-	computedAt := time.Date(2026, 11, 6, 14, 18, 0, 0, time.UTC)
-	hour := computedAt.Truncate(time.Hour)
+	hour := usageNow.Truncate(time.Hour)
 	month := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
 	return &proto.GetAgentNetworkInfoResponse{
-		State:      proto.GetAgentNetworkInfoResponse_OK,
-		UserEmail:  "ada@example.com",
-		Endpoint:   "https://violet.eu.proxy.netbird.io",
-		ComputedAt: timestamppb.New(computedAt),
+		State:    proto.GetAgentNetworkInfoResponse_OK,
+		Endpoint: "https://violet.eu.proxy.netbird.io",
 		Providers: []*proto.AgentNetworkProvider{
 			{
 				Id: "prov-anthropic", Name: "Anthropic", CatalogId: "anthropic_api", ApiFlavor: "anthropic",
@@ -41,26 +43,23 @@ func usageFixture() *proto.GetAgentNetworkInfoResponse {
 					{
 						Source: proto.AgentNetworkLimit_ACCOUNT_RULE, SourceId: "rule-1", SourceName: "Monthly spend",
 						Unit: proto.AgentNetworkLimit_USD, Scope: proto.AgentNetworkLimit_USER,
-						Cap: 50, Used: 12.345, WindowSeconds: 2_592_000,
-						WindowStart: timestamppb.New(month), ResetsAt: timestamppb.New(month.Add(30 * 24 * time.Hour)),
+						Cap: 50, Used: 12.345, ResetsAt: timestamppb.New(month.Add(30 * 24 * time.Hour)),
 					},
 					{
 						Source: proto.AgentNetworkLimit_POLICY, SourceId: "pol-1", SourceName: "Engineers",
 						Unit: proto.AgentNetworkLimit_TOKENS, Scope: proto.AgentNetworkLimit_GROUP,
 						GroupId: "grp-eng", GroupName: "Engineering",
-						Cap: 1_000_000, Used: 250_500, WindowSeconds: 3600,
-						WindowStart: timestamppb.New(hour), ResetsAt: timestamppb.New(hour.Add(time.Hour)),
+						Cap: 1_000_000, Used: 250_500, ResetsAt: timestamppb.New(hour.Add(time.Hour)),
 					},
 				},
 			},
 			{
 				Id: "prov-bedrock", Name: "Bedrock prod", CatalogId: "bedrock",
-				Exhausted: true, ExhaustedReason: "user token cap exhausted on policy pol-2 (used 1200 of 1000)",
+				Exhausted: true,
 				Limits: []*proto.AgentNetworkLimit{{
 					Source: proto.AgentNetworkLimit_POLICY, SourceId: "pol-2", SourceName: "Interns",
 					Unit: proto.AgentNetworkLimit_TOKENS, Scope: proto.AgentNetworkLimit_USER,
-					Cap: 1000, Used: 1200, WindowSeconds: 3600,
-					WindowStart: timestamppb.New(hour), ResetsAt: timestamppb.New(hour.Add(time.Hour)),
+					Cap: 1000, Used: 1200, ResetsAt: timestamppb.New(hour.Add(time.Hour)),
 				}},
 			},
 		},
@@ -74,22 +73,22 @@ func TestRenderAgentNetworkUsage_Golden(t *testing.T) {
 	time.Local = time.UTC
 	t.Cleanup(func() { time.Local = local })
 
-	expired := usageFixture()
-	expired.LoginExpired = true
-
 	cases := []struct {
-		name   string
-		resp   *proto.GetAgentNetworkInfoResponse
-		asJSON bool
+		name string
+		resp *proto.GetAgentNetworkInfoResponse
+		// noEmail renders for a profile without a stored email.
+		noEmail bool
+		asJSON  bool
 	}{
 		{name: "ok", resp: usageFixture()},
 		{name: "ok_json", resp: usageFixture(), asJSON: true},
-		{name: "login_expired", resp: expired},
-		{name: "no_providers", resp: &proto.GetAgentNetworkInfoResponse{State: proto.GetAgentNetworkInfoResponse_OK, UserEmail: "ada@example.com"}},
+		{name: "ok_no_email", resp: usageFixture(), noEmail: true},
+		{name: "ok_no_email_json", resp: usageFixture(), noEmail: true, asJSON: true},
+		{name: "no_providers", resp: &proto.GetAgentNetworkInfoResponse{State: proto.GetAgentNetworkInfoResponse_OK}},
 		{name: "no_user", resp: &proto.GetAgentNetworkInfoResponse{State: proto.GetAgentNetworkInfoResponse_NO_USER}},
 		{name: "not_enabled", resp: &proto.GetAgentNetworkInfoResponse{State: proto.GetAgentNetworkInfoResponse_NOT_ENABLED}},
 		{name: "not_enabled_json", resp: &proto.GetAgentNetworkInfoResponse{State: proto.GetAgentNetworkInfoResponse_NOT_ENABLED}, asJSON: true},
-		{name: "user_blocked", resp: &proto.GetAgentNetworkInfoResponse{State: proto.GetAgentNetworkInfoResponse_USER_BLOCKED, LoginExpired: true}},
+		{name: "user_blocked", resp: &proto.GetAgentNetworkInfoResponse{State: proto.GetAgentNetworkInfoResponse_USER_BLOCKED}},
 		{name: "management_unsupported", resp: &proto.GetAgentNetworkInfoResponse{State: proto.GetAgentNetworkInfoResponse_MANAGEMENT_UNSUPPORTED}},
 		{name: "management_unsupported_json", resp: &proto.GetAgentNetworkInfoResponse{State: proto.GetAgentNetworkInfoResponse_MANAGEMENT_UNSUPPORTED}, asJSON: true},
 	}
@@ -97,7 +96,11 @@ func TestRenderAgentNetworkUsage_Golden(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var out bytes.Buffer
 			// An error is what the user sees on stderr, with exit code 1.
-			if err := renderAgentNetworkUsage(&out, tc.resp, tc.asJSON); err != nil {
+			email := usageEmail
+			if tc.noEmail {
+				email = ""
+			}
+			if err := renderAgentNetworkUsage(&out, tc.resp, email, usageNow, tc.asJSON); err != nil {
 				out.WriteString("error: " + err.Error() + "\n")
 			}
 			assertGolden(t, tc.name, out.Bytes())

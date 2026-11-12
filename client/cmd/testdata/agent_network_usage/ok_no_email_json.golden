@@ -1,0 +1,65 @@
+{
+  "state": "OK",
+  "endpoint": "https://violet.eu.proxy.netbird.io",
+  "providers": [
+    {
+      "id": "prov-anthropic",
+      "name": "Anthropic",
+      "catalog_id": "anthropic_api",
+      "api_flavor": "anthropic",
+      "all_models_allowed": true,
+      "unlimited": true
+    },
+    {
+      "id": "prov-openai",
+      "name": "OpenAI",
+      "catalog_id": "openai_api",
+      "api_flavor": "openai",
+      "models": [
+        "gpt-5.4"
+      ],
+      "limits": [
+        {
+          "source": "ACCOUNT_RULE",
+          "source_id": "rule-1",
+          "source_name": "Monthly spend",
+          "unit": "USD",
+          "scope": "USER",
+          "cap": 50,
+          "used": 12.345,
+          "resets_at": "2026-12-01T00:00:00Z"
+        },
+        {
+          "source": "POLICY",
+          "source_id": "pol-1",
+          "source_name": "Engineers",
+          "unit": "TOKENS",
+          "scope": "GROUP",
+          "group_id": "grp-eng",
+          "group_name": "Engineering",
+          "cap": 1000000,
+          "used": 250500,
+          "resets_at": "2026-11-06T15:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "prov-bedrock",
+      "name": "Bedrock prod",
+      "catalog_id": "bedrock",
+      "exhausted": true,
+      "limits": [
+        {
+          "source": "POLICY",
+          "source_id": "pol-2",
+          "source_name": "Interns",
+          "unit": "TOKENS",
+          "scope": "USER",
+          "cap": 1000,
+          "used": 1200,
+          "resets_at": "2026-11-06T15:00:00Z"
+        }
+      ]
+    }
+  ]
+}

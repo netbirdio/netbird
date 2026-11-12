@@ -1899,10 +1899,6 @@
         "message": "No Agent Networks policy gives you access. Ask your administrator.",
         "description": "Agent Networks tab, empty-state text when no policy gives the user access."
     },
-    "agentNetwork.loginExpired": {
-        "message": "Your NetBird login expired. Run `netbird up` to sign in again before using Agent Networks.",
-        "description": "Warning above the Agent Networks usage when the device's NetBird login expired. Keep `netbird up` verbatim with its backticks: it is a command."
-    },
     "agentNetwork.signedInAs": {
         "message": "Usage for {email}",
         "description": "Line at the top of the Agent Networks usage. {email} is the user's email address; keep it."

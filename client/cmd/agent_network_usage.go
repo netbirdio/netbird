@@ -10,11 +10,13 @@ import (
 	"text/tabwriter"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
@@ -29,8 +31,6 @@ const (
 	agentNetworkUnsupportedText = "the NetBird management server does not report Agent Networks usage; " +
 		"ask your administrator to upgrade it"
 	agentNetworkNotConnectedText = "NetBird is not connected. Run `netbird up` first"
-	agentNetworkLoginExpiredText = "Your NetBird login expired. " +
-		"Run `netbird up` to sign in again before using Agent Networks."
 )
 
 var agentNetworkUsageJSON bool
@@ -60,7 +60,25 @@ func agentNetworkUsage(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return agentNetworkInfoError(err)
 	}
-	return renderAgentNetworkUsage(cmd.OutOrStdout(), resp, agentNetworkUsageJSON)
+	return renderAgentNetworkUsage(cmd.OutOrStdout(), resp, activeProfileEmail(), time.Now(), agentNetworkUsageJSON)
+}
+
+// activeProfileEmail returns the email the last SSO login stored on the
+// active profile. It is empty when the profile never logged in with SSO or
+// its state is not readable by this user, e.g. after a login under sudo.
+func activeProfileEmail() string {
+	pm := profilemanager.NewProfileManager()
+	profile, err := pm.GetActiveProfile()
+	if err != nil {
+		log.Debugf("failed to get active profile: %v", err)
+		return ""
+	}
+	state, err := pm.GetProfileState(profile.ID)
+	if err != nil {
+		log.Debugf("failed to get profile state: %v", err)
+		return ""
+	}
+	return state.Email
 }
 
 // agentNetworkInfoError turns the daemon's "client is not running" refusal
@@ -72,17 +90,19 @@ func agentNetworkInfoError(err error) error {
 	return daemonCallError("get Agent Networks info", err)
 }
 
-func renderAgentNetworkUsage(w io.Writer, resp *proto.GetAgentNetworkInfoResponse, asJSON bool) error {
+// renderAgentNetworkUsage prints resp for the user identified by email, which
+// may be empty. Reset countdowns are relative to now.
+func renderAgentNetworkUsage(w io.Writer, resp *proto.GetAgentNetworkInfoResponse, email string, now time.Time, asJSON bool) error {
 	if resp.GetState() == proto.GetAgentNetworkInfoResponse_MANAGEMENT_UNSUPPORTED {
 		return errors.New(agentNetworkUnsupportedText)
 	}
 	if asJSON {
-		return writeAgentNetworkJSON(w, resp)
+		return writeAgentNetworkJSON(w, resp, email)
 	}
 
 	switch resp.GetState() {
 	case proto.GetAgentNetworkInfoResponse_OK:
-		writeAgentNetworkProviders(w, resp)
+		writeAgentNetworkProviders(w, resp, email, now)
 	case proto.GetAgentNetworkInfoResponse_NO_USER:
 		fmt.Fprintln(w, agentNetworkNoUserText)
 	case proto.GetAgentNetworkInfoResponse_NOT_ENABLED:
@@ -92,21 +112,37 @@ func renderAgentNetworkUsage(w io.Writer, resp *proto.GetAgentNetworkInfoRespons
 	default:
 		return fmt.Errorf("unexpected Agent Networks state %s", resp.GetState())
 	}
-
-	if resp.GetLoginExpired() {
-		fmt.Fprintf(w, "\n%s\n", agentNetworkLoginExpiredText)
-	}
 	return nil
 }
 
-func writeAgentNetworkJSON(w io.Writer, resp *proto.GetAgentNetworkInfoResponse) error {
+// writeAgentNetworkJSON prints the daemon response with the profile email
+// added in front as user_email. Like every unset response field, an empty
+// email is left out.
+func writeAgentNetworkJSON(w io.Writer, resp *proto.GetAgentNetworkInfoResponse, email string) error {
 	raw, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(resp)
 	if err != nil {
 		return fmt.Errorf("marshal response: %w", err)
 	}
-	// protojson randomizes its whitespace; re-indent for stable output.
+	// protojson randomizes its whitespace; compact it so the object is
+	// either "{}" or starts with `{"`, then re-indent for stable output.
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, raw); err != nil {
+		return fmt.Errorf("compact response: %w", err)
+	}
+	doc := compact.Bytes()
+	if email != "" {
+		quoted, err := json.Marshal(email)
+		if err != nil {
+			return fmt.Errorf("marshal email: %w", err)
+		}
+		head := append([]byte(`{"user_email":`), quoted...)
+		if len(doc) > len("{}") {
+			head = append(head, ',')
+		}
+		doc = append(head, doc[1:]...)
+	}
 	var out bytes.Buffer
-	if err := json.Indent(&out, raw, "", "  "); err != nil {
+	if err := json.Indent(&out, doc, "", "  "); err != nil {
 		return fmt.Errorf("indent response: %w", err)
 	}
 	out.WriteByte('\n')
@@ -114,20 +150,17 @@ func writeAgentNetworkJSON(w io.Writer, resp *proto.GetAgentNetworkInfoResponse)
 	return err
 }
 
-func writeAgentNetworkProviders(w io.Writer, resp *proto.GetAgentNetworkInfoResponse) {
+func writeAgentNetworkProviders(w io.Writer, resp *proto.GetAgentNetworkInfoResponse, email string, now time.Time) {
 	if len(resp.GetProviders()) == 0 {
 		fmt.Fprintln(w, agentNetworkNoProvidersText)
 		return
 	}
 
-	// Reset times are relative to when management computed the answer, so
-	// the numbers and the countdown describe the same moment.
-	now := time.Now()
-	if resp.GetComputedAt() != nil {
-		now = resp.GetComputedAt().AsTime()
+	header := "Agent Networks usage"
+	if email != "" {
+		header += " for " + email
 	}
-
-	fmt.Fprintf(w, "Agent Networks usage for %s\n", resp.GetUserEmail())
+	fmt.Fprintln(w, header)
 	for _, p := range resp.GetProviders() {
 		fmt.Fprintf(w, "\n%s (%s)", p.GetName(), p.GetCatalogId())
 		if p.GetExhausted() {
