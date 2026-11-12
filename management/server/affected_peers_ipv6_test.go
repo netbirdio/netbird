@@ -171,8 +171,15 @@ func TestAffectedPeers_IPv6RangeWidened_RefreshesAddressHolders(t *testing.T) {
 func TestAffectedPeers_IPv4RangeChange_RefreshesWholeAccount(t *testing.T) {
 	tc := setupIPv6AffectedTest(t, nil)
 
+	network, err := tc.manager.Store.GetAccountNetwork(context.Background(), store.LockingStrengthNone, tc.accountID)
+	require.NoError(t, err)
+	newRange := netip.MustParsePrefix("100.70.0.0/16")
+	if prefixFromIPNet(network.Net) == newRange {
+		newRange = netip.MustParsePrefix("100.71.0.0/16")
+	}
+
 	updateIPv6TestSettings(t, tc.manager, tc.accountID, func(s *types.Settings) {
-		s.NetworkRange = netip.MustParsePrefix("100.70.0.0/16")
+		s.NetworkRange = newRange
 	})
 
 	peerShouldReceiveUpdate(t, tc.updMsg1)
