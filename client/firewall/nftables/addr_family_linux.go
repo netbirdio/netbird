@@ -20,6 +20,7 @@ var (
 		setKeyType:    nftables.TypeIPAddr,
 		tableFamily:   nftables.TableFamilyIPv4,
 		icmpProto:     unix.IPPROTO_ICMP,
+		setBatchSize:  maxPrefixesSet,
 	}
 	// afIPv6 defines IPv6 header layout and nftables types.
 	afIPv6 = addrFamily{
@@ -30,6 +31,7 @@ var (
 		setKeyType:    nftables.TypeIP6Addr,
 		tableFamily:   nftables.TableFamilyIPv6,
 		icmpProto:     unix.IPPROTO_ICMPV6,
+		setBatchSize:  maxPrefixesSetV6,
 	}
 )
 
@@ -48,7 +50,8 @@ type addrFamily struct {
 	// tableFamily is the nftables table family
 	tableFamily nftables.TableFamily
 	// icmpProto is the ICMP protocol number for this family (1 for v4, 58 for v6)
-	icmpProto uint8
+	icmpProto    uint8
+	setBatchSize int
 }
 
 // familyForAddr returns the address family for the given IP.

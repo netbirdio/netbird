@@ -95,7 +95,8 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 	peers.meta_system_manufacturer, peers.meta_environment, peers.meta_flags, peers.meta_files, peers.meta_certificates,
 	peers.meta_capabilities, pc.last_seen, pc.session_started_at, mi.last_seen, peers.peer_status_login_expired,
 	peers.peer_status_requires_approval, peers.location_connection_ip, peers.location_country_code, peers.location_city_name,
-	peers.location_geo_name_id, peers.proxy_meta_embedded, peers.proxy_meta_cluster, peers.ipv6, peers.meta_sync_message_version
+	peers.location_geo_name_id, peers.proxy_meta_embedded, peers.proxy_meta_cluster, peers.ipv6, peers.meta_sync_message_version,
+	peers.meta_system_hardware_uuid
 	FROM peers
 	LEFT JOIN peer_connections pc ON pc.peer_id = peers.id
 	LEFT JOIN management_instances mi ON mi.id = pc.instance_id
@@ -118,7 +119,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			ip, extraDNS, netAddr, env, flags, files, certificates, capabilities, connIP, ipv6              []byte
 			metaHostname, metaGoOS, metaKernel, metaCore, metaPlatform                                      sql.NullString
 			metaOS, metaOSVersion, metaWtVersion, metaUIVersion, metaKernelVersion                          sql.NullString
-			metaSystemSerialNumber, metaSystemProductName, metaSystemManufacturer                           sql.NullString
+			metaSystemSerialNumber, metaSystemProductName, metaSystemManufacturer, metaSystemHardwareUUID   sql.NullString
 			locationCountryCode, locationCityName, proxyCluster                                             sql.NullString
 			locationGeoNameID                                                                               sql.NullInt64
 			metaSyncMessageVersion                                                                          sql.NullInt32
@@ -131,7 +132,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			&metaSystemSerialNumber, &metaSystemProductName, &metaSystemManufacturer, &env, &flags, &files, &certificates, &capabilities,
 			&peerLastSeen, &sessionStartedAt, &instanceLastSeen, &peerStatusLoginExpired,
 			&peerStatusRequiresApproval, &connIP, &locationCountryCode, &locationCityName, &locationGeoNameID,
-			&proxyEmbedded, &proxyCluster, &ipv6, &metaSyncMessageVersion)
+			&proxyEmbedded, &proxyCluster, &ipv6, &metaSyncMessageVersion, &metaSystemHardwareUUID)
 
 		if err == nil {
 			if lastLogin.Valid {
@@ -200,6 +201,9 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			}
 			if metaSystemManufacturer.Valid {
 				p.Meta.SystemManufacturer = metaSystemManufacturer.String
+			}
+			if metaSystemHardwareUUID.Valid {
+				p.Meta.SystemHardwareUUID = metaSystemHardwareUUID.String
 			}
 			if locationCountryCode.Valid {
 				p.Location.CountryCode = locationCountryCode.String

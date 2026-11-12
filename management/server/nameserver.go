@@ -85,7 +85,7 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 
 	am.StoreEvent(ctx, userID, newNSGroup.ID, accountID, activity.NameserverGroupCreated, newNSGroup.EventMeta())
 
-	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change, types.UpdateReason{Resource: types.UpdateResourceNameServerGroup, Operation: types.UpdateOperationCreate})
 
 	return newNSGroup.Copy(), nil
 }
@@ -137,7 +137,7 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 
 	am.StoreEvent(ctx, userID, nsGroupToSave.ID, accountID, activity.NameserverGroupUpdated, nsGroupToSave.EventMeta())
 
-	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change, types.UpdateReason{Resource: types.UpdateResourceNameServerGroup, Operation: types.UpdateOperationUpdate})
 
 	return nil
 }
@@ -180,7 +180,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 
 	am.StoreEvent(ctx, userID, nsGroup.ID, accountID, activity.NameserverGroupDeleted, nsGroup.EventMeta())
 
-	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change, types.UpdateReason{Resource: types.UpdateResourceNameServerGroup, Operation: types.UpdateOperationDelete})
 
 	return nil
 }

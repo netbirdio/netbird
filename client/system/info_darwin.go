@@ -61,6 +61,7 @@ func GetInfo(ctx context.Context) *Info {
 		SystemSerialNumber: si.SystemSerialNumber,
 		SystemProductName:  si.SystemProductName,
 		SystemManufacturer: si.SystemManufacturer,
+		SystemHardwareUUID: si.SystemHardwareUUID,
 		Environment:        si.Environment,
 	}
 
@@ -89,6 +90,26 @@ func sysInfo() (serialNumber string, productName string, manufacturer string) {
 
 	}
 	return
+}
+
+// sysHardwareUUID reads IOPlatformUUID, the value gethostuuid returns and osquery
+// reports as system_info.uuid.
+func sysHardwareUUID() string {
+	out, err := exec.Command("/usr/sbin/ioreg", "-rd1", "-c", "IOPlatformExpertDevice").Output()
+	if err != nil {
+		log.Warnf("failed to get system hardware UUID: %s", err)
+		return ""
+	}
+	return parseIoRegUUID(string(out))
+}
+
+func parseIoRegUUID(out string) string {
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, `"IOPlatformUUID"`) {
+			return cleanHardwareUUID(trimIoRegLine(l))
+		}
+	}
+	return ""
 }
 
 func trimIoRegLine(l string) string {

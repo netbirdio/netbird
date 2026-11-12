@@ -76,7 +76,10 @@ func (s *SqlStore) GetPolicyRulesByResourceID(ctx context.Context, lockStrength 
 
 	var policyRules []*types.PolicyRule
 	resourceIDPattern := `%"ID":"` + resourceID + `"%`
-	result := tx.Where("source_resource LIKE ? OR destination_resource LIKE ?", resourceIDPattern, resourceIDPattern).
+	accountPolicyIDs := s.db.Model(&types.Policy{}).Select("id").Where(accountIDCondition, accountID)
+	result := tx.
+		Where("policy_id IN (?)", accountPolicyIDs).
+		Where("(source_resource LIKE ? OR destination_resource LIKE ?)", resourceIDPattern, resourceIDPattern).
 		Find(&policyRules)
 
 	if result.Error != nil {
