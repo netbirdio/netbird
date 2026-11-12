@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -51,13 +52,14 @@ func init() {
 	rootCmd.AddCommand(runCmd)
 }
 
-// SetupCloseHandler handles SIGTERM signal and exits with success
+// SetupCloseHandler handles SIGINT and SIGTERM and exits with success. Docker
+// and Kubernetes stop the container with SIGTERM.
 func SetupCloseHandler() {
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
-		for range c {
-			fmt.Println("\r- Ctrl+C pressed in Terminal")
+		for sig := range c {
+			fmt.Printf("\r- received %s\n", sig)
 			stopCh <- 0
 		}
 	}()
