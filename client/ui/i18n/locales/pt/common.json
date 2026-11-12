@@ -8,6 +8,9 @@
     "tray.status.daemonUnavailable": {
         "message": "Não está em execução"
     },
+    "tray.status.daemonAccessDenied": {
+        "message": "Sem acesso"
+    },
     "tray.status.error": {
         "message": "Erro"
     },
@@ -674,6 +677,9 @@
     "settings.security.rosenpass.help": {
         "message": "Adicionar uma troca de chaves pós-quântica via Rosenpass sobre o WireGuard®."
     },
+    "settings.security.rosenpass.deprecated": {
+        "message": "Obsoleto: o suporte ao Rosenpass poderá ser removido em uma versão futura."
+    },
     "settings.security.rosenpassPermissive.label": {
         "message": "Ativar modo permissivo"
     },
@@ -1331,6 +1337,12 @@
     "daemon.unavailable.docsLink": {
         "message": "Documentação"
     },
+    "daemon.accessDenied.title": {
+        "message": "Sem acesso ao serviço NetBird"
+    },
+    "daemon.accessDenied.description": {
+        "message": "O seu administrador restringiu o serviço NetBird neste dispositivo a determinados usuários ou grupos, e a sua conta não é um deles. Contate o seu administrador para obter acesso."
+    },
     "daemon.outdated.title": {
         "message": "O NetBird Client está desatualizado"
     },
@@ -1360,6 +1372,9 @@
     },
     "error.daemon_unreachable": {
         "message": "O daemon do NetBird não está respondendo. Verifique se o serviço está em execução."
+    },
+    "error.daemon_access_denied": {
+        "message": "A sua conta não tem permissão para usar o serviço NetBird neste dispositivo. Contacte o seu administrador para obter acesso."
     },
     "error.settings_locked": {
         "message": "As configurações não podem ser alteradas neste dispositivo: um administrador bloqueou-as."
@@ -1411,17 +1426,5 @@
     },
     "error.profile_unowned": {
         "message": "Este perfil ainda não tem proprietário."
-    },
-    "tray.status.daemonAccessDenied": {
-        "message": "Sem acesso"
-    },
-    "daemon.accessDenied.title": {
-        "message": "Sem acesso ao serviço NetBird"
-    },
-    "daemon.accessDenied.description": {
-        "message": "O seu administrador restringiu o serviço NetBird neste dispositivo a determinados usuários ou grupos, e a sua conta não é um deles. Contate o seu administrador para obter acesso."
-    },
-    "error.daemon_access_denied": {
-        "message": "A sua conta não tem permissão para usar o serviço NetBird neste dispositivo. Contacte o seu administrador para obter acesso."
     }
 }

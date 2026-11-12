@@ -3999,8 +3999,9 @@ func setupNetworkMapTest(t *testing.T) (*DefaultAccountManager, *update_channel.
 		t.Fatal(err)
 	}
 
-	account, err := createAccount(manager, "test_account", userID, "")
-	if err != nil {
+	account := newAccountWithId(context.Background(), "test_account", userID, "", "", "", false)
+	account.Network.Net = net.IPNet{IP: net.IPv4(100, 64, 0, 0).To4(), Mask: net.CIDRMask(16, 32)}
+	if err = manager.Store.SaveAccount(context.Background(), account); err != nil {
 		t.Fatal(err)
 	}
 

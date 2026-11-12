@@ -12,6 +12,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -85,7 +86,11 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 
 	am.StoreEvent(ctx, userID, postureChecks.ID, accountID, action, postureChecks.EventMeta())
 
-	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	reason := types.UpdateReason{Resource: types.UpdateResourcePostureCheck, Operation: types.UpdateOperationCreate}
+	if isUpdate {
+		reason.Operation = types.UpdateOperationUpdate
+	}
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change, reason)
 
 	return postureChecks, nil
 }
