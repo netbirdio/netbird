@@ -52,7 +52,8 @@ const (
 	ipv6TCPHeaderSize = 60
 
 	// maxPrefixesSet 1638 prefixes start to fail, taking some margin
-	maxPrefixesSet = 1500
+	maxPrefixesSet   = 1500
+	maxPrefixesSetV6 = 900
 	// pendingSetCommitAttempts is how many times a failed overflow flush is
 	// retried in the same Add* call. There is no sleep: a later rule must not
 	// be required to finish a set.

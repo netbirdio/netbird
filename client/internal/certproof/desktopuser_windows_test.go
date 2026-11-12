@@ -26,6 +26,26 @@ func TestSameAccountName(t *testing.T) {
 	}
 }
 
+// A SID owner is compared against the session token's SID, an account name against the
+// account the session resolves to.
+func TestOwnsSession(t *testing.T) {
+	user := DesktopUser{Name: `CORP\alice`, SID: "S-1-5-21-1-2-3-1001"}
+	tests := []struct {
+		owner string
+		want  bool
+	}{
+		{"S-1-5-21-1-2-3-1001", true},
+		{"s-1-5-21-1-2-3-1001", true},
+		{"S-1-5-21-1-2-3-1002", false},
+		{`CORP\alice`, true},
+		{"alice", true},
+		{"bob", false},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, ownsSession(user, tt.owner), "owner %q", tt.owner)
+	}
+}
+
 // currentDesktopUser against the real session manager: an owner no session belongs to
 // must never yield a session, whoever else is signed in.
 func TestCurrentDesktopUser_UnknownOwnerHasNoSession(t *testing.T) {

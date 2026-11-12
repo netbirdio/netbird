@@ -20,7 +20,7 @@ func unsetSecretEnvs(t *testing.T) {
 	require.NoError(t, os.Unsetenv(envStoreEncryptionKey))
 }
 
-func writeCombinedConfig(t *testing.T, authSecret, encryptionKey string) string {
+func writeSecretEnvConfig(t *testing.T, authSecret, encryptionKey string) string {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
@@ -88,7 +88,7 @@ func TestLoadConfigRelayAuthSecretEnv(t *testing.T) {
 				t.Setenv(envRelayAuthSecret, tc.envValue)
 			}
 
-			cfg, err := LoadConfig(writeCombinedConfig(t, tc.yamlSecret, "yaml-store-key"))
+			cfg, err := LoadConfig(writeSecretEnvConfig(t, tc.yamlSecret, "yaml-store-key"))
 			require.NoError(t, err)
 
 			err = cfg.Validate()
@@ -157,7 +157,7 @@ func TestLoadConfigStoreEncryptionKeyEnv(t *testing.T) {
 				t.Setenv(envStoreEncryptionKey, tc.envValue)
 			}
 
-			cfg, err := LoadConfig(writeCombinedConfig(t, "yaml-relay-secret", tc.yamlKey))
+			cfg, err := LoadConfig(writeSecretEnvConfig(t, "yaml-relay-secret", tc.yamlKey))
 			require.NoError(t, err)
 			require.NoError(t, cfg.Validate())
 

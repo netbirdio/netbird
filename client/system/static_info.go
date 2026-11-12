@@ -16,6 +16,7 @@ type StaticInfo struct {
 	SystemSerialNumber string
 	SystemProductName  string
 	SystemManufacturer string
+	SystemHardwareUUID string
 	Environment        Environment
 
 	// Windows specific fields

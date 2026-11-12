@@ -34,6 +34,7 @@ func GetInfo(ctx context.Context) *Info {
 		SystemSerialNumber: si.SystemSerialNumber,
 		SystemProductName:  si.SystemProductName,
 		SystemManufacturer: si.SystemManufacturer,
+		SystemHardwareUUID: si.SystemHardwareUUID,
 		Environment:        si.Environment,
 	}
 

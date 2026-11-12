@@ -86,6 +86,7 @@ func TestPendingAddedSince(t *testing.T) {
 func TestCommitPendingSetsRetriesThenSucceeds(t *testing.T) {
 	attempts := 0
 	r := &family{
+		af:                 afIPv4,
 		sConn:              &nftables.Conn{},
 		pendingSetElements: map[string]pendingSetUpdate{"s": pendingUpdate("s")},
 		testPendingFlush: func() error {
@@ -120,6 +121,7 @@ func TestCommitPendingSetsRetriesThenKeepsRemaining(t *testing.T) {
 func TestCommitPendingSetsSkipsUnrelated(t *testing.T) {
 	flushed := 0
 	r := &family{
+		af:    afIPv4,
 		sConn: &nftables.Conn{},
 		pendingSetElements: map[string]pendingSetUpdate{
 			"a": pendingUpdate("a"),
@@ -316,6 +318,7 @@ func TestSourceMatchExprsKeepsPayloadBeforeLookup(t *testing.T) {
 func TestFinishIncompleteFilterCommitsPending(t *testing.T) {
 	flushed := 0
 	r := &family{
+		af:                 afIPv4,
 		sConn:              &nftables.Conn{},
 		pendingSetElements: map[string]pendingSetUpdate{"s": pendingUpdate("s")},
 		testPendingFlush: func() error {

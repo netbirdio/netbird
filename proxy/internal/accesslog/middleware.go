@@ -72,6 +72,10 @@ func (l *Logger) Middleware(next http.Handler) http.Handler {
 		bytesUpload := bytesRead
 		bytesDownload := sw.bytesWritten
 
+		if capturedData.GetAgentNetwork() && sw.status >= http.StatusBadRequest {
+			capturedData.SetMetadata(proxy.MetaKeyErrorSource, capturedData.GetOrigin().ErrorSource())
+		}
+
 		entry := logEntry{
 			ID:            requestID,
 			ServiceID:     capturedData.GetServiceID(),

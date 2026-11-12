@@ -29,6 +29,11 @@ func LookupGroupID(gid string) (*user.Group, error) {
 	return user.LookupGroupId(gid)
 }
 
+// LookupGroupName looks up a group by name.
+func LookupGroupName(name string) (*user.Group, error) {
+	return user.LookupGroup(name)
+}
+
 // GroupIDs returns the IDs of the groups the user is a member of; libc's
 // getgrouplist handles NSS groups natively.
 func GroupIDs(u *user.User) ([]string, error) {
