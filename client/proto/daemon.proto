@@ -1110,12 +1110,8 @@ message GetAgentNetworkInfoResponse {
     MANAGEMENT_UNSUPPORTED = 5;
   }
   State state = 1;
-  string user_email = 2;
   // endpoint is the account's proxy base URL, "https://<label>.<cluster>".
   string endpoint = 3;
-  // login_expired is true when the peer's NetBird login has expired.
-  bool login_expired = 4;
-  google.protobuf.Timestamp computed_at = 5;
   repeated AgentNetworkProvider providers = 6;
 }
 
