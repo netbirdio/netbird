@@ -105,7 +105,11 @@ func TestPrivateRefusalStatus(t *testing.T) {
 				respFn:  func(*proto.ValidateTunnelPeerRequest) *proto.ValidateTunnelPeerResponse { return tt.resp },
 			}
 			mw := NewMiddleware(log.StandardLogger(), validator, nil)
-			require.NoError(t, mw.AddDomain(testServerHost, nil, "", 0, "acct-1", "svc-1", tt.filter, true, nil, WithAgentNetwork(tt.agentNetwork, false)))
+			var opts []DomainOption
+			if tt.agentNetwork {
+				opts = append(opts, WithTargetResolver(agentNetworkResolver(t)))
+			}
+			require.NoError(t, mw.AddDomain(testServerHost, nil, "", 0, "acct-1", "svc-1", tt.filter, true, nil, opts...))
 
 			reached := false
 			handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

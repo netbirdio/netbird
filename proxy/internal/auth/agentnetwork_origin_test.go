@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"testing"
 
 	log "github.com/sirupsen/logrus"
@@ -32,34 +33,57 @@ func serveProtected(t *testing.T, mw *Middleware, clientIP netip.Addr, callerAcc
 	return rec, cd
 }
 
-// TestPrivateDenyIsAttributedToAuth covers a peer the private gateway refuses:
-// before, denyPrivate set no origin and the access log reported the proxy's
-// own refusal as the provider's.
-func TestPrivateDenyIsAttributedToAuth(t *testing.T) {
+// agentNetworkResolver routes every path to an agent-network target whose
+// account has log collection off, the way the agent-network synthesizer does.
+// Matching a request to it marks the request as agent-network.
+func agentNetworkResolver(t *testing.T) *proxy.TargetResolver {
+	t.Helper()
+	targetURL, err := url.Parse("https://api.anthropic.com")
+	require.NoError(t, err)
+	resolver, err := proxy.NewTargetResolver(proxy.Mapping{
+		ID:        "svc-1",
+		AccountID: "acct-1",
+		Host:      testServerHost,
+		Paths: map[string]*proxy.PathTarget{
+			"/": {URL: targetURL, AgentNetwork: true, DisableAccessLog: true},
+		},
+	})
+	require.NoError(t, err)
+	return resolver
+}
+
+// TestPrivateDenyLeavesAgentNetworkLog covers a caller the private gateway
+// refuses after matching it to an agent-network target, such as a client that
+// is not connected to NetBird. The 403 is the proxy's own, and the request goes
+// to the regular reverse-proxy log rather than an agent-network row with no
+// user, provider or model. The account's agent-network log collection setting
+// does not hide it, since the caller was never identified as one of its users.
+func TestPrivateDenyLeavesAgentNetworkLog(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
-	require.NoError(t, mw.AddDomain(testServerHost, nil, "", 0, "acct-1", "svc-1", nil, true, nil, WithAgentNetwork(true, false)))
+	require.NoError(t, mw.AddDomain(testServerHost, nil, "", 0, "acct-1", "svc-1", nil, true, nil, WithTargetResolver(agentNetworkResolver(t))))
 
 	rec, cd := serveProtected(t, mw, testTunnelIP, "")
 
 	assert.Equal(t, http.StatusNotFound, rec.Code, "a caller outside the overlay must be refused with 404")
 	assert.Equal(t, proxy.OriginAuth, cd.GetOrigin(), "the proxy's own refusal is an auth rejection")
-	assert.True(t, cd.GetAgentNetwork(), "the rejection is logged as an agent-network request")
+	assert.False(t, cd.GetAgentNetwork(), "a refused caller goes to the reverse-proxy log, not the agent-network log")
+	assert.False(t, cd.GetSuppressAccessLog(), "the agent-network log collection setting does not apply to a refused caller")
 }
 
-// TestIPRestrictionDenyIsAgentNetwork covers a denial that happens before the
-// request is matched to a target: the domain's flags still classify it, and
-// the access-log suppression of the account carries over.
-func TestIPRestrictionDenyIsAgentNetwork(t *testing.T) {
+// TestIPRestrictionDenyIsNotAgentNetwork covers a denial that happens before
+// the request is matched to a target. It was never agent-network traffic and
+// stays in the reverse-proxy log, as it always has.
+func TestIPRestrictionDenyIsNotAgentNetwork(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 	filter := restrict.ParseFilter(restrict.FilterConfig{AllowedCIDRs: []string{"10.0.0.0/8"}})
-	require.NoError(t, mw.AddDomain(testServerHost, nil, "", 0, "acct-1", "svc-1", filter, false, nil, WithAgentNetwork(true, true)))
+	require.NoError(t, mw.AddDomain(testServerHost, nil, "", 0, "acct-1", "svc-1", filter, false, nil, WithTargetResolver(agentNetworkResolver(t))))
 
 	rec, cd := serveProtected(t, mw, netip.MustParseAddr("192.0.2.10"), "")
 
 	assert.Equal(t, http.StatusForbidden, rec.Code, "an address outside the allowlist must be refused")
 	assert.Equal(t, proxy.OriginAuth, cd.GetOrigin(), "an IP-restriction refusal is an auth rejection")
-	assert.True(t, cd.GetAgentNetwork(), "the rejection is logged as an agent-network request")
-	assert.True(t, cd.GetSuppressAccessLog(), "an account with log collection off keeps it off for rejections")
+	assert.False(t, cd.GetAgentNetwork(), "a refusal before target matching is not agent-network traffic")
+	assert.False(t, cd.GetSuppressAccessLog(), "a refusal before target matching is logged regardless of log collection")
 }
 
 // TestCrossAccountDenyIsNotAgentNetwork covers a request that arrived through
@@ -68,7 +92,7 @@ func TestIPRestrictionDenyIsAgentNetwork(t *testing.T) {
 // request to a gateway it does not own.
 func TestCrossAccountDenyIsNotAgentNetwork(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
-	require.NoError(t, mw.AddDomain(testServerHost, nil, "", 0, "acct-1", "svc-1", nil, true, nil, WithAgentNetwork(true, false)))
+	require.NoError(t, mw.AddDomain(testServerHost, nil, "", 0, "acct-1", "svc-1", nil, true, nil, WithTargetResolver(agentNetworkResolver(t))))
 
 	rec, cd := serveProtected(t, mw, testTunnelIP, "acct-other")
 
