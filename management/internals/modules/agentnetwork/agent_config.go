@@ -49,10 +49,7 @@ func (m *managerImpl) GetAgentNetworkInfoForPeer(ctx context.Context, accountID,
 		return nil, status.Errorf(status.PermissionDenied, "peer owner belongs to another account")
 	}
 
-	info := &types.PeerAgentNetworkInfo{
-		UserEmail:    user.Email,
-		LoginExpired: peer.Status != nil && peer.Status.LoginExpired,
-	}
+	info := &types.PeerAgentNetworkInfo{}
 	if user.IsBlocked() || user.PendingApproval {
 		info.State = types.PeerAgentNetworkUserBlocked
 		return info, nil
