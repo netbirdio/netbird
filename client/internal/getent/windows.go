@@ -25,6 +25,9 @@ var (
 	stdLookupID = user.LookupId
 )
 
+// readProfileDir is a variable so a test can make the profile lookup fail.
+var readProfileDir = profileHomeDir
+
 const profileListKey = `SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\`
 
 // LookupUser looks up a user by name, falling back to an LSA name lookup if
@@ -76,9 +79,11 @@ func LookupUserID(uid string) (*user.User, error) {
 	return u, nil
 }
 
-// userFromSID builds a user from the SID and name mapping alone. Gid stays
-// empty, since the primary group lookup is the step that fails, and nothing on
-// Windows reads it.
+// userFromSID builds a user from the SID and name mapping, and the profile path
+// Windows records for the account as its home directory. Gid stays empty, since
+// the primary group lookup is the step that fails, and nothing on Windows reads
+// it. A profile path that cannot be read leaves HomeDir empty rather than
+// failing the lookup.
 func userFromSID(sid *windows.SID) (*user.User, error) {
 	account, domain, sidType, err := sid.LookupAccount("")
 	if err != nil {
@@ -94,9 +99,12 @@ func userFromSID(sid *windows.SID) (*user.User, error) {
 		username = domain + `\` + account
 	}
 
-	home, err := profileHomeDir(uid)
-	if err != nil {
-		log.Debugf("no profile path for %s, leaving its home directory empty: %v", uid, err)
+	home, err := readProfileDir(uid)
+	switch {
+	case errors.Is(err, registry.ErrNotExist):
+		log.Debugf("no profile path for %s, it has not signed in here, leaving its home directory empty", uid)
+	case err != nil:
+		log.Warnf("read profile path for %s, leaving its home directory empty: %v", uid, err)
 	}
 
 	return &user.User{

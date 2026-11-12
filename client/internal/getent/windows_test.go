@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 // errNoneMapped stands in for the ERROR_NONE_MAPPED os/user returns on an
@@ -51,38 +52,60 @@ func localAdministrator(t *testing.T) *user.User {
 	return u
 }
 
-// profileOf is the home directory the fallback should report for uid. It is
-// empty for an account that never signed in, where os/user guesses a path
-// instead, so the tests compare against this rather than os/user's HomeDir.
-func profileOf(uid string) string {
-	dir, err := profileHomeDir(uid)
-	if err != nil {
-		return ""
-	}
-	return dir
+// stubProfileDir makes the profile lookup return dir and err, so the tests do
+// not depend on whether the account has signed in on the test machine.
+func stubProfileDir(t *testing.T, dir string, err error) {
+	t.Helper()
+	orig := readProfileDir
+	readProfileDir = func(string) (string, error) { return dir, err }
+	t.Cleanup(func() { readProfileDir = orig })
 }
 
 func TestLookupUser_FallsBackWhenOSUserFails(t *testing.T) {
 	admin := localAdministrator(t)
 	failStdLookups(t)
+	stubProfileDir(t, `C:\Users\stub`, nil)
 
 	u, err := LookupUser(admin.Username)
 	require.NoError(t, err)
 	assert.Equal(t, admin.Uid, u.Uid, "fallback should resolve the same SID")
 	assert.Equal(t, admin.Username, u.Username, "fallback should report DOMAIN\\account")
-	assert.Equal(t, profileOf(admin.Uid), u.HomeDir, "fallback should read the profile path")
+	assert.Equal(t, `C:\Users\stub`, u.HomeDir, "fallback should report the profile path")
 	assert.Empty(t, u.Gid, "fallback does not resolve a primary group")
 }
 
 func TestLookupUserID_FallsBackWhenOSUserFails(t *testing.T) {
 	admin := localAdministrator(t)
 	failStdLookups(t)
+	stubProfileDir(t, `C:\Users\stub`, nil)
 
 	u, err := LookupUserID(admin.Uid)
 	require.NoError(t, err)
 	assert.Equal(t, admin.Uid, u.Uid, "fallback should keep the SID")
 	assert.Equal(t, admin.Username, u.Username, "fallback should report DOMAIN\\account")
-	assert.Equal(t, profileOf(admin.Uid), u.HomeDir, "fallback should read the profile path")
+	assert.Equal(t, `C:\Users\stub`, u.HomeDir, "fallback should report the profile path")
+}
+
+// A profile path that cannot be read must not fail the lookup, only leave the
+// home directory empty. Covers both an account that never signed in and a read
+// that fails for another reason.
+func TestLookupUserID_FallbackWithoutProfilePath(t *testing.T) {
+	admin := localAdministrator(t)
+	failStdLookups(t)
+
+	for name, err := range map[string]error{
+		"no profile entry": registry.ErrNotExist,
+		"unreadable entry": errors.New("access is denied"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			stubProfileDir(t, "", err)
+
+			u, lookupErr := LookupUserID(admin.Uid)
+			require.NoError(t, lookupErr, "a missing profile path must not fail the lookup")
+			assert.Equal(t, admin.Uid, u.Uid, "the account still resolves")
+			assert.Empty(t, u.HomeDir, "the home directory is left empty")
+		})
+	}
 }
 
 // SYSTEM's profile path is stored as %systemroot%\system32\config\systemprofile
