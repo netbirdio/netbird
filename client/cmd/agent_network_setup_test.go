@@ -184,10 +184,10 @@ func TestAgentNetworkSetupRefusals(t *testing.T) {
 		{
 			name: "openai only",
 			resp: &proto.GetAgentNetworkInfoResponse{
-				State: proto.GetAgentNetworkInfoResponse_OK, Endpoint: "https://127.0.0.1:1", LoginExpired: true,
+				State: proto.GetAgentNetworkInfoResponse_OK, Endpoint: "https://127.0.0.1:1",
 				Providers: []*proto.AgentNetworkProvider{{Name: "OpenAI", CatalogId: "openai_api", ApiFlavor: "openai"}},
 			},
-			want: []string{"Claude Code cannot use any provider available to you: OpenAI (openai)", "Your NetBird login expired"},
+			want: []string{"Claude Code cannot use any provider available to you: OpenAI (openai)"},
 		},
 		{
 			name: "model not allowed",
