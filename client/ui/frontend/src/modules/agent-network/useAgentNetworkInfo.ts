@@ -21,6 +21,8 @@ export const useAgentNetworkInfo = ({ enabled, pollMs }: Options) => {
     const [info, setInfo] = useState<AgentNetworkInfo | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+    // Counts successful fetches, so dependents can refresh along with the info.
+    const [fetchCount, setFetchCount] = useState(0);
 
     const load = useCallback(async (isCancelled: () => boolean) => {
         setLoading(true);
@@ -28,6 +30,7 @@ export const useAgentNetworkInfo = ({ enabled, pollMs }: Options) => {
             const next = await AgentNetworkSvc.Info();
             if (isCancelled()) return;
             setInfo(next);
+            setFetchCount((n) => n + 1);
             setError(null);
         } catch (e: unknown) {
             if (!isCancelled()) setError(formatErrorMessage(e));
@@ -59,5 +62,5 @@ export const useAgentNetworkInfo = ({ enabled, pollMs }: Options) => {
         };
     }, [enabled, pollMs, load]);
 
-    return { info, error, loading };
+    return { info, error, loading, fetchCount };
 };

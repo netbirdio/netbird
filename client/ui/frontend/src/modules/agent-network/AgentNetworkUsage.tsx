@@ -15,16 +15,15 @@ import { AGENT_NETWORK_POLL_MS, useAgentNetworkInfo } from "./useAgentNetworkInf
 import { HarnessSection } from "./HarnessSection";
 
 export const AgentNetworkUsage = () => {
-    const { info, error } = useAgentNetworkInfo({ enabled: true, pollMs: AGENT_NETWORK_POLL_MS });
+    const { info, error, fetchCount } = useAgentNetworkInfo({
+        enabled: true,
+        pollMs: AGENT_NETWORK_POLL_MS,
+    });
     return (
         <AgentNetworkUsageView
             info={info}
             error={error}
-            setup={
-                info && (
-                    <HarnessSection refreshKey={info.computedAt} loginExpired={info.loginExpired} />
-                )
-            }
+            setup={info && <HarnessSection refreshKey={fetchCount} />}
         />
     );
 };

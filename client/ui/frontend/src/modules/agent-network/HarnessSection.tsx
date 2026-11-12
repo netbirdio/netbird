@@ -13,11 +13,10 @@ type Outcome = { harness: string; kind: "applied" | "undone"; plan: HarnessPlan 
 // runs in the UI process, so it edits this user's own config files.
 type SectionProps = {
     // Changes whenever the daemon reports new info, so provider lists refresh.
-    refreshKey: string;
-    loginExpired: boolean;
+    refreshKey: number;
 };
 
-export const HarnessSection = ({ refreshKey, loginExpired }: SectionProps) => {
+export const HarnessSection = ({ refreshKey }: SectionProps) => {
     const { t } = useTranslation();
     const [harnesses, setHarnesses] = useState<AgentNetworkHarness[] | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -82,7 +81,6 @@ export const HarnessSection = ({ refreshKey, loginExpired }: SectionProps) => {
             ))}
             <HarnessSetupDialog
                 harness={editing}
-                loginExpired={loginExpired}
                 onOpenChange={(open) => !open && setEditing(null)}
                 onApplied={(plan) => {
                     if (editing) setOutcome({ harness: editing.id, kind: "applied", plan });

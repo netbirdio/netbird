@@ -20,12 +20,11 @@ const PLAN_DEBOUNCE_MS = 300;
 
 type Props = {
     harness: AgentNetworkHarness | null;
-    loginExpired: boolean;
     onOpenChange: (open: boolean) => void;
     onApplied: (plan: HarnessPlan) => void;
 };
 
-export const HarnessSetupDialog = ({ harness, loginExpired, onOpenChange, onApplied }: Props) => {
+export const HarnessSetupDialog = ({ harness, onOpenChange, onApplied }: Props) => {
     const { t } = useTranslation();
     return (
         <Dialog.Root open={harness !== null} onOpenChange={onOpenChange}>
@@ -37,7 +36,6 @@ export const HarnessSetupDialog = ({ harness, loginExpired, onOpenChange, onAppl
                     <SetupForm
                         key={harness.id}
                         harness={harness}
-                        loginExpired={loginExpired}
                         onCancel={() => onOpenChange(false)}
                         onApplied={onApplied}
                     />
@@ -49,7 +47,6 @@ export const HarnessSetupDialog = ({ harness, loginExpired, onOpenChange, onAppl
 
 type FormProps = {
     harness: AgentNetworkHarness;
-    loginExpired: boolean;
     onCancel: () => void;
     onApplied: (plan: HarnessPlan) => void;
 };
@@ -58,7 +55,7 @@ type FormProps = {
 // for earlier picks is never shown or confirmed.
 type PlanState = { key: string; plan: HarnessPlan | null; error: string | null };
 
-const SetupForm = ({ harness, loginExpired, onCancel, onApplied }: FormProps) => {
+const SetupForm = ({ harness, onCancel, onApplied }: FormProps) => {
     const { t } = useTranslation();
     const modelId = useId();
     const projectId = useId();
@@ -130,8 +127,6 @@ const SetupForm = ({ harness, loginExpired, onCancel, onApplied }: FormProps) =>
                     {t("agentNetwork.harness.dialogDescription")}
                 </Dialog.Description>
             </div>
-
-            {loginExpired && <Note tone={"warning"}>{t("agentNetwork.loginExpired")}</Note>}
 
             <div className={"grid grid-cols-2 gap-3"}>
                 <div className={"flex flex-col"}>
