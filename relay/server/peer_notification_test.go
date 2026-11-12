@@ -172,7 +172,7 @@ func publishOffline(relay *Relay, peer *Peer) {
 
 func deliverSubscription(t *testing.T, conn *scriptedConn, ids []messages.PeerID) {
 	t.Helper()
-	frames, err := messages.MarshalSubPeerStateMsg(ids)
+	frames, err := messages.MarshalSubPeerStateMsg(ids, conn.MaxMessageSize())
 	require.NoError(t, err)
 	for _, frame := range frames {
 		conn.deliver(t, frame)
