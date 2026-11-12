@@ -80,6 +80,9 @@ type Manager interface {
 	ListAccessLogSessions(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLogSession, int64, error)
 	GetUsageOverview(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter, granularity types.UsageGranularity) ([]*types.AgentNetworkUsageBucket, error)
 	StartAccessLogCleanup(ctx context.Context, cleanupIntervalHours int)
+	// RemoveAccountGateway drops the account's gateway mappings from the
+	// proxies. It runs as an account deletion hook.
+	RemoveAccountGateway(ctx context.Context, accountID string) error
 	RecordConsumption(ctx context.Context, accountID string, kind types.ConsumptionDimension, dimID string, windowSeconds, tokensIn, tokensOut int64, costUSD float64) error
 	RecordAccountBudgetUsage(ctx context.Context, accountID, userID string, groupIDs []string, tokensIn, tokensOut int64, costUSD float64) error
 	RecordUsage(ctx context.Context, in RecordUsageInput) error
@@ -115,7 +118,9 @@ type PolicySelectionInput struct {
 // group dimension applies. WindowSeconds is the chosen policy's
 // effective window length in seconds (token_limit's wins when both
 // halves are enabled with mismatched windows; budget_limit's
-// otherwise; 0 when no caps are configured at all).
+// otherwise; 0 when no caps are configured at all). On a cap deny,
+// SelectedPolicyID instead names what blocked the request: the
+// exhausted policy, or the account budget rule for llm_account.* codes.
 type PolicySelectionResult struct {
 	Allow              bool
 	SelectedPolicyID   string
@@ -1274,7 +1279,6 @@ func isUniqueConstraintError(err error) bool {
 	}
 	msg := err.Error()
 	return strings.Contains(msg, "(SQLSTATE 23505)") || // postgres
-		strings.Contains(msg, "Error 1062 (23000)") || // mysql
 		strings.Contains(msg, "UNIQUE constraint failed") // sqlite
 }
 
@@ -1294,11 +1298,18 @@ func (m *managerImpl) ListConsumption(ctx context.Context, accountID, userID str
 // Callers without the account-wide logs grant get a self-scoped page —
 // only their own requests — instead of a denial.
 func (m *managerImpl) ListAccessLogs(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLog, int64, error) {
-	filter, err := m.scopeFilterToCaller(ctx, accountID, userID, modules.AgentNetworkLogs, filter)
+	filter, accountWide, err := m.scopeFilterToCaller(ctx, accountID, userID, modules.AgentNetworkLogs, filter)
 	if err != nil {
 		return nil, 0, err
 	}
-	return m.store.GetAgentNetworkAccessLogs(ctx, store.LockingStrengthNone, accountID, filter)
+	rows, total, err := m.store.GetAgentNetworkAccessLogs(ctx, store.LockingStrengthNone, accountID, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	if !accountWide {
+		redactAdminDetail(rows)
+	}
+	return rows, total, nil
 }
 
 // ListAccessLogSessions returns a paginated, server-side-filtered page of
@@ -1306,11 +1317,20 @@ func (m *managerImpl) ListAccessLogs(ctx context.Context, accountID, userID stri
 // sessions matching the filter. Self-scoped like ListAccessLogs for
 // callers without the account-wide logs grant.
 func (m *managerImpl) ListAccessLogSessions(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLogSession, int64, error) {
-	filter, err := m.scopeFilterToCaller(ctx, accountID, userID, modules.AgentNetworkLogs, filter)
+	filter, accountWide, err := m.scopeFilterToCaller(ctx, accountID, userID, modules.AgentNetworkLogs, filter)
 	if err != nil {
 		return nil, 0, err
 	}
-	return m.store.GetAgentNetworkAccessLogSessions(ctx, store.LockingStrengthNone, accountID, filter)
+	sessions, total, err := m.store.GetAgentNetworkAccessLogSessions(ctx, store.LockingStrengthNone, accountID, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	if !accountWide {
+		for _, sess := range sessions {
+			redactAdminDetail(sess.Entries)
+		}
+	}
+	return sessions, total, nil
 }
 
 // GetUsageOverview returns the filtered usage rows aggregated into time buckets
@@ -1318,7 +1338,7 @@ func (m *managerImpl) ListAccessLogSessions(ctx context.Context, accountID, user
 // account-wide usage grant get their own rows aggregated instead of a
 // denial, so the dashboard serves "my usage" from the same endpoint.
 func (m *managerImpl) GetUsageOverview(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter, granularity types.UsageGranularity) ([]*types.AgentNetworkUsageBucket, error) {
-	filter, err := m.scopeFilterToCaller(ctx, accountID, userID, modules.AgentNetworkUsage, filter)
+	filter, _, err := m.scopeFilterToCaller(ctx, accountID, userID, modules.AgentNetworkUsage, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -1335,23 +1355,34 @@ func (m *managerImpl) GetUsageOverview(ctx context.Context, accountID, userID st
 // filters are dropped. A caller may always see their own rows — strictly
 // tighter than any role gate — which is what lets every authenticated
 // user read their usage and requests through the regular endpoints.
-// Validation errors (not denials) still fail closed.
-func (m *managerImpl) scopeFilterToCaller(ctx context.Context, accountID, userID string, module modules.Module, filter types.AgentNetworkAccessLogFilter) (types.AgentNetworkAccessLogFilter, error) {
+// accountWide reports whether the caller holds the grant. Validation errors
+// (not denials) still fail closed.
+func (m *managerImpl) scopeFilterToCaller(ctx context.Context, accountID, userID string, module modules.Module, filter types.AgentNetworkAccessLogFilter) (scoped types.AgentNetworkAccessLogFilter, accountWide bool, err error) {
 	ok, _, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, module, operations.Read)
 	if err != nil {
-		return filter, status.NewPermissionValidationError(err)
+		return filter, false, status.NewPermissionValidationError(err)
 	}
 	if !ok {
 		filter.UserID = &userID
 		filter.GroupIDs = nil
 	}
-	return filter, nil
+	return filter, ok, nil
+}
+
+// redactAdminDetail clears the fields only callers with the account-wide logs
+// grant may read from rows served to a self-scoped caller. ErrorDetail names
+// upstream hosts and addresses, and cap details carry group and account
+// totals, none of which the caller's own requests should reveal.
+func redactAdminDetail(rows []*types.AgentNetworkAccessLog) {
+	for _, row := range rows {
+		row.ErrorDetail = ""
+	}
 }
 
 // StartAccessLogCleanup launches a background sweep that periodically deletes
 // each account's agent-network access-log rows older than that account's
-// AccessLogRetentionDays. Usage records are never swept. A non-positive
-// interval defaults to 24h.
+// AccessLogRetentionDays, and the consumption counters of deleted accounts.
+// Usage records are never swept. A non-positive interval defaults to 24h.
 func (m *managerImpl) StartAccessLogCleanup(ctx context.Context, cleanupIntervalHours int) {
 	if cleanupIntervalHours <= 0 {
 		cleanupIntervalHours = 24
@@ -1362,21 +1393,40 @@ func (m *managerImpl) StartAccessLogCleanup(ctx context.Context, cleanupInterval
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
-		m.cleanupAccessLogsOnce(ctx) // run once on startup
+		m.cleanupOnce(ctx) // run once on startup
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				m.cleanupAccessLogsOnce(ctx)
+				m.cleanupOnce(ctx)
 			}
 		}
 	}()
 }
 
+func (m *managerImpl) cleanupOnce(ctx context.Context) {
+	m.cleanupAccessLogsOnce(ctx)
+	m.cleanupDeletedAccountConsumption(ctx)
+}
+
+// cleanupDeletedAccountConsumption deletes the consumption counters of accounts
+// that no longer exist. Best-effort: a failure is logged and retried next sweep.
+func (m *managerImpl) cleanupDeletedAccountConsumption(ctx context.Context) {
+	deleted, err := m.store.DeleteAgentNetworkConsumptionOfDeletedAccounts(ctx)
+	if err != nil {
+		log.WithContext(ctx).Warnf("agent-network consumption cleanup: %v", err)
+		return
+	}
+	if deleted > 0 {
+		log.WithContext(ctx).Infof("agent-network consumption cleanup: deleted %d counters of deleted accounts", deleted)
+	}
+}
+
 // cleanupAccessLogsOnce sweeps every account's expired access-log rows against
-// its configured retention. Best-effort: a per-account failure is logged and
-// the sweep continues.
+// its configured retention. Deleted accounts, whose settings rows went with
+// them, get the default retention. Best-effort: a per-account failure is
+// logged and the sweep continues.
 func (m *managerImpl) cleanupAccessLogsOnce(ctx context.Context) {
 	settings, err := m.store.GetAllAgentNetworkSettings(ctx, store.LockingStrengthNone)
 	if err != nil {
@@ -1384,18 +1434,31 @@ func (m *managerImpl) cleanupAccessLogsOnce(ctx context.Context) {
 		return
 	}
 	for _, s := range settings {
-		if s.AccessLogRetentionDays <= 0 {
-			continue // keep indefinitely
-		}
-		cutoff := time.Now().UTC().AddDate(0, 0, -s.AccessLogRetentionDays)
-		deleted, err := m.store.DeleteOldAgentNetworkAccessLogs(ctx, s.AccountID, cutoff)
-		if err != nil {
-			log.WithContext(ctx).Warnf("agent-network access-log cleanup for account %s: %v", s.AccountID, err)
-			continue
-		}
-		if deleted > 0 {
-			log.WithContext(ctx).Infof("agent-network access-log cleanup: deleted %d rows for account %s (retention %d days)", deleted, s.AccountID, s.AccessLogRetentionDays)
-		}
+		m.cleanupAccountAccessLogs(ctx, s.AccountID, s.AccessLogRetentionDays)
+	}
+
+	deleted, err := m.store.GetDeletedAccountIDsWithAgentNetworkAccessLogs(ctx)
+	if err != nil {
+		log.WithContext(ctx).Errorf("agent-network access-log cleanup: list deleted accounts: %v", err)
+		return
+	}
+	for _, accountID := range deleted {
+		m.cleanupAccountAccessLogs(ctx, accountID, types.DefaultAccessLogRetentionDays)
+	}
+}
+
+func (m *managerImpl) cleanupAccountAccessLogs(ctx context.Context, accountID string, retentionDays int) {
+	if retentionDays <= 0 {
+		return // keep indefinitely
+	}
+	cutoff := time.Now().UTC().AddDate(0, 0, -retentionDays)
+	deleted, err := m.store.DeleteOldAgentNetworkAccessLogs(ctx, accountID, cutoff)
+	if err != nil {
+		log.WithContext(ctx).Warnf("agent-network access-log cleanup for account %s: %v", accountID, err)
+		return
+	}
+	if deleted > 0 {
+		log.WithContext(ctx).Infof("agent-network access-log cleanup: deleted %d rows for account %s (retention %d days)", deleted, accountID, retentionDays)
 	}
 }
 
@@ -1544,6 +1607,8 @@ func (*mockManager) GetUsageOverview(_ context.Context, _, _ string, _ types.Age
 }
 
 func (*mockManager) StartAccessLogCleanup(_ context.Context, _ int) {}
+
+func (*mockManager) RemoveAccountGateway(_ context.Context, _ string) error { return nil }
 
 func (*mockManager) RecordConsumption(_ context.Context, _ string, _ types.ConsumptionDimension, _ string, _, _, _ int64, _ float64) error {
 	return nil

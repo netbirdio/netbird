@@ -24,7 +24,6 @@ const (
 	tableRaw      = "raw"
 	tableSecurity = "security"
 
-	chainNameNatPrerouting = "PREROUTING"
 	chainNameRoutingFw     = "netbird-rt-fwd"
 	chainNameRoutingNat    = "netbird-rt-postrouting"
 	chainNameRoutingRdr    = "netbird-rt-redirect"
@@ -47,9 +46,6 @@ const (
 	userDataAcceptForwardRuleOif = "frwacceptoif"
 	userDataAcceptInputRule      = "inputaccept"
 
-	dnatSuffix firewall.RuleID = "_dnat"
-	snatSuffix firewall.RuleID = "_snat"
-
 	// ipv4TCPHeaderSize is the minimum IPv4 (20) + TCP (20) header size for MSS calculation.
 	ipv4TCPHeaderSize = 40
 	// ipv6TCPHeaderSize is the minimum IPv6 (40) + TCP (20) header size for MSS calculation.
@@ -57,6 +53,7 @@ const (
 
 	// maxPrefixesSet 1638 prefixes start to fail, taking some margin
 	maxPrefixesSet       = 1500
+	maxPrefixesSetV6     = 900
 	refreshRulesMapError = "refresh rules map: %w"
 )
 
@@ -165,10 +162,6 @@ func (r *family) Reset() error {
 
 	if err := firewalld.UntrustInterface(r.wgIface.Name()); err != nil {
 		merr = multierror.Append(merr, err)
-	}
-
-	if err := r.removeNatPreroutingRules(); err != nil {
-		merr = multierror.Append(merr, fmt.Errorf("remove filter prerouting rules: %w", err))
 	}
 
 	return nberrors.FormatErrorOrNil(merr)

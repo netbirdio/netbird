@@ -166,7 +166,8 @@ func (c *Client) ExecuteCommandWithIO(ctx context.Context, command string) error
 	case <-ctx.Done():
 		_ = session.Signal(ssh.SIGTERM)
 		select {
-		case <-done:
+		case err := <-done:
+			log.Debugf("session ended after SIGTERM: %v", err)
 			return ctx.Err()
 		case <-time.After(100 * time.Millisecond):
 			return ctx.Err()
@@ -205,7 +206,8 @@ func (c *Client) ExecuteCommandWithPTY(ctx context.Context, command string) erro
 	case <-ctx.Done():
 		_ = session.Signal(ssh.SIGTERM)
 		select {
-		case <-done:
+		case err := <-done:
+			log.Debugf("session ended after SIGTERM: %v", err)
 			return ctx.Err()
 		case <-time.After(100 * time.Millisecond):
 			return ctx.Err()

@@ -11,7 +11,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -32,17 +31,6 @@ func setupDatabase(t *testing.T) *gorm.DB {
 	var dsn string
 	var cleanup func()
 	switch os.Getenv("NETBIRD_STORE_ENGINE") {
-	case "mysql":
-		cleanup, dsn, err = testutil.CreateMysqlTestContainer()
-		if err != nil {
-			t.Fatalf("Failed to create MySQL test container: %v", err)
-		}
-
-		if dsn == "" {
-			t.Fatal("MySQL connection string is empty, ensure the test container is running")
-		}
-
-		db, err = gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), &gorm.Config{})
 	case "postgres":
 		cleanup, dsn, err = testutil.CreatePostgresTestContainer()
 		if err != nil {
@@ -597,9 +585,8 @@ func TestCleanupOrphanedResources_Idempotent(t *testing.T) {
 }
 
 func TestCleanupOrphanedResources_SkipsWhenForeignKeyExists(t *testing.T) {
-	engine := os.Getenv("NETBIRD_STORE_ENGINE")
-	if engine != "postgres" && engine != "mysql" {
-		t.Skip("FK constraint early-exit test requires postgres or mysql")
+	if os.Getenv("NETBIRD_STORE_ENGINE") != "postgres" {
+		t.Skip("FK constraint early-exit test requires postgres")
 	}
 
 	db := setupDatabase(t)
@@ -614,24 +601,12 @@ func TestCleanupOrphanedResources_SkipsWhenForeignKeyExists(t *testing.T) {
 	require.NoError(t, db.Create(&testChildWithFK{ID: "c1", ParentID: "p1"}).Error)
 	require.NoError(t, db.Create(&testChildWithFK{ID: "c2", ParentID: "p2"}).Error)
 
-	switch engine {
-	case "postgres":
-		require.NoError(t, db.Exec("ALTER TABLE test_children DROP CONSTRAINT fk_test_children_parent").Error)
-		require.NoError(t, db.Exec("DELETE FROM test_parents WHERE id = ?", "p2").Error)
-		require.NoError(t, db.Exec(
-			"ALTER TABLE test_children ADD CONSTRAINT fk_test_children_parent "+
-				"FOREIGN KEY (parent_id) REFERENCES test_parents(id) NOT VALID",
-		).Error)
-	case "mysql":
-		require.NoError(t, db.Exec("SET FOREIGN_KEY_CHECKS = 0").Error)
-		require.NoError(t, db.Exec("ALTER TABLE test_children DROP FOREIGN KEY fk_test_children_parent").Error)
-		require.NoError(t, db.Exec("DELETE FROM test_parents WHERE id = ?", "p2").Error)
-		require.NoError(t, db.Exec(
-			"ALTER TABLE test_children ADD CONSTRAINT fk_test_children_parent "+
-				"FOREIGN KEY (parent_id) REFERENCES test_parents(id)",
-		).Error)
-		require.NoError(t, db.Exec("SET FOREIGN_KEY_CHECKS = 1").Error)
-	}
+	require.NoError(t, db.Exec("ALTER TABLE test_children DROP CONSTRAINT fk_test_children_parent").Error)
+	require.NoError(t, db.Exec("DELETE FROM test_parents WHERE id = ?", "p2").Error)
+	require.NoError(t, db.Exec(
+		"ALTER TABLE test_children ADD CONSTRAINT fk_test_children_parent "+
+			"FOREIGN KEY (parent_id) REFERENCES test_parents(id) NOT VALID",
+	).Error)
 
 	err = migration.CleanupOrphanedResources[testChildWithFK, testParent](context.Background(), db, "parent_id")
 	require.NoError(t, err)
@@ -717,8 +692,6 @@ func TestFoldCostAggregatesIntoBuckets_SkipsAlreadyMigrated(t *testing.T) {
 	require.NoError(t, db.Migrator().DropTable(&agentNetworkTypes.AgentNetworkUsage{}))
 
 	require.NoError(t, db.AutoMigrate(&agentNetworkTypes.AgentNetworkUsage{}))
-	// Timestamp must be set explicitly: a zero time.Time serialises as
-	// '0000-00-00 00:00:00', which MySQL rejects under strict mode.
 	require.NoError(t, db.Create(&agentNetworkTypes.AgentNetworkUsage{
 		ID: "u1", AccountID: "acct-1", Model: "claude-sonnet-4-6",
 		Timestamp:    time.Date(2026, 5, 5, 9, 0, 0, 0, time.UTC),
@@ -819,10 +792,9 @@ func TestMigrateAgentNetworkSettingsToDomain_FailsOnUnmigratableRow(t *testing.T
 	assert.Contains(t, err.Error(), "resolve them manually", "the error must tell the operator what to do")
 }
 
-// partialAgentNetworkSettings models the one non-atomic state a MySQL run can
-// be interrupted in: DDL auto-commits there, so a crash between the two legacy
-// column drops leaves subdomain behind while cluster (and the completed
-// backfill) are already committed.
+// partialAgentNetworkSettings models a schema left between the two legacy
+// column drops: subdomain is still present while cluster is gone and the
+// backfill has already completed.
 type partialAgentNetworkSettings struct {
 	AccountID    string `gorm:"primaryKey"`
 	Subdomain    string
@@ -832,8 +804,8 @@ type partialAgentNetworkSettings struct {
 
 func (partialAgentNetworkSettings) TableName() string { return "agent_network_settings" }
 
-// TestMigrateAgentNetworkSettingsToDomain_ResumesAfterPartialDrop pins MySQL
-// resumability: a rerun over the interrupted state must remove the leftover
+// TestMigrateAgentNetworkSettingsToDomain_ResumesAfterPartialDrop pins
+// resumability: a rerun over the partial state must remove the leftover
 // subdomain column without re-running the backfill (the cluster column that
 // feeds it is gone) and without touching the migrated values.
 func TestMigrateAgentNetworkSettingsToDomain_ResumesAfterPartialDrop(t *testing.T) {
@@ -857,4 +829,72 @@ func TestMigrateAgentNetworkSettingsToDomain_ResumesAfterPartialDrop(t *testing.
 	require.NoError(t, db.First(&row, "account_id = ?", "acct-1").Error)
 	assert.Equal(t, "violet.eu.proxy.netbird.io", row.Domain, "migrated values must be untouched")
 	assert.Equal(t, "eu.proxy.netbird.io", row.ProxyAddress, "migrated values must be untouched")
+}
+
+type legacyLivenessPeer struct {
+	ID                 string `gorm:"primaryKey"`
+	AccountID          string
+	PeerStatusLastSeen *time.Time
+}
+
+func (legacyLivenessPeer) TableName() string {
+	return "peers"
+}
+
+func setupPeerConnectionsTestDB(t *testing.T, peers any) *gorm.DB {
+	t.Helper()
+	db := setupDatabase(t)
+	require.NoError(t, db.Migrator().DropTable(&nbpeer.Connection{}))
+	require.NoError(t, db.Migrator().DropTable("peers"))
+	require.NoError(t, db.AutoMigrate(peers))
+	return db
+}
+
+func TestBackfillPeerConnections(t *testing.T) {
+	ctx := context.Background()
+	db := setupPeerConnectionsTestDB(t, &legacyLivenessPeer{})
+
+	seen := time.Now().UTC().Add(-3 * time.Hour).Truncate(time.Second)
+	require.NoError(t, db.Create([]legacyLivenessPeer{
+		{ID: "peer1", AccountID: "acc1", PeerStatusLastSeen: &seen},
+		{ID: "peer2", AccountID: "acc2"},
+	}).Error)
+
+	require.NoError(t, migration.BackfillPeerConnections[nbpeer.Connection](ctx, db))
+
+	require.True(t, db.Migrator().HasTable(&nbpeer.Connection{}), "the backfill creates the table")
+	var rows []nbpeer.Connection
+	require.NoError(t, db.Order("peer_id").Find(&rows).Error)
+	require.Len(t, rows, 2)
+	assert.Equal(t, "peer1", rows[0].PeerID)
+	assert.Equal(t, "acc1", rows[0].AccountID)
+	assert.Nil(t, rows[0].InstanceID, "no instance holds a backfilled peer")
+	assert.Zero(t, rows[0].SessionStartedAt)
+	require.NotNil(t, rows[0].LastSeen)
+	assert.True(t, seen.Equal(rows[0].LastSeen.UTC()), "last seen is carried over: %v", rows[0].LastSeen)
+	assert.Equal(t, "peer2", rows[1].PeerID)
+	assert.Equal(t, "acc2", rows[1].AccountID)
+	assert.Nil(t, rows[1].LastSeen, "a peer that was never seen stays so")
+
+	later := seen.Add(time.Hour)
+	require.NoError(t, db.Model(&nbpeer.Connection{}).Where("peer_id = ?", "peer1").Update("last_seen", later).Error)
+	require.NoError(t, db.Create(&legacyLivenessPeer{ID: "peer3", AccountID: "acc1", PeerStatusLastSeen: &seen}).Error)
+
+	require.NoError(t, migration.BackfillPeerConnections[nbpeer.Connection](ctx, db))
+
+	var count int64
+	require.NoError(t, db.Model(&nbpeer.Connection{}).Count(&count).Error)
+	assert.Equal(t, int64(2), count, "once the table exists the peers table is not read again")
+	var peer1 nbpeer.Connection
+	require.NoError(t, db.Where("peer_id = ?", "peer1").Take(&peer1).Error)
+	assert.True(t, later.Equal(peer1.LastSeen.UTC()), "an existing row is not overwritten")
+}
+
+func TestBackfillPeerConnections_NoLegacyColumn(t *testing.T) {
+	db := setupPeerConnectionsTestDB(t, &nbpeer.Peer{})
+	require.False(t, db.Migrator().HasColumn("peers", "peer_status_last_seen"))
+
+	require.NoError(t, migration.BackfillPeerConnections[nbpeer.Connection](context.Background(), db))
+
+	assert.False(t, db.Migrator().HasTable(&nbpeer.Connection{}), "without the legacy column the table is left to AutoMigrate")
 }

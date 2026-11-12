@@ -23,14 +23,18 @@ jobs:
         with:
           ignore_words_list: erro,clienta,hastable,iif,groupd,testin,groupe,cros,ans,deriver,te,userA,ede,additionals,flate,recordin,unparseable
           # Non-English UI translations trip codespell on real foreign words
-          # (de: "Sie", "oder", "ist"). Only en/common.json is the source of
-          # truth that should be spell-checked. List each translated locale
-          # dir below and add new ones as languages are added under
-          # client/ui/i18n/locales/. Single-star globs are matched per path
+          # (de: "Sie", pl: "Serwer"), and Crowdin adds new languages on its
+          # own, so every locale dir is skipped here and the English source is
+          # checked in the next step. Single-star globs are matched per path
           # segment by codespell and behave the same across versions; the
           # recursive "**" form did not take effect with the codespell shipped
           # by this action.
-          skip: go.mod,go.sum,*/proxy/web/*,*pnpm-lock.yaml,*package-lock.json,*/locales/de/*,*/locales/es/*,*/locales/fr/*,*/locales/hu/*,*/locales/it/*,*/locales/pt/*,*/locales/ru/*,*/locales/zh-CN/*,*/i18n/TRANSLATING.md
+          skip: go.mod,go.sum,*/proxy/web/*,*pnpm-lock.yaml,*package-lock.json,*/locales/*,*/i18n/TRANSLATING.md
+      - name: codespell (English UI strings)
+        uses: codespell-project/actions-codespell@8f01853be192eb0f849a5c7d721450e7a467c579 # v2.2
+        with:
+          path: client/ui/i18n/locales/en
+          ignore_words_list: erro,clienta,hastable,iif,groupd,testin,groupe,cros,ans,deriver,te,userA,ede,additionals,flate,recordin,unparseable
   golangci:
     strategy:
       fail-fast: false
@@ -80,3 +84,49 @@ jobs:
           skip-save-cache: true
           cache-invalidation-interval: 0
           args: --timeout=20m
+
+  # Separate job rather than extra rows in the matrix above: those rows pick a
+  # GOOS by picking a runner OS, while android/ios are cross-compiled from
+  # ubuntu — an `include` entry with os: ubuntu-latest would merge into the
+  # Linux row instead of adding one. The package path is restricted because a
+  # whole-repo run under GOOS=android pulls *_linux.go files into packages that
+  # have no android counterpart.
+  golangci-mobile:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: android
+            goarch: arm64
+            packages: ./client/android/...
+            display_name: Android
+          - goos: ios
+            goarch: arm64
+            packages: ./client/ios/...
+            display_name: iOS
+    name: ${{ matrix.display_name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CGO_ENABLED: 0
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: "go.mod"
+          cache: false
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee #v9.2.1
+        with:
+          version: latest
+          install-mode: binary
+          skip-cache: true
+          skip-save-cache: true
+          cache-invalidation-interval: 0
+          args: --timeout=20m ${{ matrix.packages }}

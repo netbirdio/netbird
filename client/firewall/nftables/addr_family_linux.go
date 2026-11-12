@@ -13,7 +13,6 @@ import (
 var (
 	// afIPv4 defines IPv4 header layout and nftables types.
 	afIPv4 = addrFamily{
-		protoOffset:   9,
 		srcAddrOffset: 12,
 		dstAddrOffset: 16,
 		addrLen:       net.IPv4len,
@@ -21,10 +20,10 @@ var (
 		setKeyType:    nftables.TypeIPAddr,
 		tableFamily:   nftables.TableFamilyIPv4,
 		icmpProto:     unix.IPPROTO_ICMP,
+		setBatchSize:  maxPrefixesSet,
 	}
 	// afIPv6 defines IPv6 header layout and nftables types.
 	afIPv6 = addrFamily{
-		protoOffset:   6,
 		srcAddrOffset: 8,
 		dstAddrOffset: 24,
 		addrLen:       net.IPv6len,
@@ -32,13 +31,12 @@ var (
 		setKeyType:    nftables.TypeIP6Addr,
 		tableFamily:   nftables.TableFamilyIPv6,
 		icmpProto:     unix.IPPROTO_ICMPV6,
+		setBatchSize:  maxPrefixesSetV6,
 	}
 )
 
 // addrFamily holds protocol-specific constants for nftables expression building.
 type addrFamily struct {
-	// protoOffset is the IP header offset for the protocol/next-header field (9 for v4, 6 for v6)
-	protoOffset uint32
 	// srcAddrOffset is the IP header offset for the source address (12 for v4, 8 for v6)
 	srcAddrOffset uint32
 	// dstAddrOffset is the IP header offset for the destination address (16 for v4, 24 for v6)
@@ -52,7 +50,8 @@ type addrFamily struct {
 	// tableFamily is the nftables table family
 	tableFamily nftables.TableFamily
 	// icmpProto is the ICMP protocol number for this family (1 for v4, 58 for v6)
-	icmpProto uint8
+	icmpProto    uint8
+	setBatchSize int
 }
 
 // familyForAddr returns the address family for the given IP.

@@ -26,8 +26,8 @@ func transportCtx(id Identity, md metadata.MD) context.Context {
 }
 
 var (
-	root       = Identity{UID: 0}
-	unprivUser = Identity{UID: 1000, GID: 1000}
+	root       = Identity{known: true, UID: 0}
+	unprivUser = Identity{known: true, UID: 1000, GID: 1000}
 )
 
 // asDaemon pins which identity counts as this process for the duration of a test.
@@ -35,9 +35,9 @@ var (
 // "the gateway" means.
 func asDaemon(t *testing.T, id Identity) {
 	t.Helper()
-	prevID, prevKnown, prevDelegate := selfIdentity, selfKnown, selfMayDelegate
-	t.Cleanup(func() { selfIdentity, selfKnown, selfMayDelegate = prevID, prevKnown, prevDelegate })
-	selfIdentity, selfKnown = id, true
+	prevID, prevDelegate := selfIdentity, selfMayDelegate
+	t.Cleanup(func() { selfIdentity, selfMayDelegate = prevID, prevDelegate })
+	selfIdentity = id
 	selfMayDelegate = !id.IsPrivileged()
 }
 
@@ -163,7 +163,7 @@ func TestCallerIdentity_GatewayForwarding(t *testing.T) {
 		injected.Append(mdFwdGroup, sidAdministrators)
 
 		ctx := WithForwardedIdentity(metadata.NewOutgoingContext(context.Background(), injected),
-			Identity{SID: "S-1-5-21-1-2-3-1001"}, true)
+			Identity{known: true, SID: "S-1-5-21-1-2-3-1001"}, true)
 		out, ok := metadata.FromOutgoingContext(ctx)
 		if !ok {
 			t.Fatal("no outgoing metadata")
@@ -202,7 +202,7 @@ func TestForwardIdentityMetadata_AlwaysMarksForwarded(t *testing.T) {
 	}{
 		{"known unix identity", unprivUser, true},
 		{"unknown identity", Identity{}, false},
-		{"windows identity", Identity{SID: "S-1-5-21-1-2-3-1001", Elevated: true}, true},
+		{"windows identity", Identity{known: true, SID: "S-1-5-21-1-2-3-1001", Elevated: true}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			md := ForwardIdentityMetadata(tc.id, tc.known)

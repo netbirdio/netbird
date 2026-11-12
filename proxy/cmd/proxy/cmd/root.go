@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -13,7 +14,9 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/acme"
 
+	"github.com/netbirdio/netbird/shared/externalipmap"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/profiling"
 
 	"github.com/netbirdio/netbird/client/embed"
 	"github.com/netbirdio/netbird/proxy"
@@ -30,6 +33,8 @@ const (
 	// how many buffers each receive/TUN worker eagerly allocates. Zero
 	// (unset) keeps the platform default.
 	envMaxBatchSize = "NB_PROXY_MAX_BATCH_SIZE"
+
+	applicationName = "proxy"
 )
 
 const DefaultManagementURL = "https://api.netbird.io:443"
@@ -71,6 +76,7 @@ var (
 	certLockMethod        string
 	wildcardCertDir       string
 	wgPort                uint16
+	externalIPMap         []string
 	proxyProtocol         bool
 	preSharedKey          string
 	supportsCustomPorts   bool
@@ -114,6 +120,7 @@ func init() {
 	rootCmd.Flags().StringVar(&certLockMethod, "cert-lock-method", envStringOrDefault("NB_PROXY_CERT_LOCK_METHOD", "auto"), "Certificate lock method for cross-replica coordination: auto, flock, or k8s-lease")
 	rootCmd.Flags().StringVar(&wildcardCertDir, "wildcard-cert-dir", envStringOrDefault("NB_PROXY_WILDCARD_CERT_DIR", ""), "Directory containing wildcard certificate pairs (<name>.crt/<name>.key). Wildcard patterns are extracted from SANs automatically")
 	rootCmd.Flags().Uint16Var(&wgPort, "wg-port", envUint16OrDefault("NB_PROXY_WG_PORT", 0), "WireGuard listen port (0 = random). Fixed port only works with single-account deployments")
+	rootCmd.Flags().StringSliceVar(&externalIPMap, "external-ip-map", envStringSliceOrDefault("NB_PROXY_EXTERNAL_IP_MAP", nil), "Comma-separated external IPs to advertise as ICE candidates, as IP or IP/internal-IP-or-interface (e.g. '203.0.113.5/10.0.0.5'). Requires a fixed --wg-port forwarded on the NAT")
 	rootCmd.Flags().BoolVar(&proxyProtocol, "proxy-protocol", envBoolOrDefault("NB_PROXY_PROXY_PROTOCOL", false), "Enable PROXY protocol on TCP listeners to preserve client IPs behind L4 proxies")
 	rootCmd.Flags().StringVar(&preSharedKey, "preshared-key", envStringOrDefault("NB_PROXY_PRESHARED_KEY", ""), "Define a pre-shared key for the tunnel between proxy and peers")
 	rootCmd.Flags().BoolVar(&supportsCustomPorts, "supports-custom-ports", envBoolOrDefault("NB_PROXY_SUPPORTS_CUSTOM_PORTS", true), "Whether the proxy can bind arbitrary ports for UDP/TCP passthrough")
@@ -159,6 +166,9 @@ func runServer(cmd *cobra.Command, args []string) error {
 	_ = util.InitLogger(logger, level, util.LogConsole)
 
 	logger.Infof("configured log level: %s", level)
+
+	stopProfiling := profiling.Start(applicationName)
+	defer stopProfiling()
 
 	var wgPool, wgBatch uint64
 	var perf embed.Performance
@@ -215,6 +225,13 @@ func runServer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid --trusted-proxies: %w", err)
 	}
 
+	for i := range externalIPMap {
+		externalIPMap[i] = strings.TrimSpace(externalIPMap[i])
+	}
+	if err := externalipmap.Validate(externalIPMap); err != nil {
+		return fmt.Errorf("invalid --external-ip-map: %w", err)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
@@ -242,6 +259,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		CertLockMethod:           nbacme.CertLockMethod(certLockMethod),
 		WildcardCertDir:          wildcardCertDir,
 		WireguardPort:            wgPort,
+		NATExternalIPs:           externalIPMap,
 		Performance:              perf,
 		ProxyProtocol:            proxyProtocol,
 		PreSharedKey:             preSharedKey,
@@ -278,6 +296,14 @@ func envStringOrDefault(key string, def string) string {
 		return def
 	}
 	return v
+}
+
+func envStringSliceOrDefault(key string, def []string) []string {
+	v, exists := os.LookupEnv(key)
+	if !exists || v == "" {
+		return def
+	}
+	return strings.Split(v, ",")
 }
 
 func envUint16OrDefault(key string, def uint16) uint16 {

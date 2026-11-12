@@ -20,6 +20,7 @@ func newStaticInfo() StaticInfo {
 	wg.Add(3)
 	go func() {
 		si.SystemSerialNumber, si.SystemProductName, si.SystemManufacturer = sysInfo()
+		si.SystemHardwareUUID = sysHardwareUUID()
 		wg.Done()
 	}()
 	go func() {

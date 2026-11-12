@@ -4,8 +4,8 @@ import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 const VARIANT_HOVER = {
-    default: "group-hover/copy:[&_*]:text-nb-gray-300",
-    bright: "group-hover/copy:[&_*]:text-nb-gray-200",
+    default: "**:group-hover/copy:text-nb-gray-300",
+    bright: "**:group-hover/copy:text-nb-gray-200",
 } as const;
 
 type CopyToClipboardVariant = keyof typeof VARIANT_HOVER;
@@ -80,7 +80,7 @@ export const CopyToClipboard = ({
             aria-label={resolvedLabel}
             aria-live={"polite"}
             className={cn(
-                "group/copy wails-no-draggable pointer-events-auto inline-flex cursor-default items-center gap-2 rounded-sm text-left outline-none",
+                "group/copy wails-no-draggable pointer-events-auto inline-flex cursor-default items-center gap-2 rounded-xs text-start outline-hidden",
                 "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                 className,
             )}
@@ -88,8 +88,8 @@ export const CopyToClipboard = ({
             <span
                 className={cn(
                     "relative min-w-0",
-                    wrap ? "whitespace-pre-wrap break-all" : "truncate",
-                    "[&_*]:transition-colors",
+                    wrap ? "break-all whitespace-pre-wrap" : "truncate",
+                    "**:transition-colors",
                     VARIANT_HOVER[variant],
                 )}
             >
@@ -97,14 +97,14 @@ export const CopyToClipboard = ({
                 <span
                     aria-hidden={"true"}
                     className={
-                        "pointer-events-none absolute bottom-0 left-0 right-0 border-b border-dashed border-transparent group-hover/copy:border-nb-gray-500"
+                        "pointer-events-none absolute inset-x-0 bottom-0 border-b border-dashed border-transparent group-hover/copy:border-nb-gray-500"
                     }
                 />
             </span>
             <span
                 aria-hidden={"true"}
                 className={cn(
-                    "relative right-[1px] top-[2px] inline-flex shrink-0",
+                    "relative inset-e-[1px] top-[2px] inline-flex shrink-0",
                     iconAlignment === "left" ? "order-first" : "order-last",
                     iconClassName,
                 )}

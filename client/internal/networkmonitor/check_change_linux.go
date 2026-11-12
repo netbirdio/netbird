@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"syscall"
 
 	log "github.com/sirupsen/logrus"
@@ -35,7 +36,7 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) er
 		// handle route changes
 		case route := <-routeChan:
 			// default route and main table
-			if route.Dst != nil || route.Table != syscall.RT_TABLE_MAIN {
+			if !isDefaultRoute(route.Dst) || route.Table != syscall.RT_TABLE_MAIN {
 				continue
 			}
 			switch route.Type {
@@ -51,4 +52,14 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) er
 			}
 		}
 	}
+}
+
+// isDefaultRoute reports whether dst is a default route. netlink v1.3 reports
+// the default as 0.0.0.0/0 or ::/0, older versions as a nil Dst.
+func isDefaultRoute(dst *net.IPNet) bool {
+	if dst == nil {
+		return true
+	}
+	ones, _ := dst.Mask.Size()
+	return ones == 0
 }

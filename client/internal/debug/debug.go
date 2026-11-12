@@ -54,6 +54,8 @@ scutil_dns.txt: DNS configuration from scutil --dns (macOS only), if --system-in
 dns_windows.txt: Anonymized NRPT rules and policy table in effect, DNS client policy, and per-interface and per-adapter DNS configuration (Windows only), if --system-info flag was provided.
 resolved_domains.txt: Anonymized resolved domain IP addresses from the status recorder.
 config.txt: Anonymized configuration information of the NetBird client.
+profiles.txt: Inventory of the profiles stored on this device, one block per profile: profile ID (the config filename stem), display name, path, whether it was the active profile when the bundle was created, and the owners recorded in the profile JSON. Profile names and paths are not anonymized.
+active_profile.json: Verbatim copy of the daemon's active profile state file, naming the profile ID that was active and the user it was activated for.
 network_map.json: Anonymized sync response containing peer configurations, routes, DNS settings, and firewall rules.
 state.json: Anonymized client state dump containing netbird states for the active profile.
 service_params.json: Sanitized service install parameters (service.json). Sensitive environment variable values are masked. Only present when service.json exists.
@@ -171,10 +173,12 @@ The interfaces.txt file contains information about network interfaces, including
 
 The IP addresses in the interfaces file are anonymized using the same process as described above. Interface names, indexes, MTUs, and flags are not anonymized.
 
+Profiles
+The profiles.txt file lists every profile JSON on disk, including profiles the running client does not load. Owners are recorded as principals, "uid:<id>" on Unix and "sid:<sid>" on Windows. The whole owners list is reported, while the client currently honors only the first entry. An empty list means the profile predates ownership or was never claimed.
+
 Configuration
 The config.txt file contains anonymized configuration information of the NetBird client. Sensitive information such as private keys and SSH keys are excluded. The following fields are anonymized:
 - ManagementURL
-- AdminURL
 - NATExternalIPs
 - CustomDNSAddress
 
@@ -379,9 +383,38 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 	}
 }
 
+// bundleFilePattern names the bundle zips Generate creates in tempDir; the
+// asterisk is filled in by os.CreateTemp.
+const bundleFilePattern = "netbird.debug.*.zip"
+
+const exportedBundlePrefix = "netbird.debug-file."
+
+const exportedBundleMaxAge = 24 * time.Hour
+
+// RemoveStaleBundles deletes bundle zips that an interrupted generation or
+// upload left behind in dir. Only files older than maxAge go, so a bundle that
+// another caller is still writing or uploading in the same directory survives.
+// Exported bundles are kept for exportedBundleMaxAge instead.
+func RemoveStaleBundles(dir string, maxAge time.Duration) {
+	removeStaleFiles(dir, bundleFilePattern, maxAge)
+	removeStaleFiles(dir, exportedBundlePrefix+"*.zip", exportedBundleMaxAge)
+}
+
+// ExportBundle renames a generated bundle out of the RemoveStaleBundles pattern
+// and returns the new path. The caller owns the file from then on; an export
+// abandoned for longer than exportedBundleMaxAge is removed by RemoveStaleBundles.
+func ExportBundle(path string) (string, error) {
+	base := strings.TrimPrefix(filepath.Base(path), strings.SplitN(bundleFilePattern, "*", 2)[0])
+	exported := filepath.Join(filepath.Dir(path), exportedBundlePrefix+base)
+	if err := os.Rename(path, exported); err != nil {
+		return "", fmt.Errorf("export debug bundle: %w", err)
+	}
+	return exported, nil
+}
+
 // Generate creates a debug bundle and returns the location.
 func (g *BundleGenerator) Generate() (resp string, err error) {
-	bundlePath, err := os.CreateTemp(g.tempDir, "netbird.debug.*.zip")
+	bundlePath, err := os.CreateTemp(g.tempDir, bundleFilePattern)
 	if err != nil {
 		return "", fmt.Errorf("create zip file: %w", err)
 	}
@@ -423,6 +456,10 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("failed to add config to debug bundle: %v", err)
 	}
 
+	if err := g.addProfiles(); err != nil {
+		log.Errorf("failed to add profiles to debug bundle: %v", err)
+	}
+
 	if err := g.addResolvedDomains(); err != nil {
 		log.Errorf("failed to add resolved domains to debug bundle: %v", err)
 	}
@@ -432,7 +469,7 @@ func (g *BundleGenerator) createArchive() error {
 	}
 
 	if err := g.addProf(); err != nil {
-		log.Errorf("failed to add profiles to debug bundle: %v", err)
+		log.Errorf("failed to add pprof profiles to debug bundle: %v", err)
 	}
 
 	if err := g.addCPUProfile(); err != nil {
@@ -573,9 +610,6 @@ func (g *BundleGenerator) addConfig() error {
 		if g.internalConfig.ManagementURL != nil {
 			configContent.WriteString(fmt.Sprintf("ManagementURL: %s\n", g.anonymizer.AnonymizeURI(g.internalConfig.ManagementURL.String())))
 		}
-		if g.internalConfig.AdminURL != nil {
-			configContent.WriteString(fmt.Sprintf("AdminURL: %s\n", g.anonymizer.AnonymizeURI(g.internalConfig.AdminURL.String())))
-		}
 		configContent.WriteString(fmt.Sprintf("NATExternalIPs: %v\n", anonymizeNATExternalIPs(g.internalConfig.NATExternalIPs, g.anonymizer)))
 		if g.internalConfig.CustomDNSAddress != "" {
 			configContent.WriteString(fmt.Sprintf("CustomDNSAddress: %s\n", g.anonymizer.AnonymizeString(g.internalConfig.CustomDNSAddress)))
@@ -583,9 +617,6 @@ func (g *BundleGenerator) addConfig() error {
 	} else {
 		if g.internalConfig.ManagementURL != nil {
 			configContent.WriteString(fmt.Sprintf("ManagementURL: %s\n", g.internalConfig.ManagementURL.String()))
-		}
-		if g.internalConfig.AdminURL != nil {
-			configContent.WriteString(fmt.Sprintf("AdminURL: %s\n", g.internalConfig.AdminURL.String()))
 		}
 		configContent.WriteString(fmt.Sprintf("NATExternalIPs: %v\n", g.internalConfig.NATExternalIPs))
 		if g.internalConfig.CustomDNSAddress != "" {
@@ -618,7 +649,7 @@ const (
 	jsonKeyServiceEnv    = "service_env_vars"
 )
 
-var sensitiveEnvSubstrings = []string{"key", "token", "secret", "password", "credential"}
+var sensitiveEnvSubstrings = []string{"key", "token", "secret", "password", "credential", "pin", "pkcs11"}
 
 // addServiceParams reads the service.json file and adds a sanitized version to the bundle.
 // Non-NB_ env vars and vars with sensitive names are masked. Other NB_ values are anonymized.
@@ -691,6 +722,228 @@ func isSensitiveEnvVar(key string) bool {
 		}
 	}
 	return false
+}
+
+const (
+	profilesBundleFile      = "profiles.txt"
+	activeProfileBundleFile = "active_profile.json"
+
+	profileJSONSuffix      = ".json"
+	profileStateJSONSuffix = ".state.json"
+
+	noneValue = "(none)"
+)
+
+// profileMeta is the slice of a profile JSON the bundle reports on. The owners
+// list is read whole, unlike the client, which honors only the first entry.
+type profileMeta struct {
+	Name   string
+	Owners []string
+}
+
+// profileEntry is one profile JSON found on disk.
+type profileEntry struct {
+	id       string
+	name     string
+	path     string
+	owners   []string
+	isActive bool
+	// loadErr is kept instead of returned so one unreadable profile does not
+	// hide the rest.
+	loadErr error
+}
+
+// addProfiles inventories every profile JSON on disk with its ID, name and
+// owners, and dumps the active profile state file verbatim.
+func (g *BundleGenerator) addProfiles() error {
+	activeState, activeRaw, activeErr := readActiveProfileState()
+	if activeErr != nil {
+		log.Warnf("failed to read active profile state for debug bundle: %v", activeErr)
+	}
+
+	entries := collectProfileEntries(activeState)
+	content := renderProfiles(entries, activeState, activeErr)
+
+	if err := g.addFileToZip(strings.NewReader(content), profilesBundleFile); err != nil {
+		return fmt.Errorf("add profiles file to zip: %w", err)
+	}
+
+	// A file that is present but empty still says something: the state was
+	// truncated rather than never written.
+	if activeRaw == nil {
+		return nil
+	}
+	if err := g.addFileToZip(bytes.NewReader(activeRaw), activeProfileBundleFile); err != nil {
+		return fmt.Errorf("add active profile state to zip: %w", err)
+	}
+
+	return nil
+}
+
+// readActiveProfileState reads the state file directly rather than through
+// ServiceManager, whose getters seed a default one when it is missing. Bundle
+// collection must not write the state it reports on. The raw bytes come back
+// even when parsing fails, so a corrupted file still reaches the bundle, and
+// they are nil only when nothing was read at all.
+func readActiveProfileState() (*profilemanager.ActiveProfileState, []byte, error) {
+	data, err := os.ReadFile(profilemanager.ActiveProfileStatePath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil, nil
+		}
+		return nil, nil, fmt.Errorf("read active profile state: %w", err)
+	}
+
+	var state profilemanager.ActiveProfileState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil, data, fmt.Errorf("parse active profile state: %w", err)
+	}
+
+	return &state, data, nil
+}
+
+// collectProfileEntries walks the state directory. The default profile sits at
+// the top level and every subdirectory holds profiles of its own.
+func collectProfileEntries(active *profilemanager.ActiveProfileState) []profileEntry {
+	root := profilemanager.DefaultConfigPathDir
+
+	var entries []profileEntry
+	if _, err := os.Stat(profilemanager.DefaultConfigPath); err == nil {
+		entries = append(entries, newProfileEntry(profilemanager.DefaultProfileName, profilemanager.DefaultConfigPath, active))
+	}
+
+	dirs, err := os.ReadDir(root)
+	if err != nil {
+		log.Warnf("failed to read profiles directory %s: %v", root, err)
+		return entries
+	}
+
+	var nested []profileEntry
+	for _, dir := range dirs {
+		if !dir.IsDir() {
+			continue
+		}
+		nested = append(nested, collectProfilesInDir(filepath.Join(root, dir.Name()), active)...)
+	}
+
+	sort.Slice(nested, func(i, j int) bool { return nested[i].path < nested[j].path })
+
+	return append(entries, nested...)
+}
+
+func collectProfilesInDir(dir string, active *profilemanager.ActiveProfileState) []profileEntry {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		log.Warnf("failed to read profiles directory %s: %v", dir, err)
+		return nil
+	}
+
+	var entries []profileEntry
+	for _, file := range files {
+		if file.IsDir() || !isProfileJSON(file.Name()) {
+			continue
+		}
+		path := filepath.Join(dir, file.Name())
+		id := strings.TrimSuffix(file.Name(), profileJSONSuffix)
+		entries = append(entries, newProfileEntry(id, path, active))
+	}
+
+	return entries
+}
+
+func isProfileJSON(name string) bool {
+	return strings.HasSuffix(name, profileJSONSuffix) && !strings.HasSuffix(name, profileStateJSONSuffix) && !strings.HasSuffix(name, ".prefs.json")
+}
+
+func newProfileEntry(id, path string, active *profilemanager.ActiveProfileState) profileEntry {
+	entry := profileEntry{
+		id:       id,
+		name:     id,
+		path:     path,
+		isActive: active != nil && active.ID.String() == id,
+	}
+
+	meta, err := readProfileMeta(path)
+	if err != nil {
+		entry.loadErr = err
+		return entry
+	}
+
+	// The profile loader falls back to the ID when the name field is unset.
+	if name := profilemanager.StripCtrlChars(meta.Name); name != "" {
+		entry.name = name
+	}
+	for _, owner := range meta.Owners {
+		entry.owners = append(entry.owners, profilemanager.StripCtrlChars(owner))
+	}
+
+	return entry
+}
+
+func readProfileMeta(path string) (profileMeta, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return profileMeta{}, fmt.Errorf("read profile: %w", err)
+	}
+
+	var meta profileMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return profileMeta{}, fmt.Errorf("parse profile: %w", err)
+	}
+
+	return meta, nil
+}
+
+func renderProfiles(entries []profileEntry, active *profilemanager.ActiveProfileState, activeErr error) string {
+	var content strings.Builder
+
+	content.WriteString("NetBird profiles\n\n")
+	content.WriteString(fmt.Sprintf("Profiles directory: %s\n", profilemanager.DefaultConfigPathDir))
+	content.WriteString(fmt.Sprintf("Active profile state file: %s\n", profilemanager.ActiveProfileStatePath))
+
+	switch {
+	case activeErr != nil:
+		content.WriteString(fmt.Sprintf("Active profile: unknown (%v)\n", activeErr))
+	case active == nil:
+		content.WriteString("Active profile: none recorded\n")
+	default:
+		content.WriteString(fmt.Sprintf("Active profile: %s\n", active.ID))
+	}
+
+	content.WriteString(fmt.Sprintf("Profiles found: %d\n", len(entries)))
+
+	for _, entry := range entries {
+		content.WriteString("\n")
+		entry.render(&content)
+	}
+
+	return content.String()
+}
+
+func (e profileEntry) render(content *strings.Builder) {
+	content.WriteString(fmt.Sprintf("[%s]\n", e.id))
+	content.WriteString(fmt.Sprintf("  Name:   %s\n", e.name))
+	content.WriteString(fmt.Sprintf("  Path:   %s\n", e.path))
+	content.WriteString(fmt.Sprintf("  Active: %s\n", yesNo(e.isActive)))
+	content.WriteString(fmt.Sprintf("  Owners: %s\n", valueOrNone(strings.Join(e.owners, ", "))))
+
+	if e.loadErr != nil {
+		content.WriteString(fmt.Sprintf("  Error:  %v\n", e.loadErr))
+	}
+}
+
+func valueOrNone(value string) string {
+	if value == "" {
+		return noneValue
+	}
+	return value
+}
+
+func yesNo(value bool) string {
+	if value {
+		return "yes"
+	}
+	return "no"
 }
 
 func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) {
@@ -1724,4 +1977,27 @@ func anonymizeSlice(v []any, anonymizer *anonymize.Anonymizer) []any {
 		v[i] = anonymizeValue(val, anonymizer)
 	}
 	return v
+}
+
+func removeStaleFiles(dir, pattern string, maxAge time.Duration) {
+	matches, err := filepath.Glob(filepath.Join(dir, pattern))
+	if err != nil {
+		log.Debugf("glob stale debug bundles in %s: %v", dir, err)
+		return
+	}
+
+	cutoff := time.Now().Add(-maxAge)
+	for _, path := range matches {
+		info, err := os.Stat(path)
+		if err != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := os.Remove(path); err != nil {
+			if !errors.Is(err, fs.ErrNotExist) {
+				log.Warnf("remove stale debug bundle %s: %v", path, err)
+			}
+			continue
+		}
+		log.Infof("removed stale debug bundle %s", path)
+	}
 }

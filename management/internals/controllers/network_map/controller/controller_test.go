@@ -122,11 +122,10 @@ func TestGetValidatedPeerWithComponents_DeletedPeer(t *testing.T) {
 	}
 
 	mockrequestBuffer.EXPECT().GetAccountWithBackpressure(gomock.Any(), gomock.Any()).Return(&types.Account{}, nil)
-	peer, components, netmap, posturechecks, dnsforwardPort, err := c.GetValidatedPeerWithComponents(context.TODO(), false, "test-account-id", &nbpeer.Peer{ID: "test-peer-id"})
+	peer, components, posturechecks, dnsforwardPort, err := c.GetValidatedPeerWithComponents(context.TODO(), false, "test-account-id", &nbpeer.Peer{ID: "test-peer-id"})
 
 	assert.Nil(t, peer)
 	assert.Nil(t, components)
-	assert.Nil(t, netmap)
 	assert.Nil(t, posturechecks)
 	assert.Equal(t, int64(0), dnsforwardPort)
 	assert.NotNil(t, err)

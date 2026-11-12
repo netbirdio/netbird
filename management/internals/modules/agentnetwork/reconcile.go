@@ -2,8 +2,10 @@ package agentnetwork
 
 import (
 	"context"
+	"fmt"
 
 	log "github.com/sirupsen/logrus"
+	goproto "google.golang.org/protobuf/proto"
 
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -81,18 +83,66 @@ func (m *managerImpl) reconcile(ctx context.Context, accountID string) {
 	}
 	m.reconcileMu.Unlock()
 
-	for _, entry := range creates {
-		entry.mapping.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED
-		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, entry.mapping, entry.cluster)
+	m.sendMappings(ctx, accountID, creates, proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED)
+	m.sendMappings(ctx, accountID, updates, proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED)
+	m.sendMappings(ctx, accountID, deletes, proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED)
+}
+
+// sendMappings sends each entry as updateType. It sends a copy: the entries'
+// mappings are shared with reconcileCache, which another reconcile or
+// RemoveAccountGateway may be reading, so they are never written.
+func (m *managerImpl) sendMappings(ctx context.Context, accountID string, entries []syntheticMapping, updateType proto.ProxyMappingUpdateType) {
+	for _, entry := range entries {
+		update := goproto.Clone(entry.mapping).(*proto.ProxyMapping)
+		update.Type = updateType
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, update, entry.cluster)
 	}
-	for _, entry := range updates {
-		entry.mapping.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED
-		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, entry.mapping, entry.cluster)
+}
+
+// RemoveAccountGateway tells the proxies to drop every mapping of the account's
+// gateway, so a deleted account's proxy config, provider API keys included, does
+// not linger in proxy memory until the next resync. It is an account deletion
+// hook: it runs before the account's data is removed, the last point at which
+// the mappings can be synthesised from the store. The cache alone would miss
+// them, since it is per instance and empty after a restart. If the deletion
+// then fails, the gateway stays down until the account's next change reconciles
+// it back.
+func (m *managerImpl) RemoveAccountGateway(ctx context.Context, accountID string) error {
+	if m.proxyController == nil {
+		return nil
 	}
-	for _, entry := range deletes {
-		entry.mapping.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED
-		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, entry.mapping, entry.cluster)
+
+	services, err := SynthesizeServices(ctx, m.store, accountID)
+	if err != nil {
+		return fmt.Errorf("synthesise agent network services: %w", err)
 	}
+	oidcCfg := m.proxyController.GetOIDCValidationConfig()
+	removed := make(map[string]syntheticMapping, len(services))
+	for _, svc := range services {
+		if svc == nil || svc.ID == "" {
+			continue
+		}
+		removed[svc.ID] = syntheticMapping{
+			mapping: svc.ToProtoMapping(rpservice.Delete, "", oidcCfg),
+			cluster: svc.ProxyCluster,
+		}
+	}
+
+	m.reconcileMu.Lock()
+	for id, entry := range m.reconcileCache[accountID] {
+		if _, ok := removed[id]; !ok {
+			removed[id] = entry
+		}
+	}
+	delete(m.reconcileCache, accountID)
+	m.reconcileMu.Unlock()
+
+	entries := make([]syntheticMapping, 0, len(removed))
+	for _, entry := range removed {
+		entries = append(entries, entry)
+	}
+	m.sendMappings(ctx, accountID, entries, proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED)
+	return nil
 }
 
 // diffMappings classifies the previous→current transition for a single

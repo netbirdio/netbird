@@ -42,7 +42,7 @@ export const PeerFilters = ({ value, onChange, counts, disabled }: Props) => {
                 className={cn(
                     "inline-flex h-9 items-center gap-1.5 rounded-md px-2",
                     "text-sm text-nb-gray-200",
-                    "outline-none transition-colors duration-150 hover:bg-nb-gray-900 data-[state=open]:bg-nb-gray-900",
+                    "outline-hidden transition-colors duration-150 hover:bg-nb-gray-900 data-[state=open]:bg-nb-gray-900",
                     "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                     "disabled:pointer-events-none disabled:opacity-50",
                     "wails-no-draggable cursor-default",
@@ -52,9 +52,9 @@ export const PeerFilters = ({ value, onChange, counts, disabled }: Props) => {
                 <span>
                     {active.label} <span className={"tabular-nums"}>({counts[active.value]})</span>
                 </span>
-                <ChevronDown size={14} aria-hidden={"true"} className={"ml-0.5 shrink-0"} />
+                <ChevronDown size={14} aria-hidden={"true"} className={"ms-0.5 shrink-0"} />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align={"end"} className={"min-w-[10rem]"}>
+            <DropdownMenuContent align={"end"} className={"min-w-40"}>
                 {filters.map((f) => {
                     const checked = f.value === value;
                     return (

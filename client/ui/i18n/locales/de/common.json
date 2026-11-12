@@ -8,6 +8,9 @@
     "tray.status.daemonUnavailable": {
         "message": "Nicht aktiv"
     },
+    "tray.status.daemonAccessDenied": {
+        "message": "Kein Zugriff"
+    },
     "tray.status.error": {
         "message": "Fehler"
     },
@@ -552,12 +555,10 @@
         "message": "Ändern des Autostarts fehlgeschlagen"
     },
     "settings.general.keepConnectedOnQuit.label": {
-        "message": "Nach dem Beenden verbunden bleiben",
-        "description": "Toggle label: keep the VPN connection up after quitting the UI."
+        "message": "Nach dem Beenden verbunden bleiben"
     },
     "settings.general.keepConnectedOnQuit.help": {
-        "message": "Die Verbindung bleibt im Hintergrund bestehen, nachdem Sie NetBird schließen. Sie endet erst, wenn Sie sie selbst trennen.",
-        "description": "Helper text for the stay-connected-after-quitting toggle."
+        "message": "Die Verbindung bleibt im Hintergrund bestehen, nachdem Sie NetBird schließen. Sie endet erst, wenn Sie sie selbst trennen."
     },
     "settings.general.language.label": {
         "message": "Anzeigesprache"
@@ -675,6 +676,9 @@
     },
     "settings.security.rosenpass.help": {
         "message": "Einen Post-Quanten-Schlüsselaustausch über Rosenpass zusätzlich zu WireGuard® hinzufügen."
+    },
+    "settings.security.rosenpass.deprecated": {
+        "message": "Veraltet: Rosenpass-Unterstützung kann in einer zukünftigen Version entfernt werden."
     },
     "settings.security.rosenpassPermissive.label": {
         "message": "Permissiven Modus aktivieren"
@@ -1333,6 +1337,12 @@
     "daemon.unavailable.docsLink": {
         "message": "Dokumentation"
     },
+    "daemon.accessDenied.title": {
+        "message": "Kein Zugriff auf den NetBird-Dienst"
+    },
+    "daemon.accessDenied.description": {
+        "message": "Ihr Administrator hat den NetBird-Dienst auf diesem Gerät auf ausgewählte Benutzer oder Gruppen beschränkt, und Ihr Konto gehört nicht dazu. Wenden Sie sich für den Zugriff an Ihren Administrator."
+    },
     "daemon.outdated.title": {
         "message": "NetBird Client ist veraltet"
     },
@@ -1363,6 +1373,15 @@
     "error.daemon_unreachable": {
         "message": "Der NetBird-Dienst antwortet nicht. Bitte prüfen Sie, ob der Dienst läuft."
     },
+    "error.daemon_access_denied": {
+        "message": "Ihr Konto darf den NetBird-Dienst auf diesem Gerät nicht verwenden. Wenden Sie sich für den Zugriff an Ihren Administrator."
+    },
+    "error.settings_locked": {
+        "message": "Die Einstellungen können auf diesem Gerät nicht geändert werden: Ein Administrator hat sie gesperrt."
+    },
+    "error.settings_managed_by_mdm": {
+        "message": "Diese Einstellung wird von Ihrer Organisation verwaltet und kann nicht geändert werden."
+    },
     "error.unknown": {
         "message": "Vorgang fehlgeschlagen."
     },
@@ -1389,5 +1408,23 @@
     },
     "settings.ssh.privilege.authorizePending": {
         "message": "Warten auf Autorisierung…"
+    },
+    "profile.ownedByAnother.name": {
+        "message": "Anderer Benutzer"
+    },
+    "profile.ownedByAnother.hint": {
+        "message": "Das aktive Profil gehört einem anderen Benutzer. Nur dieser kann es ändern oder die Verbindung trennen."
+    },
+    "error.privilege_required": {
+        "message": "Diese Aktion erfordert erhöhte Rechte."
+    },
+    "error.session_held": {
+        "message": "Ein anderer Benutzer hat diesen Rechner verbunden."
+    },
+    "error.not_profile_owner": {
+        "message": "Dieses Profil gehört einem anderen Benutzer."
+    },
+    "error.profile_unowned": {
+        "message": "Dieses Profil hat noch keinen Besitzer."
     }
 }

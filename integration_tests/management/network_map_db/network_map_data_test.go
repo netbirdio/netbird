@@ -10,14 +10,21 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/types"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.uber.org/mock/gomock"
 )
 
@@ -28,6 +35,19 @@ var nmapData string
 var goldenNMap string
 
 const EnvUpdateGoldenData = "NMAP_UPDATE_GOLDEN_DATA"
+
+var seedNetworkMapDataOnce sync.Once
+
+func seedNetworkMapData(t *testing.T, ctx context.Context) {
+	t.Helper()
+	seedNetworkMapDataOnce.Do(func() {
+		for _, query := range strings.Split(nmapData, ";") {
+			if err := store(t).Exec(ctx, query); err != nil {
+				log.Fatalf("error initializing nmap test: %s", err.Error())
+			}
+		}
+	})
+}
 
 func TestGetNetworkMapData(t *testing.T) {
 	ctx := context.TODO()
@@ -51,11 +71,7 @@ func TestGetNetworkMapData(t *testing.T) {
 		IntegratedPeerValidator: peerValidators,
 	}
 
-	for _, query := range strings.Split(nmapData, ";") {
-		if err := store(t).Exec(ctx, query); err != nil {
-			log.Fatalf("error initializing nmap test: %s", err.Error())
-		}
-	}
+	seedNetworkMapData(t, ctx)
 
 	nmap, err := storeImpl.GetNetworkMapData(ctx, "account-33")
 	assert.NoError(t, err)
@@ -71,4 +87,53 @@ func TestGetNetworkMapData(t *testing.T) {
 		goldenNMap = string(serializedNMap)
 	}
 	assert.Equal(t, goldenNMap, string(serializedNMap))
+}
+
+func TestGetNetworkMapData_FromReplica(t *testing.T) {
+	if engine != string(types.PostgresStoreEngine) {
+		t.Skip("replicas exist only for Postgres")
+	}
+	ctx := context.TODO()
+
+	extraSettingsManager := settings.NewMockManager(gomock.NewController(t))
+	extraSettingsManager.EXPECT().GetExtraSettings(gomock.Any(), gomock.Any()).Return(&types.ExtraSettings{}, nil)
+	peerValidators := integrated_validator.NewMockIntegratedValidator(gomock.NewController(t))
+	peerValidators.EXPECT().GetValidatedPeers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(map[string]struct{}{}, nil)
+
+	seedNetworkMapData(t, ctx)
+
+	reader := sdkmetric.NewManualReader()
+	metrics, err := networkmapdb.NewMetrics(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter("test"),
+		map[string]*pgxpool.Pool{"replica": pgstore.Pool})
+	require.NoError(t, err)
+
+	primary := store(t)
+	storeImpl := networkmapdb.NetworkMapDBStoreImpl{
+		Metrics:                 metrics,
+		Store:                   primary,
+		Replica:                 primary,
+		ReplicaWait:             time.Second,
+		ExtraSettingsManager:    extraSettingsManager,
+		IntegratedPeerValidator: peerValidators,
+	}
+
+	nmap, err := storeImpl.GetNetworkMapData(ctx, "account-33")
+	require.NoError(t, err)
+	assert.NotEmpty(t, nmap.Peers, "data must be read through the replica transaction after its attempt deadline is released")
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(ctx, &rm))
+	var totalConns int64
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if gauge, ok := m.Data.(metricdata.Gauge[int64]); ok {
+				for _, dp := range gauge.DataPoints {
+					if state, _ := dp.Attributes.Value(attribute.Key("state")); state.AsString() == "total" {
+						totalConns += dp.Value
+					}
+				}
+			}
+		}
+	}
+	assert.Positive(t, totalConns, "the replica pool gauge reports its open connections")
 }

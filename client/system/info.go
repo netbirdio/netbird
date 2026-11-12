@@ -11,6 +11,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/metadata"
 
+	"github.com/netbirdio/netbird/shared/management/certposture"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -59,8 +60,10 @@ type Info struct {
 	SystemSerialNumber string
 	SystemProductName  string
 	SystemManufacturer string
+	SystemHardwareUUID string
 	Environment        Environment
 	Files              []File // for posture checks
+	CertificateProofs  []certposture.Proof
 
 	RosenpassEnabled    bool
 	RosenpassPermissive bool
@@ -165,7 +168,7 @@ func extractUserAgent(ctx context.Context) string {
 // extractDeviceName extracts device name from context or returns the default system name
 func extractDeviceName(ctx context.Context, defaultName string) string {
 	v, ok := ctx.Value(DeviceNameCtxKey).(string)
-	if !ok {
+	if !ok || v == "" {
 		return defaultName
 	}
 	return v
@@ -204,12 +207,27 @@ func GetInfoWithChecks(ctx context.Context, checks []*proto.Checks, excludeIPs .
 // The buffered channel lets the abandoned goroutine finish and exit once its blocking call
 // returns, so it does not leak beyond the duration of that call.
 func GetInfoWithChecksTimeout(ctx context.Context, timeout time.Duration, checks []*proto.Checks, excludeIPs ...netip.Addr) (*Info, bool) {
+	return getInfoWithChecksTimeout(ctx, timeout, checks, nil, excludeIPs...)
+}
+
+// gatherInfoWithChecks is the gathering getInfoWithChecksTimeout bounds. Tests replace it
+// to control when a gathering finishes.
+var gatherInfoWithChecks = GetInfoWithChecks
+
+// getInfoWithChecksTimeout is GetInfoWithChecksTimeout that calls done, when not nil, once
+// the gathering is over: on return when it finished in time, else when the goroutine
+// exits, which may be well after the timeout. done may be called twice and must be
+// idempotent.
+func getInfoWithChecksTimeout(ctx context.Context, timeout time.Duration, checks []*proto.Checks, done func(), excludeIPs ...netip.Addr) (*Info, bool) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	infoCh := make(chan *Info, 1)
 	go func() {
-		info, err := GetInfoWithChecks(ctx, checks, excludeIPs...)
+		if done != nil {
+			defer done()
+		}
+		info, err := gatherInfoWithChecks(ctx, checks, excludeIPs...)
 		if err != nil {
 			if ctx.Err() != nil {
 				return
@@ -223,6 +241,9 @@ func GetInfoWithChecksTimeout(ctx context.Context, timeout time.Duration, checks
 
 	select {
 	case info := <-infoCh:
+		if done != nil {
+			done()
+		}
 		return info, true
 	case <-ctx.Done():
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {

@@ -9,6 +9,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -353,6 +354,59 @@ func TestApplyServiceEnvParams_NotChanged(t *testing.T) {
 	assert.Equal(t, map[string]string{"FROM_SAVED": "val"}, result)
 }
 
+func TestParseServiceEnvVars_RejectsForbiddenNames(t *testing.T) {
+	for _, env := range []string{"PATH=C:\\somewhere", "LD_PRELOAD=/tmp/lib.so", "DYLD_FALLBACK_LIBRARY_PATH=/tmp"} {
+		_, err := parseServiceEnvVars([]string{"KEEP=me", env})
+		require.Errorf(t, err, "%s selects what the service resolves and must be refused", env)
+	}
+}
+
+func TestIsForbiddenServiceEnvVar(t *testing.T) {
+	// The loader families are matched by prefix, so a name nobody has heard of
+	// yet is refused too.
+	for _, name := range []string{
+		"PATH", "PATHEXT", "COMSPEC", "SYSTEMROOT", "WINDIR", "TEMP", "TMP",
+		"LD_PRELOAD", "LD_AUDIT", "DYLD_INSERT_LIBRARIES", "DYLD_FALLBACK_FRAMEWORK_PATH",
+	} {
+		assert.Truef(t, isForbiddenServiceEnvVar(name), "%s must be refused", name)
+	}
+
+	// The prefix must not swallow names that merely start with the same letters.
+	for _, name := range []string{"NB_LOG_LEVEL", "NB_WG_DEBUG", "HTTPS_PROXY", "LDAP_URL", "DYLDX"} {
+		assert.Falsef(t, isForbiddenServiceEnvVar(name), "%s has no reason to be refused", name)
+	}
+
+	// On Windows a variable is the same one however it is spelled; elsewhere
+	// Path and PATH are two variables and only the exact one is read.
+	if runtime.GOOS == "windows" {
+		assert.True(t, isForbiddenServiceEnvVar("Path"))
+		assert.True(t, isForbiddenServiceEnvVar("ld_preload"))
+	} else {
+		assert.False(t, isForbiddenServiceEnvVar("Path"))
+		assert.False(t, isForbiddenServiceEnvVar("ld_preload"))
+	}
+}
+
+func TestApplyServiceEnvParams_DropsForbiddenSavedNames(t *testing.T) {
+	origServiceEnvVars := serviceEnvVars
+	t.Cleanup(func() { serviceEnvVars = origServiceEnvVars })
+
+	serviceEnvVars = nil
+
+	cmd := &cobra.Command{}
+	cmd.Flags().StringSlice("service-env", nil, "")
+
+	saved := &serviceParams{
+		ServiceEnvVars: map[string]string{"PATH": "C:\\attacker", "NB_LOG_FORMAT": "json"},
+	}
+
+	applyServiceEnvParams(cmd, saved)
+
+	result, err := parseServiceEnvVars(serviceEnvVars)
+	require.NoError(t, err, "a saved PATH must be dropped rather than fail the install")
+	assert.Equal(t, map[string]string{"NB_LOG_FORMAT": "json"}, result)
+}
+
 func TestApplyServiceEnvParams_ExplicitEmptyClears(t *testing.T) {
 	origServiceEnvVars := serviceEnvVars
 	t.Cleanup(func() { serviceEnvVars = origServiceEnvVars })
@@ -409,9 +463,19 @@ func TestServiceParams_FieldsCoveredInFunctions(t *testing.T) {
 		applyFields[k] = v
 	}
 
+	// AllowGroupIDs records what AllowGroups resolved to at install time. It is
+	// derived, so restoring it would pin an install to a stale ID instead of
+	// resolving the names again.
+	fieldsNotRestored := map[string]bool{
+		"AllowGroupIDs": true,
+	}
+
 	for _, field := range structFields {
 		assert.Contains(t, currentFields, field,
 			"serviceParams field %q is not captured in currentServiceParams()", field)
+		if fieldsNotRestored[field] {
+			continue
+		}
 		assert.Contains(t, applyFields, field,
 			"serviceParams field %q is not restored in applyServiceParams()/applyServiceEnvParams()", field)
 	}
@@ -431,9 +495,13 @@ func TestServiceParams_BuildArgsCoversAllFlags(t *testing.T) {
 	installerFile, err := parser.ParseFile(fset, "service_installer.go", nil, 0)
 	require.NoError(t, err)
 
-	// Fields that are handled outside of buildServiceArguments (env vars go through newSVCConfig).
+	// Fields that are handled outside of buildServiceArguments:
+	// ServiceEnvVars goes through newSVCConfig() EnvVars. AllowGroups is
+	// carried as AllowGroupIDs instead: the service runs with the resolved
+	// principals, not with the names they were resolved from.
 	fieldsNotInArgs := map[string]bool{
 		"ServiceEnvVars": true,
+		"AllowGroups":    true,
 	}
 
 	buildFields := extractFuncGlobalRefs(t, installerFile, "buildServiceArguments")
@@ -459,7 +527,8 @@ func TestServiceParams_BuildArgsCoversAllFlags(t *testing.T) {
 	// (builtins, boilerplate, loop variables).
 	nonParamGlobals := map[string]bool{
 		"args": true, "append": true, "string": true, "_": true,
-		"logFile": true, // range variable over logFiles
+		"logFile":   true, // range variable over logFiles
+		"principal": true, // range variable over resolvedAllowGroups
 	}
 	for ref := range buildFields {
 		if nonParamGlobals[ref] {
@@ -566,6 +635,8 @@ func fieldToGlobalVar(field string) string {
 		"DisableNetworks":       "networksDisabled",
 		"EnableJSONSocket":      "enableJSONSocket",
 		"ServiceEnvVars":        "serviceEnvVars",
+		"AllowGroups":           "allowGroups",
+		"AllowGroupIDs":         "resolvedAllowGroups",
 	}
 	if v, ok := m[field]; ok {
 		return v

@@ -82,7 +82,15 @@ func NewReverseProxy(transport http.RoundTripper, forwardedProto string, trusted
 }
 
 func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	result, exists := p.findTargetForRequest(r)
+	resolution, pinned := targetResolutionFromContext(r.Context())
+	result, exists := resolution.result, resolution.matched
+	if !pinned {
+		result, exists = p.findTargetForRequest(r)
+		if result.requirePinned {
+			p.serveProxyUnavailable(w, r)
+			return
+		}
+	}
 	if !exists {
 		p.serveRouteError(w, r, http.StatusNotFound, "Service Not Found",
 			"The requested service could not be found. Please check the URL, try refreshing, or check if the peer is running. If that doesn't work, see our documentation for help.")
@@ -119,12 +127,38 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		rewriteMatchedPath = ""
 	}
 
-	chain := p.resolveChain(result)
+	chain, current := p.resolveChain(result)
+	if !current || (targetRequiresMiddleware(pt) && (chain == nil || chain.Empty())) {
+		p.serveProxyUnavailable(w, r)
+		return
+	}
 	if chain == nil || chain.Empty() {
 		p.serveDirect(w, r, ctx, result, rewriteMatchedPath)
 		return
 	}
 	p.serveWithChain(w, r, ctx, result, chain, rewriteMatchedPath, capturedData)
+}
+
+func (p *ReverseProxy) serveProxyUnavailable(w http.ResponseWriter, r *http.Request) {
+	if cd := CapturedDataFromContext(r.Context()); cd != nil {
+		cd.SetOrigin(OriginProxyError)
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	web.ServeErrorPage(w, r, http.StatusServiceUnavailable, "Service Unavailable",
+		"The requested service is being updated. Please try again shortly.", getRequestID(r),
+		web.ErrorStatus{Proxy: true, Destination: false})
+}
+
+func targetRequiresMiddleware(target *PathTarget) bool {
+	if target == nil {
+		return false
+	}
+	for _, spec := range target.Middlewares {
+		if spec.Enabled {
+			return true
+		}
+	}
+	return false
 }
 
 // serveRouteError marks the request as un-routed on any captured-data
@@ -167,6 +201,13 @@ func (p *ReverseProxy) serveDirect(w http.ResponseWriter, r *http.Request, ctx c
 	if result.rewriteRedirects {
 		rp.ModifyResponse = p.rewriteLocationFunc(pt.URL, rewriteMatchedPath, r) //nolint:bodyclose
 	}
+	// The request is handed to the backend from here, so an error status it
+	// answers with is the backend's; an earlier stage (header auth stamps
+	// OriginAuth on success) must not claim it. proxyErrorHandler overrides
+	// this when the backend could not be reached.
+	if cd := CapturedDataFromContext(ctx); cd != nil {
+		cd.SetOrigin(OriginBackend)
+	}
 	rp.ServeHTTP(w, r.WithContext(ctx))
 }
 
@@ -191,6 +232,9 @@ func (p *ReverseProxy) serveWithChain(w http.ResponseWriter, r *http.Request, ct
 		}
 	}
 	if denyOutput != nil {
+		if capturedData != nil {
+			capturedData.SetOrigin(OriginMiddleware)
+		}
 		p.serveDeny(w, denyOutput, result, middlewareIDs)
 		return
 	}
@@ -366,6 +410,13 @@ func (p *ReverseProxy) forwardUpstream(respWriter http.ResponseWriter, r *http.R
 	if upstreamRewrite != nil && len(upstreamRewrite.DiscoveryModels) > 0 {
 		rp.ModifyResponse = modelDiscoveryFilter(upstreamRewrite.DiscoveryModels, rp.ModifyResponse) //nolint:bodyclose // the hook replaces the body and closes the original
 	}
+	// The request is handed to the backend from here, so an error status it
+	// answers with is the backend's; an earlier stage (header auth stamps
+	// OriginAuth on success) must not claim it. proxyErrorHandler overrides
+	// this when the backend could not be reached.
+	if cd := CapturedDataFromContext(ctx); cd != nil {
+		cd.SetOrigin(OriginBackend)
+	}
 	rp.ServeHTTP(respWriter, r.WithContext(ctx))
 }
 
@@ -455,14 +506,15 @@ func applyUpstreamHeaders(r *http.Request, rewrite *middleware.UpstreamRewrite) 
 	}
 }
 
-// resolveChain returns the middleware chain registered for the
-// resolved target, or nil when middleware is disabled for the proxy
-// or the target.
-func (p *ReverseProxy) resolveChain(result targetResult) *middleware.Chain {
+// resolveChain returns a chain only from the target's routing revision.
+func (p *ReverseProxy) resolveChain(result targetResult) (*middleware.Chain, bool) {
 	if p.middlewareManager == nil {
-		return nil
+		return nil, result.middlewareRevision == 0
 	}
-	return p.middlewareManager.ChainFor(string(result.serviceID), result.matchedPath)
+	if result.middlewareRevision == 0 {
+		return p.middlewareManager.ChainFor(string(result.serviceID), result.matchedPath), true
+	}
+	return p.middlewareManager.ChainForRevision(string(result.serviceID), result.matchedPath, result.middlewareRevision)
 }
 
 // buildRequestInput gathers the per-request fields the middleware
@@ -721,12 +773,13 @@ func stripSessionCookie(r *httputil.ProxyRequest) {
 	}
 }
 
-// stripSessionTokenQuery removes the OIDC session_token query parameter from
-// the outgoing URL to prevent credential leakage to backends.
+// stripSessionTokenQuery removes the OIDC session hand-off query parameters
+// from the outgoing URL to prevent credential leakage to backends.
 func stripSessionTokenQuery(r *httputil.ProxyRequest) {
 	q := r.Out.URL.Query()
-	if q.Has("session_token") {
-		q.Del("session_token")
+	if q.Has(auth.SessionTokenQueryParam) || q.Has(auth.SessionCodeQueryParam) {
+		q.Del(auth.SessionTokenQueryParam)
+		q.Del(auth.SessionCodeQueryParam)
 		r.Out.URL.RawQuery = q.Encode()
 	}
 }
@@ -747,12 +800,13 @@ func extractForwardedPort(host, resolvedProto string) string {
 // proxyErrorHandler handles errors from the reverse proxy and serves
 // user-friendly error pages instead of raw error responses.
 func (p *ReverseProxy) proxyErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
+	title, message, code, status := classifyProxyError(err)
 	if cd := CapturedDataFromContext(r.Context()); cd != nil {
 		cd.SetOrigin(OriginProxyError)
+		cd.SetMetadata(MetaKeyProxyError, title+": "+err.Error())
 	}
 	requestID := getRequestID(r)
 	clientIP := getClientIP(r)
-	title, message, code, status := classifyProxyError(err)
 
 	p.logger.Warnf("proxy error: request_id=%s client_ip=%s method=%s host=%s path=%s status=%d title=%q err=%v",
 		requestID, clientIP, r.Method, r.Host, r.URL.Path, code, title, err)
@@ -805,6 +859,12 @@ func classifyProxyError(err error) (title, message string, code int, status web.
 		errors.Is(err, roundtrip.ErrClientStartFailed):
 		return "Proxy Not Connected",
 			"The proxy is not connected to the NetBird network. Please try again later or contact your administrator.",
+			http.StatusBadGateway,
+			web.ErrorStatus{Proxy: false, Destination: false}
+
+	case errors.Is(err, roundtrip.ErrDirectUpstreamBlocked):
+		return "Destination Not Allowed",
+			"This proxy does not connect to private or internal addresses. Please contact your administrator.",
 			http.StatusBadGateway,
 			web.ErrorStatus{Proxy: false, Destination: false}
 

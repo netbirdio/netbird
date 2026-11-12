@@ -55,11 +55,17 @@ func stateAtValue(t *testing.T) connectivity.State {
 
 	key, err := wgtypes.GeneratePrivateKey()
 	require.NoError(t, err)
-	c := &GrpcClient{key: key, realClient: proto.NewSignalExchangeClient(conn), signalConn: conn}
+	c := &GrpcClient{
+		key:                       key,
+		realClient:                proto.NewSignalExchangeClient(conn),
+		signalConn:                conn,
+		registrationTimeout:       defaultRegistrationTimeout,
+		registrationProbeInterval: defaultRegistrationProbeInterval,
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, err = c.connect(ctx, key.PublicKey().String())
+	_, err = c.connect(ctx, cancel, key.PublicKey().String())
 	require.NoError(t, err)
 	return seen
 }
