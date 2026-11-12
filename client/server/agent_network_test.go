@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/client/proto"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
@@ -22,16 +21,12 @@ func TestGetAgentNetworkInfo_ClientNotRunning(t *testing.T) {
 }
 
 func TestRelayAgentNetworkInfo(t *testing.T) {
-	computedAt := timestamppb.Now()
-	windowStart := timestamppb.New(computedAt.AsTime().Truncate(time.Hour))
+	windowStart := timestamppb.New(time.Now().Truncate(time.Hour))
 	resetsAt := timestamppb.New(windowStart.AsTime().Add(time.Hour))
 	resp, err := relayAgentNetworkInfo(context.Background(), func(context.Context) (*mgmProto.GetAgentNetworkInfoResponse, error) {
 		return &mgmProto.GetAgentNetworkInfoResponse{
-			State:        mgmProto.GetAgentNetworkInfoResponse_OK,
-			UserEmail:    "user@example.com",
-			Endpoint:     "https://violet.eu.proxy.netbird.io",
-			LoginExpired: true,
-			ComputedAt:   computedAt,
+			State:    mgmProto.GetAgentNetworkInfoResponse_OK,
+			Endpoint: "https://violet.eu.proxy.netbird.io",
 			Providers: []*mgmProto.AgentNetworkProvider{{
 				Id: "prov-1", Name: "OpenAI", CatalogId: "openai_api", ApiFlavor: "openai",
 				AllModelsAllowed: true, Models: []string{"gpt-5.4"},
@@ -47,10 +42,7 @@ func TestRelayAgentNetworkInfo(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, proto.GetAgentNetworkInfoResponse_OK, resp.State)
-	assert.Equal(t, "user@example.com", resp.UserEmail)
 	assert.Equal(t, "https://violet.eu.proxy.netbird.io", resp.Endpoint)
-	assert.True(t, resp.LoginExpired)
-	assert.Equal(t, computedAt.AsTime(), resp.ComputedAt.AsTime())
 	require.Len(t, resp.Providers, 1)
 	assert.Equal(t, &proto.AgentNetworkProvider{
 		Id: "prov-1", Name: "OpenAI", CatalogId: "openai_api", ApiFlavor: "openai",

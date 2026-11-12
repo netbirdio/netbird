@@ -46,11 +46,8 @@ func relayAgentNetworkInfo(ctx context.Context, fetch agentNetworkInfoFetcher) (
 	}
 
 	resp := &proto.GetAgentNetworkInfoResponse{
-		State:        agentNetworkStateFromMgm(info.GetState()),
-		UserEmail:    info.GetUserEmail(),
-		Endpoint:     info.GetEndpoint(),
-		LoginExpired: info.GetLoginExpired(),
-		ComputedAt:   info.GetComputedAt(),
+		State:    agentNetworkStateFromMgm(info.GetState()),
+		Endpoint: info.GetEndpoint(),
 	}
 	for _, p := range info.GetProviders() {
 		resp.Providers = append(resp.Providers, agentNetworkProviderFromMgm(p))

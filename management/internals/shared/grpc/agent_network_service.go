@@ -6,7 +6,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
@@ -65,12 +64,7 @@ var agentNetworkStateToProto = map[types.PeerAgentNetworkState]proto.GetAgentNet
 }
 
 func agentNetworkInfoToProto(info *types.PeerAgentNetworkInfo) *proto.GetAgentNetworkInfoResponse {
-	resp := &proto.GetAgentNetworkInfoResponse{
-		State:        agentNetworkStateToProto[info.State],
-		UserEmail:    info.UserEmail,
-		LoginExpired: info.LoginExpired,
-		ComputedAt:   timestamppb.Now(),
-	}
+	resp := &proto.GetAgentNetworkInfoResponse{State: agentNetworkStateToProto[info.State]}
 	if info.Config == nil {
 		return resp
 	}

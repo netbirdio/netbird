@@ -121,10 +121,6 @@ const (
 // from the peer's own groups and owning user.
 type PeerAgentNetworkInfo struct {
 	State PeerAgentNetworkState
-	// UserEmail is the owning user's stored email, empty for NoUser.
-	UserEmail string
-	// LoginExpired reports the peer's NetBird login as expired.
-	LoginExpired bool
 	// Config carries the endpoint and providers; set only when State is OK.
 	Config *AgentConfig
 }

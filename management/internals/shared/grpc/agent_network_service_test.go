@@ -103,9 +103,7 @@ func TestGetAgentNetworkInfo_EncryptedRoundTrip(t *testing.T) {
 
 	windowStart := time.Date(2026, 11, 6, 0, 0, 0, 0, time.UTC)
 	fake := &fakeAgentNetworkInfo{info: &types.PeerAgentNetworkInfo{
-		State:        types.PeerAgentNetworkOK,
-		UserEmail:    "user@example.com",
-		LoginExpired: true,
+		State: types.PeerAgentNetworkOK,
 		Config: &types.AgentConfig{
 			Configured: true,
 			Endpoint:   "https://violet.eu.proxy.netbird.io",
@@ -134,10 +132,7 @@ func TestGetAgentNetworkInfo_EncryptedRoundTrip(t *testing.T) {
 	resp := &proto.GetAgentNetworkInfoResponse{}
 	require.NoError(t, encryption.DecryptMessage(serverKey.PublicKey(), clientKey, encResp.Body, resp))
 	assert.Equal(t, proto.GetAgentNetworkInfoResponse_OK, resp.State)
-	assert.Equal(t, "user@example.com", resp.UserEmail)
-	assert.True(t, resp.LoginExpired)
 	assert.Equal(t, "https://violet.eu.proxy.netbird.io", resp.Endpoint)
-	assert.NotNil(t, resp.ComputedAt, "computed_at must be set")
 	require.Len(t, resp.Providers, 1)
 	assert.Equal(t, "prov-1", resp.Providers[0].Id)
 	assert.Equal(t, "openai", resp.Providers[0].ApiFlavor)
