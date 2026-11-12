@@ -4,6 +4,7 @@ import (
 	"net/url"
 	"testing"
 
+	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/shared/relay"
 	"github.com/netbirdio/netbird/shared/testhb"
 )
@@ -108,5 +109,25 @@ func TestWithTestHB(t *testing.T) {
 	}
 	if got, want := withTestHB(wsURL, value), "wss://relay.example.com:443/relay?nbhb=p%3D17342%3Bperiod%3D30%3Bt%3D1762600000123"; got != want {
 		t.Errorf("withTestHB = %q, want %q", got, want)
+	}
+}
+
+func TestRelayTCPDialerKeepAliveOffWithTestHB(t *testing.T) {
+	t.Setenv("NB_TEST_TCP_KEEPALIVE_SEC", "")
+	t.Setenv(testhb.EnvDynamic, "1")
+	t.Setenv(testhb.EnvPeriod, "60")
+
+	// With the test heartbeat on, the shared base dialer enables keepalive.
+	// That config wins over a negative KeepAlive, so it has to be cleared.
+	if !nbnet.NewDialer().KeepAliveConfig.Enable {
+		t.Fatal("precondition: base dialer should enable KeepAliveConfig with the test heartbeat on")
+	}
+
+	d := relayTCPDialer()
+	if d.KeepAlive >= 0 {
+		t.Errorf("KeepAlive = %v, want negative (off)", d.KeepAlive)
+	}
+	if d.KeepAliveConfig.Enable {
+		t.Errorf("KeepAliveConfig.Enable = true, want false so the negative KeepAlive applies")
 	}
 }

@@ -97,12 +97,21 @@ func withTestHB(wsURL, value string) string {
 	return u.String()
 }
 
+// relayTCPDialer returns the dialer for the relay WebSocket connection with
+// kernel keepalive off. The base dialer enables KeepAliveConfig while the test
+// heartbeat is on, and that would override the negative KeepAlive.
+func relayTCPDialer() *nbnet.Dialer {
+	d := nbnet.NewDialer()
+	d.KeepAlive = tcpKeepAliveDisabled
+	d.KeepAliveConfig = net.KeepAliveConfig{}
+	return d
+}
+
 // httpClientNbDialer builds the http client used by the websocket library.
 // underlyingOut, when non-nil, is populated with the raw conn from the
 // transport's DialContext so the caller can read its RemoteAddr.
 func httpClientNbDialer(serverName string, underlyingOut *net.Conn) *http.Client {
-	customDialer := nbnet.NewDialer()
-	customDialer.KeepAlive = tcpKeepAliveDisabled
+	customDialer := relayTCPDialer()
 
 	certPool, err := x509.SystemCertPool()
 	if err != nil || certPool == nil {
