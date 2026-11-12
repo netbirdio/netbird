@@ -166,7 +166,7 @@ func TestMarshalPeerIDs_SplitsByMaxMessageSize(t *testing.T) {
 		peersPerMessage int
 	}{
 		{maxMsgSize: sizeOfProtoHeader + peerIDSize, peersPerMessage: 1},
-		{maxMsgSize: 1195, peersPerMessage: 33},
+		{maxMsgSize: 1188, peersPerMessage: 32},
 		{maxMsgSize: MaxMessageSize, peersPerMessage: 244},
 		// A transport limit above the protocol limit must not produce messages the receiver cannot read.
 		{maxMsgSize: MaxMessageSize + 1000, peersPerMessage: 244},
