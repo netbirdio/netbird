@@ -1,0 +1,136 @@
+version: 2
+env:
+  - SKIP_PUBLISH={{ if index .Env "SKIP_PUBLISH" }}{{ .Env.SKIP_PUBLISH }}{{ else }}true{{ end }}
+project_name: netbird-ui
+
+before:
+  hooks:
+    # Bindings are gitignored; regenerate before the frontend build so
+    # the @wailsio/runtime Vite plugin can resolve them (vite refuses to
+    # build without them).
+    - sh -c 'cd client/ui && wails3 generate bindings -clean=true -ts'
+    - sh -c 'cd client/ui/frontend && pnpm install --frozen-lockfile && pnpm build'
+
+builds:
+  # The UI links GTK4 and WebKitGTK 6.0 through cgo, so the arm64 binary is
+  # built natively on an arm64 runner instead of being cross-compiled next to
+  # the amd64 one. Keep the packaging below in sync with the Linux packages in
+  # .goreleaser_ui.yaml.
+  - id: netbird-ui-linux-arm64
+    dir: client/ui
+    binary: netbird-ui
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+    goarch:
+      - arm64
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    tags:
+      - production
+
+archives:
+  - id: linux-arm64-arch
+    name_template: "{{ .ProjectName }}-linux_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    builds:
+      - netbird-ui-linux-arm64
+
+nfpms:
+  - maintainer: Netbird <dev@netbird.io>
+    description: Netbird client UI.
+    homepage: https://netbird.io/
+    license: BSD-3-Clause
+    vendor: NetBird
+    id: netbird_ui_deb_arm64
+    package_name: netbird-ui
+    builds:
+      - netbird-ui-linux-arm64
+    formats:
+      - deb
+    scripts:
+      postinstall: "release_files/ui-post-install.sh"
+    contents:
+      - src: client/ui/build/linux/netbird.desktop
+        dst: /usr/share/applications/org.wails.netbird.desktop
+      - src: client/ui/build/appicon.png
+        dst: /usr/share/pixmaps/netbird.png
+      # Names the polkit action for the elevation prompt the app raises when an
+      # unprivileged user changes a privileged setting; without it the dialog
+      # shows a raw command line.
+      - src: client/ui/build/linux/polkit/io.netbird.settings.policy
+        dst: /usr/share/polkit-1/actions/io.netbird.settings.policy
+    dependencies:
+      - netbird (>= 0.75.0)
+      - libgtk-4-1 (>= 4.14)
+      - libwebkitgtk-6.0-4
+      - xdg-utils
+
+  - maintainer: Netbird <dev@netbird.io>
+    description: Netbird client UI.
+    homepage: https://netbird.io/
+    license: BSD-3-Clause
+    vendor: NetBird
+    id: netbird_ui_rpm_arm64
+    package_name: netbird-ui
+    builds:
+      - netbird-ui-linux-arm64
+    formats:
+      - rpm
+    scripts:
+      postinstall: "release_files/ui-post-install.sh"
+    contents:
+      - src: client/ui/build/linux/netbird.desktop
+        dst: /usr/share/applications/org.wails.netbird.desktop
+      - src: client/ui/build/appicon.png
+        dst: /usr/share/pixmaps/netbird.png
+      # Names the polkit action for the elevation prompt the app raises when an
+      # unprivileged user changes a privileged setting; without it the dialog
+      # shows a raw command line.
+      - src: client/ui/build/linux/polkit/io.netbird.settings.policy
+        dst: /usr/share/polkit-1/actions/io.netbird.settings.policy
+    dependencies:
+      - netbird >= 0.75.0
+      - (gtk4 >= 4.14 or libgtk-4-1 >= 4.14)
+      - (webkitgtk6.0 or libwebkitgtk-6_0-4)
+      - xdg-utils
+
+    rpm:
+      signature:
+        key_file: '{{ if index .Env "GPG_RPM_KEY_FILE" }}{{ .Env.GPG_RPM_KEY_FILE }}{{ end }}'
+
+# The amd64 UI job shares project_name, so the default checksum file name would
+# collide with it on the shared GitHub release.
+checksum:
+  name_template: "{{ .ProjectName }}_linux_arm64_checksums.txt"
+
+changelog:
+  disable: true
+
+uploads:
+  - name: debian
+    skip: "{{ .Env.SKIP_PUBLISH }}"
+    ids:
+      - netbird_ui_deb_arm64
+    mode: archive
+    target: https://pkgs.wiretrustee.com/debian/pool/{{ .ArtifactName }};deb.distribution=stable;deb.component=main;deb.architecture={{ if .Arm }}armhf{{ else }}{{ .Arch }}{{ end }};deb.package=
+    username: dev@wiretrustee.com
+    method: PUT
+
+  - name: yum
+    skip: "{{ .Env.SKIP_PUBLISH }}"
+    ids:
+      - netbird_ui_rpm_arm64
+    mode: archive
+    target: https://pkgs.wiretrustee.com/yum/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
+    username: dev@wiretrustee.com
+    method: PUT
+
+release:
+  # Uploads into the release created by the main .goreleaser.yaml run.
+  # make_latest stays false everywhere: the signing pipeline
+  # (netbirdio/sign-pipelines) marks the release latest after the Windows
+  # and macOS artifacts are signed.
+  make_latest: false
+  prerelease: auto
