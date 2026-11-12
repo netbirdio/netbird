@@ -4,11 +4,11 @@ import (
 	"context"
 	"net"
 	"sync"
+	"testing"
 	"time"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
-	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
@@ -20,205 +20,181 @@ import (
 	"github.com/netbirdio/netbird/signal/server"
 )
 
-var _ = Describe("GrpcClient", func() {
-
-	var (
-		addr     string
-		listener net.Listener
-		server   *grpc.Server
-	)
-
-	BeforeEach(func() {
-		server, listener = startSignal()
-		addr = listener.Addr().String()
-
-	})
-
-	AfterEach(func() {
-		server.Stop()
-		listener.Close()
-	})
-
-	Describe("Exchanging messages", func() {
-		Context("between connected peers", func() {
-			It("should be successful", func() {
-
-				var msgReceived sync.WaitGroup
-				msgReceived.Add(2)
-
-				var payloadReceivedOnA string
-				var payloadReceivedOnB string
-				var featuresSupportedReceivedOnA []uint32
-				var featuresSupportedReceivedOnB []uint32
-
-				// connect PeerA to Signal
-				keyA, _ := wgtypes.GenerateKey()
-				clientA := createSignalClient(addr, keyA)
-				go func() {
-					err := clientA.Receive(context.Background(), func(msg *sigProto.Message) error {
-						payloadReceivedOnA = msg.GetBody().GetPayload()
-						featuresSupportedReceivedOnA = msg.GetBody().GetFeaturesSupported()
-						msgReceived.Done()
-						return nil
-					})
-					if err != nil {
-						return
-					}
-				}()
-				ctxA, cancelA := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancelA()
-				clientA.WaitStreamConnected(ctxA)
-				Expect(clientA.StreamConnected()).To(BeTrue())
-
-				// connect PeerB to Signal
-				keyB, _ := wgtypes.GenerateKey()
-				clientB := createSignalClient(addr, keyB)
-
-				go func() {
-					err := clientB.Receive(context.Background(), func(msg *sigProto.Message) error {
-						payloadReceivedOnB = msg.GetBody().GetPayload()
-						featuresSupportedReceivedOnB = msg.GetBody().GetFeaturesSupported()
-						err := clientB.Send(&sigProto.Message{
-							Key:       keyB.PublicKey().String(),
-							RemoteKey: keyA.PublicKey().String(),
-							Body:      &sigProto.Body{Payload: "pong"},
-						})
-						if err != nil {
-							Fail("failed sending a message to PeerA")
-						}
-						msgReceived.Done()
-						return nil
-					})
-					if err != nil {
-						return
-					}
-				}()
-
-				ctxB, cancelB := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancelB()
-				clientB.WaitStreamConnected(ctxB)
-				Expect(clientB.StreamConnected()).To(BeTrue())
-
-				// PeerA initiates ping-pong
-				err := clientA.Send(&sigProto.Message{
-					Key:       keyA.PublicKey().String(),
-					RemoteKey: keyB.PublicKey().String(),
-					Body:      &sigProto.Body{Payload: "ping", FeaturesSupported: []uint32{DirectCheck}},
-				})
-				if err != nil {
-					Fail("failed sending a message to PeerB")
-				}
-
-				if waitTimeout(&msgReceived, 3*time.Second) {
-					Fail("test timed out on waiting for peers to exchange messages")
-				}
-
-				Expect(payloadReceivedOnA).To(BeEquivalentTo("pong"))
-				Expect(payloadReceivedOnB).To(BeEquivalentTo("ping"))
-				Expect(featuresSupportedReceivedOnA).To(BeNil())
-				Expect(featuresSupportedReceivedOnB).To(ContainElements([]uint32{DirectCheck}))
-			})
-		})
-	})
-
-	Describe("Connecting to the Signal stream channel", func() {
-		Context("with a signal client", func() {
-			It("should be successful", func() {
-
-				key, _ := wgtypes.GenerateKey()
-				client := createSignalClient(addr, key)
-				go func() {
-					err := client.Receive(context.Background(), func(msg *sigProto.Message) error {
-						return nil
-					})
-					if err != nil {
-						return
-					}
-				}()
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				client.WaitStreamConnected(ctx)
-				Expect(client.StreamConnected()).To(BeTrue())
-			})
-		})
-
-		Context("with a raw client and no Id header", func() {
-			It("should fail", func() {
-
-				client := createRawSignalClient(addr)
-				stream, err := client.ConnectStream(context.Background())
-				if err != nil {
-					Fail("error connecting to stream")
-				}
-
-				_, err = stream.Recv()
-
-				Expect(stream).NotTo(BeNil())
-				Expect(err).NotTo(BeNil())
-			})
-		})
-
-		Context("with a raw client and with an Id header", func() {
-			It("should be successful", func() {
-
-				md := metadata.New(map[string]string{sigProto.HeaderId: "peer"})
-				ctx := metadata.NewOutgoingContext(context.Background(), md)
-
-				client := createRawSignalClient(addr)
-				stream, err := client.ConnectStream(ctx)
-
-				Expect(stream).NotTo(BeNil())
-				Expect(err).To(BeNil())
-			})
-		})
-
-	})
-
-})
-
-func createSignalClient(addr string, key wgtypes.Key) *GrpcClient {
-	var sigTLSEnabled = false
-	client, err := NewClient(context.Background(), addr, key, sigTLSEnabled)
-	if err != nil {
-		Fail("failed creating signal client")
-	}
-	return client
+// signalTestClient is a GrpcClient started by a test, with the context that
+// stops its receive loop and the channel that reports the loop has left.
+type signalTestClient struct {
+	*GrpcClient
+	ctx    context.Context
+	cancel context.CancelFunc
+	done   chan struct{}
 }
 
-func createRawSignalClient(addr string) sigProto.SignalExchangeClient {
-	ctx := context.Background()
-	conn, err := grpc.DialContext(ctx, addr,
+// receive starts the receive loop in the background. The test cleanup
+// cancels the context and waits on done, so no reconnect goroutine
+// outlives the test.
+func (c *signalTestClient) receive(handler func(msg *sigProto.Message) error) {
+	go func() {
+		defer close(c.done)
+		_ = c.Receive(c.ctx, handler)
+	}()
+}
+
+func newSignalTestClient(t *testing.T, addr string, key wgtypes.Key) *signalTestClient {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	client, err := NewClient(ctx, addr, key, false)
+	require.NoError(t, err)
+	c := &signalTestClient{GrpcClient: client, ctx: ctx, cancel: cancel, done: make(chan struct{})}
+	t.Cleanup(func() {
+		// Stop the receive loop before Close, so the two never overlap.
+		cancel()
+		select {
+		case <-c.done:
+		case <-time.After(10 * time.Second):
+			t.Error("signal client receive loop did not stop")
+		}
+		assert.NoError(t, c.Close())
+	})
+	return c
+}
+
+func startSignal(t *testing.T) string {
+	t.Helper()
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	s := grpc.NewServer()
+	srv, err := server.NewServer(context.Background(), otel.Meter(""))
+	require.NoError(t, err)
+	sigProto.RegisterSignalExchangeServer(s, srv)
+	go func() {
+		// Serve returns when the test stops the server; that is the normal
+		// end of a test, not a failure.
+		_ = s.Serve(lis)
+	}()
+	t.Cleanup(func() {
+		s.Stop()
+		_ = lis.Close() // already closed by Stop
+	})
+	return lis.Addr().String()
+}
+
+func newRawSignalClient(t *testing.T, addr string) sigProto.SignalExchangeClient {
+	t.Helper()
+	conn, err := grpc.DialContext(context.Background(), addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:    3 * time.Second,
 			Timeout: 2 * time.Second,
 		}))
-	if err != nil {
-		Fail("failed creating raw signal client")
-	}
-
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, conn.Close()) })
 	return sigProto.NewSignalExchangeClient(conn)
 }
 
-func startSignal() (*grpc.Server, net.Listener) {
-	lis, err := net.Listen("tcp", ":0")
-	if err != nil {
-		panic(err)
-	}
-	s := grpc.NewServer()
-	srv, err := server.NewServer(context.Background(), otel.Meter(""))
-	if err != nil {
-		panic(err)
-	}
-	sigProto.RegisterSignalExchangeServer(s, srv)
-	go func() {
-		if err := s.Serve(lis); err != nil {
-			log.Fatalf("failed to serve: %v", err)
-		}
-	}()
+func TestGrpcClient_ExchangeMessages(t *testing.T) {
+	addr := startSignal(t)
 
-	return s, lis
+	var msgReceived sync.WaitGroup
+	msgReceived.Add(2)
+
+	var payloadReceivedOnA string
+	var payloadReceivedOnB string
+	var featuresSupportedReceivedOnA []uint32
+	var featuresSupportedReceivedOnB []uint32
+	var sendErr error
+
+	// connect PeerA to Signal
+	keyA, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	clientA := newSignalTestClient(t, addr, keyA)
+	clientA.receive(func(msg *sigProto.Message) error {
+		payloadReceivedOnA = msg.GetBody().GetPayload()
+		featuresSupportedReceivedOnA = msg.GetBody().GetFeaturesSupported()
+		msgReceived.Done()
+		return nil
+	})
+	ctxA, cancelA := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelA()
+	clientA.WaitStreamConnected(ctxA)
+	require.True(t, clientA.StreamConnected())
+
+	// connect PeerB to Signal
+	keyB, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	clientB := newSignalTestClient(t, addr, keyB)
+	clientB.receive(func(msg *sigProto.Message) error {
+		payloadReceivedOnB = msg.GetBody().GetPayload()
+		featuresSupportedReceivedOnB = msg.GetBody().GetFeaturesSupported()
+		sendErr = clientB.Send(&sigProto.Message{
+			Key:       keyB.PublicKey().String(),
+			RemoteKey: keyA.PublicKey().String(),
+			Body:      &sigProto.Body{Payload: "pong"},
+		})
+		msgReceived.Done()
+		return nil
+	})
+	ctxB, cancelB := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelB()
+	clientB.WaitStreamConnected(ctxB)
+	require.True(t, clientB.StreamConnected())
+
+	// PeerA initiates ping-pong
+	err = clientA.Send(&sigProto.Message{
+		Key:       keyA.PublicKey().String(),
+		RemoteKey: keyB.PublicKey().String(),
+		Body:      &sigProto.Body{Payload: "ping", FeaturesSupported: []uint32{DirectCheck}},
+	})
+	require.NoError(t, err)
+
+	if waitTimeout(&msgReceived, 3*time.Second) {
+		t.Fatal("test timed out on waiting for peers to exchange messages")
+	}
+	require.NoError(t, sendErr, "PeerB failed sending a message to PeerA")
+
+	assert.Equal(t, "pong", payloadReceivedOnA)
+	assert.Equal(t, "ping", payloadReceivedOnB)
+	assert.Nil(t, featuresSupportedReceivedOnA)
+	assert.ElementsMatch(t, []uint32{DirectCheck}, featuresSupportedReceivedOnB)
+}
+
+func TestGrpcClient_ConnectStream(t *testing.T) {
+	addr := startSignal(t)
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	client := newSignalTestClient(t, addr, key)
+	client.receive(func(msg *sigProto.Message) error { return nil })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client.WaitStreamConnected(ctx)
+	assert.True(t, client.StreamConnected())
+}
+
+func TestGrpcClient_RawConnectWithoutIDFails(t *testing.T) {
+	addr := startSignal(t)
+
+	client := newRawSignalClient(t, addr)
+	stream, err := client.ConnectStream(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, stream)
+
+	_, err = stream.Recv()
+	assert.Error(t, err)
+}
+
+func TestGrpcClient_RawConnectWithID(t *testing.T) {
+	addr := startSignal(t)
+
+	md := metadata.New(map[string]string{sigProto.HeaderId: "peer"})
+	ctx := metadata.NewOutgoingContext(context.Background(), md)
+
+	client := newRawSignalClient(t, addr)
+	stream, err := client.ConnectStream(ctx)
+
+	assert.NotNil(t, stream)
+	assert.NoError(t, err)
 }
 
 // waitTimeout waits for the waitgroup for the specified max timeout.
