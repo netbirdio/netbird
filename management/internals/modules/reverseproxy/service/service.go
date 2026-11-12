@@ -169,6 +169,22 @@ type AccessRestrictions struct {
 	AllowedCountries []string `json:"allowed_countries,omitempty" gorm:"serializer:json"`
 	BlockedCountries []string `json:"blocked_countries,omitempty" gorm:"serializer:json"`
 	CrowdSecMode     string   `json:"crowdsec_mode,omitempty" gorm:"serializer:json"`
+	// AllowMatch controls how the allowlists combine: "" or "all" require
+	// matching every allowlist (AND), "any" requires matching at least one (OR).
+	// Empty is treated as "all" for backward compatibility with existing records.
+	AllowMatch string `json:"allow_match,omitempty" gorm:"serializer:json"`
+	// AppSecMode is the CrowdSec AppSec (WAF) request inspection mode: "",
+	// "off", "enforce", or "observe". HTTP services only.
+	AppSecMode string `json:"appsec_mode,omitempty" gorm:"serializer:json"`
+}
+
+// isEmpty reports whether no restriction is configured. Both conversions drop
+// the object entirely in that case, so a field missing from this check is
+// silently discarded on the way to the API and the proxy.
+func (r AccessRestrictions) isEmpty() bool {
+	return len(r.AllowedCIDRs) == 0 && len(r.BlockedCIDRs) == 0 &&
+		len(r.AllowedCountries) == 0 && len(r.BlockedCountries) == 0 &&
+		r.CrowdSecMode == "" && r.AllowMatch == "" && r.AppSecMode == ""
 }
 
 // Copy returns a deep copy of the AccessRestrictions.
@@ -179,6 +195,8 @@ func (r AccessRestrictions) Copy() AccessRestrictions {
 		AllowedCountries: slices.Clone(r.AllowedCountries),
 		BlockedCountries: slices.Clone(r.BlockedCountries),
 		CrowdSecMode:     r.CrowdSecMode,
+		AllowMatch:       r.AllowMatch,
+		AppSecMode:       r.AppSecMode,
 	}
 }
 
@@ -821,13 +839,24 @@ func restrictionsFromAPI(r *api.AccessRestrictions) (AccessRestrictions, error) 
 		}
 		res.CrowdSecMode = string(*r.CrowdsecMode)
 	}
+	if r.AllowMatch != nil {
+		// Empty is the default (all), the same as omitting the field.
+		if *r.AllowMatch != "" && !r.AllowMatch.Valid() {
+			return AccessRestrictions{}, fmt.Errorf("invalid allow_match %q", *r.AllowMatch)
+		}
+		res.AllowMatch = string(*r.AllowMatch)
+	}
+	if r.AppsecMode != nil {
+		if !r.AppsecMode.Valid() {
+			return AccessRestrictions{}, fmt.Errorf("invalid appsec_mode %q", *r.AppsecMode)
+		}
+		res.AppSecMode = string(*r.AppsecMode)
+	}
 	return res, nil
 }
 
 func restrictionsToAPI(r AccessRestrictions) *api.AccessRestrictions {
-	if len(r.AllowedCIDRs) == 0 && len(r.BlockedCIDRs) == 0 &&
-		len(r.AllowedCountries) == 0 && len(r.BlockedCountries) == 0 &&
-		r.CrowdSecMode == "" {
+	if r.isEmpty() {
 		return nil
 	}
 	res := &api.AccessRestrictions{}
@@ -847,13 +876,19 @@ func restrictionsToAPI(r AccessRestrictions) *api.AccessRestrictions {
 		mode := api.AccessRestrictionsCrowdsecMode(r.CrowdSecMode)
 		res.CrowdsecMode = &mode
 	}
+	if r.AllowMatch != "" {
+		match := api.AccessRestrictionsAllowMatch(r.AllowMatch)
+		res.AllowMatch = &match
+	}
+	if r.AppSecMode != "" {
+		mode := api.AccessRestrictionsAppsecMode(r.AppSecMode)
+		res.AppsecMode = &mode
+	}
 	return res
 }
 
 func restrictionsToProto(r AccessRestrictions) *proto.AccessRestrictions {
-	if len(r.AllowedCIDRs) == 0 && len(r.BlockedCIDRs) == 0 &&
-		len(r.AllowedCountries) == 0 && len(r.BlockedCountries) == 0 &&
-		r.CrowdSecMode == "" {
+	if r.isEmpty() {
 		return nil
 	}
 	return &proto.AccessRestrictions{
@@ -862,6 +897,8 @@ func restrictionsToProto(r AccessRestrictions) *proto.AccessRestrictions {
 		AllowedCountries: r.AllowedCountries,
 		BlockedCountries: r.BlockedCountries,
 		CrowdsecMode:     r.CrowdSecMode,
+		AllowMatch:       r.AllowMatch,
+		AppsecMode:       r.AppSecMode,
 	}
 }
 
@@ -886,6 +923,11 @@ func (s *Service) Validate() error {
 	}
 	if err := validateAccessRestrictions(&s.Restrictions); err != nil {
 		return err
+	}
+	// AppSec inspects HTTP requests, so it cannot apply to the L4 modes, which
+	// forward opaque byte streams.
+	if appSecEnabled(s.Restrictions.AppSecMode) && s.Mode != ModeHTTP {
+		return fmt.Errorf("appsec_mode is only supported for HTTP services, got mode %q", s.Mode)
 	}
 	if err := s.validatePrivateRequirements(); err != nil {
 		return err
@@ -1311,75 +1353,6 @@ func validateHeaderAuths(headers []*HeaderAuthConfig) error {
 		if len(h.Value) > maxHeaderValueLen {
 			return fmt.Errorf("header_auths[%d]: value exceeds maximum length of %d", i, maxHeaderValueLen)
 		}
-	}
-	return nil
-}
-
-const (
-	maxCIDREntries    = 200
-	maxCountryEntries = 50
-)
-
-// validateAccessRestrictions validates and normalizes access restriction
-// entries. Country codes are uppercased in place.
-func validateCrowdSecMode(mode string) error {
-	switch mode {
-	case "", "off", "enforce", "observe":
-		return nil
-	default:
-		return fmt.Errorf("crowdsec_mode %q is invalid", mode)
-	}
-}
-
-func validateAccessRestrictions(r *AccessRestrictions) error {
-	if err := validateCrowdSecMode(r.CrowdSecMode); err != nil {
-		return err
-	}
-
-	if len(r.AllowedCIDRs) > maxCIDREntries {
-		return fmt.Errorf("allowed_cidrs: exceeds maximum of %d entries", maxCIDREntries)
-	}
-	if len(r.BlockedCIDRs) > maxCIDREntries {
-		return fmt.Errorf("blocked_cidrs: exceeds maximum of %d entries", maxCIDREntries)
-	}
-	if len(r.AllowedCountries) > maxCountryEntries {
-		return fmt.Errorf("allowed_countries: exceeds maximum of %d entries", maxCountryEntries)
-	}
-	if len(r.BlockedCountries) > maxCountryEntries {
-		return fmt.Errorf("blocked_countries: exceeds maximum of %d entries", maxCountryEntries)
-	}
-
-	if err := validateCIDRList("allowed_cidrs", r.AllowedCIDRs); err != nil {
-		return err
-	}
-	if err := validateCIDRList("blocked_cidrs", r.BlockedCIDRs); err != nil {
-		return err
-	}
-	if err := normalizeCountryList("allowed_countries", r.AllowedCountries); err != nil {
-		return err
-	}
-	return normalizeCountryList("blocked_countries", r.BlockedCountries)
-}
-
-func validateCIDRList(field string, cidrs []string) error {
-	for i, raw := range cidrs {
-		prefix, err := netip.ParsePrefix(raw)
-		if err != nil {
-			return fmt.Errorf("%s[%d]: %w", field, i, err)
-		}
-		if prefix != prefix.Masked() {
-			return fmt.Errorf("%s[%d]: %q has host bits set, use %s instead", field, i, raw, prefix.Masked())
-		}
-	}
-	return nil
-}
-
-func normalizeCountryList(field string, codes []string) error {
-	for i, code := range codes {
-		if len(code) != 2 {
-			return fmt.Errorf("%s[%d]: %q must be a 2-letter ISO 3166-1 alpha-2 code", field, i, code)
-		}
-		codes[i] = strings.ToUpper(code)
 	}
 	return nil
 }

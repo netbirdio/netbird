@@ -36,6 +36,11 @@ func (Header) Type() auth.Method {
 	return auth.MethodHeader
 }
 
+// HeaderName returns the request header this scheme reads its credential from.
+func (h Header) HeaderName() string {
+	return h.headerName
+}
+
 // Authenticate satisfies Scheme. Header credentials are resolved by Verify
 // before the scheme loop runs, so a request that reaches here never carries
 // the header and there is no credential to prompt for.

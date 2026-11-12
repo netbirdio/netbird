@@ -67,7 +67,7 @@ func credentialHandler(t *testing.T, field string) (*Middleware, http.Handler) {
 		scheme = NewPassword(client, "service", "account")
 	}
 	mw := NewMiddleware(nil, nil, nil)
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, keys.PublicKey, time.Hour, "account", "service", nil, false, nil))
+	require.NoError(t, mw.AddDomain("example.com", DomainSettings{Schemes: []Scheme{scheme}, SessionPublicKey: keys.PublicKey, SessionExpiration: time.Hour, AccountID: "account", ServiceID: "service"}))
 	return mw, mw.Protect(newPassthroughHandler())
 }
 
@@ -128,7 +128,7 @@ func TestCredentialAuthSessionAndClientIP(t *testing.T) {
 	now := time.Now()
 	mw.credentials.now = func() time.Time { return now }
 	scheme := &stubScheme{method: proxyauth.MethodPIN, promptID: "pin"}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, keys.PublicKey, 0, "account", "service", nil, false, nil))
+	require.NoError(t, mw.AddDomain("example.com", DomainSettings{Schemes: []Scheme{scheme}, SessionPublicKey: keys.PublicKey, AccountID: "account", ServiceID: "service"}))
 	handler := mw.Protect(newPassthroughHandler())
 	for range credentialFailureLimit {
 		resp := httptest.NewRecorder()
@@ -136,7 +136,7 @@ func TestCredentialAuthSessionAndClientIP(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized, resp.Code, "bad PIN must consume the failure budget")
 	}
 	now = now.Add(credentialCheckInterval)
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, keys.PublicKey, 0, "account", "service", nil, false, nil))
+	require.NoError(t, mw.AddDomain("example.com", DomainSettings{Schemes: []Scheme{scheme}, SessionPublicKey: keys.PublicKey, AccountID: "account", ServiceID: "service"}))
 	r := credentialRequest(http.MethodPost, "pin", "000000")
 	r.RemoteAddr = "[::ffff:198.51.100.25]:45678"
 	r.Header.Set("X-Forwarded-For", "192.0.2.5")
@@ -186,7 +186,7 @@ func TestCredentialAuthManagementThrottling(t *testing.T) {
 			keys := generateTestKeyPair(t)
 			mw := NewMiddleware(nil, nil, nil)
 			scheme := &stubScheme{method: proxyauth.MethodPIN, authFn: func(*http.Request) (string, string, error) { return "", "", tc.err }}
-			require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, keys.PublicKey, 0, "account", "service", nil, false, nil))
+			require.NoError(t, mw.AddDomain("example.com", DomainSettings{Schemes: []Scheme{scheme}, SessionPublicKey: keys.PublicKey, AccountID: "account", ServiceID: "service"}))
 			resp := httptest.NewRecorder()
 			mw.Protect(newPassthroughHandler()).ServeHTTP(resp, credentialRequest(http.MethodPost, "pin", "000000"))
 			assert.Equal(t, tc.code, resp.Code, "management errors must keep their HTTP meaning")

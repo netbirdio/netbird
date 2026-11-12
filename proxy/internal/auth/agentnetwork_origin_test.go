@@ -37,7 +37,7 @@ func serveProtected(t *testing.T, mw *Middleware, clientIP netip.Addr, callerAcc
 // own 403 as the provider's.
 func TestPrivateDenyIsAttributedToAuth(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
-	require.NoError(t, mw.AddDomain(testServerHost, nil, "", 0, "acct-1", "svc-1", nil, true, nil, WithAgentNetwork(true, false)))
+	require.NoError(t, mw.AddDomain(testServerHost, DomainSettings{AccountID: "acct-1", ServiceID: "svc-1", IPRestrictions: nil, Private: true, Options: []DomainOption{WithAgentNetwork(true, false)}}))
 
 	rec, cd := serveProtected(t, mw, testTunnelIP, "")
 
@@ -52,7 +52,7 @@ func TestPrivateDenyIsAttributedToAuth(t *testing.T) {
 func TestIPRestrictionDenyIsAgentNetwork(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 	filter := restrict.ParseFilter(restrict.FilterConfig{AllowedCIDRs: []string{"10.0.0.0/8"}})
-	require.NoError(t, mw.AddDomain(testServerHost, nil, "", 0, "acct-1", "svc-1", filter, false, nil, WithAgentNetwork(true, true)))
+	require.NoError(t, mw.AddDomain(testServerHost, DomainSettings{AccountID: "acct-1", ServiceID: "svc-1", IPRestrictions: filter, Private: false, Options: []DomainOption{WithAgentNetwork(true, true)}}))
 
 	rec, cd := serveProtected(t, mw, netip.MustParseAddr("192.0.2.10"), "")
 
@@ -68,7 +68,7 @@ func TestIPRestrictionDenyIsAgentNetwork(t *testing.T) {
 // request to a gateway it does not own.
 func TestCrossAccountDenyIsNotAgentNetwork(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
-	require.NoError(t, mw.AddDomain(testServerHost, nil, "", 0, "acct-1", "svc-1", nil, true, nil, WithAgentNetwork(true, false)))
+	require.NoError(t, mw.AddDomain(testServerHost, DomainSettings{AccountID: "acct-1", ServiceID: "svc-1", IPRestrictions: nil, Private: true, Options: []DomainOption{WithAgentNetwork(true, false)}}))
 
 	rec, cd := serveProtected(t, mw, testTunnelIP, "acct-other")
 

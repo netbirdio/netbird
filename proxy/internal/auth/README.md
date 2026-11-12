@@ -1,7 +1,10 @@
 # PIN and password authentication limits
 
-PIN and password credentials are accepted only in a POST form body. Query-string
-credentials and credentials on other HTTP methods are ignored.
+PIN and password credentials are accepted only in a URL-encoded
+(`application/x-www-form-urlencoded`) POST body. Query-string credentials,
+multipart and other body encodings, and credentials on other HTTP methods are
+ignored. The encoding is restricted because it is the one AppSec inspection can
+redact before mirroring a request to the engine.
 
 The proxy permits a burst of five credential checks per account and service,
 then replenishes one check every six seconds (ten per minute). PIN and password

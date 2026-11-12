@@ -19,6 +19,7 @@ type Manager interface {
 	ClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
 	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
+	ClusterSupportsAppSec(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
 	ClusterAllProxiesPrivate(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsSessionCode(ctx context.Context, clusterAddr string) bool

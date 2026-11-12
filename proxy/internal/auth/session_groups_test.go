@@ -48,7 +48,7 @@ func TestProtect_SelfInstalledCookieCannotBypassGroupCheck(t *testing.T) {
 	oidc := &stubScheme{method: auth.MethodOIDC, authFn: func(r *http.Request) (string, string, error) {
 		return r.URL.Query().Get("session_token"), "https://idp.example/authorize", nil
 	}}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{oidc}, kp.PublicKey, time.Hour, "acct-1", "svc-1", nil, false, []string{"grp-allowed"}))
+	require.NoError(t, mw.AddDomain("example.com", DomainSettings{Schemes: []Scheme{oidc}, SessionPublicKey: kp.PublicKey, SessionExpiration: time.Hour, AccountID: "acct-1", ServiceID: "svc-1", AllowedGroups: []string{"grp-allowed"}}))
 
 	// The token a denied user gets to see: validly signed for this service and
 	// domain, but carrying no group the service allows.
@@ -85,7 +85,7 @@ func TestProtect_SessionCookieWithAllowedGroupPassesThrough(t *testing.T) {
 	kp := generateTestKeyPair(t)
 
 	oidc := &stubScheme{method: auth.MethodOIDC}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{oidc}, kp.PublicKey, time.Hour, "acct-1", "svc-1", nil, false, []string{"grp-other", "grp-allowed"}))
+	require.NoError(t, mw.AddDomain("example.com", DomainSettings{Schemes: []Scheme{oidc}, SessionPublicKey: kp.PublicKey, SessionExpiration: time.Hour, AccountID: "acct-1", ServiceID: "svc-1", AllowedGroups: []string{"grp-other", "grp-allowed"}}))
 
 	token, err := sessionkey.SignToken(kp.PrivateKey, "user-2", "jane@example.com", "example.com", auth.MethodOIDC,
 		[]string{"grp-unrelated", "grp-allowed"}, []string{"Unrelated", "Allowed"}, time.Hour)
@@ -106,7 +106,7 @@ func TestProtect_NonOIDCSessionCookieIgnoresGroupRestriction(t *testing.T) {
 	kp := generateTestKeyPair(t)
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "acct-1", "svc-1", nil, false, []string{"grp-allowed"}))
+	require.NoError(t, mw.AddDomain("example.com", DomainSettings{Schemes: []Scheme{scheme}, SessionPublicKey: kp.PublicKey, SessionExpiration: time.Hour, AccountID: "acct-1", ServiceID: "svc-1", AllowedGroups: []string{"grp-allowed"}}))
 
 	token, err := sessionkey.SignToken(kp.PrivateKey, "pin-user", "", "example.com", auth.MethodPIN, nil, nil, time.Hour)
 	require.NoError(t, err)

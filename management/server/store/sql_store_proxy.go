@@ -381,6 +381,7 @@ var validCapabilityColumns = map[string]struct{}{
 	"supports_custom_ports": {},
 	"require_subdomain":     {},
 	"supports_crowdsec":     {},
+	"supports_appsec":       {},
 	"private":               {},
 }
 
@@ -417,6 +418,14 @@ func (s *SqlStore) GetClusterAllProxiesPrivate(ctx context.Context, clusterAddr 
 // bypass reputation checks.
 func (s *SqlStore) GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool {
 	return s.getClusterUnanimousCapability(ctx, clusterAddr, "supports_crowdsec")
+}
+
+// GetClusterSupportsAppSec returns whether all active proxies in the cluster
+// have a CrowdSec AppSec endpoint configured. Returns nil when no proxy
+// reported the capability. Unanimous for the same reason as CrowdSec: a single
+// proxy without AppSec would let requests through uninspected.
+func (s *SqlStore) GetClusterSupportsAppSec(ctx context.Context, clusterAddr string) *bool {
+	return s.getClusterUnanimousCapability(ctx, clusterAddr, "supports_appsec")
 }
 
 // GetActiveProxyVersions returns every active proxy version in a cluster.

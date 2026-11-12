@@ -1355,6 +1355,15 @@ EOF
 NB_PROXY_CROWDSEC_API_URL=http://crowdsec:8080
 NB_PROXY_CROWDSEC_API_KEY=$CROWDSEC_BOUNCER_KEY
 EOF
+    if [[ "$ENABLE_CROWDSEC_APPSEC" == "true" ]]; then
+      cat <<EOF
+# AppSec (WAF) request inspection. Separate endpoint from the LAPI above and
+# validated with the same bouncer key. Setting it makes the proxy advertise the
+# AppSec capability, which is what lets a service select appsec_mode; nothing is
+# inspected until a service opts in.
+NB_PROXY_CROWDSEC_APPSEC_URL=http://crowdsec:7422/
+EOF
+    fi
   fi
 
   return 0

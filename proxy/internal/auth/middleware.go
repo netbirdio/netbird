@@ -18,12 +18,18 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/proxy/auth"
+	"github.com/netbirdio/netbird/proxy/internal/appsec"
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
 	"github.com/netbirdio/netbird/proxy/internal/restrict"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/proxy/web"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
+
+// sessionCookieNames is the cookie set AppSec redacts before mirroring: the
+// proxy's session cookie is a bearer credential for the service, and the
+// reverse proxy already strips it before forwarding upstream.
+var sessionCookieNames = []string{auth.SessionCookieName}
 
 // errValidationUnavailable indicates that session validation failed due to
 // an infrastructure error (e.g. gRPC unavailable), not an invalid token.
@@ -59,6 +65,14 @@ type DomainConfig struct {
 	IPRestrictions    *restrict.Filter
 	// Private routes the domain through ValidateTunnelPeer; failure → 403.
 	Private bool
+	// AppSecMode enables CrowdSec AppSec request inspection for this domain.
+	AppSecMode restrict.AppSecMode
+	// redact* name the credentials this domain's schemes accept, resolved once
+	// at registration. AppSec replaces their values before mirroring a request,
+	// matching what the reverse proxy strips before forwarding upstream.
+	redactBodyFields  []string
+	redactHeaders     []string
+	redactQueryParams []string
 	// AllowedGroups holds the group ids that may reach the service through an
 	// OIDC identity. When non-empty, a session cookie is honoured only if its
 	// groups claim intersects this set. Empty means group membership does not
@@ -83,6 +97,14 @@ func WithTargetResolver(resolver *proxy.TargetResolver) DomainOption {
 			return errors.New("target resolver is nil")
 		}
 		config.TargetResolver = resolver
+		return nil
+	}
+}
+
+// WithAppSecMode enables CrowdSec AppSec request inspection for a domain.
+func WithAppSecMode(mode restrict.AppSecMode) DomainOption {
+	return func(config *DomainConfig) error {
+		config.AppSecMode = mode
 		return nil
 	}
 }
@@ -121,6 +143,9 @@ type Middleware struct {
 	geo              restrict.GeoResolver
 	tunnelCache      *tunnelValidationCache
 	credentials      *credentialLimiter
+	// appsec is the shared CrowdSec AppSec client, nil when the proxy has no
+	// AppSec endpoint configured. Set once during startup, before serving.
+	appsec *appsec.Client
 }
 
 // NewMiddleware creates a new authentication middleware. The sessionValidator is
@@ -137,6 +162,12 @@ func NewMiddleware(logger *log.Logger, sessionValidator SessionValidator, geo re
 		tunnelCache:      newTunnelValidationCache(),
 		credentials:      newCredentialLimiter(),
 	}
+}
+
+// SetAppSec installs the shared CrowdSec AppSec client. Must be called during
+// startup, before the middleware serves any request.
+func (mw *Middleware) SetAppSec(client *appsec.Client) {
+	mw.appsec = client
 }
 
 // Protect wraps next with per-domain authentication and IP restriction checks.
@@ -165,6 +196,16 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 		setCapturedIDs(r, config)
 
 		if !mw.checkIPRestrictions(w, r, config) {
+			return
+		}
+
+		// Deferred, not released here: the inspected body stays alive as r.Body
+		// until the backend has read it, which happens inside next.ServeHTTP.
+		// Inspection runs before target resolution so a target that skips
+		// authentication is still inspected.
+		appSecAllowed, releaseAppSec := mw.checkAppSec(w, r, config)
+		defer releaseAppSec()
+		if !appSecAllowed {
 			return
 		}
 
@@ -377,6 +418,134 @@ func (mw *Middleware) checkIPRestrictions(w http.ResponseWriter, r *http.Request
 	return false
 }
 
+// checkAppSec mirrors the request to the CrowdSec AppSec engine when the domain
+// enables inspection. Returns false when the request was blocked and a response
+// has been written.
+//
+// The returned release frees the body-buffering budget the inspection reserved
+// and is never nil. It must run only after the request has been served, since
+// the buffered body stays alive as r.Body for the backend to read.
+//
+// Every non-allow remediation blocks with 403, captcha included: the proxy has
+// no challenge flow to serve. The distinct verdict is still recorded so the
+// access log shows which remediation the engine actually chose.
+//
+// Unlike the geo and IP-reputation checks, this runs for overlay traffic too:
+// AppSec inspects request content, which is just as meaningful when the caller
+// reached the proxy through the WireGuard tunnel.
+func (mw *Middleware) checkAppSec(w http.ResponseWriter, r *http.Request, config DomainConfig) (bool, func()) {
+	if !config.AppSecMode.Enabled() {
+		return true, func() {}
+	}
+
+	verdict, release := mw.inspectAppSec(r, config)
+	if verdict == restrict.Allow {
+		return true, release
+	}
+
+	observe := config.AppSecMode == restrict.AppSecObserve
+	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+		cd.SetMetadata("appsec_verdict", verdict.String())
+		if observe {
+			cd.SetMetadata("appsec_mode", "observe")
+		}
+	}
+
+	if observe {
+		mw.logger.Debugf("AppSec observe: would block %s for %s (%s)", r.RemoteAddr, r.Host, verdict)
+		return true, release
+	}
+
+	mw.markDenied(r, verdict.String())
+	mw.logger.Debugf("AppSec: %s for %s %s", verdict, r.Host, r.RemoteAddr)
+	denyForbidden(w, r, config)
+	return false, release
+}
+
+// inspectAppSec runs the AppSec call and returns its verdict. Failures come
+// back as DenyAppSecUnavailable regardless of mode so observe mode still
+// records that inspection did not happen; the caller decides what blocks. The
+// returned release is never nil.
+func (mw *Middleware) inspectAppSec(r *http.Request, config DomainConfig) (restrict.Verdict, func()) {
+	// Mode requested but the proxy has no AppSec endpoint configured. Management
+	// gates this on the cluster capability; a stale mapping can still arrive.
+	if mw.appsec == nil {
+		mw.logger.Debugf("AppSec mode %q requested for %s but no AppSec endpoint is configured", config.AppSecMode, r.Host)
+		return restrict.DenyAppSecUnavailable, func() {}
+	}
+
+	clientIP := mw.resolveClientIP(r)
+	if !clientIP.IsValid() {
+		// The engine requires a client address, and a request whose source we
+		// cannot establish is exactly the kind we must not wave through.
+		mw.logger.Debugf("AppSec: cannot resolve client address for %q", r.RemoteAddr)
+		return restrict.DenyAppSecUnavailable, func() {}
+	}
+
+	req := appsec.Request{
+		HTTP:              r,
+		ClientIP:          clientIP,
+		RedactBodyFields:  config.redactBodyFields,
+		RedactHeaders:     config.redactHeaders,
+		RedactCookies:     sessionCookieNames,
+		RedactQueryParams: config.redactQueryParams,
+	}
+	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+		req.TransactionID = cd.GetRequestID()
+	}
+
+	result, err := mw.appsec.Inspect(r.Context(), req)
+	if err != nil {
+		mw.logger.Debugf("AppSec inspection failed for %s: %v", r.Host, err)
+	}
+	// Record when the body went uninspected: headers and URI were still
+	// checked, but an operator reading the log should not read a clean verdict
+	// as "the payload was examined". Oversize is reachable by padding, so its
+	// absence from the log would hide a deliberate opt-out.
+	if result.BodyBypass != "" {
+		if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+			cd.SetMetadata("appsec_body_bypass", result.BodyBypass)
+		}
+	}
+	return result.Verdict, result.Release
+}
+
+// credentialFormFields lists the login form fields whose values are redacted
+// from the mirrored body, so a password or PIN submitted to the proxy's own
+// login form never reaches the Security Engine.
+func credentialFormFields(schemes []Scheme) []string {
+	var fields []string
+	for _, s := range schemes {
+		switch s.Type() {
+		case auth.MethodPassword:
+			fields = append(fields, passwordFormId)
+		case auth.MethodPIN:
+			fields = append(fields, pinFormId)
+		}
+	}
+	return fields
+}
+
+// credentialHeaders lists the request headers whose values are redacted from
+// the mirrored request. A header-auth scheme carries a session token the proxy
+// validates and never forwards upstream, so the engine must not see it either.
+func credentialHeaders(schemes []Scheme) []string {
+	var names []string
+	for _, s := range schemes {
+		// Structural, not a concrete Header assertion: if the scheme is ever
+		// registered as a pointer, a type assertion would quietly stop matching
+		// and the header would start reaching the engine again.
+		named, ok := s.(interface{ HeaderName() string })
+		if !ok {
+			continue
+		}
+		if name := named.HeaderName(); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
 // denyForbidden writes a 403, dropping the client connection when the
 // domain is private so a later retry cannot reuse it.
 func denyForbidden(w http.ResponseWriter, r *http.Request, config DomainConfig) {
@@ -426,12 +595,18 @@ func (mw *Middleware) resolveClientIP(r *http.Request) netip.Addr {
 	return addr.Unmap()
 }
 
-// blockIPRestriction sets captured data fields for an IP-restriction block event.
-func (mw *Middleware) blockIPRestriction(r *http.Request, reason string) {
+// markDenied records the deny reason on the captured data so the access log
+// attributes the response to the proxy rather than the backend.
+func (mw *Middleware) markDenied(r *http.Request, reason string) {
 	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
 		cd.SetOrigin(proxy.OriginAuth)
 		cd.SetAuthMethod(reason)
 	}
+}
+
+// blockIPRestriction sets captured data fields for an IP-restriction block event.
+func (mw *Middleware) blockIPRestriction(r *http.Request, reason string) {
+	mw.markDenied(r, reason)
 	mw.logger.Debugf("IP restriction: %s for %s", reason, r.RemoteAddr)
 }
 
@@ -803,6 +978,15 @@ func NewDomainConfig(domain string, schemes []Scheme, publicKeyB64 string, expir
 		}
 		config.SessionPublicKey = append(ed25519.PublicKey(nil), pubKeyBytes...)
 	}
+
+	credentialFields := credentialFormFields(schemes)
+	config.redactBodyFields = credentialFields
+	config.redactHeaders = credentialHeaders(schemes)
+	// A credential can arrive in the query too: r.FormValue merges the URL
+	// query into the form, so "?password=..." authenticates just as a form
+	// post does and must not be mirrored in the clear either.
+	config.redactQueryParams = append([]string{auth.SessionTokenQueryParam, auth.SessionCodeQueryParam}, credentialFields...)
+
 	for _, option := range opts {
 		if option == nil {
 			return DomainConfig{}, fmt.Errorf("nil domain option for domain %s", domain)
@@ -827,11 +1011,32 @@ func (mw *Middleware) AddDomainConfig(domain string, config DomainConfig) {
 	mw.domains[domain] = config
 }
 
-// AddDomain registers authentication schemes for the given domain. With schemes a valid session public key is required.
-// private=true forces ValidateTunnelPeer enforcement (403 on failure) regardless of the schemes list.
-// allowedGroups restricts OIDC sessions to the given group ids; empty means unrestricted.
-func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 string, expiration time.Duration, accountID types.AccountID, serviceID types.ServiceID, ipRestrictions *restrict.Filter, private bool, allowedGroups []string, opts ...DomainOption) error {
-	config, err := NewDomainConfig(domain, schemes, publicKeyB64, expiration, accountID, serviceID, ipRestrictions, private, allowedGroups, opts...)
+// DomainSettings is the per-domain configuration AddDomain applies.
+type DomainSettings struct {
+	Schemes []Scheme
+	// SessionPublicKey is the base64-encoded ed25519 key used to verify session
+	// cookies. Required when Schemes is non-empty.
+	SessionPublicKey  string
+	SessionExpiration time.Duration
+	AccountID         types.AccountID
+	ServiceID         types.ServiceID
+	IPRestrictions    *restrict.Filter
+	// Private forces ValidateTunnelPeer enforcement (403 on failure) regardless
+	// of the schemes list.
+	Private    bool
+	AppSecMode restrict.AppSecMode
+	// AllowedGroups restricts OIDC sessions to the given group ids; empty means
+	// unrestricted.
+	AllowedGroups []string
+	// Options are applied after the fields above.
+	Options []DomainOption
+}
+
+// AddDomain registers authentication schemes for the given domain. With schemes
+// a valid session public key is required.
+func (mw *Middleware) AddDomain(domain string, settings DomainSettings) error {
+	opts := append([]DomainOption{WithAppSecMode(settings.AppSecMode)}, settings.Options...)
+	config, err := NewDomainConfig(domain, settings.Schemes, settings.SessionPublicKey, settings.SessionExpiration, settings.AccountID, settings.ServiceID, settings.IPRestrictions, settings.Private, settings.AllowedGroups, opts...)
 	if err != nil {
 		return err
 	}

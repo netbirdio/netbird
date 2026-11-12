@@ -634,6 +634,10 @@ func (m *testValidateSessionProxyManager) ClusterSupportsCrowdSec(_ context.Cont
 	return nil
 }
 
+func (m *testValidateSessionProxyManager) ClusterSupportsAppSec(_ context.Context, _ string) *bool {
+	return nil
+}
+
 func (m *testValidateSessionProxyManager) ClusterSupportsPrivate(_ context.Context, _ string) *bool {
 	return nil
 }

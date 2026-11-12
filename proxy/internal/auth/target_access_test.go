@@ -84,18 +84,14 @@ func TestProtect_TargetAccessActions(t *testing.T) {
 					return "", "pin", nil
 				},
 			}
-			err := mw.AddDomain(
-				"example.com",
-				[]Scheme{scheme},
-				kp.PublicKey,
-				time.Hour,
-				"account-1",
-				"service-1",
-				nil,
-				false,
-				nil,
-				WithTargetResolver(targetAccessResolver(t, tt.action)),
-			)
+			err := mw.AddDomain("example.com", DomainSettings{
+				Schemes:           []Scheme{scheme},
+				SessionPublicKey:  kp.PublicKey,
+				SessionExpiration: time.Hour,
+				AccountID:         "account-1",
+				ServiceID:         "service-1",
+				Options:           []DomainOption{WithTargetResolver(targetAccessResolver(t, tt.action))},
+			})
 			require.NoError(t, err)
 
 			backendCalls := 0
@@ -118,10 +114,11 @@ func TestProtect_TargetAccessActions(t *testing.T) {
 
 func TestProtect_BypassRecordsActionWithoutIdentity(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
-	require.NoError(t, mw.AddDomain(
-		"example.com", nil, "", 0, "account-1", "service-1", nil, false, nil,
-		WithTargetResolver(targetAccessResolver(t, proxy.AccessActionBypass)),
-	))
+	require.NoError(t, mw.AddDomain("example.com", DomainSettings{
+		AccountID: "account-1",
+		ServiceID: "service-1",
+		Options:   []DomainOption{WithTargetResolver(targetAccessResolver(t, proxy.AccessActionBypass))},
+	}))
 
 	handler := mw.Protect(newPassthroughHandler())
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/selected", nil)
@@ -142,10 +139,11 @@ func TestProtect_BypassRecordsActionWithoutIdentity(t *testing.T) {
 func TestProtect_TargetResolverPinsMissThroughAuthentication(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 	resolver := targetAccessResolver(t, proxy.AccessActionBypass)
-	require.NoError(t, mw.AddDomain(
-		"example.com", nil, "", 0, "account-1", "service-1", nil, false, nil,
-		WithTargetResolver(resolver),
-	))
+	require.NoError(t, mw.AddDomain("example.com", DomainSettings{
+		AccountID: "account-1",
+		ServiceID: "service-1",
+		Options:   []DomainOption{WithTargetResolver(resolver)},
+	}))
 
 	forwarded := false
 	reverseProxy := proxy.NewReverseProxy(targetAccessRoundTripFunc(func(*http.Request) (*http.Response, error) {
@@ -183,18 +181,14 @@ func TestProtect_UnsafePathFailsBeforeAuthentication(t *testing.T) {
 			return "", "pin", nil
 		},
 	}
-	require.NoError(t, mw.AddDomain(
-		"example.com",
-		[]Scheme{scheme},
-		kp.PublicKey,
-		time.Hour,
-		"account-1",
-		"service-1",
-		nil,
-		false,
-		nil,
-		WithTargetResolver(targetAccessResolver(t, proxy.AccessActionBlock)),
-	))
+	require.NoError(t, mw.AddDomain("example.com", DomainSettings{
+		Schemes:           []Scheme{scheme},
+		SessionPublicKey:  kp.PublicKey,
+		SessionExpiration: time.Hour,
+		AccountID:         "account-1",
+		ServiceID:         "service-1",
+		Options:           []DomainOption{WithTargetResolver(targetAccessResolver(t, proxy.AccessActionBlock))},
+	}))
 
 	backendCalled := false
 	handler := mw.Protect(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -215,10 +209,12 @@ func TestProtect_UnsafePathFailsBeforeAuthentication(t *testing.T) {
 func TestProtect_IPRestrictionsRunBeforeTargetAccessAction(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 	filter := restrict.ParseFilter(restrict.FilterConfig{AllowedCIDRs: []string{"10.0.0.0/8"}})
-	require.NoError(t, mw.AddDomain(
-		"example.com", nil, "", 0, "account-1", "service-1", filter, false, nil,
-		WithTargetResolver(targetAccessResolver(t, proxy.AccessActionBypass)),
-	))
+	require.NoError(t, mw.AddDomain("example.com", DomainSettings{
+		AccountID:      "account-1",
+		ServiceID:      "service-1",
+		IPRestrictions: filter,
+		Options:        []DomainOption{WithTargetResolver(targetAccessResolver(t, proxy.AccessActionBypass))},
+	}))
 
 	backendCalled := false
 	handler := mw.Protect(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {

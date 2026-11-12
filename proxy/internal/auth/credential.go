@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"math"
+	"mime"
 	"net/http"
 	"strconv"
 	"time"
@@ -25,8 +26,16 @@ func (e *credentialLimitError) Error() string {
 	return "too many authentication attempts"
 }
 
+// credentialFormValue returns a PIN or password field from a URL-encoded POST
+// body. Any other encoding is not a credential submission: AppSec can only
+// redact URL-encoded bodies, so accepting multipart here would mirror the
+// credential to the engine in the clear.
 func credentialFormValue(r *http.Request, field string) string {
 	if r.Method != http.MethodPost {
+		return ""
+	}
+	media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || media != "application/x-www-form-urlencoded" {
 		return ""
 	}
 	return r.PostFormValue(field)
