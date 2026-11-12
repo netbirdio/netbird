@@ -27,51 +27,11 @@ builds:
     tags:
       - production
 
-  - id: netbird-ui-windows-amd64
-    dir: client/ui
-    binary: netbird-ui
-    env:
-      - CGO_ENABLED=1
-      - CC=x86_64-w64-mingw32-gcc
-    goos:
-      - windows
-    goarch:
-      - amd64
-    ldflags:
-      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
-      - -H windowsgui
-    mod_timestamp: "{{ .CommitTimestamp }}"
-    tags:
-      - production
-
-  - id: netbird-ui-windows-arm64
-    dir: client/ui
-    binary: netbird-ui
-    env:
-      - CGO_ENABLED=1
-      - CC=aarch64-w64-mingw32-clang
-      - CXX=aarch64-w64-mingw32-clang++
-    goos:
-      - windows
-    goarch:
-      - arm64
-    ldflags:
-      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
-      - -H windowsgui
-    mod_timestamp: "{{ .CommitTimestamp }}"
-    tags:
-      - production
-
 archives:
   - id: linux-arch
     name_template: "{{ .ProjectName }}-linux_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     builds:
       - netbird-ui
-  - id: windows-arch
-    name_template: "{{ .ProjectName }}-windows_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    builds:
-      - netbird-ui-windows-amd64
-      - netbird-ui-windows-arm64
 
 nfpms:
   - maintainer: Netbird <dev@netbird.io>

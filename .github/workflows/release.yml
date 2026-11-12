@@ -478,7 +478,7 @@ jobs:
       PYXIS_API_TOKEN: ${{ secrets.PYXIS_API_TOKEN }}
 
   release_ui:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     outputs:
       release_ui_artifact_url: ${{ steps.upload_release_ui.outputs.artifact-url }}
     steps:
@@ -541,7 +541,7 @@ jobs:
           version: 11
 
       - name: Install dependencies
-        run: sudo apt update && sudo apt install -y -q libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev gcc-mingw-w64-x86-64
+        run: sudo apt update && sudo apt install -y -q libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev
 
       - name: Decode GPG signing key
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
