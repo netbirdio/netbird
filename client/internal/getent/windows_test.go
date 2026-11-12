@@ -4,11 +4,15 @@ package getent
 
 import (
 	"errors"
+	"os"
 	"os/user"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/windows"
 )
 
 // errNoneMapped stands in for the ERROR_NONE_MAPPED os/user returns on an
@@ -26,29 +30,70 @@ func failStdLookups(t *testing.T) {
 	})
 }
 
-func TestLookupUser_FallsBackWhenOSUserFails(t *testing.T) {
-	current, err := user.Current()
+// localAdministrator returns the built-in local Administrator as os/user sees
+// it. The tests use it instead of the current user because CI runs them as
+// SYSTEM, which user.Current names after the machine account, a name LSA
+// cannot look up.
+func localAdministrator(t *testing.T) *user.User {
+	t.Helper()
+	host, err := windows.ComputerName()
 	require.NoError(t, err)
+
+	machine, _, sidType, err := windows.LookupSID("", host)
+	require.NoError(t, err, "look up the local account domain")
+	if sidType != windows.SidTypeDomain {
+		t.Skipf("%s does not name a local account domain (type %d), as on a domain controller", host, sidType)
+	}
+
+	// RID 500 is the built-in Administrator, present even when disabled or renamed.
+	u, err := user.LookupId(machine.String() + "-500")
+	require.NoError(t, err, "os/user must resolve the local Administrator")
+	return u
+}
+
+// profileOf is the home directory the fallback should report for uid. It is
+// empty for an account that never signed in, where os/user guesses a path
+// instead, so the tests compare against this rather than os/user's HomeDir.
+func profileOf(uid string) string {
+	dir, err := profileHomeDir(uid)
+	if err != nil {
+		return ""
+	}
+	return dir
+}
+
+func TestLookupUser_FallsBackWhenOSUserFails(t *testing.T) {
+	admin := localAdministrator(t)
 	failStdLookups(t)
 
-	u, err := LookupUser(current.Username)
+	u, err := LookupUser(admin.Username)
 	require.NoError(t, err)
-	assert.Equal(t, current.Uid, u.Uid, "fallback should resolve the same SID")
-	assert.Equal(t, current.Username, u.Username, "fallback should report DOMAIN\\account")
-	assert.Equal(t, current.HomeDir, u.HomeDir, "fallback should read the profile path")
+	assert.Equal(t, admin.Uid, u.Uid, "fallback should resolve the same SID")
+	assert.Equal(t, admin.Username, u.Username, "fallback should report DOMAIN\\account")
+	assert.Equal(t, profileOf(admin.Uid), u.HomeDir, "fallback should read the profile path")
 	assert.Empty(t, u.Gid, "fallback does not resolve a primary group")
 }
 
 func TestLookupUserID_FallsBackWhenOSUserFails(t *testing.T) {
-	current, err := user.Current()
-	require.NoError(t, err)
+	admin := localAdministrator(t)
 	failStdLookups(t)
 
-	u, err := LookupUserID(current.Uid)
+	u, err := LookupUserID(admin.Uid)
 	require.NoError(t, err)
-	assert.Equal(t, current.Uid, u.Uid, "fallback should keep the SID")
-	assert.Equal(t, current.Username, u.Username, "fallback should report DOMAIN\\account")
-	assert.Equal(t, current.HomeDir, u.HomeDir, "fallback should read the profile path")
+	assert.Equal(t, admin.Uid, u.Uid, "fallback should keep the SID")
+	assert.Equal(t, admin.Username, u.Username, "fallback should report DOMAIN\\account")
+	assert.Equal(t, profileOf(admin.Uid), u.HomeDir, "fallback should read the profile path")
+}
+
+// SYSTEM's profile path is stored as %systemroot%\system32\config\systemprofile
+// on every Windows install, so it shows whether variables get expanded.
+func TestProfileHomeDir_ExpandsVariables(t *testing.T) {
+	dir, err := profileHomeDir("S-1-5-18")
+	require.NoError(t, err, "SYSTEM always has a profile entry")
+
+	want := filepath.Join(os.Getenv("SystemRoot"), "system32", "config", "systemprofile")
+	assert.NotContains(t, dir, "%", "variables in the profile path should be expanded")
+	assert.True(t, strings.EqualFold(want, dir), "expected %q, got %q", want, dir)
 }
 
 func TestLookupUser_FallbackKeepsOSUserErrorForUnknownAccount(t *testing.T) {
