@@ -959,6 +959,46 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 		logApplied(mdm.KeyLazyConnection, state)
 	}
 
+	config.applyMDMExtraIFaceBlackList(policy)
+}
+
+// applyMDMExtraIFaceBlackList appends the MDM interface prefixes missing from
+// the resolved blacklist. It runs after every write of the profile file, so the
+// MDM entries stay in memory only and vanish once the policy drops them.
+func (config *Config) applyMDMExtraIFaceBlackList(policy *mdm.Policy) {
+	if !policy.HasKey(mdm.KeyExtraIFaceBlackList) {
+		return
+	}
+
+	values, ok := policy.GetStringSlice(mdm.KeyExtraIFaceBlackList)
+	if !ok {
+		log.Warnf("MDM %s is not a list of interface names; ignoring it", mdm.KeyExtraIFaceBlackList)
+		return
+	}
+
+	entries := splitListEntries(values)
+	added := util.SliceDiff(entries, config.IFaceBlackList)
+	// Clip so the append never writes into a backing array shared with the
+	// slice the policy was applied to.
+	config.IFaceBlackList = append(slices.Clip(config.IFaceBlackList), added...)
+
+	log.Infof("MDM override %s = [ %s ] (added [ %s ]), effective interface blacklist: [ %s ]",
+		mdm.KeyExtraIFaceBlackList, strings.Join(entries, " "), strings.Join(added, " "),
+		strings.Join(config.IFaceBlackList, " "))
+}
+
+// splitListEntries flattens comma-separated values, since an ADMX text box or
+// a plist string carries the whole list in one value.
+func splitListEntries(values []string) []string {
+	var entries []string
+	for _, value := range values {
+		for _, entry := range strings.Split(value, ",") {
+			if entry = strings.TrimSpace(entry); entry != "" && !slices.Contains(entries, entry) {
+				entries = append(entries, entry)
+			}
+		}
+	}
+	return entries
 }
 
 // ValidateBundleUploadURL sanity-checks a debug-bundle upload URL. An empty

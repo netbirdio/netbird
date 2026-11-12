@@ -141,6 +141,18 @@
                                 <integer>51820</integer>
                                 -->
 
+                                <!-- ===== Extra interface blacklist (array or comma-separated string)
+                                     Interface name prefixes NetBird must not use to reach peers.
+                                     Added to the built-in defaults and to the device's own
+                                     extra-iface-blacklist flag; never replaces them. -->
+                                <!--
+                                <key>extraIFaceBlackList</key>
+                                <array>
+                                    <string>vxlan</string>
+                                    <string>gre</string>
+                                </array>
+                                -->
+
                                 <!-- ===== Split tunnel (Android-only at the daemon level)
                                      Pushed harmlessly on macOS for fleets with mixed
                                      desktop+mobile devices; the macOS daemon ignores it. -->

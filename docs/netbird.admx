@@ -187,6 +187,19 @@
       </elements>
     </policy>
 
+    <policy name="ExtraIFaceBlackList"
+            class="Machine"
+            displayName="$(string.ExtraIFaceBlackList_Name)"
+            explainText="$(string.ExtraIFaceBlackList_Help)"
+            key="Software\Policies\NetBird"
+            presentation="$(presentation.ExtraIFaceBlackList_Pres)">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <elements>
+        <text id="ExtraIFaceBlackList_Text" valueName="ExtraIFaceBlackList" required="true" />
+      </elements>
+    </policy>
+
     <policy name="SplitTunnel"
             class="Machine"
             displayName="$(string.SplitTunnel_Name)"

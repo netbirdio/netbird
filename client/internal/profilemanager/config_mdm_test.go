@@ -1,7 +1,10 @@
 package profilemanager
 
 import (
+	"encoding/json"
+	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -277,6 +280,100 @@ func TestMDMConflicts_RemoteJobsAndLocalMetrics(t *testing.T) {
 			assert.Equal(t, tc.want, MDMConflicts(tc.input, policy))
 		})
 	}
+}
+
+// persistedIFaceBlackList reads the blacklist straight from the profile file,
+// bypassing apply(), to prove what actually reached the disk.
+func persistedIFaceBlackList(t *testing.T, path string) []string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var onDisk Config
+	require.NoError(t, json.Unmarshal(raw, &onDisk))
+	return onDisk.IFaceBlackList
+}
+
+func TestApply_MDMExtraIFaceBlackList_AddsToResolvedList(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "config.json")
+
+	// The device carries its own exclusion from the CLI flag; MDM adds the
+	// fleet-wide ones on top, without replacing either the defaults or it.
+	cfg := configWithMDM(t, ConfigInput{
+		ConfigPath:          tmp,
+		ExtraIFaceBlackList: []string{"vmnet"},
+	}, mdm.NewPolicy(map[string]any{
+		mdm.KeyExtraIFaceBlackList: []string{"vxlan", "gre"},
+	}))
+
+	for _, want := range append(slices.Clone(DefaultInterfaceBlacklist), "vmnet", "vxlan", "gre") {
+		assert.Contains(t, cfg.IFaceBlackList, want, "effective blacklist should contain %q", want)
+	}
+	assert.True(t, cfg.Policy().HasKey(mdm.KeyExtraIFaceBlackList))
+
+	onDisk := persistedIFaceBlackList(t, tmp)
+	assert.Contains(t, onDisk, "vmnet", "the CLI entry belongs to the profile file")
+	assert.NotContains(t, onDisk, "vxlan", "MDM entries must never be written to the profile file")
+	assert.NotContains(t, onDisk, "gre", "MDM entries must never be written to the profile file")
+}
+
+func TestApply_MDMExtraIFaceBlackList_CommaSeparatedString(t *testing.T) {
+	cfg := configWithMDM(t, ConfigInput{
+		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
+	}, mdm.NewPolicy(map[string]any{
+		// An ADMX text box arrives as a single REG_SZ: blanks, empty items,
+		// repeats and an entry already in the defaults must all collapse.
+		mdm.KeyExtraIFaceBlackList: " vxlan, gre,,vxlan , docker",
+	}))
+
+	assert.Equal(t, 1, countOf(cfg.IFaceBlackList, "vxlan"), "vxlan should appear once in %v", cfg.IFaceBlackList)
+	assert.Equal(t, 1, countOf(cfg.IFaceBlackList, "gre"), "gre should appear once in %v", cfg.IFaceBlackList)
+	assert.Equal(t, 1, countOf(cfg.IFaceBlackList, "docker"), "docker is a default and must not be duplicated in %v", cfg.IFaceBlackList)
+	assert.NotContains(t, cfg.IFaceBlackList, "", "empty items must be dropped")
+}
+
+func TestApply_MDMExtraIFaceBlackList_RemovedWhenPolicyDropsKey(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "config.json")
+
+	managed := configWithMDM(t, ConfigInput{ConfigPath: tmp}, mdm.NewPolicy(map[string]any{
+		mdm.KeyExtraIFaceBlackList: "vxlan",
+	}))
+	require.Contains(t, managed.IFaceBlackList, "vxlan", "precondition: MDM entry applied")
+
+	// The next policy reload resolves the profile again from disk, as the
+	// lifecycle owners do, and the admin has removed the key meanwhile.
+	unmanaged := configWithMDM(t, ConfigInput{ConfigPath: tmp}, mdm.NewPolicy(nil))
+	assert.NotContains(t, unmanaged.IFaceBlackList, "vxlan", "entry must vanish once the policy drops it")
+	assert.ElementsMatch(t, DefaultInterfaceBlacklist, unmanaged.IFaceBlackList, "only the defaults should remain")
+}
+
+func TestApply_MDMExtraIFaceBlackList_ReapplyIsIdempotent(t *testing.T) {
+	policy := mdm.NewPolicy(map[string]any{mdm.KeyExtraIFaceBlackList: []string{"vxlan"}})
+	cfg := configWithMDM(t, ConfigInput{ConfigPath: filepath.Join(t.TempDir(), "config.json")}, policy)
+
+	cfg.ApplyMDMPolicy(policy)
+
+	assert.Equal(t, 1, countOf(cfg.IFaceBlackList, "vxlan"), "re-applying must not duplicate in %v", cfg.IFaceBlackList)
+}
+
+func TestApply_MDMExtraIFaceBlackList_InvalidTypeIgnored(t *testing.T) {
+	cfg := configWithMDM(t, ConfigInput{
+		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
+	}, mdm.NewPolicy(map[string]any{
+		mdm.KeyExtraIFaceBlackList: 42,
+	}))
+
+	assert.ElementsMatch(t, DefaultInterfaceBlacklist, cfg.IFaceBlackList, "a non-list value must leave the blacklist untouched")
+	assert.True(t, cfg.Policy().HasKey(mdm.KeyExtraIFaceBlackList), "the key is still reported as managed")
+}
+
+func countOf(list []string, item string) int {
+	n := 0
+	for _, v := range list {
+		if v == item {
+			n++
+		}
+	}
+	return n
 }
 
 func boolPtr(b bool) *bool { return &b }

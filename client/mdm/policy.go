@@ -88,6 +88,13 @@ const (
 	// as a string; must be an https URL with a host. Absent = defer to the
 	// management-supplied URL (or the default upload server).
 	KeyBundleUploadURL = "debugBundleUploadURL"
+
+	// KeyExtraIFaceBlackList adds interface name prefixes to the blacklist
+	// used for connection candidate discovery. Additive, unlike every other
+	// key: the defaults, the profile file and the --extra-iface-blacklist flag
+	// keep their entries, so a device can still exclude its own interfaces.
+	// Read as a list or a comma-separated string.
+	KeyExtraIFaceBlackList = "extraIFaceBlackList"
 )
 
 // Split-tunnel mode literals (KeySplitTunnelMode values).
