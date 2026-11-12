@@ -81,7 +81,8 @@ func TestPersistLoginOverrides(t *testing.T) {
 			require.NoError(t, err, "seed config")
 
 			activeProf := &profilemanager.ActiveProfileState{ID: "default"}
-			err = persistLoginOverrides(activeProf, &proto.LoginRequest{
+			srv := &Server{profileManager: profilemanager.NewServiceManager("")}
+			err = srv.persistLoginOverrides(activeProf, &proto.LoginRequest{
 				ManagementUrl:        tt.newMgmtURL,
 				OptionalPreSharedKey: tt.newPSK,
 			})

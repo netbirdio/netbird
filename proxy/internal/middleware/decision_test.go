@@ -38,11 +38,15 @@ func TestRenderDeny_AnthropicSurfaceMirrorsVendorShape(t *testing.T) {
 	errObj, ok := body["error"].(map[string]any)
 	require.True(t, ok, "error must be an object")
 	assert.Equal(t, "permission_error", errObj["type"], "403 maps to permission_error")
-	assert.Equal(t, "LLM policy limit exceeded", errObj["message"])
+	assert.Equal(t, "NetBird: LLM policy limit exceeded", errObj["message"],
+		"the vendor message names NetBird, so the client does not blame the provider")
 
-	// The NetBird fields stay put so existing consumers keep working.
+	// The NetBird code stays put so existing consumers keep working. The
+	// top-level message carries the prefix too: Claude Code shows it in
+	// preference to the envelope's.
 	assert.Equal(t, "llm_policy.budget_cap_exceeded", body["code"])
-	assert.Equal(t, "LLM policy limit exceeded", body["message"])
+	assert.Equal(t, "NetBird: LLM policy limit exceeded", body["message"],
+		"the message Claude Code shows names NetBird")
 	assert.Equal(t, "llm_limit_check", body["middleware"])
 }
 
@@ -61,7 +65,10 @@ func TestRenderDeny_OpenAISurfaceMirrorsVendorShape(t *testing.T) {
 	require.True(t, ok, "error must be an object")
 	assert.Equal(t, "invalid_request_error", errObj["type"])
 	assert.Equal(t, "llm_policy.model_blocked", errObj["code"], "the NetBird code rides in the vendor code field")
-	assert.Equal(t, "model is not in the policy allowlist", errObj["message"])
+	assert.Equal(t, "NetBird: model is not in the policy allowlist", errObj["message"],
+		"the vendor message names NetBird, so the client does not blame the provider")
+	assert.Equal(t, "NetBird: model is not in the policy allowlist", body["message"],
+		"the top-level message matches the envelope's")
 }
 
 // TestRenderDeny_RateLimitStatusMapsToVendorRateLimit pins the mapping a
@@ -89,4 +96,6 @@ func TestRenderDeny_NoSurfaceKeepsLegacyShape(t *testing.T) {
 	assert.NotContains(t, body, "type", "no surface means no vendor mirror")
 	assert.NotContains(t, body, "error", "no surface means no vendor mirror")
 	assert.Equal(t, "llm_policy.model_not_routable", body["code"])
+	assert.Equal(t, "no provider configured for model x", body["message"],
+		"without a vendor envelope the message keeps its legacy form")
 }

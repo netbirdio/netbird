@@ -629,6 +629,7 @@ func extractPeerMeta(ctx context.Context, meta *proto.PeerSystemMeta) nbpeer.Pee
 		SystemSerialNumber: cleanClientString(meta.GetSysSerialNumber()),
 		SystemProductName:  cleanClientString(meta.GetSysProductName()),
 		SystemManufacturer: cleanClientString(meta.GetSysManufacturer()),
+		SystemHardwareUUID: cleanClientString(meta.GetSysHardwareUUID()),
 		Environment: nbpeer.Environment{
 			Cloud:    cleanClientString(meta.GetEnvironment().GetCloud()),
 			Platform: cleanClientString(meta.GetEnvironment().GetPlatform()),

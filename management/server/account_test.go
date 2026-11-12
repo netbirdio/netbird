@@ -5296,6 +5296,59 @@ func TestDefaultAccountManager_ExpirationJobsStopForDeletedAccount(t *testing.T)
 	}
 }
 
+func TestDefaultAccountManager_ExpirationJobsStopWhenDisabledForAccount(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	ctx := context.Background()
+	accountID, err := manager.GetAccountIDByUserID(ctx, auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	firstKey, secondKey := addExpiringPeers(t, manager)
+	for _, key := range []string{firstKey, secondKey} {
+		peer, err := manager.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, key)
+		require.NoError(t, err)
+		peer.InactivityExpirationEnabled = true
+		require.NoError(t, manager.Store.SavePeer(ctx, accountID, peer))
+		setPeerLogin(t, manager, accountID, key, false, time.Now().UTC().Add(-2*time.Hour))
+	}
+
+	// Saved through the store, as another management instance would, so no running job is cancelled.
+	require.NoError(t, manager.Store.SaveAccountSettings(ctx, accountID, &types.Settings{
+		PeerLoginExpiration:             time.Hour,
+		PeerLoginExpirationEnabled:      false,
+		PeerInactivityExpiration:        time.Hour,
+		PeerInactivityExpirationEnabled: false,
+		Extra:                           &types.ExtraSettings{},
+	}))
+	serialBefore := networkSerial(t, manager, accountID)
+
+	expiredPeers, err := manager.getExpiredPeers(ctx, accountID)
+	require.NoError(t, err)
+	assert.Empty(t, expiredPeers, "no peer is a login expiration candidate while it is disabled for the account")
+	inactivePeers, err := manager.getInactivePeers(ctx, accountID)
+	require.NoError(t, err)
+	assert.Empty(t, inactivePeers, "no peer is an inactivity expiration candidate while it is disabled for the account")
+
+	jobs := map[string]func() (time.Duration, bool){
+		"login":      manager.peerLoginExpirationJob(ctx, accountID),
+		"inactivity": manager.peerInactivityExpirationJob(ctx, accountID),
+	}
+	for name, job := range jobs {
+		t.Run(name, func(t *testing.T) {
+			_, reschedule := job()
+			assert.False(t, reschedule, "job must not reschedule while the expiration is disabled for the account")
+		})
+	}
+
+	for _, key := range []string{firstKey, secondKey} {
+		peer, err := manager.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, key)
+		require.NoError(t, err)
+		assert.False(t, peer.Status.LoginExpired, "peer must not expire while the expiration is disabled for the account")
+	}
+	assert.Equal(t, serialBefore, networkSerial(t, manager, accountID), "network serial must not change when no peer expired")
+}
+
 func networkSerial(t *testing.T, manager *DefaultAccountManager, accountID string) uint64 {
 	t.Helper()
 

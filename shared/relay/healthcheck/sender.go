@@ -156,17 +156,13 @@ func (hc *Sender) StartHealthCheck(ctx context.Context) {
 				hc.log.Infof("testhb: muted relay heartbeat key=%s", hc.phaseKey)
 				continue
 			}
-			hc.HealthCheck <- struct{}{}
-			if hc.phaseKey != "" {
-				mode := testhb.CurrentMode()
-				hc.log.Infof("testhb: sent relay heartbeat key=%s mode=%s t=%d%s",
-					hc.phaseKey, mode, time.Now().UnixMilli(), testhb.LogSuffix(mode, hc.clientSchedule))
-			}
+			sent := hc.requestHealthCheck()
+			hc.logTestHBSend(sent)
 		case <-stockTick:
 			if testhb.CurrentMode() != testhb.ModeDynamic || hc.testHBMuted() {
 				continue
 			}
-			hc.HealthCheck <- struct{}{}
+			hc.requestHealthCheck()
 		case <-timeoutTicker.C:
 			// No acks come back while the sends are muted, so do not count them.
 			if hc.testHBMuted() {
@@ -193,6 +189,31 @@ func (hc *Sender) StartHealthCheck(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// requestHealthCheck queues a healthcheck without blocking. It reports false
+// when the previous request is still unread, so this one is dropped.
+func (hc *Sender) requestHealthCheck() bool {
+	select {
+	case hc.HealthCheck <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func (hc *Sender) logTestHBSend(sent bool) {
+	if hc.phaseKey == "" {
+		return
+	}
+	mode := testhb.CurrentMode()
+	if !sent {
+		hc.log.Warnf("testhb: dropped relay heartbeat key=%s mode=%s t=%d, previous one unread",
+			hc.phaseKey, mode, time.Now().UnixMilli())
+		return
+	}
+	hc.log.Infof("testhb: sent relay heartbeat key=%s mode=%s t=%d%s",
+		hc.phaseKey, mode, time.Now().UnixMilli(), testhb.LogSuffix(mode, hc.clientSchedule))
 }
 
 func (hc *Sender) testHBMuted() bool {
