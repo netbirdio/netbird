@@ -57,7 +57,7 @@ For client reports, these commands usually give us what we need:
 
 ```shell
 netbird version
-netbird status -d -A
+netbird status -o detail -A
 netbird debug for 1m -A -S -U
 ```
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"slices"
 	"strings"
 	"time"
 
@@ -18,7 +19,25 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
+// statusOutput is a format accepted by status --output.
+type statusOutput string
+
+const (
+	outputSummary statusOutput = ""
+	outputDetail  statusOutput = "detail"
+	outputTable   statusOutput = "table"
+	outputJSON    statusOutput = "json"
+	outputYAML    statusOutput = "yaml"
+	outputIPv4    statusOutput = "ipv4"
+	outputIPv6    statusOutput = "ipv6"
+)
+
+var statusOutputs = []statusOutput{outputDetail, outputTable, outputJSON, outputYAML, outputIPv4, outputIPv6}
+
+const outputFlagName = "output"
+
 var (
+	outputFlag           string
 	detailFlag           bool
 	tableFlag            bool
 	ipv4Flag             bool
@@ -44,17 +63,19 @@ var statusCmd = &cobra.Command{
 func init() {
 	ipsFilterMap = make(map[string]struct{})
 	prefixNamesFilterMap = make(map[string]struct{})
-	statusCmd.PersistentFlags().BoolVarP(&detailFlag, "detail", "d", false, "display detailed status information in human-readable format")
-	statusCmd.PersistentFlags().BoolVarP(&tableFlag, "table", "t", false, "display peers in a table, supports the --filter-by-* flags")
-	statusCmd.PersistentFlags().BoolVarP(&jsonFlag, "json", "j", false, "display detailed status information in json format")
-	statusCmd.PersistentFlags().BoolVarP(&yamlFlag, "yaml", "y", false, "display detailed status information in yaml format")
-	statusCmd.PersistentFlags().BoolVarP(&ipv4Flag, "ipv4", "4", false, "display only NetBird IPv4 of this peer, e.g., --ipv4 will output 100.64.0.33")
-	statusCmd.PersistentFlags().BoolVarP(&ipv6Flag, "ipv6", "6", false, "display only NetBird IPv6 of this peer")
-	statusCmd.MarkFlagsMutuallyExclusive("detail", "table", "json", "yaml", "ipv4", "ipv6")
-	statusCmd.PersistentFlags().StringSliceVarP(&ipsFilter, "filter-by-ips", "I", []string{}, "filters the detailed output by a list of one or more IPs (v4 or v6), e.g., --filter-by-ips 100.64.0.100,fd00::1")
-	statusCmd.PersistentFlags().StringSliceVarP(&prefixNamesFilter, "filter-by-names", "N", []string{}, "filters the detailed output by a list of one or more peer FQDN or hostnames, e.g., --filter-by-names peer-a,peer-b.netbird.cloud")
-	statusCmd.PersistentFlags().StringVarP(&statusFilter, "filter-by-status", "S", "", "filters the detailed output by connection status(idle|connecting|connected), e.g., --filter-by-status connected")
-	statusCmd.PersistentFlags().StringVarP(&connectionTypeFilter, "filter-by-connection-type", "T", "", "filters the detailed output by connection type (P2P|Relayed), e.g., --filter-by-connection-type P2P")
+	statusCmd.PersistentFlags().StringVarP(&outputFlag, outputFlagName, "o", "", "output format: detail (human-readable details), table (peers in a table), json, yaml, ipv4 (only this peer's NetBird IPv4) or ipv6 (only this peer's NetBird IPv6). Prints a short summary if not set, or detail if a --filter-by-* flag is set. The --filter-by-* flags apply to all formats except ipv4 and ipv6")
+	_ = statusCmd.RegisterFlagCompletionFunc(outputFlagName, cobra.FixedCompletions(statusOutputNames(), cobra.ShellCompDirectiveNoFileComp))
+	addLegacyOutputFlag(&detailFlag, outputDetail, "d")
+	addLegacyOutputFlag(&tableFlag, outputTable, "t")
+	addLegacyOutputFlag(&jsonFlag, outputJSON, "j")
+	addLegacyOutputFlag(&yamlFlag, outputYAML, "y")
+	addLegacyOutputFlag(&ipv4Flag, outputIPv4, "4")
+	addLegacyOutputFlag(&ipv6Flag, outputIPv6, "6")
+	statusCmd.MarkFlagsMutuallyExclusive(outputFlagName, "detail", "table", "json", "yaml", "ipv4", "ipv6")
+	statusCmd.PersistentFlags().StringSliceVarP(&ipsFilter, "filter-by-ips", "I", []string{}, "filters the peers in the detail, table, json and yaml output by a list of one or more IPs (v4 or v6), e.g., --filter-by-ips 100.64.0.100,fd00::1")
+	statusCmd.PersistentFlags().StringSliceVarP(&prefixNamesFilter, "filter-by-names", "N", []string{}, "filters the peers in the detail, table, json and yaml output by a list of one or more peer FQDN or hostnames, e.g., --filter-by-names peer-a,peer-b.netbird.cloud")
+	statusCmd.PersistentFlags().StringVarP(&statusFilter, "filter-by-status", "S", "", "filters the peers in the detail, table, json and yaml output by connection status (idle|connecting|connected), e.g., --filter-by-status connected")
+	statusCmd.PersistentFlags().StringVarP(&connectionTypeFilter, "filter-by-connection-type", "T", "", "filters the peers in the detail, table, json and yaml output by connection type (P2P|Relayed), e.g., --filter-by-connection-type P2P")
 	statusCmd.Flags().AddFlagSet(anonymizeFlags)
 	statusCmd.PersistentFlags().StringVarP(&checkFlag, "check", "C", "", "run a health check and exit with code 0 on success, 1 on failure (live|ready|startup)")
 }
@@ -66,8 +87,12 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		return runHealthCheck(cmd)
 	}
 
-	err := parseFilters()
+	output, err := resolveStatusOutput()
 	if err != nil {
+		return err
+	}
+
+	if err := parseFilters(); err != nil {
 		return err
 	}
 
@@ -88,7 +113,7 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 	needsAuth := status == string(internal.StatusNeedsLogin) || status == string(internal.StatusLoginFailed) ||
 		status == string(internal.StatusSessionExpired)
 
-	if needsAuth && !jsonFlag && !yamlFlag {
+	if needsAuth && output != outputJSON && output != outputYAML {
 		cmd.Printf("Daemon status: %s\n\n"+
 			"Run UP command to log in with SSO (interactive login):\n\n"+
 			" netbird up \n\n"+
@@ -101,18 +126,18 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 	}
 
 	if resp.GetFullStatus() == nil {
-		output := nbstatus.OutputOverview{
+		overview := nbstatus.OutputOverview{
 			DaemonVersion: resp.GetDaemonVersion(),
 			CliVersion:    version.NetbirdVersion(),
 			DaemonStatus:  nbstatus.DaemonStatus(status),
 		}
 		var outputString string
 		var err error
-		switch {
-		case jsonFlag:
-			outputString, err = output.JSON()
-		case yamlFlag:
-			outputString, err = output.YAML()
+		switch output {
+		case outputJSON:
+			outputString, err = overview.JSON()
+		case outputYAML:
+			outputString, err = overview.YAML()
 		default:
 			outputString = fmt.Sprintf("Daemon status: %s\n"+
 				"Daemon version: %s\nCLI version: %s\n\n"+
@@ -128,12 +153,12 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	if ipv4Flag {
+	if output == outputIPv4 {
 		cmd.Print(parseInterfaceIP(resp.GetFullStatus().GetLocalPeerState().GetIP()))
 		return nil
 	}
 
-	if ipv6Flag {
+	if output == outputIPv6 {
 		ipv6 := resp.GetFullStatus().GetLocalPeerState().GetIpv6()
 		if ipv6 != "" {
 			cmd.Print(parseInterfaceIP(ipv6))
@@ -170,14 +195,14 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		SessionExpiresAt:     sessionExpiresAt,
 	})
 	var statusOutputString string
-	switch {
-	case detailFlag:
+	switch output {
+	case outputDetail:
 		statusOutputString = outputInformationHolder.FullDetailSummary()
-	case tableFlag:
+	case outputTable:
 		statusOutputString = outputInformationHolder.PeersTable()
-	case jsonFlag:
+	case outputJSON:
 		statusOutputString, err = outputInformationHolder.JSON()
-	case yamlFlag:
+	case outputYAML:
 		statusOutputString, err = outputInformationHolder.YAML()
 	default:
 		statusOutputString = outputInformationHolder.GeneralSummary(false, false, false, false)
@@ -229,9 +254,6 @@ func getActiveProfileName(ctx context.Context) string {
 func parseFilters() error {
 	switch strings.ToLower(statusFilter) {
 	case "", "idle", "connecting", "connected":
-		if strings.ToLower(statusFilter) != "" {
-			enableDetailFlagWhenFilterFlag()
-		}
 	default:
 		return fmt.Errorf("wrong status filter, should be one of connected|connecting|idle, got: %s", statusFilter)
 	}
@@ -243,22 +265,15 @@ func parseFilters() error {
 				return fmt.Errorf("got an invalid IP address in the filter: address %s, error %s", addr, err)
 			}
 			ipsFilterMap[addr] = struct{}{}
-			enableDetailFlagWhenFilterFlag()
 		}
 	}
 
-	if len(prefixNamesFilter) > 0 {
-		for _, name := range prefixNamesFilter {
-			prefixNamesFilterMap[strings.ToLower(name)] = struct{}{}
-		}
-		enableDetailFlagWhenFilterFlag()
+	for _, name := range prefixNamesFilter {
+		prefixNamesFilterMap[strings.ToLower(name)] = struct{}{}
 	}
 
 	switch strings.ToLower(connectionTypeFilter) {
 	case "", "p2p", "relayed":
-		if strings.ToLower(connectionTypeFilter) != "" {
-			enableDetailFlagWhenFilterFlag()
-		}
 	default:
 		return fmt.Errorf("wrong connection-type filter, should be one of P2P|Relayed, got: %s", connectionTypeFilter)
 	}
@@ -266,10 +281,61 @@ func parseFilters() error {
 	return nil
 }
 
-func enableDetailFlagWhenFilterFlag() {
-	if !detailFlag && !jsonFlag && !yamlFlag && !tableFlag {
-		detailFlag = true
+// addLegacyOutputFlag registers a hidden boolean flag that selects output.
+func addLegacyOutputFlag(p *bool, output statusOutput, shorthand string) {
+	name := string(output)
+	statusCmd.PersistentFlags().BoolVarP(p, name, shorthand, false, fmt.Sprintf("same as --%s %s", outputFlagName, name))
+	_ = statusCmd.PersistentFlags().MarkHidden(name)
+}
+
+// resolveStatusOutput returns the format chosen by --output or a hidden
+// format flag. Without either, a filter selects detail.
+func resolveStatusOutput() (statusOutput, error) {
+	output := statusOutput(strings.ToLower(outputFlag))
+	if output == outputSummary {
+		output = legacyStatusOutput()
 	}
+
+	if output != outputSummary && !slices.Contains(statusOutputs, output) {
+		return "", fmt.Errorf("unknown output %q, must be one of: %s", outputFlag, strings.Join(statusOutputNames(), ", "))
+	}
+
+	if output == outputSummary && hasStatusFilters() {
+		return outputDetail, nil
+	}
+
+	return output, nil
+}
+
+func legacyStatusOutput() statusOutput {
+	switch {
+	case detailFlag:
+		return outputDetail
+	case tableFlag:
+		return outputTable
+	case jsonFlag:
+		return outputJSON
+	case yamlFlag:
+		return outputYAML
+	case ipv4Flag:
+		return outputIPv4
+	case ipv6Flag:
+		return outputIPv6
+	default:
+		return outputSummary
+	}
+}
+
+func hasStatusFilters() bool {
+	return statusFilter != "" || len(ipsFilter) > 0 || len(prefixNamesFilter) > 0 || connectionTypeFilter != ""
+}
+
+func statusOutputNames() []string {
+	names := make([]string, 0, len(statusOutputs))
+	for _, output := range statusOutputs {
+		names = append(names, string(output))
+	}
+	return names
 }
 
 func runHealthCheck(cmd *cobra.Command) error {
