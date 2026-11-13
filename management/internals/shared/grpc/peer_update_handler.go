@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	pb "github.com/golang/protobuf/proto" //nolint
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
@@ -31,7 +32,7 @@ func PeerUpdateHandlerFactory(
 		challenger:         challenger,
 		onChallengeStamped: onChallengeStamped,
 		srv:                srv,
-		encrypter:          encryption.DefaultEncrypter{},
+		encrypter:          &streamEncrypter{},
 		debouncer:          NewUpdateDebouncer(1000 * time.Millisecond),
 		cleanupFunc:        cleanupfunc,
 	}
@@ -53,8 +54,25 @@ type PeerUpdateHandler struct {
 	onChallengeStamped func()
 	srv                syncSender
 	encrypter          encryption.Encrypter
-	debouncer          Debouncer
-	cleanupFunc        func()
+	// srvKey is the server key srvPubKey was derived from. The public key is
+	// derived once per stream (and again only if the server key changes)
+	// instead of on every send. Only HandleUpdates touches these fields.
+	srvKey      wgtypes.Key
+	srvPubKey   string
+	debouncer   Debouncer
+	cleanupFunc func()
+}
+
+// streamEncrypter encrypts the messages of one stream. It derives the box
+// shared key once per server key with box.Precompute (through
+// encryption.SharedKeyCache) and seals with box.SealAfterPrecomputation,
+// instead of deriving it on every message. Every message still gets its own
+// random nonce, and the wire format is unchanged, so the stock client
+// decrypt path (box.Open) reads it as before. A new server key derives a
+// new shared key. Only the stream's send loop calls it.
+type streamEncrypter struct {
+	cache *encryption.SharedKeyCache
+	key   wgtypes.Key
 }
 
 func (pu *PeerUpdateHandler) WithMetrics(appMetrics telemetry.AppMetrics) *PeerUpdateHandler {
@@ -131,13 +149,17 @@ func (pu *PeerUpdateHandler) SendUpdate(ctx context.Context, update *network_map
 	if stampCertificateChallenges(update.Update.GetChecks(), pu.challenger, pu.peerKey) && pu.onChallengeStamped != nil {
 		pu.onChallengeStamped()
 	}
+	if pu.srvPubKey == "" || pu.srvKey != key {
+		pu.srvKey = key
+		pu.srvPubKey = key.PublicKey().String()
+	}
 	encryptedResp, err := pu.encrypter.EncryptMessage(pu.peerKey, key, update.Update)
 	if err != nil {
 		pu.cleanupFunc()
 		return status.Errorf(codes.Internal, "failed processing update message")
 	}
 	err = pu.srv.Send(&proto.EncryptedMessage{
-		WgPubKey: key.PublicKey().String(),
+		WgPubKey: pu.srvPubKey,
 		Body:     encryptedResp,
 	})
 	if err != nil {
@@ -146,4 +168,12 @@ func (pu *PeerUpdateHandler) SendUpdate(ctx context.Context, update *network_map
 	}
 	log.WithContext(ctx).Tracef("sent an update to peer %s", pu.peerKey.String())
 	return nil
+}
+
+func (e *streamEncrypter) EncryptMessage(remotePubKey wgtypes.Key, ourPrivateKey wgtypes.Key, message pb.Message) ([]byte, error) {
+	if e.cache == nil || e.key != ourPrivateKey {
+		e.cache = encryption.NewSharedKeyCache(ourPrivateKey)
+		e.key = ourPrivateKey
+	}
+	return e.cache.EncryptMessage(remotePubKey, message)
 }
