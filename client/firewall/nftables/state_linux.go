@@ -39,6 +39,12 @@ func (s *ShutdownState) Cleanup() error {
 		return fmt.Errorf("create nftables manager: %w", err)
 	}
 
+	// Clean up v6 state even if the current run would not have any: the previous run may have
+	// put its accept rules into IPv6 chains of the host.
+	if !nft.hasV6Family() {
+		nft.createIPv6Components(getTableName(), s.InterfaceState, mtu)
+	}
+
 	if err := nft.Close(nil); err != nil {
 		return fmt.Errorf("reset nftables manager: %w", err)
 	}
