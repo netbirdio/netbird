@@ -976,7 +976,7 @@ func (config *Config) applyMDMExtraIFaceBlackList(policy *mdm.Policy) {
 		return
 	}
 
-	entries := splitListEntries(values)
+	entries := mdm.SplitList(values)
 	added := util.SliceDiff(entries, config.IFaceBlackList)
 	// Clip so the append never writes into a backing array shared with the
 	// slice the policy was applied to.
@@ -985,20 +985,6 @@ func (config *Config) applyMDMExtraIFaceBlackList(policy *mdm.Policy) {
 	log.Infof("MDM override %s = [ %s ] (added [ %s ])",
 		mdm.KeyExtraIFaceBlackList, strings.Join(entries, " "), strings.Join(added, " "))
 	log.Debugf("interface blacklist with MDM entries: [ %s ]", strings.Join(config.IFaceBlackList, " "))
-}
-
-// splitListEntries flattens comma-separated values, since an ADMX text box or
-// a plist string carries the whole list in one value.
-func splitListEntries(values []string) []string {
-	var entries []string
-	for _, value := range values {
-		for _, entry := range strings.Split(value, ",") {
-			if entry = strings.TrimSpace(entry); entry != "" && !slices.Contains(entries, entry) {
-				entries = append(entries, entry)
-			}
-		}
-	}
-	return entries
 }
 
 // ValidateBundleUploadURL sanity-checks a debug-bundle upload URL. An empty
