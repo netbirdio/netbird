@@ -32,7 +32,7 @@ var (
 
 func TestEventStreaming_List_200(t *testing.T) {
 	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
-		mux.HandleFunc("/api/event-streaming", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/api/integrations/event-streaming", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "GET", r.Method)
 			retBytes, _ := json.Marshal([]api.IntegrationResponse{testIntegrationResponse})
 			_, err := w.Write(retBytes)
@@ -47,7 +47,7 @@ func TestEventStreaming_List_200(t *testing.T) {
 
 func TestEventStreaming_List_Err(t *testing.T) {
 	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
-		mux.HandleFunc("/api/event-streaming", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/api/integrations/event-streaming", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
 			_, err := w.Write(retBytes)
@@ -62,7 +62,7 @@ func TestEventStreaming_List_Err(t *testing.T) {
 
 func TestEventStreaming_Get_200(t *testing.T) {
 	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
-		mux.HandleFunc("/api/event-streaming/1", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/api/integrations/event-streaming/1", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "GET", r.Method)
 			retBytes, _ := json.Marshal(testIntegrationResponse)
 			_, err := w.Write(retBytes)
@@ -76,7 +76,7 @@ func TestEventStreaming_Get_200(t *testing.T) {
 
 func TestEventStreaming_Get_Err(t *testing.T) {
 	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
-		mux.HandleFunc("/api/event-streaming/1", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/api/integrations/event-streaming/1", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "Not found", Code: 404})
 			w.WriteHeader(404)
 			_, err := w.Write(retBytes)
@@ -91,7 +91,7 @@ func TestEventStreaming_Get_Err(t *testing.T) {
 
 func TestEventStreaming_Create_200(t *testing.T) {
 	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
-		mux.HandleFunc("/api/event-streaming", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/api/integrations/event-streaming", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "POST", r.Method)
 			reqBytes, err := io.ReadAll(r.Body)
 			require.NoError(t, err)
@@ -116,7 +116,7 @@ func TestEventStreaming_Create_200(t *testing.T) {
 
 func TestEventStreaming_Create_Err(t *testing.T) {
 	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
-		mux.HandleFunc("/api/event-streaming", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/api/integrations/event-streaming", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
 			_, err := w.Write(retBytes)
@@ -131,7 +131,7 @@ func TestEventStreaming_Create_Err(t *testing.T) {
 
 func TestEventStreaming_Update_200(t *testing.T) {
 	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
-		mux.HandleFunc("/api/event-streaming/1", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/api/integrations/event-streaming/1", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "PUT", r.Method)
 			reqBytes, err := io.ReadAll(r.Body)
 			require.NoError(t, err)
@@ -155,7 +155,7 @@ func TestEventStreaming_Update_200(t *testing.T) {
 
 func TestEventStreaming_Update_Err(t *testing.T) {
 	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
-		mux.HandleFunc("/api/event-streaming/1", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/api/integrations/event-streaming/1", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "Not found", Code: 404})
 			w.WriteHeader(404)
 			_, err := w.Write(retBytes)
@@ -170,7 +170,7 @@ func TestEventStreaming_Update_Err(t *testing.T) {
 
 func TestEventStreaming_Delete_200(t *testing.T) {
 	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
-		mux.HandleFunc("/api/event-streaming/1", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/api/integrations/event-streaming/1", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "DELETE", r.Method)
 			w.WriteHeader(200)
 		})
@@ -181,7 +181,7 @@ func TestEventStreaming_Delete_200(t *testing.T) {
 
 func TestEventStreaming_Delete_Err(t *testing.T) {
 	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
-		mux.HandleFunc("/api/event-streaming/1", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/api/integrations/event-streaming/1", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "Not found", Code: 404})
 			w.WriteHeader(404)
 			_, err := w.Write(retBytes)

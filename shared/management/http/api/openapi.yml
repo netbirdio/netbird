@@ -12438,7 +12438,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /api/event-streaming:
+  /api/integrations/event-streaming:
     post:
       tags:
         - Event Streaming Integrations
@@ -12508,7 +12508,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-  /api/event-streaming/{id}:
+  /api/integrations/event-streaming/{id}:
     parameters:
       - name: id
         in: path
