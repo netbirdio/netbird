@@ -28,12 +28,21 @@ import (
 var extendSessionFlag bool
 
 func init() {
+	addLoginFlags(loginCmd)
 	loginCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
 	loginCmd.PersistentFlags().BoolVar(&showQR, showQRFlag, false, showQRDesc)
 	loginCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
-	loginCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) Netbird config file location")
 	loginCmd.PersistentFlags().BoolVar(&extendSessionFlag, "extend", false,
-		"refresh the SSO session expiry without tearing down the tunnel (requires an active connection)")
+		"refresh the SSO session expiry without tearing down the tunnel (requires an active connection). Cannot be used with --setup-key or --setup-key-file.")
+}
+
+// validateExtendFlags rejects a setup key together with --extend. It checks the
+// value of --extend, so --extend=false still allows a setup key.
+func validateExtendFlags(extend bool, setupKey, setupKeyPath string) error {
+	if extend && (setupKey != "" || setupKeyPath != "") {
+		return fmt.Errorf("--extend cannot be used with --setup-key or --setup-key-file because setup keys can only enroll new peers")
+	}
+	return nil
 }
 
 var loginCmd = &cobra.Command{
@@ -43,6 +52,10 @@ var loginCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := setEnvAndFlags(cmd); err != nil {
 			return fmt.Errorf("set env and flags: %v", err)
+		}
+
+		if err := validateExtendFlags(extendSessionFlag, setupKey, setupKeyPath); err != nil {
+			return err
 		}
 
 		ctx := internal.CtxInitState(context.Background())
@@ -69,9 +82,6 @@ var loginCmd = &cobra.Command{
 		}
 
 		if extendSessionFlag {
-			if providedSetupKey != "" {
-				return fmt.Errorf("--extend cannot be combined with a setup key; setup keys can only enrol new peers")
-			}
 			if err := doExtendSession(ctx, cmd, activeProf); err != nil {
 				return fmt.Errorf("extend session failed: %v", err)
 			}
@@ -99,10 +109,7 @@ var loginCmd = &cobra.Command{
 func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey string, activeProf *profilemanager.Profile, username string, pm *profilemanager.ProfileManager) error {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
-		//nolint
-		return fmt.Errorf("failed to connect to daemon error: %v\n"+
-			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
+		return daemonConnectError(err)
 	}
 	defer conn.Close()
 
@@ -132,7 +139,7 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 		loginRequest.Hint = &profileState.Email
 	}
 
-	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
+	if cmd.Flags().Changed(preSharedKeyFlag) {
 		loginRequest.OptionalPreSharedKey = &preSharedKey
 	}
 
@@ -174,10 +181,7 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 func doExtendSession(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) error {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
-		//nolint
-		return fmt.Errorf("failed to connect to daemon error: %v\n"+
-			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
+		return daemonConnectError(err)
 	}
 	defer conn.Close()
 
@@ -230,7 +234,7 @@ func getActiveProfile(ctx context.Context, pm *profilemanager.ProfileManager, pr
 	if profileName != "" {
 		prof, err := switchProfileOnDaemon(ctx, pm, profileName, username)
 		if err != nil {
-			return nil, fmt.Errorf("switch profile: %v", err)
+			return nil, fmt.Errorf("switch profile: %w", err)
 		}
 		return prof, nil
 	}
@@ -253,7 +257,7 @@ func switchProfileOnDaemon(ctx context.Context, pm *profilemanager.ProfileManage
 	}
 
 	if err := pm.SwitchProfile(resolvedID); err != nil {
-		return nil, fmt.Errorf("switch profile: %v", err)
+		return nil, fmt.Errorf("switch profile: %w", err)
 	}
 
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
@@ -286,10 +290,7 @@ func switchProfileOnDaemon(ctx context.Context, pm *profilemanager.ProfileManage
 func switchProfile(ctx context.Context, handle string, username string) (profilemanager.ID, error) {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
-		//nolint
-		return "", fmt.Errorf("failed to connect to daemon error: %v\n"+
-			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
+		return "", daemonConnectError(err)
 	}
 	defer conn.Close()
 
@@ -509,8 +510,6 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string, noBro
 }
 
 func setEnvAndFlags(cmd *cobra.Command) error {
-	SetFlagsFromEnvVars(rootCmd)
-
 	cmd.SetOut(cmd.OutOrStdout())
 
 	err := util.InitLog(logLevel, "console")

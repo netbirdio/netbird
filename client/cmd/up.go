@@ -52,7 +52,6 @@ var (
 	noBrowser          bool
 	showQR             bool
 	profileName        string
-	configPath         string
 
 	upCmd = &cobra.Command{
 		Use:   "up",
@@ -63,7 +62,11 @@ var (
 )
 
 func init() {
-	upCmd.PersistentFlags().BoolVarP(&foregroundMode, "foreground-mode", "F", false, "start service in foreground")
+	addLoginFlags(upCmd)
+	upCmd.PersistentFlags().BoolVarP(&foregroundMode, "foreground-mode", "F", false, "start service in foreground. Use --config to override the default profile file location")
+	// Only applies to foreground mode, the daemon takes it from the service commands.
+	upCmd.PersistentFlags().StringVarP(&configPath, configFlag, "c", "", "Overrides the default profile file location in foreground mode")
+	_ = upCmd.PersistentFlags().MarkHidden(configFlag)
 	upCmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, iface.WgInterfaceDefault, "WireGuard interface name")
 	upCmd.PersistentFlags().Uint16Var(&wireguardPort, wireguardPortFlag, iface.DefaultWgPort, "WireGuard interface listening port")
 	upCmd.PersistentFlags().Uint16Var(&mtu, mtuFlag, iface.DefaultMTU, "Set MTU (Maximum Transmission Unit) for the WireGuard interface")
@@ -85,14 +88,10 @@ func init() {
 	upCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
 	upCmd.PersistentFlags().BoolVar(&showQR, showQRFlag, false, showQRDesc)
 	upCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
-	upCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) NetBird config file location. ")
 
 }
 
 func upFunc(cmd *cobra.Command, args []string) error {
-	SetFlagsFromEnvVars(rootCmd)
-	SetFlagsFromEnvVars(cmd)
-
 	cmd.SetOut(cmd.OutOrStdout())
 
 	err := util.InitLog(logLevel, util.LogConsole)
@@ -130,7 +129,7 @@ func upFunc(cmd *cobra.Command, args []string) error {
 	if profileName != "" {
 		activeProf, err = switchOrCreateProfile(cmd.Context(), pm, profileName, username.Username)
 		if err != nil {
-			return fmt.Errorf("switch profile: %v", err)
+			return fmt.Errorf("switch profile: %w", err)
 		}
 		profileSwitched = true
 	} else {
@@ -184,10 +183,7 @@ func switchOrCreateProfile(ctx context.Context, pm *profilemanager.ProfileManage
 func createProfile(ctx context.Context, profileName, username string) (profilemanager.ID, error) {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
-		//nolint
-		return "", fmt.Errorf("failed to connect to daemon error: %v\n"+
-			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
+		return "", daemonConnectError(err)
 	}
 	defer conn.Close()
 
@@ -195,7 +191,6 @@ func createProfile(ctx context.Context, profileName, username string) (profilema
 }
 
 func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) error {
-	// override the default profile filepath if provided
 	if configPath != "" {
 		_ = profilemanager.NewServiceManager(configPath)
 	}
@@ -273,9 +268,8 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 }
 
 func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile, profileSwitched bool) error {
-	// Check if deprecated config flag is set and show warning
-	if cmd.Flag("config").Changed && configPath != "" {
-		cmd.PrintErrf("Warning: Config flag is deprecated on up command, it should be set as a service argument with $NB_CONFIG environment or with \"-config\" flag; netbird service reconfigure --service-env=\"NB_CONFIG=<file_path>\" or netbird service run --config=<file_path>\n")
+	if cmd.Flags().Changed(configFlag) && configPath != "" {
+		cmd.PrintErrf("Warning: --config only applies with --foreground-mode and is ignored. Set the daemon profile location with: netbird service reconfigure --config <file_path>\n")
 	}
 
 	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
@@ -285,10 +279,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
-		//nolint
-		return fmt.Errorf("failed to connect to daemon error: %v\n"+
-			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
+		return daemonConnectError(err)
 	}
 	defer func() {
 		err := conn.Close()
@@ -300,27 +291,25 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 
 	client := proto.NewDaemonServiceClient(conn)
 
+	// The peer detail is asked for because of what its absence means, not
+	// because it is read: the daemon strips it from a caller who does not hold
+	// the session, which is how the check below tells the holder apart. Without
+	// the flag the daemon never fills it in for anyone and that check is always
+	// true.
 	status, err := client.Status(ctx, &proto.StatusRequest{
-		WaitForReady: func() *bool { b := true; return &b }(),
+		WaitForReady:      func() *bool { b := true; return &b }(),
+		GetFullPeerStatus: true,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to get daemon status: %v", err)
 	}
 
 	// Under sudo the invoking user's local active-profile mirror is never
-	// written (the SwitchProfile write is a no-op), and plain root has no
-	// invoking user at all — so the mirror read into activeProf above is stale
-	// or defaulted and must not drive the daemon. With no --profile to make the
-	// choice explicit, take the profile the daemon already holds for this user
-	// instead: it stays on the user's current profile rather than silently
-	// switching to the mirror's default, and refuses when the daemon is on
-	// another user's profile.
+	// written, and plain root has no invoking user at all, so the mirror read
+	// into activeProf above is stale or defaulted. With no --profile, bring up
+	// the profile the daemon already has active, whoever owns it.
 	if profileName == "" && !profilemanager.MirrorIsAuthoritative() {
-		u, err := profilemanager.InvokingUser()
-		if err != nil {
-			return fmt.Errorf("get current user: %v", err)
-		}
-		resolved, err := daemonActiveProfileForUser(ctx, client, u.Username)
+		resolved, err := daemonActiveProfile(ctx, client)
 		switch {
 		case errors.Is(err, errDaemonActiveProfileUnsupported):
 			log.Warnf("keeping the locally resolved profile: %v", err)
@@ -332,14 +321,18 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 	}
 
 	if status.Status == string(internal.StatusConnected) {
+		if status.GetFullStatus() == nil {
+			cmd.Println("Already connected and the connection belongs to another user.")
+			cmd.Println("Run 'netbird down' as a privileged user to be able to claim the session with this user.")
+			return nil
+		}
 		if !profileSwitched {
 			cmd.Println("Already connected")
 			return nil
 		}
 
 		if _, err := client.Down(ctx, &proto.DownRequest{}); err != nil {
-			log.Errorf("call service down method: %v", err)
-			return err
+			return daemonCallError("call service down method", err)
 		}
 	}
 
@@ -529,7 +522,7 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 	if cmd.Flag(networkMonitorFlag).Changed {
 		req.NetworkMonitor = &networkMonitor
 	}
-	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
+	if cmd.Flags().Changed(preSharedKeyFlag) {
 		req.OptionalPreSharedKey = &preSharedKey
 	}
 	if cmd.Flag(disableAutoConnectFlag).Changed {
@@ -648,7 +641,7 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 		ic.NetworkMonitor = &networkMonitor
 	}
 
-	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
+	if cmd.Flags().Changed(preSharedKeyFlag) {
 		ic.PreSharedKey = &preSharedKey
 	}
 
@@ -746,7 +739,7 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 		CleanDNSLabels:      dnsLabels != nil && len(dnsLabels) == 0,
 	}
 
-	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
+	if cmd.Flags().Changed(preSharedKeyFlag) {
 		loginRequest.OptionalPreSharedKey = &preSharedKey
 	}
 
@@ -882,16 +875,13 @@ func isValidAddrPort(input string) bool {
 	return err == nil
 }
 
-// daemonActiveProfileForUser returns the profile the daemon currently holds for
-// username, for the no --profile case where the local mirror is not
-// authoritative (sudo or plain root). It returns that profile when the daemon
-// owns it for this user or when the profile is unowned (empty username, as on a
-// fresh install), so the caller acts on the daemon's real state instead of the
-// stale mirror. It denies with a --profile hint when the daemon is on another
-// user's profile, when the lookup fails, or when the daemon reports no active
+// daemonActiveProfile returns the profile the daemon currently holds, for the
+// no --profile case where the local mirror is not authoritative (sudo or plain
+// root). Root brings up whatever profile is active, whoever owns it. It denies
+// with a --profile hint when the lookup fails or the daemon reports no active
 // profile. Returns errDaemonActiveProfileUnsupported when the daemon predates
 // the RPC; the caller keeps the mirror-derived profile in that case.
-func daemonActiveProfileForUser(ctx context.Context, client proto.DaemonServiceClient, username string) (*profilemanager.Profile, error) {
+func daemonActiveProfile(ctx context.Context, client proto.DaemonServiceClient) (*profilemanager.Profile, error) {
 	active, err := client.GetActiveProfile(ctx, &proto.GetActiveProfileRequest{})
 	if err != nil {
 		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Unimplemented {
@@ -901,11 +891,6 @@ func daemonActiveProfileForUser(ctx context.Context, client proto.DaemonServiceC
 	}
 	if active.GetId() == "" {
 		return nil, fmt.Errorf("pass --profile to choose the profile explicitly: the daemon reported no active profile")
-	}
-	if active.GetUsername() != "" && active.GetUsername() != username {
-		return nil, fmt.Errorf(
-			"pass --profile to choose the profile explicitly: the daemon's active profile is %q (user %q) but this invocation runs for %q",
-			active.GetProfileName(), active.GetUsername(), username)
 	}
 	return &profilemanager.Profile{ID: profilemanager.ID(active.GetId())}, nil
 }

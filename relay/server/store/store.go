@@ -40,16 +40,17 @@ func NewStore() *Store {
 // the new peer is not stored and the old one stays open.
 func (s *Store) AddPeer(peer IPeer) (bool, error) {
 	s.peersLock.Lock()
-	defer s.peersLock.Unlock()
 	oldPeer, ok := s.peers[peer.ID()]
+	if ok && oldPeer.Authenticated() && !peer.Authenticated() {
+		s.peersLock.Unlock()
+		return false, ErrAuthenticatedPeerExists
+	}
+	s.peers[peer.ID()] = peer
+	s.peersLock.Unlock()
+
 	if ok {
-		if oldPeer.Authenticated() && !peer.Authenticated() {
-			return false, ErrAuthenticatedPeerExists
-		}
 		oldPeer.Close()
 	}
-
-	s.peers[peer.ID()] = peer
 	return ok, nil
 }
 

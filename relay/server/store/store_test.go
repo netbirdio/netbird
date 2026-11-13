@@ -1,7 +1,9 @@
 package store
 
 import (
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -9,10 +11,18 @@ import (
 	"github.com/netbirdio/netbird/shared/relay/messages"
 )
 
+const storeWaitTimeout = 2 * time.Second
+
 type MocPeer struct {
 	id            messages.PeerID
 	authenticated bool
 	closed        bool
+}
+
+type blockingPeer struct {
+	id      messages.PeerID
+	entered chan struct{}
+	release chan struct{}
 }
 
 func (m *MocPeer) Close() {
@@ -25,6 +35,19 @@ func (m *MocPeer) Authenticated() bool {
 
 func (m *MocPeer) ID() messages.PeerID {
 	return m.id
+}
+
+func (p *blockingPeer) Close() {
+	close(p.entered)
+	<-p.release
+}
+
+func (p *blockingPeer) Authenticated() bool {
+	return false
+}
+
+func (p *blockingPeer) ID() messages.PeerID {
+	return p.id
 }
 
 func TestStore_DeletePeer(t *testing.T) {
@@ -91,5 +114,51 @@ func TestStore_AuthenticatedPeerIsNotTakenOver(t *testing.T) {
 			assert.Same(t, newPeer, stored, "the new peer must replace the old one")
 			assert.True(t, oldPeer.closed, "the replaced peer must be closed")
 		})
+	}
+}
+
+func TestStore_AddPeerClosesReplacedPeerOutsideLock(t *testing.T) {
+	s := NewStore()
+
+	id := messages.HashID("peer_one")
+	old := &blockingPeer{id: id, entered: make(chan struct{}), release: make(chan struct{})}
+	releaseOld := sync.OnceFunc(func() { close(old.release) })
+	t.Cleanup(releaseOld)
+	replacement := &MocPeer{id: id}
+	_, err := s.AddPeer(old)
+	require.NoError(t, err)
+
+	replaced := make(chan bool, 1)
+	go func() {
+		ok, _ := s.AddPeer(replacement)
+		replaced <- ok
+	}()
+	select {
+	case <-old.entered:
+	case <-time.After(storeWaitTimeout):
+		require.Fail(t, "the replaced peer must be closed")
+	}
+
+	stored := make(chan IPeer, 1)
+	go func() {
+		p, _ := s.Peer(id)
+		bystander := &MocPeer{id: messages.HashID("bystander")}
+		_, _ = s.AddPeer(bystander)
+		s.DeletePeer(bystander)
+		stored <- p
+	}()
+	select {
+	case p := <-stored:
+		assert.Same(t, replacement, p, "the replacement must be stored before the old peer is closed")
+	case <-time.After(storeWaitTimeout):
+		assert.Fail(t, "the store must stay usable while a replaced peer is closing")
+	}
+
+	releaseOld()
+	select {
+	case wasReplaced := <-replaced:
+		assert.True(t, wasReplaced, "replacing a peer must be reported")
+	case <-time.After(storeWaitTimeout):
+		assert.Fail(t, "adding the peer must finish once the replaced peer is closed")
 	}
 }

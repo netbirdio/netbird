@@ -512,7 +512,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	case updateAccountPeers || extraSettingsChanged || groupChangesAffectPeers:
 		go am.UpdateAccountPeers(context.WithoutCancel(ctx), accountID, types.UpdateReason{Resource: types.UpdateResourceAccountSettings, Operation: types.UpdateOperationUpdate})
 	case ipv6Snap != nil:
-		am.ExpandAndUpdateAffected(ctx, accountID, ipv6Snap, ipv6Change)
+		am.ExpandAndUpdateAffected(ctx, accountID, ipv6Snap, ipv6Change, types.UpdateReason{Resource: types.UpdateResourceAccountSettings, Operation: types.UpdateOperationUpdate})
 	}
 
 	return newSettings, nil

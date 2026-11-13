@@ -14,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -103,7 +104,7 @@ func (m *managerImpl) CreateRecord(ctx context.Context, accountID, userID, zoneI
 	meta := record.EventMeta(zone.ID, zone.Name)
 	m.accountManager.StoreEvent(ctx, userID, record.ID, accountID, activity.DNSRecordCreated, meta)
 
-	m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change, types.UpdateReason{Resource: types.UpdateResourceZoneRecord, Operation: types.UpdateOperationCreate})
 
 	return record, nil
 }
@@ -178,7 +179,7 @@ func (m *managerImpl) UpdateRecord(ctx context.Context, accountID, userID, zoneI
 		return record, nil
 	}
 
-	m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change, types.UpdateReason{Resource: types.UpdateResourceZoneRecord, Operation: types.UpdateOperationUpdate})
 
 	return record, nil
 }
@@ -232,7 +233,7 @@ func (m *managerImpl) DeleteRecord(ctx context.Context, accountID, userID, zoneI
 	meta := record.EventMeta(zone.ID, zone.Name)
 	m.accountManager.StoreEvent(ctx, userID, recordID, accountID, activity.DNSRecordDeleted, meta)
 
-	m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change, types.UpdateReason{Resource: types.UpdateResourceZoneRecord, Operation: types.UpdateOperationDelete})
 
 	return nil
 }

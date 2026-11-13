@@ -608,6 +608,130 @@ jobs:
           path: dist/
           retention-days: 3
 
+  release_ui_linux_arm64:
+    # The UI links GTK4 and WebKitGTK 6.0 through cgo, and release_ui has no
+    # arm64 C toolchain or libraries, so the Linux arm64 UI is built natively.
+    # Pinned to 24.04, the oldest Ubuntu shipping GTK 4.14, to link against
+    # the oldest glibc the GTK4 packages support.
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      release_ui_linux_arm64_artifact_url: ${{ steps.upload_release_ui_linux_arm64.outputs.artifact-url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0 # It is required for GoReleaser to work properly
+          persist-credentials: false
+
+      - name: Parse semver string
+        id: semver_parser
+        uses: netbirdio/shared-actions/actions/parse-semver@be5df6047383da2236e02243cceb857d8567c27e # v0.0.2
+
+      - name: Set snapshot flag
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          echo "flags=--snapshot" >> $GITHUB_ENV
+
+      - name: Set build vars
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          if [[ "x-${{ steps.semver_parser.outputs.prerelease }}" == "x-" && "x-${{ github.repository }}" == "x-netbirdio/netbird" ]]; then
+            echo "x-${{ github.repository }}"
+            echo "x-${{ steps.semver_parser.outputs.prerelease }}"
+            echo "SKIP_PUBLISH=false" >> $GITHUB_ENV
+          else
+            echo "x-${{ github.repository }}"
+            echo "x-${{ steps.semver_parser.outputs.prerelease }}"
+          fi
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: "go.mod"
+          cache: false
+      - name: Cache Go modules
+        # Restore-only from the release_ui cache written by trusted runs; the
+        # module cache is architecture-independent and the amd64 build-cache
+        # entries just miss.
+        uses: actions/cache/restore@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-ui-go-releaser-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-ui-go-releaser-
+
+      - name: Install modules
+        run: go mod tidy
+
+      - name: check git status
+        run: git --no-pager diff --exit-code
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 11
+
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y -q libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev
+
+      - name: Decode GPG signing key
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GPG_RPM_PRIVATE_KEY: ${{ secrets.GPG_RPM_PRIVATE_KEY }}
+        run: |
+          echo "$GPG_RPM_PRIVATE_KEY" | base64 -d > /tmp/gpg-rpm-signing-key.asc
+          echo "GPG_RPM_KEY_FILE=/tmp/gpg-rpm-signing-key.asc" >> $GITHUB_ENV
+
+      - name: Install wails3 CLI
+        # Version derived from go.mod so the binding generator always matches
+        # the wails runtime the binary links against.
+        run: |
+          WAILS_VERSION=$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)
+          go install github.com/wailsapp/wails/v3/cmd/wails3@$WAILS_VERSION
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
+        with:
+          version: ${{ env.GORELEASER_VER }}
+          args: release --config .goreleaser_ui_linux_arm64.yaml --clean ${{ env.flags }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPLOAD_DEBIAN_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
+          UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
+          GPG_RPM_KEY_FILE: ${{ env.GPG_RPM_KEY_FILE }}
+          NFPM_NETBIRD_UI_RPM_ARM64_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
+          SKIP_PUBLISH: ${{ env.SKIP_PUBLISH }}
+      - name: Verify RPM signatures
+        run: |
+          docker run --rm -v $(pwd)/dist:/dist fedora:41 bash -c '
+            dnf install -y -q rpm-sign curl >/dev/null 2>&1
+            curl -sSL https://pkgs.netbird.io/yum/repodata/repomd.xml.key -o /tmp/rpm-pub.key
+            rpm --import /tmp/rpm-pub.key
+            echo "=== Verifying RPM signatures ==="
+            for rpm_file in /dist/*.rpm; do
+              [ -f "$rpm_file" ] || continue
+              echo "--- $(basename $rpm_file) ---"
+              rpm -K "$rpm_file"
+            done
+          '
+      - name: Clean up GPG key
+        if: always()
+        run: rm -f /tmp/gpg-rpm-signing-key.asc
+      - name: upload non tags for debug purposes
+        id: upload_release_ui_linux_arm64
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a #v7.0.1
+        with:
+          name: release-ui-linux-arm64
+          path: dist/
+          retention-days: 3
+
   release_ui_gtk3:
     # Legacy GTK3/WebKit2GTK 4.1 UI build for distros without WebKitGTK 6.0
     # (Ubuntu 22.04, Debian 12, RHEL 9, Fedora <=39). Runs on ubuntu-22.04 so
@@ -947,7 +1071,7 @@ jobs:
   comment_release_artifacts:
     name: Comment release artifacts
     runs-on: ubuntu-latest
-    needs: [release, release_ui, release_ui_gtk3, release_ui_darwin]
+    needs: [release, release_ui, release_ui_linux_arm64, release_ui_gtk3, release_ui_darwin]
     if: ${{ always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
     permissions:
       contents: read
@@ -959,6 +1083,7 @@ jobs:
         env:
           RELEASE_RESULT: ${{ needs.release.result }}
           RELEASE_UI_RESULT: ${{ needs.release_ui.result }}
+          RELEASE_UI_LINUX_ARM64_RESULT: ${{ needs.release_ui_linux_arm64.result }}
           RELEASE_UI_GTK3_RESULT: ${{ needs.release_ui_gtk3.result }}
           RELEASE_UI_DARWIN_RESULT: ${{ needs.release_ui_darwin.result }}
           RELEASE_ARTIFACT_URL: ${{ needs.release.outputs.release_artifact_url }}
@@ -966,6 +1091,7 @@ jobs:
           WINDOWS_PACKAGES_ARTIFACT_URL: ${{ needs.release.outputs.windows_packages_artifact_url }}
           MACOS_PACKAGES_ARTIFACT_URL: ${{ needs.release.outputs.macos_packages_artifact_url }}
           RELEASE_UI_ARTIFACT_URL: ${{ needs.release_ui.outputs.release_ui_artifact_url }}
+          RELEASE_UI_LINUX_ARM64_ARTIFACT_URL: ${{ needs.release_ui_linux_arm64.outputs.release_ui_linux_arm64_artifact_url }}
           RELEASE_UI_GTK3_ARTIFACT_URL: ${{ needs.release_ui_gtk3.outputs.release_ui_gtk3_artifact_url }}
           RELEASE_UI_DARWIN_ARTIFACT_URL: ${{ needs.release_ui_darwin.outputs.release_ui_darwin_artifact_url }}
           GHCR_IMAGES_MARKDOWN: ${{ needs.release.outputs.ghcr_images }}
@@ -989,6 +1115,7 @@ jobs:
               ['Windows packages', process.env.WINDOWS_PACKAGES_ARTIFACT_URL, process.env.RELEASE_RESULT],
               ['macOS packages', process.env.MACOS_PACKAGES_ARTIFACT_URL, process.env.RELEASE_RESULT],
               ['UI artifacts', process.env.RELEASE_UI_ARTIFACT_URL, process.env.RELEASE_UI_RESULT],
+              ['UI Linux arm64 artifacts', process.env.RELEASE_UI_LINUX_ARM64_ARTIFACT_URL, process.env.RELEASE_UI_LINUX_ARM64_RESULT],
               ['UI GTK3 artifacts', process.env.RELEASE_UI_GTK3_ARTIFACT_URL, process.env.RELEASE_UI_GTK3_RESULT],
               ['UI macOS artifacts', process.env.RELEASE_UI_DARWIN_ARTIFACT_URL, process.env.RELEASE_UI_DARWIN_RESULT],
             ];
@@ -1046,7 +1173,7 @@ jobs:
 
   trigger_signer:
     runs-on: ubuntu-latest
-    needs: [release, release_ui, release_ui_gtk3, release_ui_darwin, test_windows_installer]
+    needs: [release, release_ui, release_ui_linux_arm64, release_ui_gtk3, release_ui_darwin, test_windows_installer]
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Trigger binaries sign pipelines

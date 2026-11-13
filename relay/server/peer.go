@@ -176,11 +176,8 @@ func (p *Peer) CloseGracefully(ctx context.Context) {
 }
 
 func (p *Peer) Close() {
-	p.connMu.Lock()
-	defer p.connMu.Unlock()
-
 	p.ctxCancel()
-	if err := p.conn.Close(); err != nil {
+	if err := p.conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		p.log.Errorf(errCloseConn, err)
 	}
 }
@@ -199,15 +196,23 @@ func (p *Peer) writeWithTimeout(ctx context.Context, buf []byte) error {
 }
 
 func (p *Peer) handleHealthcheckEvents(ctx context.Context, hc *healthcheck.Sender) {
+	healthCheck := hc.HealthCheck
 	for {
 		select {
-		case <-hc.HealthCheck:
-			_, err := p.Write(ctx, p.enc.Healthcheck())
-			if err != nil {
+		case _, ok := <-healthCheck:
+			if !ok {
+				healthCheck = nil
+				continue
+			}
+			if _, err := p.Write(ctx, p.enc.Healthcheck()); err != nil {
 				p.log.Errorf("failed to send healthcheck message: %s", err)
+				p.Close()
 				return
 			}
-		case <-hc.Timeout:
+		case _, ok := <-hc.Timeout:
+			if !ok {
+				return
+			}
 			p.log.Errorf("peer healthcheck timeout")
 			err := p.conn.Close()
 			if err != nil {

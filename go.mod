@@ -57,6 +57,7 @@ require (
 	github.com/gliderlabs/ssh v0.3.9-0.20250127223818-909fa952d4e4
 	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/go-ole/go-ole v1.3.0
+	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/gobwas/ws v1.4.0
 	github.com/goccy/go-yaml v1.19.2
 	github.com/godbus/dbus/v5 v5.2.2
@@ -64,6 +65,7 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/google/go-tpm v0.9.8
 	github.com/google/gopacket v1.1.19
+	github.com/google/jsonschema-go v0.4.3
 	github.com/google/nftables v0.3.0
 	github.com/gopacket/gopacket v1.4.0
 	github.com/grafana/pyroscope-go v1.4.2
@@ -82,6 +84,7 @@ require (
 	github.com/miekg/dns v1.1.72
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/moby/moby/api v1.54.1
+	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/netbirdio/dex v0.244.1-0.20261021152327-0319b501f1a6
 	github.com/netbirdio/dex/api/v2 v2.0.0-20261021115841-9f3e6d4c2ce3
 	github.com/netbirdio/go-nat v0.0.0-20260821095157-6b2c8c5c74e8
@@ -111,6 +114,7 @@ require (
 	github.com/shirou/gopsutil/v4 v4.25.8
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
 	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8
+	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go v0.37.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.37.0
@@ -148,7 +152,12 @@ require (
 	howett.net/plist v1.0.2-0.20250314012144-ee69052608d9
 )
 
-require golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173 // indirect
+require (
+	github.com/segmentio/asm v1.1.3 // indirect
+	github.com/segmentio/encoding v0.5.4 // indirect
+	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
+	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173 // indirect
+)
 
 require (
 	cloud.google.com/go/auth v0.20.0 // indirect
@@ -227,7 +236,6 @@ require (
 	github.com/go-openapi/swag/jsonname v0.26.1 // indirect
 	github.com/go-openapi/validate v0.24.0 // indirect
 	github.com/go-sql-driver/mysql v1.9.3 // indirect
-	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/go-webauthn/webauthn v0.16.4 // indirect
 	github.com/go-webauthn/x v0.2.3 // indirect
 	github.com/gobwas/httphead v0.1.0 // indirect
@@ -333,7 +341,6 @@ require (
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
-	github.com/spf13/viper v1.21.0 // indirect
 	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tinylib/msgp v1.6.3 // indirect

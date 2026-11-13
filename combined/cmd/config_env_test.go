@@ -28,7 +28,7 @@ func unsetSecretEnvs(t *testing.T) {
 	require.NoError(t, os.Unsetenv(envStoreEncryptionKey))
 }
 
-func writeCombinedConfig(t *testing.T, authSecret, encryptionKey string) string {
+func writeSecretEnvConfig(t *testing.T, authSecret, encryptionKey string) string {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
@@ -96,7 +96,7 @@ func TestLoadConfigRelayAuthSecretEnv(t *testing.T) {
 				t.Setenv(envRelayAuthSecret, tc.envValue)
 			}
 
-			cfg, err := LoadConfig(writeCombinedConfig(t, tc.yamlSecret, "yaml-store-key"))
+			cfg, err := LoadConfig(writeSecretEnvConfig(t, tc.yamlSecret, "yaml-store-key"))
 			require.NoError(t, err)
 
 			err = cfg.Validate()
@@ -131,7 +131,7 @@ func TestValidate_LocalRelayAuthSecretOrRequired(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			unsetSecretEnvs(t)
-			cfg, err := LoadConfig(writeCombinedConfig(t, tc.secret, "yaml-store-key"))
+			cfg, err := LoadConfig(writeSecretEnvConfig(t, tc.secret, "yaml-store-key"))
 			require.NoError(t, err)
 			cfg.Server.PeerAuth.Required = tc.required
 			cfg.Server.PeerAuth.SigningKeyFile = tc.signingKey
@@ -198,7 +198,7 @@ func TestLoadConfigStoreEncryptionKeyEnv(t *testing.T) {
 				t.Setenv(envStoreEncryptionKey, tc.envValue)
 			}
 
-			cfg, err := LoadConfig(writeCombinedConfig(t, "yaml-relay-secret", tc.yamlKey))
+			cfg, err := LoadConfig(writeSecretEnvConfig(t, "yaml-relay-secret", tc.yamlKey))
 			require.NoError(t, err)
 			require.NoError(t, cfg.Validate())
 
@@ -286,7 +286,7 @@ func TestToManagementConfigPeerAuth(t *testing.T) {
 	keyFile := filepath.Join(t.TempDir(), "peer_auth.pem")
 	require.NoError(t, os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600))
 
-	path := writeCombinedConfig(t, "relay-secret", "")
+	path := writeSecretEnvConfig(t, "relay-secret", "")
 	content, err := os.ReadFile(path)
 	require.NoError(t, err)
 	content = append(content, []byte("  peerAuth:\n    signingKeyFile: "+keyFile+"\n")...)
@@ -363,7 +363,7 @@ func TestEnsurePeerAuthSigningKey(t *testing.T) {
 
 func TestPeerAuthHostnamesConfig(t *testing.T) {
 	unsetSecretEnvs(t)
-	path := writeCombinedConfig(t, "relay-secret", "")
+	path := writeSecretEnvConfig(t, "relay-secret", "")
 	content, err := os.ReadFile(path)
 	require.NoError(t, err)
 	content = append(content, []byte("  peerAuth:\n    hostnames: [netbird.example.com, relay.example.com]\n")...)

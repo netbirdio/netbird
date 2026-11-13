@@ -291,7 +291,28 @@ func (mgr *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate
 	if e := mgr.findWildcardEntry(hello.ServerName); e != nil {
 		return e.watcher.GetCertificate(hello)
 	}
-	return mgr.Manager.GetCertificate(hello)
+	cert, err := mgr.Manager.GetCertificate(hello)
+	if err != nil || cert.Leaf == nil || len(cert.Leaf.DNSNames) == 0 || time.Now().Before(cert.Leaf.NotAfter) {
+		return cert, err
+	}
+	// autocert serves its in-memory certificate without checking expiry. A
+	// newer one may already be on disk, renewed by another replica.
+	if fresh, derr := mgr.readCertFromDisk(context.Background(), cert.Leaf.DNSNames[0]); derr == nil {
+		return fresh, nil
+	}
+	return cert, nil
+}
+
+// ecdsaHello returns a ClientHello autocert treats as ECDSA-capable, so it
+// works on the cache entry real clients are served and readCertFromDisk reads.
+func ecdsaHello(ctx context.Context, name string) *tls.ClientHelloInfo {
+	return &tls.ClientHelloInfo{
+		ServerName:       name,
+		Conn:             &dummyConn{ctx: ctx},
+		CipherSuites:     []uint16{tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+		SignatureSchemes: []tls.SignatureScheme{tls.ECDSAWithP256AndSHA256},
+		SupportedCurves:  []tls.CurveID{tls.CurveP256},
+	}
 }
 
 // AddDomain registers a domain for certificate management. Domains that
@@ -355,6 +376,11 @@ func (mgr *Manager) prefetchCertificate(d domain.Domain) {
 
 	if cert, err := mgr.readCertFromDisk(ctx, name); err == nil {
 		mgr.logger.Infof("certificate for domain %q already on disk, skipping ACME", name)
+		// Load it into autocert too: autocert arms its renewal timer only for
+		// certificates it loads itself, which otherwise waits for traffic.
+		if _, err := mgr.Manager.GetCertificate(ecdsaHello(ctx, name)); err != nil {
+			mgr.logger.Warnf("load cached certificate for domain %q into autocert: %v", name, err)
+		}
 		mgr.recordAndNotify(ctx, d, name, cert, 0)
 		return
 	}
@@ -417,6 +443,19 @@ func (mgr *Manager) prefetchCertificate(d domain.Domain) {
 // DirCache, bypassing autocert's internal certState mutex. Safe to call
 // concurrently with an in-flight ACME request for the same domain.
 func (mgr *Manager) readCertFromDisk(ctx context.Context, name string) (*tls.Certificate, error) {
+	cert, err := mgr.loadCachedCert(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	if time.Now().After(cert.Leaf.NotAfter) {
+		return nil, fmt.Errorf("cached certificate for %q expired at %s", name, cert.Leaf.NotAfter)
+	}
+	return cert, nil
+}
+
+// loadCachedCert reads and parses a certificate from the autocert DirCache,
+// expired or not.
+func (mgr *Manager) loadCachedCert(ctx context.Context, name string) (*tls.Certificate, error) {
 	if mgr.Cache == nil {
 		return nil, fmt.Errorf("no cache configured")
 	}
@@ -432,17 +471,77 @@ func (mgr *Manager) readCertFromDisk(ctx context.Context, name string) (*tls.Cer
 	if err != nil {
 		return nil, fmt.Errorf("parse cached certificate for %q: %w", name, err)
 	}
-	if len(cert.Certificate) > 0 {
-		leaf, err := x509.ParseCertificate(cert.Certificate[0])
-		if err != nil {
-			return nil, fmt.Errorf("parse leaf for %q: %w", name, err)
-		}
-		if time.Now().After(leaf.NotAfter) {
-			return nil, fmt.Errorf("cached certificate for %q expired at %s", name, leaf.NotAfter)
-		}
-		cert.Leaf = leaf
+	leaf, err := x509.ParseCertificate(cert.Certificate[0])
+	if err != nil {
+		return nil, fmt.Errorf("parse leaf for %q: %w", name, err)
 	}
+	cert.Leaf = leaf
 	return &cert, nil
+}
+
+const (
+	expiryCheckInterval = time.Hour
+	// renewalGrace is how long a certificate may stay unrenewed past
+	// autocert's renewal point before it is reported; autocert retries a
+	// failed renewal every 30-60 minutes.
+	renewalGrace = 24 * time.Hour
+)
+
+// WatchExpiry periodically checks the cached certificate of every ACME
+// domain and reports renewals that are overdue or certificates that expired.
+// autocert retries failed renewals without logging them.
+func (mgr *Manager) WatchExpiry(ctx context.Context) {
+	ticker := time.NewTicker(expiryCheckInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			mgr.checkExpiry(ctx, time.Now())
+		}
+	}
+}
+
+func (mgr *Manager) checkExpiry(ctx context.Context, now time.Time) {
+	mgr.mu.RLock()
+	domains := make([]domain.Domain, 0, len(mgr.domains))
+	for d, info := range mgr.domains {
+		if info.state != domainPending {
+			domains = append(domains, d)
+		}
+	}
+	mgr.mu.RUnlock()
+
+	for _, d := range domains {
+		name := d.PunycodeString()
+		if mgr.findWildcardEntry(name) != nil {
+			continue
+		}
+		cert, err := mgr.loadCachedCert(ctx, name)
+		if err != nil {
+			mgr.logger.Debugf("expiry check for domain %q: %v", name, err)
+			continue
+		}
+		leaf := cert.Leaf
+		if now.After(leaf.NotAfter) {
+			msg := fmt.Sprintf("certificate expired at %s and was not renewed", leaf.NotAfter.UTC().Format(time.RFC3339))
+			mgr.logger.Errorf("domain %q: %s", name, msg)
+			mgr.setDomainState(d, domainFailed, msg)
+			continue
+		}
+		if now.After(renewalDue(leaf).Add(renewalGrace)) {
+			mgr.logger.Warnf("certificate for domain %q expires at %s; renewal due since %s has not succeeded",
+				name, leaf.NotAfter.UTC().Format(time.RFC3339), renewalDue(leaf).UTC().Format(time.RFC3339))
+		}
+		mgr.setDomainState(d, domainReady, "")
+	}
+}
+
+// renewalDue mirrors autocert's default renewal point (renewal.go next()
+// without jitter); the manager leaves autocert.Manager.RenewBefore unset.
+func renewalDue(leaf *x509.Certificate) time.Time {
+	return leaf.NotAfter.Add(-min(leaf.NotAfter.Sub(leaf.NotBefore)/3, 30*24*time.Hour))
 }
 
 // recordAndNotify records metrics, marks the domain ready, logs cert details,

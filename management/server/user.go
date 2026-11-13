@@ -699,7 +699,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			return nil, err
 		}
 	} else if len(usersToSave) > 0 {
-		go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids())
+		go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids(), types.UpdateReason{Resource: types.UpdateResourceUser, Operation: types.UpdateOperationUpdate})
 	}
 
 	return updatedUsersInfo, globalErr
@@ -1219,10 +1219,12 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 		)
 	}
 
-	if len(peerIDs) != 0 {
-		if err := am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
-			return err
-		}
+	if len(peerIDs) == 0 {
+		return nil
+	}
+
+	if err := am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
+		return err
 	}
 
 	affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, peerIDs)
