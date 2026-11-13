@@ -8,6 +8,8 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 
 	"github.com/netbirdio/netbird/client/iface"
@@ -551,7 +553,7 @@ func TestCloseRelayConn(t *testing.T) {
 		t.Errorf("failed to bind channel: %s", err)
 	}
 
-	_ = clientAlice.relayConn.Close()
+	_ = clientAlice.currentSession().conn.Close()
 
 	_, err = conn.Read(make([]byte, 1))
 	if err == nil {
@@ -600,20 +602,16 @@ func TestCloseByServer(t *testing.T) {
 		}
 	}()
 
-	disconnected := make(chan struct{})
-	relayClient.SetOnDisconnectListener(func(_ string) {
-		log.Infof("client disconnected")
-		close(disconnected)
-	})
+	s := relayClient.currentSession()
 
 	err = srv1.Shutdown(ctx)
 	if err != nil {
 		t.Fatalf("failed to close server: %s", err)
 	}
 
-	select {
-	case <-disconnected:
-	case <-time.After(3 * time.Second):
+	waitCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if !s.Wait(waitCtx) {
 		log.Errorf("timeout waiting for client to disconnect")
 	}
 
@@ -621,6 +619,58 @@ func TestCloseByServer(t *testing.T) {
 	if err == nil {
 		t.Errorf("unexpected opening connection to closed server")
 	}
+}
+
+func TestSessionEndObservedAfterDrop(t *testing.T) {
+	ctx := context.Background()
+	serverListenAddr := "127.0.0.1:51101"
+	serverCfg := newClientTestServerConfig(serverListenAddr)
+
+	srv, err := server.NewServer(serverCfg)
+	require.NoError(t, err, "create server")
+	errChan := make(chan error, 1)
+	go func() {
+		if err := srv.Listen(server.ListenerConfig{Address: serverListenAddr}); err != nil {
+			errChan <- err
+		}
+	}()
+	t.Cleanup(func() {
+		if err := srv.Shutdown(ctx); err != nil {
+			t.Errorf("failed to close server: %s", err)
+		}
+	})
+	require.NoError(t, waitForServerToStart(errChan), "start server")
+
+	relayClient := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "alice", iface.DefaultMTU)
+	t.Cleanup(func() {
+		if err := relayClient.Close(); err != nil {
+			t.Errorf("failed to close client: %s", err)
+		}
+	})
+
+	first, err := relayClient.ConnectSession(ctx)
+	require.NoError(t, err, "connect to server")
+
+	dropSession(t, first)
+
+	lateCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	assert.True(t, first.Wait(lateCtx), "an observer that starts waiting after the drop must still see the session as ended")
+	assert.False(t, relayClient.Ready(), "client must not report ready once its session ended")
+	_, err = relayClient.OpenConn(ctx, "bob")
+	assert.Error(t, err, "a relayed connection must not open on an ended session")
+
+	second, err := relayClient.ConnectSession(ctx)
+	require.NoError(t, err, "reconnect on the same client")
+	require.NotSame(t, first, second, "a reconnect must start a new session")
+
+	// The ended session is torn down once more, the way a late cleanup of the
+	// old connection would do it after the client has already reconnected.
+	require.NoError(t, first.Close(true))
+
+	assert.False(t, second.isClosed(), "tearing down the old session must not end the new one")
+	assert.Same(t, second, relayClient.currentSession(), "the new session must stay the client's current one")
+	assert.True(t, relayClient.Ready(), "client must stay ready on the new session")
 }
 
 func TestCloseByClient(t *testing.T) {
@@ -763,4 +813,13 @@ func waitForServerToStart(errChan chan error) error {
 		return nil
 	}
 	return nil
+}
+
+func dropSession(t *testing.T, s *session) {
+	t.Helper()
+
+	_ = s.conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	require.True(t, s.Wait(ctx), "session did not end after its transport was closed")
 }
