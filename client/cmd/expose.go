@@ -144,8 +144,6 @@ func isProtocolValid(exposeProtocol string) bool {
 }
 
 func exposeFn(cmd *cobra.Command, args []string) error {
-	SetFlagsFromEnvVars(rootCmd)
-
 	if err := util.InitLog(logLevel, util.LogConsole); err != nil {
 		return fmt.Errorf("initialize log: %w", err)
 	}

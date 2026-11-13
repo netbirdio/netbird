@@ -60,9 +60,6 @@ func init() {
 }
 
 func statusFunc(cmd *cobra.Command, args []string) error {
-	SetFlagsFromEnvVars(rootCmd)
-	setFlagSetFromEnvVars(anonymizeFlags)
-
 	cmd.SetOut(cmd.OutOrStdout())
 
 	if checkFlag != "" {
