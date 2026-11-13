@@ -142,14 +142,18 @@
                                 -->
 
                                 <!-- ===== Extra interface blacklist (array or comma-separated string)
-                                     Interface name prefixes NetBird must not use to reach peers.
-                                     Added to the built-in defaults and to the device's own
-                                     extra-iface-blacklist flag; never replaces them. -->
+                                     Interface name prefixes whose local addresses NetBird never
+                                     offers as peer connection candidates. Case-sensitive prefix,
+                                     no wildcards: "bridge" also excludes bridge100. Added to the
+                                     built-in list and to the device's own extra-iface-blacklist
+                                     entries, never replaces them, and is not written to disk.
+                                     Relay, Signal and Management traffic still follows the
+                                     routing table. -->
                                 <!--
                                 <key>extraIFaceBlackList</key>
                                 <array>
-                                    <string>vxlan</string>
-                                    <string>gre</string>
+                                    <string>bridge</string>
+                                    <string>vmenet</string>
                                 </array>
                                 -->
 
