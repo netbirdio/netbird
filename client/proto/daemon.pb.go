@@ -7148,8 +7148,8 @@ type GetAgentNetworkInfoResponse struct {
 	state protoimpl.MessageState            `protogen:"open.v1"`
 	State GetAgentNetworkInfoResponse_State `protobuf:"varint,1,opt,name=state,proto3,enum=daemon.GetAgentNetworkInfoResponse_State" json:"state,omitempty"`
 	// endpoint is the account's proxy base URL, "https://<label>.<cluster>".
-	Endpoint      string                  `protobuf:"bytes,3,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
-	Providers     []*AgentNetworkProvider `protobuf:"bytes,6,rep,name=providers,proto3" json:"providers,omitempty"`
+	Endpoint      string                  `protobuf:"bytes,2,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	Providers     []*AgentNetworkProvider `protobuf:"bytes,3,rep,name=providers,proto3" json:"providers,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7947,8 +7947,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x1aGetAgentNetworkInfoRequest\"\xaa\x02\n" +
 	"\x1bGetAgentNetworkInfoResponse\x12?\n" +
 	"\x05state\x18\x01 \x01(\x0e2).daemon.GetAgentNetworkInfoResponse.StateR\x05state\x12\x1a\n" +
-	"\bendpoint\x18\x03 \x01(\tR\bendpoint\x12:\n" +
-	"\tproviders\x18\x06 \x03(\v2\x1c.daemon.AgentNetworkProviderR\tproviders\"r\n" +
+	"\bendpoint\x18\x02 \x01(\tR\bendpoint\x12:\n" +
+	"\tproviders\x18\x03 \x03(\v2\x1c.daemon.AgentNetworkProviderR\tproviders\"r\n" +
 	"\x05State\x12\x15\n" +
 	"\x11STATE_UNSPECIFIED\x10\x00\x12\x06\n" +
 	"\x02OK\x10\x01\x12\v\n" +
