@@ -520,6 +520,7 @@ func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
 		// todo consider to move after the ConfigureWGEndpoint
 		conn.wgProxyRelay.Work()
 
+		conn.enableWgWatcherIfNeeded(time.Now())
 		presharedKey := conn.presharedKey(conn.rosenpassRemoteKey)
 		if err := conn.endpointUpdater.SwitchWGEndpoint(conn.wgProxyRelay.EndpointAddr(), presharedKey); err != nil {
 			conn.Log.Errorf("failed to switch to relay conn: %v", err)
@@ -714,6 +715,7 @@ func (conn *Conn) onWGDisconnected(watcherCtx context.Context) {
 		conn.Log.Debugf("No active connection to close on WG timeout")
 	}
 
+	conn.dropWgWatcher()
 	conn.escalateWGTimeoutLocked()
 }
 
@@ -884,7 +886,14 @@ func (conn *Conn) enableWgWatcherIfNeeded(enabledTime time.Time) {
 // waits for the goroutine: the timeout path reentrantly calls back here under conn.mu, so
 // blocking would deadlock. Caller must hold conn.mu.
 func (conn *Conn) disableWgWatcherIfNeeded() {
-	if conn.currentConnPriority != conntype.None || conn.wgWatcher == nil {
+	if conn.currentConnPriority != conntype.None {
+		return
+	}
+	conn.dropWgWatcher()
+}
+
+func (conn *Conn) dropWgWatcher() {
+	if conn.wgWatcher == nil {
 		return
 	}
 	conn.wgWatcherCancel()
