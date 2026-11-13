@@ -17,6 +17,7 @@ ARCH="$(uname -m)"
 PACKAGE_MANAGER="bin"
 INSTALL_DIR=""
 SUDO=""
+UI_INSTALL_OPTIONAL=false
 # curl protocol set for --proto / --proto-redir: https and nothing else, so no
 # request and no redirect in a chain can fall back to plaintext.
 PROTO_HTTPS="=https"
@@ -184,7 +185,7 @@ install_native_binaries() {
     # download and copy binaries to INSTALL_DIR
     download_release_binary "$CLI_APP"
     if ! $SKIP_UI_APP; then
-        download_release_binary "$UI_APP"
+        install_ui download_release_binary "$UI_APP"
     fi
 }
 
@@ -210,13 +211,28 @@ check_use_bin_variable() {
     return 1
 }
 
-install_ui_package() {
-    if "$@"; then
+install_ui() {
+    if ! $UI_INSTALL_OPTIONAL; then
+        "$@"
         return 0
     fi
 
-    echo "Warning: NetBird UI could not be installed, see the package manager output above." >&2
-    echo "A common cause is a distribution without the GTK4 and WebKitGTK versions the UI requires." >&2
+    # Testing the command directly in an if would switch errexit off inside it,
+    # so it runs in a subshell and still stops at its first failing step.
+    set +e
+    (
+        set -e
+        "$@"
+    )
+    UI_INSTALL_STATUS=$?
+    set -e
+
+    if [ "$UI_INSTALL_STATUS" -eq 0 ]; then
+        return 0
+    fi
+
+    echo "Warning: NetBird UI could not be installed, see the output above." >&2
+    echo "The UI may not be available for this distribution or NetBird version." >&2
     echo "Continuing with the NetBird CLI only." >&2
 }
 
@@ -248,14 +264,14 @@ install_netbird() {
         ${SUDO} apt-get install netbird -y
 
         if ! $SKIP_UI_APP; then
-            install_ui_package ${SUDO} apt-get install netbird-ui -y
+            install_ui ${SUDO} apt-get install netbird-ui -y
         fi
     ;;
     yum)
         add_rpm_repo
         ${SUDO} yum -y install netbird
         if ! $SKIP_UI_APP; then
-            install_ui_package ${SUDO} yum -y install netbird-ui
+            install_ui ${SUDO} yum -y install netbird-ui
         fi
     ;;
     dnf)
@@ -263,14 +279,14 @@ install_netbird() {
         ${SUDO} dnf -y install netbird
 
         if ! $SKIP_UI_APP; then
-            install_ui_package ${SUDO} dnf -y install netbird-ui
+            install_ui ${SUDO} dnf -y install netbird-ui
         fi
     ;;
     rpm-ostree)
         add_rpm_repo
         ${SUDO} rpm-ostree -y install netbird
         if ! $SKIP_UI_APP; then
-            install_ui_package ${SUDO} rpm-ostree -y install netbird-ui
+            install_ui ${SUDO} rpm-ostree -y install netbird-ui
         fi
         # ensure the service is started after install
          ${SUDO} netbird service install || true
@@ -423,12 +439,20 @@ if type uname >/dev/null 2>&1; then
               OS_NAME="$(. /etc/os-release && echo "$ID")"
               INSTALL_DIR="/usr/bin"
 
-              # Allow netbird UI installation for x64 arch only
-              if [ "$ARCH" != "amd64" ] && [ "$ARCH" != "arm64" ] \
-                  && [ "$ARCH" != "x86_64" ];then
-                  SKIP_UI_APP=true
-                  echo "NetBird UI installation will be omitted as $ARCH is not a compatible architecture"
-              fi
+              # Allow netbird UI installation for x86_64 and arm64 only
+              case "$ARCH" in
+                  amd64|x86_64)
+                  ;;
+                  arm64|aarch64)
+                      # arm64 has no GTK3 UI build and older releases ship no arm64
+                      # UI at all, so a failed UI install is not fatal here.
+                      UI_INSTALL_OPTIONAL=true
+                  ;;
+                  *)
+                      SKIP_UI_APP=true
+                      echo "NetBird UI installation will be omitted as $ARCH is not a compatible architecture"
+                  ;;
+              esac
 
               # Allow netbird UI installation for linux running desktop environment
               if [ -z "$XDG_CURRENT_DESKTOP" ];then
