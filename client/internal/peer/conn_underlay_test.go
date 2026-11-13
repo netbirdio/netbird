@@ -1,18 +1,69 @@
 package peer
 
 import (
+	"context"
+	"net"
 	"net/netip"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/client/internal/peer/conntype"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 )
 
 // A lazy connection sits in the peer store and the status recorder without
 // ever being opened, so it has no context and no workers yet.
 func TestOnUnderlayChangedSkipsUnopenedConn(t *testing.T) {
+	conn := newUnopenedConn(t)
+
+	assert.NotPanics(t, func() {
+		conn.OnUnderlayChanged(func(netip.Addr) bool { return false }, time.Now(), time.Now().Add(time.Minute))
+		conn.MoveMarkedToRelay()
+	}, "an underlay change must skip a connection that was never opened")
+}
+
+// A peer the status recorder no longer knows cannot be judged, so the mark of
+// an earlier change must not survive to move it on a later relay event.
+func TestOnUnderlayChangedClearsTheMarkWhenThePeerIsUnknown(t *testing.T) {
+	conn := newUnopenedConn(t)
+	conn.config.Key = "unknown-peer"
+	now := time.Now()
+	conn.underlayMark = underlayMark{iceGen: 1, until: now.Add(time.Minute)}
+
+	conn.OnUnderlayChanged(func(netip.Addr) bool { return false }, now, now.Add(time.Minute))
+
+	assert.Equal(t, underlayMark{}, conn.underlayMark, "the stale mark must be cleared")
+}
+
+// unresolvableConn is an ICE connection whose remote address cannot be
+// resolved, so configuring the WireGuard endpoint fails.
+type unresolvableConn struct{ net.Conn }
+
+func (unresolvableConn) RemoteAddr() net.Addr { return unresolvableAddr{} }
+
+type unresolvableAddr struct{}
+
+func (unresolvableAddr) Network() string { return "udp" }
+func (unresolvableAddr) String() string  { return "not-an-endpoint" }
+
+// A P2P path that failed to become active must not count as a new one, or the
+// mark of the path lost to the change would be dropped and the peer would stay
+// on the dead path until the ICE timeouts.
+func TestFailedICEActivationKeepsTheMark(t *testing.T) {
+	conn := newUnopenedConn(t)
+	conn.ctx = context.Background()
+
+	conn.onICEConnectionIsReady(conntype.ICEP2P, ICEConnInfo{RemoteConn: unresolvableConn{}})
+
+	assert.Equal(t, conntype.None, conn.currentConnPriority, "ICE must not be the active path after the failure")
+	assert.Zero(t, conn.iceActiveGen, "a failed activation must not count as ICE becoming active")
+}
+
+func newUnopenedConn(t *testing.T) *Conn {
+	t.Helper()
 	recorder := NewRecorder("https://mgm")
 	require.NoError(t, recorder.AddPeer(connConf.Key, "peer.netbird", "100.64.0.2", ""))
 
@@ -24,10 +75,42 @@ func TestOnUnderlayChangedSkipsUnopenedConn(t *testing.T) {
 		PeerConnDispatcher: testDispatcher,
 	})
 	require.NoError(t, err)
+	return conn
+}
 
-	assert.NotPanics(t, func() {
-		conn.OnUnderlayChanged(func(netip.Addr) bool { return false })
-	}, "an underlay change must skip a connection that was never opened")
+// The network change sweeps the relay too, so a lost P2P path waits for the
+// peer's relay connection to come back before it is closed.
+func TestUnderlayMarkVerdict(t *testing.T) {
+	now := time.Now()
+	mark := underlayMark{iceGen: 3, notBefore: now.Add(-time.Second), until: now.Add(time.Minute)}
+
+	tests := []struct {
+		name       string
+		mark       underlayMark
+		iceGen     uint64
+		priority   conntype.ConnPriority
+		relayReady bool
+		want       markVerdict
+	}{
+		{name: "relay of the peer not back yet", mark: mark, iceGen: 3, priority: conntype.ICEP2P, relayReady: false, want: markWait},
+		// A relay connection that came back before the sweep settled may be
+		// one the sweep is about to close.
+		{name: "relay of the peer back before the sweep settled", mark: underlayMark{iceGen: 3, notBefore: now.Add(time.Second), until: now.Add(time.Minute)}, iceGen: 3, priority: conntype.ICEP2P, relayReady: true, want: markWait},
+		{name: "relay of the peer back", mark: mark, iceGen: 3, priority: conntype.ICEP2P, relayReady: true, want: markMove},
+		{name: "relay back for a P2P path through TURN", mark: mark, iceGen: 3, priority: conntype.ICETurn, relayReady: true, want: markMove},
+		// P2P renegotiated on the new network before the relay came back:
+		// closing ICE now would kill the new path.
+		{name: "ICE reconnected since the change", mark: mark, iceGen: 4, priority: conntype.ICEP2P, relayReady: true, want: markDrop},
+		{name: "peer already left P2P on its own", mark: mark, iceGen: 3, priority: conntype.Relay, relayReady: true, want: markDrop},
+		{name: "mark expired", mark: underlayMark{iceGen: 3, until: now.Add(-time.Second)}, iceGen: 3, priority: conntype.ICEP2P, relayReady: true, want: markDrop},
+		{name: "no mark", mark: underlayMark{}, iceGen: 0, priority: conntype.ICEP2P, relayReady: true, want: markDrop},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.mark.verdict(tt.iceGen, tt.priority, tt.relayReady, now), "mark verdict")
+		})
+	}
 }
 
 func TestP2PPathLost(t *testing.T) {

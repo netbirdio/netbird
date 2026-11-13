@@ -110,3 +110,38 @@ func TestRecoveryWatchReplace(t *testing.T) {
 	assert.Error(t, second.Err(), "stop cancels the latest watch")
 	w.stop()
 }
+
+func TestWaitRelayBack(t *testing.T) {
+	const (
+		timeout = time.Second
+		poll    = 5 * time.Millisecond
+	)
+
+	t.Run("relay swept then reconnected", func(t *testing.T) {
+		// ready, ready, dropped by the sweep, dropped, then back.
+		var calls atomic.Int32
+		ready := func() bool {
+			n := calls.Add(1)
+			return n <= 2 || n >= 5
+		}
+		assert.True(t, waitRelayBack(context.Background(), ready, timeout, poll), "a relay back after the sweep counts as back")
+	})
+
+	t.Run("a relay never seen dropping does not count", func(t *testing.T) {
+		// Still ready may only mean the sweep has not closed it yet, or the
+		// drop was not noticed: moving peers now could land them on it.
+		start := time.Now()
+		assert.False(t, waitRelayBack(context.Background(), func() bool { return true }, 100*time.Millisecond, poll), "ready before any drop must not count")
+		assert.GreaterOrEqual(t, time.Since(start), 100*time.Millisecond, "it waited for the timeout")
+	})
+
+	t.Run("relay does not come back", func(t *testing.T) {
+		assert.False(t, waitRelayBack(context.Background(), func() bool { return false }, 100*time.Millisecond, poll), "no relay, nothing to move to")
+	})
+
+	t.Run("cancelled by a newer change, offline or the engine stop", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		assert.False(t, waitRelayBack(ctx, func() bool { return false }, timeout, poll), "a cancelled wait must not move peers")
+	})
+}

@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/netevents"
+	"github.com/netbirdio/netbird/client/netevents/sweep"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 )
@@ -34,6 +35,12 @@ const (
 	// client falls back to the full restart.
 	controlPlaneRecoveryTimeout = 30 * time.Second
 	controlPlaneRecoveryPoll    = 500 * time.Millisecond
+
+	// relaySweptAfter covers the sweep delay plus the time the relay
+	// connections of the peers take to notice the sweep: a relay connection
+	// seen before it may be one the sweep is about to close.
+	relaySweptAfter = sweep.DefaultSweepDelay + 500*time.Millisecond
+	relayBackPoll   = 100 * time.Millisecond
 )
 
 // wgSocketPinned reports the platforms that bind the WireGuard UDP socket to
@@ -198,7 +205,8 @@ func (e *Engine) redialOnUnderlayChange(change networkmonitor.Change) bool {
 	}
 
 	e.netMgr.NotifyNetworkChange()
-	e.moveP2PPeersToRelay(rebound)
+	now := time.Now()
+	e.markLostP2PPeers(rebound, now.Add(relaySweptAfter), now.Add(controlPlaneRecoveryTimeout))
 	return true
 }
 
@@ -216,12 +224,11 @@ func (e *Engine) rebindWGSocket() error {
 	return dev.BindUpdate()
 }
 
-// moveP2PPeersToRelay makes relay the active path of every P2P peer whose
-// path did not survive the change and renegotiates P2P on the new network, so
-// traffic does not wait for the ICE timeouts on a dead path. After the
-// WireGuard socket was reopened every P2P path is gone, whatever its
-// candidate.
-func (e *Engine) moveP2PPeersToRelay(socketReopened bool) {
+// markLostP2PPeers marks every P2P peer whose path did not survive the change,
+// so it moves to relay once its relay connection is back instead of waiting
+// for the ICE timeouts on a dead path. After the WireGuard socket was reopened
+// every P2P path is gone, whatever its candidate.
+func (e *Engine) markLostP2PPeers(socketReopened bool, notBefore, until time.Time) {
 	hostAddrs := currentHostAddrs()
 	localAddrExists := func(addr netip.Addr) bool {
 		if socketReopened {
@@ -232,7 +239,57 @@ func (e *Engine) moveP2PPeersToRelay(socketReopened bool) {
 	}
 	for _, key := range e.peerStore.PeersPubKey() {
 		if conn, ok := e.peerStore.PeerConn(key); ok {
-			conn.OnUnderlayChanged(localAddrExists)
+			conn.OnUnderlayChanged(localAddrExists, notBefore, until)
+		}
+	}
+}
+
+// moveMarkedPeersWhenRelayBack moves the marked peers whose relay connection
+// came back with the relay, once the sweep has settled. Peers whose relay
+// connection comes back later move on their own, when it does.
+func (e *Engine) moveMarkedPeersWhenRelayBack(ctx context.Context, relayReady func() bool) {
+	defer e.shutdownWg.Done()
+
+	settled := time.NewTimer(relaySweptAfter)
+	defer settled.Stop()
+	if !waitRelayBack(ctx, relayReady, controlPlaneRecoveryTimeout, relayBackPoll) {
+		return
+	}
+	select {
+	case <-settled.C:
+	case <-ctx.Done():
+		return
+	}
+	for _, key := range e.peerStore.PeersPubKey() {
+		if conn, ok := e.peerStore.PeerConn(key); ok {
+			conn.MoveMarkedToRelay()
+		}
+	}
+}
+
+// waitRelayBack waits for the relay to drop and then to be ready again. Ready
+// before any drop is the connection the sweep is about to close, so a drop
+// never seen moves no one. It returns false when timeout, counted from the
+// call, elapses first or ctx is done.
+func waitRelayBack(ctx context.Context, ready func() bool, timeout, poll time.Duration) bool {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+
+	for dropped := false; ; {
+		if !dropped && !ready() {
+			dropped = true
+		}
+		if dropped && ready() {
+			return true
+		}
+		select {
+		case <-ticker.C:
+		case <-deadline.C:
+			return false
+		case <-ctx.Done():
+			return false
 		}
 	}
 }
