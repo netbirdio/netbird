@@ -4,9 +4,9 @@ import (
 	"net"
 	"testing"
 
-	"go.uber.org/mock/gomock"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	"go.uber.org/mock/gomock"
 
 	mocks "github.com/netbirdio/netbird/client/iface/mocks"
 )
@@ -220,6 +220,62 @@ func TestDeviceWrapperRead(t *testing.T) {
 			return
 		}
 	})
+}
+
+// TestDeviceWrapperReadKeepsCallerBuffers checks that dropping packets from a
+// batch compacts the packet data without moving the caller's buffers:
+// wireguard-go reuses the same bufs slice for every read and pairs bufs[i]
+// with its own outbound element, so the kept packets must be returned in
+// order while every entry of bufs keeps pointing at the same memory.
+func TestDeviceWrapperReadKeepsCallerBuffers(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	const offset = 4
+	packets := []string{"drop", "first kept", "drop", "second kept", "drop"}
+	kept := []string{"first kept", "second kept"}
+
+	tun := mocks.NewMockDevice(ctrl)
+	tun.EXPECT().Read(gomock.Any(), gomock.Any(), offset).
+		DoAndReturn(func(bufs [][]byte, sizes []int, offset int) (int, error) {
+			for i, packet := range packets {
+				sizes[i] = copy(bufs[i][offset:], packet)
+			}
+			return len(packets), nil
+		})
+	filter := mocks.NewMockPacketFilter(ctrl)
+	filter.EXPECT().FilterOutbound(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(packet []byte, _ int) bool { return string(packet) == "drop" }).
+		Times(len(packets))
+
+	wrapped := newDeviceFilter(tun)
+	wrapped.filter = filter
+
+	bufs := make([][]byte, len(packets)+1)
+	before := make([]*byte, len(bufs))
+	for i := range bufs {
+		bufs[i] = make([]byte, 32)
+		before[i] = &bufs[i][0]
+	}
+	sizes := make([]int, len(bufs))
+
+	n, err := wrapped.Read(bufs, sizes, offset)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if n != len(kept) {
+		t.Fatalf("expected n=%d, got %d", len(kept), n)
+	}
+	for i, want := range kept {
+		if got := string(bufs[i][offset : offset+sizes[i]]); got != want {
+			t.Errorf("packet %d: expected %q, got %q", i, want, got)
+		}
+	}
+	for i := range bufs {
+		if &bufs[i][0] != before[i] {
+			t.Errorf("caller's buffer %d was moved", i)
+		}
+	}
 }
 
 func TestDeviceWrapperReadPanic(t *testing.T) {
