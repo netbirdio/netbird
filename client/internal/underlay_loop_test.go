@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/netip"
 	"testing"
@@ -124,6 +125,33 @@ func TestUnderlayLoopKeepsOfflineOnAFailedLookup(t *testing.T) {
 	require.Len(t, r.baselines, 3, "listen rounds")
 	assert.Equal(t, home, r.baselines[2], "the pre-loss baseline is kept")
 	assert.False(t, onlineDuringRun[2], "the manager stays offline after a failed lookup")
+}
+
+// The route monitor fails right after a redial: the loop ends, but the safety
+// net it armed must keep watching, since its restart is also what brings the
+// monitor back.
+func TestUnderlayLoopKeepsTheSafetyNetWhenTheMonitorFails(t *testing.T) {
+	home, cafe := snapshot("192.168.1.1"), snapshot("10.0.0.1")
+	r := &loopRun{}
+	rounds := 0
+	loop := underlayLoop{
+		listen: func(context.Context, networkmonitor.NextHops) (networkmonitor.Change, error) {
+			rounds++
+			if rounds == 1 {
+				return networkmonitor.Change{Kind: networkmonitor.ChangeGateway, Before: home, After: cafe}, nil
+			}
+			return networkmonitor.Change{}, errors.New("network change checker stopped")
+		},
+		decide:    func(c networkmonitor.Change) underlayAction { return testActions[c.Kind] },
+		redial:    func(networkmonitor.Change) bool { r.redialed++; return true },
+		restart:   func() { r.restarted++ },
+		armWatch:  func() { r.armed++ },
+		stopWatch: func() { r.stopped++ },
+	}
+	loop.run(context.Background())
+
+	require.Equal(t, 1, r.armed, "the redial armed the safety net")
+	assert.Equal(t, 0, r.stopped, "a monitor failure must not stop the safety net")
 }
 
 func TestUnderlayLoopSequences(t *testing.T) {

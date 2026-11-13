@@ -72,7 +72,6 @@ type underlayLoop struct {
 }
 
 func (l *underlayLoop) run(ctx context.Context) {
-	defer l.stopWatch()
 	// The manager outlives this engine: never leave it offline.
 	defer l.availability.set(true)
 	// baseline is the last snapshot with a default route; it survives an
@@ -84,8 +83,10 @@ func (l *underlayLoop) run(ctx context.Context) {
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				log.Infof("network monitor stopped")
+				l.stopWatch()
 				return
 			}
+			// Keep the safety net: its restart also brings the monitor back.
 			log.Errorf("network monitor error: %v", err)
 			return
 		}
@@ -129,6 +130,7 @@ func (l *underlayLoop) run(ctx context.Context) {
 
 		log.Infof("Network monitor: detected network change (%s), triggering client restart", change.Kind)
 		l.restart()
+		l.stopWatch()
 		return
 	}
 }

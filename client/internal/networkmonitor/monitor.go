@@ -132,7 +132,15 @@ func (nw *NetworkMonitor) Listen(ctx context.Context, baseline NextHops) (change
 	}
 	for {
 		select {
-		case <-event:
+		case _, ok := <-event:
+			if !ok {
+				timer.Stop()
+				// The checker also stops when ctx ends.
+				if err := ctx.Err(); err != nil {
+					return Change{}, err
+				}
+				return Change{}, errors.New("network change checker stopped")
+			}
 			timer.Reset(debounceTime)
 		case <-timer.C:
 			change := newChange(baseline)

@@ -99,3 +99,53 @@ func TestListenTreatsALookupErrorAsUnknownNotOffline(t *testing.T) {
 	_, err := nw.Listen(ctx, home)
 	assert.ErrorIs(t, err, context.DeadlineExceeded, "no change may be reported for an unchanged network after a failed lookup")
 }
+
+// A checker that fails closes the event channel; Listen must return instead
+// of spinning on the closed channel until its context ends.
+func TestListenReturnsWhenTheCheckerFails(t *testing.T) {
+	home := NextHops{V4: systemops.Nexthop{IP: netip.MustParseAddr("192.168.1.1"), Intf: &net.Interface{Index: 13, Name: "Ethernet"}}}
+	readSnapshotFn = func() (NextHops, error) { return home, nil }
+	checkChangeFn = func(context.Context, systemops.Nexthop, systemops.Nexthop) error {
+		return errors.New("route monitor unavailable")
+	}
+	t.Cleanup(func() {
+		readSnapshotFn = readSnapshot
+		checkChangeFn = checkChange
+	})
+
+	nw := New()
+	defer nw.Stop()
+	ctx, cancel := context.WithTimeout(context.Background(), debounceTime+time.Second)
+	defer cancel()
+
+	_, err := nw.Listen(ctx, home)
+	require.Error(t, err, "a failed checker must end Listen")
+	assert.NotErrorIs(t, err, context.DeadlineExceeded, "Listen must return on the checker failure, not on its deadline")
+}
+
+// Stopping the engine cancels Listen, which also ends the checker and closes
+// the event channel: the stop must read as a cancel, not as a checker failure
+// reported at error level.
+func TestListenReportsTheCancelWhenTheCheckerStopsWithIt(t *testing.T) {
+	home := NextHops{V4: systemops.Nexthop{IP: netip.MustParseAddr("192.168.1.1"), Intf: &net.Interface{Index: 13, Name: "Ethernet"}}}
+	readSnapshotFn = func() (NextHops, error) { return home, nil }
+	checkChangeFn = func(ctx context.Context, _, _ systemops.Nexthop) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	t.Cleanup(func() {
+		readSnapshotFn = readSnapshot
+		checkChangeFn = checkChange
+	})
+
+	// Both the closed channel and the done context are ready at once, and
+	// select picks between them at random: repeat to cover both orders.
+	for range 200 {
+		nw := New()
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, err := nw.Listen(ctx, home)
+		nw.Stop()
+		require.ErrorIs(t, err, context.Canceled, "a stopped Listen must report the cancel")
+	}
+}
