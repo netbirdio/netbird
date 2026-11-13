@@ -717,3 +717,54 @@ func TestHandler_AllowsDeviceEndpointsWhenGrantsDefault(t *testing.T) {
 	provider.Handler().ServeHTTP(rec, req)
 	assert.NotEqual(t, http.StatusNotFound, rec.Code)
 }
+
+func newFrontendProvider(t *testing.T, frontend Frontend) *Provider {
+	t.Helper()
+
+	yamlConfig := &YAMLConfig{
+		Issuer: "http://localhost:5599/oauth2",
+		Storage: Storage{
+			Type:   "sqlite3",
+			Config: map[string]interface{}{"file": filepath.Join(t.TempDir(), "dex.db")},
+		},
+		Web:              Web{HTTP: "127.0.0.1:5599"},
+		EnablePasswordDB: true,
+		Frontend:         frontend,
+	}
+
+	provider, err := NewProviderFromYAML(context.Background(), yamlConfig)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = provider.Stop(context.Background()) })
+	return provider
+}
+
+// The device page is the one login page that renders without an auth request in flight.
+func renderDevicePage(t *testing.T, provider *Provider) string {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodGet, "/oauth2/device", nil)
+	rec := httptest.NewRecorder()
+	provider.Handler().ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	return rec.Body.String()
+}
+
+func TestLoginPages_DefaultBranding(t *testing.T) {
+	page := renderDevicePage(t, newFrontendProvider(t, Frontend{Issuer: "NetBird", Theme: "light"}))
+
+	assert.Contains(t, page, "<title>NetBird</title>", "page title")
+	assert.Contains(t, page, `<svg width="180"`, "NetBird logo must be shown by default")
+	assert.NotContains(t, page, "<img", "no custom logo without one configured")
+}
+
+func TestLoginPages_CustomBranding(t *testing.T) {
+	page := renderDevicePage(t, newFrontendProvider(t, Frontend{
+		Issuer: "Acme Access",
+		Theme:  "light",
+		Extra:  map[string]string{"brandLogoURL": "https://example.com/logo.svg"},
+	}))
+
+	assert.Contains(t, page, "<title>Acme Access</title>", "page title")
+	assert.Contains(t, page, `<img src="https://example.com/logo.svg" alt="Acme Access">`, "custom logo")
+	assert.NotContains(t, page, `<svg width="180"`, "NetBird logo must be replaced")
+}
