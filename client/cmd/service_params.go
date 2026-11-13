@@ -178,7 +178,7 @@ func applyServiceParams(cmd *cobra.Command, params *serviceParams) {
 
 	// For optional fields where empty means "use default", always apply so
 	// that an explicit clear (--management-url "") persists across reinstalls.
-	if !rootCmd.PersistentFlags().Changed("management-url") {
+	if !cmd.Flags().Changed(managementURLFlag) {
 		managementURL = params.ManagementURL
 	}
 
