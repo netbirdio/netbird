@@ -50,18 +50,18 @@ func authorizerServer(t *testing.T) *ProxyServiceServer {
 func TestValidateProxyConnect_NilAuthorizerUnchanged(t *testing.T) {
 	s := authorizerServer(t)
 
-	params, err := s.validateProxyConnect("proxy-1", "cluster.example.com", scopedCtx("acc-1"))
+	params, err := s.validateAndSanitizeProxyConnect("proxy-1", "cluster.example.com", scopedCtx("acc-1"))
 	require.NoError(t, err)
 	assert.Equal(t, "proxy-1", params.proxyID)
 	assert.Equal(t, "cluster.example.com", params.address)
 
-	_, err = s.validateProxyConnect("", "cluster.example.com", scopedCtx("acc-1"))
+	_, err = s.validateAndSanitizeProxyConnect("", "cluster.example.com", scopedCtx("acc-1"))
 	require.Error(t, err)
 	st, ok := grpcstatus.FromError(err)
 	require.True(t, ok)
 	assert.Equal(t, codes.InvalidArgument, st.Code(), "missing proxy_id must stay InvalidArgument")
 
-	_, err = s.validateProxyConnect("proxy-1", "not a hostname", scopedCtx("acc-1"))
+	_, err = s.validateAndSanitizeProxyConnect("proxy-1", "not a hostname", scopedCtx("acc-1"))
 	require.Error(t, err)
 	st, ok = grpcstatus.FromError(err)
 	require.True(t, ok)
@@ -76,7 +76,7 @@ func TestValidateProxyConnect_AuthorizerReceivesClaim(t *testing.T) {
 	auth := &capturingAuthorizer{}
 	s.SetProxyConnectAuthorizer(auth)
 
-	params, err := s.validateProxyConnect("proxy-1", "cluster.example.com", scopedCtx("acc-1"))
+	params, err := s.validateAndSanitizeProxyConnect("proxy-1", "cluster.example.com", scopedCtx("acc-1"))
 	require.NoError(t, err)
 	assert.Equal(t, "cluster.example.com", params.address)
 
@@ -97,7 +97,7 @@ func TestValidateProxyConnect_PlainErrorBecomesPermissionDenied(t *testing.T) {
 	s := authorizerServer(t)
 	s.SetProxyConnectAuthorizer(&capturingAuthorizer{err: errors.New("not the assigned credential")})
 
-	_, err := s.validateProxyConnect("proxy-1", "cluster.example.com", scopedCtx("acc-1"))
+	_, err := s.validateAndSanitizeProxyConnect("proxy-1", "cluster.example.com", scopedCtx("acc-1"))
 	require.Error(t, err)
 	st, ok := grpcstatus.FromError(err)
 	require.True(t, ok)
@@ -113,7 +113,7 @@ func TestValidateProxyConnect_StatusErrorPassesThrough(t *testing.T) {
 		err: grpcstatus.Errorf(codes.ResourceExhausted, "try later"),
 	})
 
-	_, err := s.validateProxyConnect("proxy-1", "cluster.example.com", scopedCtx("acc-1"))
+	_, err := s.validateAndSanitizeProxyConnect("proxy-1", "cluster.example.com", scopedCtx("acc-1"))
 	require.Error(t, err)
 	st, ok := grpcstatus.FromError(err)
 	require.True(t, ok)
@@ -131,13 +131,13 @@ func TestValidateProxyConnect_AuthorizerSeesGlobalAndTokenlessConnects(t *testin
 	auth := &capturingAuthorizer{}
 	s.SetProxyConnectAuthorizer(auth)
 
-	_, err := s.validateProxyConnect("proxy-1", "cluster.example.com", globalCtx())
+	_, err := s.validateAndSanitizeProxyConnect("proxy-1", "cluster.example.com", globalCtx())
 	require.NoError(t, err)
 	require.Equal(t, 1, auth.called, "a management-wide token must still be presented to the authorizer")
 	require.NotNil(t, auth.token)
 	assert.Nil(t, auth.token.AccountID)
 
-	_, err = s.validateProxyConnect("proxy-1", "cluster.example.com", context.Background())
+	_, err = s.validateAndSanitizeProxyConnect("proxy-1", "cluster.example.com", context.Background())
 	require.NoError(t, err)
 	require.Equal(t, 2, auth.called, "a token-less connect must still be presented to the authorizer")
 	assert.Nil(t, auth.token, "no token in context must surface as a nil token, not a zero value")
@@ -155,11 +155,11 @@ func TestValidateProxyConnect_AuthorizerRunsLast(t *testing.T) {
 	auth := &capturingAuthorizer{}
 	s.SetProxyConnectAuthorizer(auth)
 
-	_, err := s.validateProxyConnect("proxy-1", "not a hostname", scopedCtx("acc-1"))
+	_, err := s.validateAndSanitizeProxyConnect("proxy-1", "not a hostname", scopedCtx("acc-1"))
 	require.Error(t, err)
 	assert.Zero(t, auth.called, "a malformed address must be rejected before policy runs")
 
-	_, err = s.validateProxyConnect("proxy-1", "cluster.example.com", scopedCtx("acc-1"))
+	_, err = s.validateAndSanitizeProxyConnect("proxy-1", "cluster.example.com", scopedCtx("acc-1"))
 	require.Error(t, err)
 	st, ok := grpcstatus.FromError(err)
 	require.True(t, ok)

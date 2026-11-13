@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 func TestSqlStore_GetAccount_PrivateServiceRoundtrip(t *testing.T) {
@@ -27,7 +28,7 @@ func TestSqlStore_GetAccount_PrivateServiceRoundtrip(t *testing.T) {
 			ID:           "svc-private",
 			AccountID:    account.Id,
 			Name:         "private-svc",
-			Domain:       "private.example",
+			Domain:       "PRIVATE.EXAMPLE",
 			ProxyCluster: "cluster.example",
 			Enabled:      true,
 			Mode:         rpservice.ModeHTTP,
@@ -43,6 +44,15 @@ func TestSqlStore_GetAccount_PrivateServiceRoundtrip(t *testing.T) {
 		got := loaded.Services[0]
 		assert.True(t, got.Private)
 		assert.Equal(t, []string{"grp-admins", "grp-ops"}, got.AccessGroups)
+		assert.Equal(t, "private.example", got.Domain)
+
+		svc.Domain = "PRIVATE-1.EXAMPLE"
+		require.NoError(t, store.UpdateService(ctx, svc))
+
+		loaded, err = store.GetAccount(ctx, account.Id)
+		require.NoError(t, err)
+		require.Len(t, loaded.Services, 1)
+		assert.Equal(t, "private-1.example", loaded.Services[0].Domain)
 	})
 }
 
@@ -133,5 +143,116 @@ func TestSqlStore_GetAccount_ServiceTargetOptionsRoundtrip(t *testing.T) {
 		assert.Equal(t, []string{"application/json"}, tg.Options.CaptureContentTypes, "options capture content types")
 		assert.True(t, tg.Options.AgentNetwork, "options agent network")
 		assert.True(t, tg.Options.DisableAccessLog, "options disable access log")
+	})
+}
+
+func TestSqlStore_GetServiceByDomain(t *testing.T) {
+	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+		t.Skip("skip CI tests on darwin and windows")
+	}
+
+	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		account := newAccountWithId(ctx, "account_private_svc", "testuser", "")
+		require.NoError(t, store.SaveAccount(ctx, account))
+
+		svc := &rpservice.Service{
+			ID:           "svc-private",
+			AccountID:    account.Id,
+			Name:         "private-svc",
+			Domain:       "PRIVATE.EXAMPLE",
+			ProxyCluster: "cluster.example",
+			Enabled:      true,
+		}
+		require.NoError(t, store.CreateService(ctx, svc))
+
+		got, err := store.GetServiceByDomain(ctx, "private.example")
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.Equal(t, "svc-private", got.ID)
+
+		got, err = store.GetServiceByDomain(ctx, "PRIVATE.EXAMPLE")
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.Equal(t, "svc-private", got.ID)
+
+		got, err = store.GetServiceByDomain(ctx, "nonexistent.example")
+		require.NotNil(t, err)
+		require.Equal(t, status.NotFound, err.(*status.Error).ErrorType)
+		require.Nil(t, got)
+	})
+}
+
+func TestSqlStore_EphemeralServiceExists(t *testing.T) {
+	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+		t.Skip("skip CI tests on darwin and windows")
+	}
+
+	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		account := newAccountWithId(ctx, "account_private_svc", "testuser", "")
+		require.NoError(t, store.SaveAccount(ctx, account))
+
+		svc := &rpservice.Service{
+			ID:         "svc-ephemeral",
+			AccountID:  account.Id,
+			Name:       "ephemeral-svc",
+			Domain:     "ephemeral.example",
+			Source:     rpservice.SourceEphemeral,
+			SourcePeer: "peer-1",
+		}
+		require.NoError(t, store.CreateService(ctx, svc))
+
+		tests := []struct {
+			description string
+			accountId   string
+			peerId      string
+			domain      string
+			exists      bool
+		}{
+			{
+				description: "service exists",
+				accountId:   account.Id,
+				peerId:      "peer-1",
+				domain:      "ephemeral.example",
+				exists:      true,
+			},
+			{
+				description: "service exists (uppercase domain)",
+				accountId:   account.Id,
+				peerId:      "peer-1",
+				domain:      "EPHEMERAL.example",
+				exists:      true,
+			},
+			{
+				description: "non-existent account id",
+				accountId:   "non-existent",
+				peerId:      "peer-1",
+				domain:      "ephemeral.example",
+				exists:      false,
+			},
+			{
+				description: "non-existent peer id",
+				accountId:   account.Id,
+				peerId:      "peer-2",
+				domain:      "ephemeral.example",
+				exists:      false,
+			},
+			{
+				description: "non existent domain",
+				accountId:   account.Id,
+				peerId:      "peer-1",
+				domain:      "nonexistent.example",
+				exists:      false,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.description, func(t *testing.T) {
+				e, err := store.EphemeralServiceExists(ctx, LockingStrengthNone, tt.accountId, tt.peerId, tt.domain)
+				require.NoError(t, err)
+				assert.Equal(t, tt.exists, e)
+			})
+		}
 	})
 }
