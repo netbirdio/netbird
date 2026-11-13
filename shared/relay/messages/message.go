@@ -17,12 +17,15 @@ const (
 	MaxMessageSize       = 8820
 
 	ProtocolV1 ProtocolVersion = 1
+	// ProtocolV2 uses the auth envelope and means the aligned heartbeat is on for the
+	// connection. Frames other than Auth and HealthCheck keep the v1 layout.
+	ProtocolV2 ProtocolVersion = 2
 	// CurrentProtocolVersion is the highest protocol version this build supports.
 	CurrentProtocolVersion = ProtocolV1
 
 	// authEnvelopeMinVersion is the first advertised version whose Auth message carries a
 	// length-prefixed token followed by an extension area.
-	authEnvelopeMinVersion ProtocolVersion = 2
+	authEnvelopeMinVersion = ProtocolV2
 
 	MsgTypeUnknown MsgType = 0
 	// MsgTypeHello and MsgTypeHelloResponse are the removed legacy handshake
@@ -73,7 +76,7 @@ var (
 
 	magicHeader = []byte{0x21, 0x12, 0xA4, 0x42}
 
-	healthCheckMsg = []byte{byte(CurrentProtocolVersion), byte(MsgTypeHealthCheck)}
+	healthCheckMsg = []byte{byte(ProtocolV1), byte(MsgTypeHealthCheck)}
 )
 
 type MsgType byte
@@ -169,6 +172,44 @@ func (e Encoder) PeersOnline(ids []PeerID) ([][]byte, error) {
 // PeersWentOffline creates the peers went offline notification messages.
 func (e Encoder) PeersWentOffline(ids []PeerID) ([][]byte, error) {
 	return marshalPeerIDs(e.version, ids, byte(MsgTypePeersWentOffline), e.maxMsgSize)
+}
+
+// SubscribePeerState creates the client messages that subscribe to the state of peers.
+func (e Encoder) SubscribePeerState(ids []PeerID) ([][]byte, error) {
+	return marshalPeerIDs(e.version, ids, byte(MsgTypeSubscribePeerState), e.maxMsgSize)
+}
+
+// UnsubscribePeerState creates the client messages that end a peer state subscription.
+func (e Encoder) UnsubscribePeerState(ids []PeerID) ([][]byte, error) {
+	return marshalPeerIDs(e.version, ids, byte(MsgTypeUnsubscribePeerState), e.maxMsgSize)
+}
+
+// Transport creates a transport message for the destination peer.
+func (e Encoder) Transport(peerID PeerID, payload []byte) []byte {
+	msg := make([]byte, headerTotalSizeTransport+len(payload))
+	msg[0] = byte(e.version)
+	msg[1] = byte(MsgTypeTransport)
+	copy(msg[sizeOfProtoHeader:], peerID[:])
+	copy(msg[headerTotalSizeTransport:], payload)
+	return msg
+}
+
+// Auth creates the Auth message in the layout of the encoder version: the v1 layout
+// below the auth envelope version, else the envelope with ext as its extension area.
+// ext must be empty below the envelope version.
+func (e Encoder) Auth(peerID PeerID, token, ext []byte) ([]byte, error) {
+	if e.version >= authEnvelopeMinVersion {
+		return MarshalAuthEnvelope(e.version, peerID, token, ext)
+	}
+	if len(ext) > 0 {
+		return nil, fmt.Errorf("protocol version %d has no auth extension area", e.version)
+	}
+	msg, err := MarshalAuthMsg(peerID, token)
+	if err != nil {
+		return nil, err
+	}
+	msg[0] = byte(e.version)
+	return msg, nil
 }
 
 // ReadVersion returns the protocol version carried in the frame header. Zero is invalid.
@@ -272,7 +313,7 @@ func MarshalAuthMsg(peerID PeerID, authPayload []byte) ([]byte, error) {
 	}
 
 	msg := make([]byte, headerTotalSizeAuth+len(authPayload))
-	msg[0] = byte(CurrentProtocolVersion)
+	msg[0] = byte(ProtocolV1)
 	msg[1] = byte(MsgTypeAuth)
 	copy(msg[sizeOfProtoHeader:], magicHeader)
 	copy(msg[offsetAuthPeerID:], peerID[:])
@@ -329,11 +370,25 @@ func UnmarshalAuthMsg(msg []byte) (*PeerID, []byte, error) {
 		return &peerID, msg[headerTotalSizeAuth:], nil
 	}
 
-	token, err := unmarshalAuthEnvelopeToken(msg)
+	token, _, err := unmarshalAuthEnvelope(msg)
 	if err != nil {
 		return nil, nil, err
 	}
 	return &peerID, token, nil
+}
+
+// AuthMsgExtension returns the extension area of an Auth message that UnmarshalAuthMsg
+// accepted. It is empty below the auth envelope version.
+func AuthMsgExtension(msg []byte) ([]byte, error) {
+	version, err := ReadVersion(msg)
+	if err != nil {
+		return nil, err
+	}
+	if version < authEnvelopeMinVersion {
+		return nil, nil
+	}
+	_, ext, err := unmarshalAuthEnvelope(msg)
+	return ext, err
 }
 
 // MarshalAuthResponse creates a response message to the auth.
@@ -341,7 +396,7 @@ func UnmarshalAuthMsg(msg []byte) (*PeerID, []byte, error) {
 // instance URL. This URL will be used by choose the common Relay server in case if the peers are in different Relay
 // servers.
 func MarshalAuthResponse(address string) ([]byte, error) {
-	return NewEncoder(CurrentProtocolVersion, MaxMessageSize).AuthResponse(address)
+	return NewEncoder(ProtocolV1, MaxMessageSize).AuthResponse(address)
 }
 
 // UnmarshalAuthResponse it is a confirmation message to auth success
@@ -356,20 +411,14 @@ func UnmarshalAuthResponse(msg []byte) (string, error) {
 // The close message is used to close the connection gracefully between the client and the server. The server and the
 // client can send this message. After receiving this message, the server or client will close the connection.
 func MarshalCloseMsg() []byte {
-	return NewEncoder(CurrentProtocolVersion, MaxMessageSize).CloseMsg()
+	return NewEncoder(ProtocolV1, MaxMessageSize).CloseMsg()
 }
 
 // MarshalTransportMsg creates a transport message.
 // The transport message is used to exchange data between peers. The message contains the data to be exchanged and the
 // destination peer hashed ID.
 func MarshalTransportMsg(peerID PeerID, payload []byte) ([]byte, error) {
-	// todo validate size
-	msg := make([]byte, headerTotalSizeTransport+len(payload))
-	msg[0] = byte(CurrentProtocolVersion)
-	msg[1] = byte(MsgTypeTransport)
-	copy(msg[sizeOfProtoHeader:], peerID[:])
-	copy(msg[sizeOfProtoHeader+peerIDSize:], payload)
-	return msg, nil
+	return NewEncoder(ProtocolV1, MaxMessageSize).Transport(peerID, payload), nil
 }
 
 // UnmarshalTransportMsg extracts the peerID and the payload from the transport message.
@@ -415,19 +464,19 @@ func MarshalHealthcheck() []byte {
 	return healthCheckMsg
 }
 
-func unmarshalAuthEnvelopeToken(msg []byte) ([]byte, error) {
+func unmarshalAuthEnvelope(msg []byte) (token, ext []byte, err error) {
 	if len(msg) < offsetAuthToken {
-		return nil, ErrInvalidMessageLength
+		return nil, nil, ErrInvalidMessageLength
 	}
 
 	tokenLen := int(binary.BigEndian.Uint16(msg[offsetAuthTokenLen:offsetAuthToken]))
 	if tokenLen == 0 {
-		return nil, fmt.Errorf("%d: %w", tokenLen, ErrInvalidTokenLength)
+		return nil, nil, fmt.Errorf("%d: %w", tokenLen, ErrInvalidTokenLength)
 	}
 
 	end := offsetAuthToken + tokenLen
 	if end > len(msg) {
-		return nil, fmt.Errorf("%d exceeds the message: %w", tokenLen, ErrInvalidTokenLength)
+		return nil, nil, fmt.Errorf("%d exceeds the message: %w", tokenLen, ErrInvalidTokenLength)
 	}
-	return msg[offsetAuthToken:end], nil
+	return msg[offsetAuthToken:end], msg[end:], nil
 }

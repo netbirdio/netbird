@@ -109,7 +109,7 @@ func TestMarshalTransportMsg(t *testing.T) {
 func TestMarshalHealthcheck(t *testing.T) {
 	msg := MarshalHealthcheck()
 
-	_, err := ValidateVersion(msg)
+	err := ValidateConnectionVersion(msg, ProtocolV1)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -328,10 +328,27 @@ func TestEncoderStampsVersion(t *testing.T) {
 	}
 }
 
-func TestPackageEncodersUseCurrentVersion(t *testing.T) {
-	current := NewEncoder(CurrentProtocolVersion, MaxMessageSize)
+// The package level encoders are the v1 helpers for callers that never negotiate.
+func TestPackageEncodersUseV1(t *testing.T) {
+	current := NewEncoder(ProtocolV1, MaxMessageSize)
 	assert.Equal(t, current.CloseMsg(), MarshalCloseMsg())
+	assert.Equal(t, byte(ProtocolV1), MarshalCloseMsg()[0])
 	assert.Equal(t, current.Healthcheck(), MarshalHealthcheck())
+	assert.Equal(t, byte(ProtocolV1), MarshalHealthcheck()[0])
+
+	peerID := HashID("bob")
+	auth, err := MarshalAuthMsg(peerID, []byte("t"))
+	require.NoError(t, err)
+	assert.Equal(t, byte(ProtocolV1), auth[0])
+
+	tr, err := MarshalTransportMsg(peerID, []byte("x"))
+	require.NoError(t, err)
+	assert.Equal(t, current.Transport(peerID, []byte("x")), tr)
+	assert.Equal(t, byte(ProtocolV1), tr[0])
+
+	sub, err := MarshalSubPeerStateMsg([]PeerID{peerID}, MaxMessageSize)
+	require.NoError(t, err)
+	assert.Equal(t, byte(ProtocolV1), sub[0][0])
 
 	want, err := current.AuthResponse("addr")
 	require.NoError(t, err)

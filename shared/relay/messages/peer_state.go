@@ -5,7 +5,7 @@ import (
 )
 
 func MarshalSubPeerStateMsg(ids []PeerID, maxMsgSize int) ([][]byte, error) {
-	return marshalPeerIDs(CurrentProtocolVersion, ids, byte(MsgTypeSubscribePeerState), maxMsgSize)
+	return marshalPeerIDs(ProtocolV1, ids, byte(MsgTypeSubscribePeerState), maxMsgSize)
 }
 
 func UnmarshalSubPeerStateMsg(buf []byte) ([]PeerID, error) {
@@ -13,7 +13,7 @@ func UnmarshalSubPeerStateMsg(buf []byte) ([]PeerID, error) {
 }
 
 func MarshalUnsubPeerStateMsg(ids []PeerID, maxMsgSize int) ([][]byte, error) {
-	return marshalPeerIDs(CurrentProtocolVersion, ids, byte(MsgTypeUnsubscribePeerState), maxMsgSize)
+	return marshalPeerIDs(ProtocolV1, ids, byte(MsgTypeUnsubscribePeerState), maxMsgSize)
 }
 
 func UnmarshalUnsubPeerStateMsg(buf []byte) ([]PeerID, error) {
@@ -21,7 +21,7 @@ func UnmarshalUnsubPeerStateMsg(buf []byte) ([]PeerID, error) {
 }
 
 func MarshalPeersOnline(ids []PeerID, maxMsgSize int) ([][]byte, error) {
-	return marshalPeerIDs(CurrentProtocolVersion, ids, byte(MsgTypePeersOnline), maxMsgSize)
+	return marshalPeerIDs(ProtocolV1, ids, byte(MsgTypePeersOnline), maxMsgSize)
 }
 
 func UnmarshalPeersOnlineMsg(buf []byte) ([]PeerID, error) {
@@ -29,7 +29,7 @@ func UnmarshalPeersOnlineMsg(buf []byte) ([]PeerID, error) {
 }
 
 func MarshalPeersWentOffline(ids []PeerID, maxMsgSize int) ([][]byte, error) {
-	return marshalPeerIDs(CurrentProtocolVersion, ids, byte(MsgTypePeersWentOffline), maxMsgSize)
+	return marshalPeerIDs(ProtocolV1, ids, byte(MsgTypePeersWentOffline), maxMsgSize)
 }
 
 func UnMarshalPeersWentOffline(buf []byte) ([]PeerID, error) {
