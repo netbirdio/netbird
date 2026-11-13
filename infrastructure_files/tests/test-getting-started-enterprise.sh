@@ -66,7 +66,7 @@ assert_tag() {
 assert_tag 0 ""
 assert_tag 0 "" ""
 
-for tag in v3.7.13 3.7.13 v3.7.14 v3.7.19 v3.8 3.8 v4.0 v4.0.0 \
+for tag in v3.7.13 3.7.13 v3.7.14 v3.7.18 v3.8 3.8 v4.0 v4.0.0 \
   v03.07.013 v3.08.0 v3.7.019; do
   assert_tag 0 "" "$tag"
 done

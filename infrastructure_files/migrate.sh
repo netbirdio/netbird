@@ -826,7 +826,7 @@ generate_docker_compose_traefik() {
 services:
   # Traefik reverse proxy (automatic TLS via Let's Encrypt)
   traefik:
-    image: traefik:v3.7.19
+    image: traefik:v3.7.18
     container_name: netbird-traefik
     restart: unless-stopped
     networks:

@@ -65,13 +65,13 @@ check_traefik_tag() {
   [[ -n "$tag" ]] || return 0
   ver="${tag#v}"
   if [[ ! "$ver" =~ ^([0-9]+)\.([0-9]+)(\.([0-9]+))?$ ]]; then
-    die "Cannot verify NETBIRD_TRAEFIK_TAG=$tag. Use a numeric version tag such as v3.7.13 or newer, or unset NETBIRD_TRAEFIK_TAG for the default (v3.7.19)."
+    die "Cannot verify NETBIRD_TRAEFIK_TAG=$tag. Use a numeric version tag such as v3.7.13 or newer, or unset NETBIRD_TRAEFIK_TAG for the default (v3.7.18)."
   fi
   major=$((10#${BASH_REMATCH[1]}))
   minor=$((10#${BASH_REMATCH[2]}))
   patch=$((10#${BASH_REMATCH[4]:-0}))
   if (( major < 3 || (major == 3 && minor < 7) || (major == 3 && minor == 7 && patch < 13) )); then
-    die "NETBIRD_TRAEFIK_TAG=$tag predates aliasHeadersStrategy and its CVE-2026-88004 fix (added in v3.7.12, fixed in v3.7.13), which this installer always enables. Use v3.7.13 or newer, or unset NETBIRD_TRAEFIK_TAG for the default (v3.7.19)."
+    die "NETBIRD_TRAEFIK_TAG=$tag predates aliasHeadersStrategy and its CVE-2026-88004 fix (added in v3.7.12, fixed in v3.7.13), which this installer always enables. Use v3.7.13 or newer, or unset NETBIRD_TRAEFIK_TAG for the default (v3.7.18)."
   fi
   return
 }
@@ -848,7 +848,7 @@ NETBIRD_DOMAIN=${NETBIRD_DOMAIN}
 
 # Reverse proxy (Traefik)
 NETBIRD_LETSENCRYPT_EMAIL=${NETBIRD_LETSENCRYPT_EMAIL}
-NETBIRD_TRAEFIK_TAG=${NETBIRD_TRAEFIK_TAG:-v3.7.19}
+NETBIRD_TRAEFIK_TAG=${NETBIRD_TRAEFIK_TAG:-v3.7.18}
 NETBIRD_TRAEFIK_IP=${TRAEFIK_IP}
 
 # Image tags. Default to "latest"

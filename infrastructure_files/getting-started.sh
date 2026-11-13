@@ -513,7 +513,7 @@ initialize_default_values() {
   # Combined server replaces separate signal, relay, and management containers
   NETBIRD_SERVER_IMAGE=${NETBIRD_SERVER_IMAGE:-"netbirdio/netbird-server:latest"}
   NETBIRD_PROXY_IMAGE=${NETBIRD_PROXY_IMAGE:-"netbirdio/reverse-proxy:latest"}
-  TRAEFIK_IMAGE=${TRAEFIK_IMAGE:-"traefik:v3.7.19"}
+  TRAEFIK_IMAGE=${TRAEFIK_IMAGE:-"traefik:v3.7.18"}
   CROWDSEC_IMAGE=${CROWDSEC_IMAGE:-"crowdsecurity/crowdsec:v1.8.1"}
   # Reverse proxy configuration
   REVERSE_PROXY_TYPE="0"
