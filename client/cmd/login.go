@@ -33,7 +33,16 @@ func init() {
 	loginCmd.PersistentFlags().BoolVar(&showQR, showQRFlag, false, showQRDesc)
 	loginCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
 	loginCmd.PersistentFlags().BoolVar(&extendSessionFlag, "extend", false,
-		"refresh the SSO session expiry without tearing down the tunnel (requires an active connection)")
+		"refresh the SSO session expiry without tearing down the tunnel (requires an active connection). Cannot be used with --setup-key or --setup-key-file.")
+}
+
+// validateExtendFlags rejects a setup key together with --extend. It checks the
+// value of --extend, so --extend=false still allows a setup key.
+func validateExtendFlags(extend bool, setupKey, setupKeyPath string) error {
+	if extend && (setupKey != "" || setupKeyPath != "") {
+		return fmt.Errorf("--extend cannot be used with --setup-key or --setup-key-file because setup keys can only enroll new peers")
+	}
+	return nil
 }
 
 var loginCmd = &cobra.Command{
@@ -43,6 +52,10 @@ var loginCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := setEnvAndFlags(cmd); err != nil {
 			return fmt.Errorf("set env and flags: %v", err)
+		}
+
+		if err := validateExtendFlags(extendSessionFlag, setupKey, setupKeyPath); err != nil {
+			return err
 		}
 
 		ctx := internal.CtxInitState(context.Background())
@@ -69,9 +82,6 @@ var loginCmd = &cobra.Command{
 		}
 
 		if extendSessionFlag {
-			if providedSetupKey != "" {
-				return fmt.Errorf("--extend cannot be combined with a setup key; setup keys can only enrol new peers")
-			}
 			if err := doExtendSession(ctx, cmd, activeProf); err != nil {
 				return fmt.Errorf("extend session failed: %v", err)
 			}

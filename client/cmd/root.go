@@ -99,7 +99,11 @@ var (
 		// explained is not reprinted inside a gRPC envelope.
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			setOnCommandLine := commandLineFlags(cmd)
 			SetFlagsFromEnvVars(cmd)
+			if err := validateFlagRequirements(cmd, setOnCommandLine); err != nil {
+				return err
+			}
 
 			// Don't resolve for service commands — they create the socket, not connect to it.
 			if !isServiceCmd(cmd) {
