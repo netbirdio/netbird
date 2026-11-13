@@ -982,9 +982,9 @@ func (config *Config) applyMDMExtraIFaceBlackList(policy *mdm.Policy) {
 	// slice the policy was applied to.
 	config.IFaceBlackList = append(slices.Clip(config.IFaceBlackList), added...)
 
-	log.Infof("MDM override %s = [ %s ] (added [ %s ]), effective interface blacklist: [ %s ]",
-		mdm.KeyExtraIFaceBlackList, strings.Join(entries, " "), strings.Join(added, " "),
-		strings.Join(config.IFaceBlackList, " "))
+	log.Infof("MDM override %s = [ %s ] (added [ %s ])",
+		mdm.KeyExtraIFaceBlackList, strings.Join(entries, " "), strings.Join(added, " "))
+	log.Debugf("interface blacklist with MDM entries: [ %s ]", strings.Join(config.IFaceBlackList, " "))
 }
 
 // splitListEntries flattens comma-separated values, since an ADMX text box or
