@@ -1227,9 +1227,9 @@
         "message": "GitHub",
         "description": "Community link: GitHub. Brand — do not translate."
     },
-    "settings.about.community.slack": {
-        "message": "Slack",
-        "description": "Community link: Slack. Brand — do not translate."
+    "settings.about.community.discord": {
+        "message": "Discord",
+        "description": "Community link: Discord. Brand — do not translate."
     },
     "settings.about.community.forum": {
         "message": "Forum",

@@ -6,10 +6,10 @@ There are many ways that you can contribute:
 
 - Reporting issues
 - Updating documentation
-- Sharing use cases in slack or Reddit
+- Sharing use cases on Discord or Reddit
 - Bug fix or feature enhancement
 
-If you haven't already, join our slack workspace [here](https://docs.netbird.io/slack-url), we would love to discuss topics that need community contribution and enhancements to existing features.
+If you haven't already, join our Discord server [here](https://docs.netbird.io/discord-url), we would love to discuss topics that need community contribution and enhancements to existing features.
 
 This file is the source of truth for contributions to this repository. For work in [other NetBird repositories](#other-project-repositories), follow that repository's contribution guide, templates, and workflows.
 
@@ -37,7 +37,7 @@ Issues in this repository are maintainer-curated work items, so the flow starts 
 2. **Wait for feedback.** DevRel validates and reproduces the report, and a maintainer confirms the direction. We may ask for more detail or propose a different approach. Validated discussions become issues.
 3. **Then write the code**, following the approach agreed in the issue, and open the PR linking that issue.
 
-Trivial fixes — a typo, a broken link, a documentation correction, or a one-line fix that already has an issue — can go straight to a PR. Everything else starts with a ticket. When in doubt, ask in the discussion or on [Slack](https://docs.netbird.io/slack-url); an hour of conversation up front regularly saves a week of rework.
+Trivial fixes — a typo, a broken link, a documentation correction, or a one-line fix that already has an issue — can go straight to a PR. Everything else starts with a ticket. When in doubt, ask in the discussion or on [Discord](https://docs.netbird.io/discord-url); an hour of conversation up front regularly saves a week of rework.
 
 ### High-risk areas
 
