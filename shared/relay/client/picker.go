@@ -18,9 +18,9 @@ const (
 )
 
 type connResult struct {
-	RelayClient *Client
-	Url         string
-	Err         error
+	Session *session
+	Url     string
+	Err     error
 }
 
 type ServerPicker struct {
@@ -33,19 +33,18 @@ type ServerPicker struct {
 	NetEvents         NetEvents
 }
 
-func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
+func (sp *ServerPicker) Pick(parentCtx context.Context) (*session, error) {
 	ctx, cancel := context.WithTimeout(parentCtx, sp.ConnectionTimeout)
 	defer cancel()
 
-	totalServers := len(sp.ServerURLs.Load().([]string))
+	serverURLs := sp.ServerURLs.Load().([]string)
 
-	connResultChan := make(chan connResult, totalServers)
-	successChan := make(chan connResult, 1)
-	errChan := make(chan error, 1)
+	connResultChan := make(chan connResult, len(serverURLs))
+	pickedChan := make(chan connResult)
 	concurrentLimiter := make(chan struct{}, maxConcurrentServers)
 
-	log.Debugf("pick server from list: %v", sp.ServerURLs.Load().([]string))
-	for _, url := range sp.ServerURLs.Load().([]string) {
+	log.Debugf("pick server from list: %v", serverURLs)
+	for _, url := range serverURLs {
 		// todo check if we have a successful connection so we do not need to connect to other servers
 		concurrentLimiter <- struct{}{}
 		go func(url string) {
@@ -56,20 +55,15 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 		}(url)
 	}
 
-	go sp.processConnResults(connResultChan, successChan, errChan)
+	go sp.processConnResults(ctx, connResultChan, pickedChan)
 
 	select {
-	case cr, ok := <-successChan:
-		if !ok {
-			return nil, <-errChan
+	case cr := <-pickedChan:
+		if cr.Err != nil {
+			return nil, cr.Err
 		}
-		instanceURL, serverIP, err := cr.RelayClient.serverInstanceAddress()
-		if err != nil {
-			log.Infof("chosen home Relay server: %s, instance address unavailable: %v", cr.Url, err)
-			return cr.RelayClient, nil
-		}
-		log.Infof("chosen home Relay server: %s, instance URL: %s, server IP: %s", cr.Url, instanceURL, serverIP)
-		return cr.RelayClient, nil
+		log.Infof("chosen home Relay server: %s, instance URL: %s, server IP: %s", cr.Url, cr.Session.instanceURL, connectedIP(cr.Session.conn))
+		return cr.Session, nil
 	case <-ctx.Done():
 		return nil, fmt.Errorf("connect to relay server: %w", ctx.Err())
 	}
@@ -80,15 +74,15 @@ func (sp *ServerPicker) startConnection(ctx context.Context, resultChan chan con
 	relayClient := NewClient(url, sp.TokenStore, sp.PeerID, sp.MTU)
 	relayClient.SetTransportFallback(sp.TransportFallback)
 	relayClient.netEvents = sp.NetEvents
-	err := relayClient.Connect(ctx)
+	s, err := relayClient.ConnectSession(ctx)
 	resultChan <- connResult{
-		RelayClient: relayClient,
-		Url:         url,
-		Err:         err,
+		Session: s,
+		Url:     url,
+		Err:     err,
 	}
 }
 
-func (sp *ServerPicker) processConnResults(resultChan chan connResult, successChan chan connResult, errChan chan error) {
+func (sp *ServerPicker) processConnResults(ctx context.Context, resultChan chan connResult, pickedChan chan connResult) {
 	var hasSuccess bool
 	var errs []error
 	for numOfResults := 0; numOfResults < cap(resultChan); numOfResults++ {
@@ -100,21 +94,29 @@ func (sp *ServerPicker) processConnResults(resultChan chan connResult, successCh
 		}
 		log.Infof("connected to Relay server: %s", cr.Url)
 
-		if hasSuccess {
-			log.Infof("closing unnecessary Relay connection to: %s", cr.Url)
-			if err := cr.RelayClient.Close(); err != nil {
-				log.Errorf("failed to close connection to %s: %v", cr.Url, err)
-			}
+		first := !hasSuccess
+		hasSuccess = true
+		if first && handOver(ctx, pickedChan, cr) {
 			continue
 		}
 
-		hasSuccess = true
-		successChan <- cr
+		log.Infof("closing unnecessary Relay connection to: %s", cr.Url)
+		if err := cr.Session.Close(true); err != nil {
+			log.Errorf("failed to close connection to %s: %v", cr.Url, err)
+		}
 	}
 	if !hasSuccess {
-		errChan <- pickErr(errs)
+		handOver(ctx, pickedChan, connResult{Err: pickErr(errs)})
 	}
-	close(successChan)
+}
+
+func handOver(ctx context.Context, pickedChan chan connResult, cr connResult) bool {
+	select {
+	case pickedChan <- cr:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // pickErr combines per-server connection failures into a single error.

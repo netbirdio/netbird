@@ -94,7 +94,8 @@ func TestStickyFallbackAfterDatagramTooLarge(t *testing.T) {
 	assert.Equal(t, []string{"quic", "ws"}, protocols(c.getDialers(transportModeFromEnv())))
 
 	// An oversized datagram records the fallback for this server.
-	c.onDatagramTooLarge(&closeTrackingConn{}, netErr.ErrDatagramTooLarge)
+	s := &session{client: c, log: c.log, conn: &closeTrackingConn{}}
+	s.onDatagramTooLarge(netErr.ErrDatagramTooLarge)
 
 	// The reconnect now sticks to WebSocket.
 	assert.Equal(t, []string{"ws"}, protocols(c.getDialers(transportModeFromEnv())))

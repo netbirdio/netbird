@@ -31,10 +31,7 @@ type NetworkWatcher interface {
 
 // Guard manage the reconnection tries to the Relay server in case of disconnection event.
 type Guard struct {
-	// OnNewRelayClient is a channel that is used to notify the relay manager about a new relay client instance.
-	OnNewRelayClient chan *Client
-	OnReconnected    chan struct{}
-	serverPicker     *ServerPicker
+	serverPicker *ServerPicker
 
 	// maxBackoffInterval caps the exponential backoff between reconnect
 	// attempts.
@@ -55,8 +52,6 @@ func NewGuard(sp *ServerPicker, maxBackoffInterval time.Duration, netWatcher Net
 		maxBackoffInterval = defaultMaxBackoffInterval
 	}
 	g := &Guard{
-		OnNewRelayClient:   make(chan *Client, 1),
-		OnReconnected:      make(chan struct{}, 1),
 		serverPicker:       sp,
 		maxBackoffInterval: maxBackoffInterval,
 		netWatcher:         netWatcher,
@@ -73,21 +68,11 @@ func (g *Guard) LastError() error {
 	return nil
 }
 
-// StartReconnectTrys is called when the relay client is disconnected from the relay server.
-// It attempts to reconnect to the relay server. The function first tries a quick reconnect
-// to the same server that was used before, if the server URL is still valid. If the quick
-// reconnect fails, it starts a ticker to periodically attempt server picking until it
-// succeeds or the context is done.
-//
-// Parameters:
-// - ctx: The context to control the lifecycle of the reconnection attempts.
-// - relayClient: The relay client instance that was disconnected.
-// todo prevent multiple reconnection instances. In the current usage it should not happen, but it is better to prevent
-func (g *Guard) StartReconnectTrys(ctx context.Context, relayClient *Client) {
+func (g *Guard) Reconnect(ctx context.Context, relayClient *Client) *session {
 	// try to reconnect to the same server
-	if ok := g.tryToQuickReconnect(ctx, relayClient); ok {
-		g.notifyReconnected()
-		return
+	if s := g.tryToQuickReconnect(ctx, relayClient); s != nil {
+		g.setLastError(nil)
+		return s
 	}
 
 	// start a ticker to pick a new server
@@ -98,25 +83,31 @@ func (g *Guard) StartReconnectTrys(ctx context.Context, relayClient *Client) {
 
 	for {
 		select {
-		case <-ticker.C:
+		case _, ok := <-ticker.C:
+			if !ok || ctx.Err() != nil {
+				return nil
+			}
 			// suspend reconnect attempts while the OS reports no usable network
 			if g.netWatcher != nil {
 				if waited, err := g.netWatcher.Wait(ctx); err != nil {
-					return
+					return nil
 				} else if waited {
 					ticker.Stop()
 					ticker = g.exponentTicker(ctx)
 					continue
 				}
 			}
-			if err := g.retry(ctx); err != nil {
+			log.Infof("try to pick up a new Relay server")
+			s, err := g.serverPicker.Pick(ctx)
+			if err != nil {
 				log.Errorf("failed to pick new Relay server: %s", err)
 				g.setLastError(err)
 				continue
 			}
-			return
+			g.setLastError(nil)
+			return s
 		case <-ctx.Done():
-			return
+			return nil
 		}
 	}
 }
@@ -125,59 +116,38 @@ func (g *Guard) setLastError(err error) {
 	g.lastErr.Store(&err)
 }
 
-func (g *Guard) tryToQuickReconnect(parentCtx context.Context, rc *Client) bool {
+func (g *Guard) tryToQuickReconnect(parentCtx context.Context, rc *Client) *session {
 	if rc == nil {
-		return false
+		return nil
 	}
 
 	if !g.isServerURLStillValid(rc) {
-		return false
+		return nil
 	}
 
 	if g.netWatcher != nil {
 		if ok := g.netWatcher.WaitSettled(parentCtx, quickReconnectBudget, verdictSettleWindow); !ok {
-			return false
+			return nil
 		}
 		// Still offline after the budget: leave the retry to the ticker.
 		if !g.netWatcher.IsOnline() {
-			return false
+			return nil
 		}
 	} else {
 		if cancelled := waitBeforeRetry(parentCtx); !cancelled {
-			return false
+			return nil
 		}
 	}
 
 	log.Infof("try to reconnect to Relay server: %s", rc.connectionURL)
 
-	if err := rc.Connect(parentCtx); err != nil {
+	s, err := rc.ConnectSession(parentCtx)
+	if err != nil {
 		log.Errorf("failed to reconnect to relay server: %s", err)
 		g.setLastError(err)
-		return false
+		return nil
 	}
-	return true
-}
-
-func (g *Guard) retry(ctx context.Context) error {
-	log.Infof("try to pick up a new Relay server")
-	relayClient, err := g.serverPicker.PickServer(ctx)
-	if err != nil {
-		return err
-	}
-	g.setLastError(nil)
-
-	// prevent to work with a deprecated Relay client instance
-	g.drainRelayClientChan()
-
-	g.OnNewRelayClient <- relayClient
-	return nil
-}
-
-func (g *Guard) drainRelayClientChan() {
-	select {
-	case <-g.OnNewRelayClient:
-	default:
-	}
+	return s
 }
 
 func (g *Guard) isServerURLStillValid(rc *Client) bool {
@@ -187,14 +157,6 @@ func (g *Guard) isServerURLStillValid(rc *Client) bool {
 		}
 	}
 	return false
-}
-
-func (g *Guard) notifyReconnected() {
-	g.setLastError(nil)
-	select {
-	case g.OnReconnected <- struct{}{}:
-	default:
-	}
 }
 
 func (g *Guard) exponentTicker(ctx context.Context) *backoff.Ticker {

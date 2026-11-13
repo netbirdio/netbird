@@ -101,15 +101,16 @@ func TestOnDatagramTooLargeAuto(t *testing.T) {
 		transportFallback: tf,
 	}
 	conn := &closeTrackingConn{}
+	s := &session{client: c, log: c.log, conn: conn}
 
-	c.onDatagramTooLarge(conn, netErr.ErrDatagramTooLarge)
+	s.onDatagramTooLarge(netErr.ErrDatagramTooLarge)
 
 	assert.True(t, conn.closed, "connection closed to force reconnect")
 	assert.True(t, tf.avoidDatagramSized(url), "fallback recorded for the server")
 
 	// A second oversized datagram on the same connection must not re-close.
 	conn.closed = false
-	c.onDatagramTooLarge(conn, netErr.ErrDatagramTooLarge)
+	s.onDatagramTooLarge(netErr.ErrDatagramTooLarge)
 	assert.False(t, conn.closed, "single fallback per connection")
 }
 
@@ -124,8 +125,9 @@ func TestOnDatagramTooLargeQUICPinned(t *testing.T) {
 		transportFallback: tf,
 	}
 	conn := &closeTrackingConn{}
+	s := &session{client: c, log: c.log, conn: conn}
 
-	c.onDatagramTooLarge(conn, netErr.ErrDatagramTooLarge)
+	s.onDatagramTooLarge(netErr.ErrDatagramTooLarge)
 
 	assert.False(t, conn.closed, "QUIC pin keeps the connection, no fallback redial")
 	assert.False(t, tf.avoidDatagramSized(url), "QUIC pin records no fallback")

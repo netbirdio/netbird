@@ -39,14 +39,16 @@ func startManagerTestRelay(t *testing.T, ctx context.Context, address, peerID st
 
 // TestOpenConn_DoesNotHoldRelayClientLockAcrossDial asserts that dialing an
 // unreachable foreign relay does not stall the relay bookkeeping of the whole node.
-// onServerDisconnected needs relayClientMu in write mode, and a pending writer also
-// blocks later readers, so holding the lock across the dial made one unreachable
-// relay freeze every relay operation for as long as that server's connect timeout.
+// The home supervisor needs relayClientMu in write mode to publish a session, and a
+// pending writer also blocks later readers, so holding the lock across the dial made
+// one unreachable relay freeze every relay operation for as long as that server's
+// connect timeout.
 func TestOpenConn_DoesNotHoldRelayClientLockAcrossDial(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
 	m := startManagerTestRelay(t, ctx, "localhost:52801", "alice")
+	home := homeSession(t, m)
 	stalling := stallingRelayListener(t)
 
 	dialDone := make(chan struct{})
@@ -67,13 +69,13 @@ func TestOpenConn_DoesNotHoldRelayClientLockAcrossDial(t *testing.T) {
 	writerDone := make(chan struct{})
 	go func() {
 		defer close(writerDone)
-		m.onServerDisconnected("rel://192.0.2.1:1234")
+		m.adoptHome(home)
 	}()
 
 	select {
 	case <-writerDone:
 	case <-time.After(2 * time.Second):
-		t.Fatal("onServerDisconnected blocked on an in-progress foreign relay dial")
+		t.Fatal("publishing the home session blocked on an in-progress foreign relay dial")
 	}
 
 	cancel()
@@ -84,11 +86,11 @@ func TestOpenConn_DoesNotHoldRelayClientLockAcrossDial(t *testing.T) {
 	}
 }
 
-// TestEvictForeignRelay_KeepsConnectedClient asserts that a disconnect notice naming a
-// server whose track has since been rebuilt does not drop the live client. Evicting it
-// makes the next OpenConn build a duplicate connection, which the relay answers by
-// closing the existing one and with it every relayed channel on that server.
-func TestEvictForeignRelay_KeepsConnectedClient(t *testing.T) {
+// TestForeignTrack_SurvivesLateEndOfReplacedSession asserts that the end of a session
+// whose track has since been rebuilt on the same address does not drop the live track.
+// Removing it makes the next OpenConn build a duplicate connection, which the relay
+// answers by closing the existing one and with it every relayed channel on that server.
+func TestForeignTrack_SurvivesLateEndOfReplacedSession(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
@@ -101,30 +103,39 @@ func TestEvictForeignRelay_KeepsConnectedClient(t *testing.T) {
 	_, err = alice.OpenConn(ctx, bobsSrvAddr, "bob", netip.Addr{})
 	require.NoError(t, err, "alice must reach bob over bob's relay")
 
-	alice.relayClientsMutex.RLock()
-	rt, tracked := alice.relayClients[bobsSrvAddr]
-	alice.relayClientsMutex.RUnlock()
-	require.True(t, tracked, "the foreign relay must be tracked after OpenConn")
-	rt.RLock()
-	require.True(t, rt.relayClient.Ready(), "the foreign relay client must be connected")
-	rt.RUnlock()
+	oldTrack := foreignTrack(t, alice, bobsSrvAddr)
+	oldSession := trackSession(t, oldTrack)
 
-	// A disconnect notice for the same address, delivered late.
-	alice.evictForeignRelay(bobsSrvAddr)
+	// The idle cleanup drops a track from the map before its session has ended,
+	// which is how a new track can appear on the same address while the old
+	// session is still on its way out.
+	alice.relayClientsMutex.Lock()
+	delete(alice.relayClients, bobsSrvAddr)
+	alice.relayClientsMutex.Unlock()
 
-	alice.relayClientsMutex.RLock()
-	_, stillTracked := alice.relayClients[bobsSrvAddr]
-	alice.relayClientsMutex.RUnlock()
-	require.True(t, stillTracked, "a late disconnect notice must not evict a connected foreign relay client")
+	_, err = alice.OpenConn(ctx, bobsSrvAddr, "bob", netip.Addr{})
+	require.NoError(t, err, "alice must reach bob again over a rebuilt track")
+	newTrack := foreignTrack(t, alice, bobsSrvAddr)
+	require.NotSame(t, oldTrack, newTrack, "the second OpenConn must build a new track")
+
+	dropSession(t, oldSession)
+	alice.watchForeignSession(bobsSrvAddr, oldTrack, oldSession)
+
+	require.Same(t, newTrack, foreignTrack(t, alice, bobsSrvAddr), "the late end of a replaced session must not remove the new track")
+	newTrack.RLock()
+	ready := newTrack.relayClient.Ready()
+	newTrack.RUnlock()
+	require.True(t, ready, "the rebuilt foreign relay client must stay connected")
 }
 
-// TestEvictForeignRelay_KeepsDialInProgress asserts that a disconnect notice arriving
-// while a new dial for the same server is still running does not delete the track.
-// openConnVia publishes the track before dialing and only fills relayClient once the
-// dial finishes, so an eviction in that window orphans the client that is about to
-// connect: it is no longer reachable through the map, cleanUpUnusedRelays cannot close
-// it, and the next OpenConn dials a duplicate the relay answers by closing the first.
-func TestEvictForeignRelay_KeepsDialInProgress(t *testing.T) {
+// TestForeignTrack_DialInProgressSurvivesEndOfOldSession asserts that the end of an
+// older session on the same address does not delete a track whose dial is still
+// running. openConnVia publishes the track before dialing and only fills relayClient
+// once the dial finishes, so a removal in that window orphans the client that is about
+// to connect: it is no longer reachable through the map, cleanUpUnusedRelays cannot
+// close it, and the next OpenConn dials a duplicate the relay answers by closing the
+// first.
+func TestForeignTrack_DialInProgressSurvivesEndOfOldSession(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
@@ -144,12 +155,13 @@ func TestEvictForeignRelay_KeepsDialInProgress(t *testing.T) {
 		return ok
 	}, 5*time.Second, 5*time.Millisecond, "the foreign relay dial did not start")
 
-	m.evictForeignRelay(stalling)
+	removed := m.removeForeignTrack(stalling, NewRelayTrack())
+	require.False(t, removed, "an older track must not remove the track that replaced it")
 
 	m.relayClientsMutex.RLock()
 	_, stillTracked := m.relayClients[stalling]
 	m.relayClientsMutex.RUnlock()
-	require.True(t, stillTracked, "a disconnect notice must not evict a track whose dial is still in progress")
+	require.True(t, stillTracked, "the end of an older session must not remove a track whose dial is still in progress")
 
 	cancel()
 	select {
