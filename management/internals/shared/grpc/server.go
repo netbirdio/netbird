@@ -368,7 +368,9 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	return PeerUpdateHandlerFactory(peerKey, updates, s.secretsManager, s.challenger,
 		trackChallenge,
 		srv, func() { s.cancelPeerRoutines(ctx, accountID, peer, syncStart, updates) }).
-		WithMetrics(s.appMetrics).HandleUpdates(ctx)
+		WithMetrics(s.appMetrics).
+		WithTestHBSchedule(testHBClientSchedule(ctx, reqStart)).
+		HandleUpdates(ctx)
 }
 
 func (s *Server) handleHandshake(ctx context.Context, srv proto.ManagementService_JobServer) (wgtypes.Key, error) {

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -20,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/shared/lifecycle"
 	"github.com/netbirdio/netbird/shared/profiling"
 	"github.com/netbirdio/netbird/shared/signal/proto"
+	"github.com/netbirdio/netbird/shared/testhb"
 	"github.com/netbirdio/netbird/signal/metrics"
 	"github.com/netbirdio/netbird/signal/peer"
 )
@@ -47,10 +50,22 @@ const (
 	sendTimeout = 10 * time.Second
 
 	applicationName = "signal"
+
+	// TestHeartbeatKey marks a test-only heartbeat sent to a peer on its own
+	// stream when NB_TEST_HB_MODE is set. The body is empty.
+	TestHeartbeatKey = "netbird-test-heartbeat"
+	// TestGoingAwayKey tells a peer that the server is shutting down, so the
+	// client reconnects at once. The body is empty.
+	TestGoingAwayKey = "netbird-test-going-away"
+
+	// goingAwayTimeout caps how long shutdown waits for the going-away sends.
+	goingAwayTimeout = 2 * time.Second
 )
 
 var (
 	ErrPeerRegisteredAgain = errors.New("peer registered again")
+
+	errGoingAway = status.Error(codes.Unavailable, "signal server is shutting down")
 )
 
 // Server an instance of a Signal server
@@ -64,6 +79,9 @@ type Server struct {
 	successHeader metadata.MD
 
 	sendTimeout time.Duration
+
+	// draining is set by GoingAway. New streams are refused from then on.
+	draining atomic.Bool
 }
 
 // NewServer creates a new Signal server
@@ -104,6 +122,47 @@ func (s *Server) Stop() {
 	s.RunStopHandlers()
 }
 
+// GoingAway tells every connected peer that this server is shutting down and
+// refuses new streams from then on. A Go reverse proxy in front may not pass on
+// the end of a bidi stream at Stop, but it does pass data, so the client learns
+// about the shutdown from this message instead of its receive watchdog.
+func (s *Server) GoingAway() {
+	s.draining.Store(true)
+
+	var peers []*peer.Peer
+	s.registry.Peers.Range(func(_, v any) bool {
+		peers = append(peers, v.(*peer.Peer))
+		return true
+	})
+
+	var sent, failed atomic.Int32
+	var wg sync.WaitGroup
+	for _, p := range peers {
+		wg.Add(1)
+		go func(p *peer.Peer) {
+			defer wg.Done()
+			if err := p.Send(&proto.EncryptedMessage{Key: TestGoingAwayKey, RemoteKey: p.Id}); err != nil {
+				log.Debugf("going away to [%s] failed: %v", p.Id, err)
+				failed.Add(1)
+				return
+			}
+			sent.Add(1)
+		}(p)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(goingAwayTimeout):
+		log.Warnf("going away: sends still pending after %s", goingAwayTimeout)
+	}
+	log.Infof("signal going away: notified %d of %d peers, %d failed", sent.Load(), len(peers), failed.Load())
+}
+
 // Send forwards a message to the signal peer
 func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 	log.Tracef("received a new message to send from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
@@ -118,6 +177,11 @@ func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.
 
 // ConnectStream connects to the exchange stream
 func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) error {
+	if s.draining.Load() {
+		return errGoingAway
+	}
+	hbArrival := time.Now()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	p, err := s.RegisterPeer(stream, cancel)
 	if err != nil {
@@ -125,6 +189,11 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 	}
 
 	defer s.DeregisterPeer(p)
+
+	// GoingAway may have listed the peers before this one registered.
+	if s.draining.Load() {
+		return errGoingAway
+	}
 
 	// needed to confirm that the peer has been registered so that the client can proceed
 	err = stream.SendHeader(s.successHeader)
@@ -135,6 +204,12 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 
 	log.Debugf("peer connected [%s] [streamID %d] ", p.Id, p.StreamID)
 
+	go drainStream(stream)
+
+	hbCtx, hbCancel := context.WithCancel(stream.Context())
+	defer hbCancel()
+	s.startTestHeartbeat(hbCtx, p, testHBClientSchedule(stream.Context(), hbArrival))
+
 	select {
 	case <-stream.Context().Done():
 		log.Debugf("peer stream closing [%s] [streamID %d] ", p.Id, p.StreamID)
@@ -142,6 +217,68 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 	case <-ctx.Done():
 		return ErrPeerRegisteredAgain
 	}
+}
+
+// drainStream reads and drops what the client writes on its stream. Clients write
+// on it only to probe the path, and unread data would fill the stream window.
+func drainStream(stream proto.SignalExchange_ConnectStreamServer) {
+	for {
+		msg, err := stream.Recv()
+		if err != nil {
+			return
+		}
+		if testhb.Enabled() && testhb.SignalBlackhole() {
+			log.Infof("testhb: blackhole dropped stream message from [%s]", msg.GetKey())
+		}
+	}
+}
+
+// testHBClientSchedule reads the test heartbeat schedule from the stream metadata.
+// arrival is the wall time when ConnectStream started.
+func testHBClientSchedule(ctx context.Context, arrival time.Time) testhb.ClientSchedule {
+	if !testhb.Enabled() {
+		return testhb.ClientSchedule{}
+	}
+	v := metadata.ValueFromIncomingContext(ctx, testhb.MetadataKey)
+	if len(v) == 0 {
+		return testhb.ClientSchedule{}
+	}
+	return testhb.ClientScheduleFor(testhb.ServiceSignal, v[0], arrival)
+}
+
+// startTestHeartbeat sends TestHeartbeatKey messages to the peer on the
+// testhb schedule until ctx is done. It does nothing when testhb is off.
+// Sends go through Peer.Send, so they never race forwarded messages.
+func (s *Server) startTestHeartbeat(ctx context.Context, p *peer.Peer, cs testhb.ClientSchedule) {
+	key := testhb.PhaseKey(p.Id)
+	tick := testhb.TickerWithClient(ctx, key, testhb.ServiceSignal, cs)
+	if tick == nil {
+		return
+	}
+	if cs.OK {
+		log.Infof("testhb: client schedule svc=signal key=%s p=%d period=%d skew=%d",
+			key, cs.PhaseMs, int64(cs.Period/time.Second), cs.SkewMs)
+	}
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick:
+				if testhb.Muted(testhb.ServiceSignal) {
+					log.Infof("testhb: muted signal heartbeat key=%s", key)
+					continue
+				}
+				now := time.Now()
+				if err := p.Send(&proto.EncryptedMessage{Key: TestHeartbeatKey, RemoteKey: p.Id}); err != nil {
+					log.Debugf("testhb: signal heartbeat to [%s] failed: %v", p.Id, err)
+					continue
+				}
+				mode := testhb.CurrentMode()
+				log.Infof("testhb: sent signal heartbeat key=%s mode=%s t=%d%s", key, mode, now.UnixMilli(), testhb.LogSuffix(mode, cs))
+			}
+		}
+	}()
 }
 
 func (s *Server) RegisterPeer(stream proto.SignalExchange_ConnectStreamServer, cancel context.CancelFunc) (*peer.Peer, error) {
@@ -173,6 +310,10 @@ func (s *Server) DeregisterPeer(p *peer.Peer) {
 
 func (s *Server) forwardMessageToPeer(ctx context.Context, msg *proto.EncryptedMessage) {
 	log.Tracef("forwarding a new message from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
+	if testhb.Enabled() && testhb.SignalBlackhole() {
+		log.Infof("testhb: blackhole dropped message from [%s] to [%s]", msg.Key, msg.RemoteKey)
+		return
+	}
 	getRegistrationStart := time.Now()
 
 	// lookup the target peer where the message is going to
