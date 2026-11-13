@@ -63,7 +63,7 @@ var statusCmd = &cobra.Command{
 func init() {
 	ipsFilterMap = make(map[string]struct{})
 	prefixNamesFilterMap = make(map[string]struct{})
-	statusCmd.PersistentFlags().StringVarP(&outputFlag, outputFlagName, "o", "", "output format: detail (human-readable details), table (peers in a table), json, yaml, ipv4 (only this peer's NetBird IPv4) or ipv6 (only this peer's NetBird IPv6). Prints a short summary if not set, or detail if a --filter-by-* flag is set")
+	statusCmd.PersistentFlags().StringVarP(&outputFlag, outputFlagName, "o", "", "output format: detail (human-readable details), table (peers in a table), json, yaml, ipv4 (only this peer's NetBird IPv4) or ipv6 (only this peer's NetBird IPv6). Prints a short summary if not set, or detail if a --filter-by-* flag is set. The --filter-by-* flags apply to all formats except ipv4 and ipv6")
 	_ = statusCmd.RegisterFlagCompletionFunc(outputFlagName, cobra.FixedCompletions(statusOutputNames(), cobra.ShellCompDirectiveNoFileComp))
 	addLegacyOutputFlag(&detailFlag, outputDetail, "d")
 	addLegacyOutputFlag(&tableFlag, outputTable, "t")
@@ -72,10 +72,10 @@ func init() {
 	addLegacyOutputFlag(&ipv4Flag, outputIPv4, "4")
 	addLegacyOutputFlag(&ipv6Flag, outputIPv6, "6")
 	statusCmd.MarkFlagsMutuallyExclusive(outputFlagName, "detail", "table", "json", "yaml", "ipv4", "ipv6")
-	statusCmd.PersistentFlags().StringSliceVarP(&ipsFilter, "filter-by-ips", "I", []string{}, "filters the detailed output by a list of one or more IPs (v4 or v6), e.g., --filter-by-ips 100.64.0.100,fd00::1")
-	statusCmd.PersistentFlags().StringSliceVarP(&prefixNamesFilter, "filter-by-names", "N", []string{}, "filters the detailed output by a list of one or more peer FQDN or hostnames, e.g., --filter-by-names peer-a,peer-b.netbird.cloud")
-	statusCmd.PersistentFlags().StringVarP(&statusFilter, "filter-by-status", "S", "", "filters the detailed output by connection status(idle|connecting|connected), e.g., --filter-by-status connected")
-	statusCmd.PersistentFlags().StringVarP(&connectionTypeFilter, "filter-by-connection-type", "T", "", "filters the detailed output by connection type (P2P|Relayed), e.g., --filter-by-connection-type P2P")
+	statusCmd.PersistentFlags().StringSliceVarP(&ipsFilter, "filter-by-ips", "I", []string{}, "filters the peers in the detail, table, json and yaml output by a list of one or more IPs (v4 or v6), e.g., --filter-by-ips 100.64.0.100,fd00::1")
+	statusCmd.PersistentFlags().StringSliceVarP(&prefixNamesFilter, "filter-by-names", "N", []string{}, "filters the peers in the detail, table, json and yaml output by a list of one or more peer FQDN or hostnames, e.g., --filter-by-names peer-a,peer-b.netbird.cloud")
+	statusCmd.PersistentFlags().StringVarP(&statusFilter, "filter-by-status", "S", "", "filters the peers in the detail, table, json and yaml output by connection status (idle|connecting|connected), e.g., --filter-by-status connected")
+	statusCmd.PersistentFlags().StringVarP(&connectionTypeFilter, "filter-by-connection-type", "T", "", "filters the peers in the detail, table, json and yaml output by connection type (P2P|Relayed), e.g., --filter-by-connection-type P2P")
 	statusCmd.Flags().AddFlagSet(anonymizeFlags)
 	statusCmd.PersistentFlags().StringVarP(&checkFlag, "check", "C", "", "run a health check and exit with code 0 on success, 1 on failure (live|ready|startup)")
 }
@@ -281,14 +281,14 @@ func parseFilters() error {
 	return nil
 }
 
-// addLegacyOutputFlag registers a deprecated boolean flag that selects output.
+// addLegacyOutputFlag registers a hidden boolean flag that selects output.
 func addLegacyOutputFlag(p *bool, output statusOutput, shorthand string) {
 	name := string(output)
 	statusCmd.PersistentFlags().BoolVarP(p, name, shorthand, false, fmt.Sprintf("same as --%s %s", outputFlagName, name))
-	_ = statusCmd.PersistentFlags().MarkDeprecated(name, fmt.Sprintf("use --%s %s", outputFlagName, name))
+	_ = statusCmd.PersistentFlags().MarkHidden(name)
 }
 
-// resolveStatusOutput returns the format chosen by --output or a deprecated
+// resolveStatusOutput returns the format chosen by --output or a hidden
 // format flag. Without either, a filter selects detail.
 func resolveStatusOutput() (statusOutput, error) {
 	output := statusOutput(strings.ToLower(outputFlag))

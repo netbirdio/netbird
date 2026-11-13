@@ -61,11 +61,12 @@ func TestStatusOutputFlagExclusiveWithLegacyFlags(t *testing.T) {
 	}
 }
 
-func TestLegacyOutputFlagsAreDeprecated(t *testing.T) {
+func TestLegacyOutputFlagsAreHiddenNotDeprecated(t *testing.T) {
 	for _, legacy := range []string{"detail", "table", "json", "yaml", "ipv4", "ipv6"} {
 		f := statusCmd.Flags().Lookup(legacy)
 		require.NotNil(t, f, "flag %s must exist", legacy)
-		assert.Equal(t, "use --output "+legacy, f.Deprecated, "--%s must point to --output", legacy)
+		assert.True(t, f.Hidden, "--%s must be hidden from help", legacy)
+		assert.Empty(t, f.Deprecated, "--%s must not print a deprecation warning", legacy)
 	}
 }
 
