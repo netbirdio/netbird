@@ -5,7 +5,30 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/client/internal/peer/guard"
 )
+
+// A lazy connection sits in the peer store and the status recorder without
+// ever being opened, so it has no context and no workers yet.
+func TestOnUnderlayChangedSkipsUnopenedConn(t *testing.T) {
+	recorder := NewRecorder("https://mgm")
+	require.NoError(t, recorder.AddPeer(connConf.Key, "peer.netbird", "100.64.0.2", ""))
+
+	config := connConf
+	config.WgConfig.AllowedIps = []netip.Prefix{netip.MustParsePrefix("100.64.0.2/32")}
+	conn, err := NewConn(config, ServiceDependencies{
+		StatusRecorder:     recorder,
+		SrWatcher:          guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig),
+		PeerConnDispatcher: testDispatcher,
+	})
+	require.NoError(t, err)
+
+	assert.NotPanics(t, func() {
+		conn.OnUnderlayChanged(func(netip.Addr) bool { return false })
+	}, "an underlay change must skip a connection that was never opened")
+}
 
 func TestP2PPathLost(t *testing.T) {
 	onHost := map[netip.Addr]bool{

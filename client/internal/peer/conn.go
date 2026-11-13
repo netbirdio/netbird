@@ -709,7 +709,8 @@ func (conn *Conn) OnUnderlayChanged(localAddrExists func(netip.Addr) bool) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
-	if conn.ctx.Err() != nil {
+	// A lazy connection is in the peer store before Open gives it a context.
+	if conn.ctx == nil || conn.ctx.Err() != nil || conn.workerICE == nil {
 		return
 	}
 	if conn.currentConnPriority != conntype.ICEP2P && conn.currentConnPriority != conntype.ICETurn {
