@@ -7370,7 +7370,7 @@ type AgentNetworkProvider struct {
 	Exhausted bool `protobuf:"varint,8,opt,name=exhausted,proto3" json:"exhausted,omitempty"`
 	// limits lists every cap that binds the caller on this provider. Token and
 	// USD caps are separate entries.
-	Limits        []*AgentNetworkLimit `protobuf:"bytes,10,rep,name=limits,proto3" json:"limits,omitempty"`
+	Limits        []*AgentNetworkLimit `protobuf:"bytes,9,rep,name=limits,proto3" json:"limits,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7481,7 +7481,7 @@ type AgentNetworkLimit struct {
 	Cap       float64 `protobuf:"fixed64,8,opt,name=cap,proto3" json:"cap,omitempty"`
 	Used      float64 `protobuf:"fixed64,9,opt,name=used,proto3" json:"used,omitempty"`
 	// resets_at is the end of the cap's current window.
-	ResetsAt      *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=resets_at,json=resetsAt,proto3" json:"resets_at,omitempty"`
+	ResetsAt      *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=resets_at,json=resetsAt,proto3" json:"resets_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -8262,8 +8262,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\x06models\x18\x06 \x03(\tR\x06models\x12\x1c\n" +
 	"\tunlimited\x18\a \x01(\bR\tunlimited\x12\x1c\n" +
 	"\texhausted\x18\b \x01(\bR\texhausted\x121\n" +
-	"\x06limits\x18\n" +
-	" \x03(\v2\x19.daemon.AgentNetworkLimitR\x06limits\"\xb7\x04\n" +
+	"\x06limits\x18\t \x03(\v2\x19.daemon.AgentNetworkLimitR\x06limits\"\xb7\x04\n" +
 	"\x11AgentNetworkLimit\x128\n" +
 	"\x06source\x18\x01 \x01(\x0e2 .daemon.AgentNetworkLimit.SourceR\x06source\x12\x1b\n" +
 	"\tsource_id\x18\x02 \x01(\tR\bsourceId\x12\x1f\n" +
@@ -8276,7 +8275,8 @@ const file_daemon_proto_rawDesc = "" +
 	"group_name\x18\a \x01(\tR\tgroupName\x12\x10\n" +
 	"\x03cap\x18\b \x01(\x01R\x03cap\x12\x12\n" +
 	"\x04used\x18\t \x01(\x01R\x04used\x127\n" +
-	"\tresets_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\bresetsAt\">\n" +
+	"\tresets_at\x18\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\bresetsAt\">\n" +
 	"\x06Source\x12\x16\n" +
 	"\x12SOURCE_UNSPECIFIED\x10\x00\x12\n" +
 	"\n" +
