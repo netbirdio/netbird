@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"io"
@@ -104,6 +105,10 @@ type GrpcClient struct {
 
 	registrationTimeout       time.Duration
 	registrationProbeInterval time.Duration
+
+	auth authCredentials
+	// cancelStream closes the current stream, guarded by mux.
+	cancelStream context.CancelFunc
 }
 
 // Option configures optional GrpcClient behavior.
@@ -112,6 +117,11 @@ type Option func(*GrpcClient)
 // WithNetEvents injects the OS network event handling.
 func WithNetEvents(events *netevents.Manager) Option {
 	return func(c *GrpcClient) { c.netMgr = events }
+}
+
+// WithAuthKey sets the key that signs the proof presented with the auth token.
+func WithAuthKey(key ed25519.PrivateKey) Option {
+	return func(c *GrpcClient) { c.auth.key = key }
 }
 
 // NewClient creates a new Signal client
@@ -126,6 +136,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 		connStateCallbackLock:     sync.RWMutex{},
 		registrationTimeout:       defaultRegistrationTimeout,
 		registrationProbeInterval: defaultRegistrationProbeInterval,
+		auth:                      authCredentials{hostname: signalHostname(addr)},
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -177,6 +188,30 @@ func (c *GrpcClient) Close() error {
 	c.sharedKeys.Close()
 
 	return c.signalConn.Close()
+}
+
+// UpdateAuthToken sets the auth token presented on every Signal call from now on. An empty token
+// stops presenting one, as Management does when it issues no auth token. When a token appears or
+// is withdrawn the stream reconnects, since Signal records at registration whether the peer
+// authenticated: a legacy registration leaves the peer ID open to legacy callers, and an
+// authenticated one refuses the peer's own legacy calls.
+func (c *GrpcClient) UpdateAuthToken(token []byte) {
+	if !c.auth.update(token) {
+		return
+	}
+	c.mux.Lock()
+	cancel := c.cancelStream
+	c.mux.Unlock()
+	if cancel != nil {
+		log.Infof("auth token issued or withdrawn, reconnecting the Signal stream")
+		cancel()
+	}
+}
+
+func (c *GrpcClient) setCancelStream(cancel context.CancelFunc) {
+	c.mux.Lock()
+	defer c.mux.Unlock()
+	c.cancelStream = cancel
 }
 
 // SetConnStateListener set the ConnStateNotifier
@@ -244,6 +279,8 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 		// todo once the key rotation logic has been implemented, consider changing to some other identifier (received from management)
 		streamCtx, cancelStream := context.WithCancel(ctx)
 		defer cancelStream()
+		c.setCancelStream(cancelStream)
+		defer c.setCancelStream(nil)
 		stream, err := c.connect(streamCtx, cancelStream, c.key.PublicKey().String())
 		if err != nil {
 			log.Warnf("disconnected from the Signal Exchange due to an error: %v", err)
@@ -330,6 +367,13 @@ func (c *GrpcClient) connect(ctx context.Context, cancel context.CancelFunc, key
 
 	// add key fingerprint to the request header to be identified on the server side
 	md := metadata.New(map[string]string{proto.HeaderId: key})
+	authPairs, err := c.auth.metadataPairs(time.Now())
+	if err != nil {
+		return nil, fmt.Errorf("auth credentials: %w", err)
+	}
+	for i := 0; i < len(authPairs); i += 2 {
+		md.Append(authPairs[i], authPairs[i+1])
+	}
 	metaCtx := metadata.NewOutgoingContext(ctx, md)
 	stream, err := c.realClient.ConnectStream(metaCtx, grpc.WaitForReady(true))
 	c.stream = stream
@@ -534,6 +578,14 @@ func (c *GrpcClient) send(parentCtx context.Context, msg *proto.Message) error {
 	encryptedMessage, err := c.encryptMessage(msg)
 	if err != nil {
 		return err
+	}
+
+	authPairs, err := c.auth.metadataPairs(time.Now())
+	if err != nil {
+		return fmt.Errorf("auth credentials: %w", err)
+	}
+	if len(authPairs) > 0 {
+		parentCtx = metadata.AppendToOutgoingContext(parentCtx, authPairs...)
 	}
 
 	attemptTimeout := client.ConnectTimeout

@@ -2,7 +2,10 @@ package profilemanager
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -156,6 +159,10 @@ type Config struct {
 
 	// SSHKey is a private SSH key in a PEM format
 	SSHKey string
+
+	// AuthKey is the base64 Ed25519 seed the peer signs its Signal and Relay proofs with.
+	// It is regenerated together with PrivateKey.
+	AuthKey string
 
 	// ExternalIP mappings, if different from the host interface IP
 	//
@@ -464,6 +471,17 @@ func (config *Config) EnsureIdentity() (bool, error) {
 	if config.PrivateKey == "" {
 		log.Infof("generated new Wireguard key")
 		config.PrivateKey = generateKey()
+		config.AuthKey = ""
+		generated = true
+	}
+
+	if _, err := config.AuthSigningKey(); err != nil {
+		log.Infof("generated new peer auth key")
+		key, err := generateAuthKey()
+		if err != nil {
+			return generated, err
+		}
+		config.AuthKey = key
 		generated = true
 	}
 
@@ -478,6 +496,33 @@ func (config *Config) EnsureIdentity() (bool, error) {
 	}
 
 	return generated, nil
+}
+
+// AuthSigningKey returns the key the peer signs its Signal and Relay proofs with.
+func (config *Config) AuthSigningKey() (ed25519.PrivateKey, error) {
+	seed, err := base64.StdEncoding.DecodeString(config.AuthKey)
+	if err != nil {
+		return nil, fmt.Errorf("decode auth key: %w", err)
+	}
+	if len(seed) != ed25519.SeedSize {
+		return nil, fmt.Errorf("auth key size %d", len(seed))
+	}
+	return ed25519.NewKeyFromSeed(seed), nil
+}
+
+// ManagementAuthKeyOption sends the auth public key on login. A profile without a usable auth
+// key logs in without one and keeps the legacy Signal and Relay credentials.
+func (config *Config) ManagementAuthKeyOption() mgm.Option {
+	if config == nil || config.AuthKey == "" {
+		log.Debugf("no peer auth key, logging in without it")
+		return mgm.WithAuthKey(nil)
+	}
+	key, err := config.AuthSigningKey()
+	if err != nil {
+		log.Warnf("peer auth key unusable, logging in without it: %v", err)
+		return mgm.WithAuthKey(nil)
+	}
+	return mgm.WithAuthKey(key.Public().(ed25519.PublicKey))
 }
 
 func (config *Config) apply(input ConfigInput) (updated bool, err error) {
@@ -1075,6 +1120,14 @@ func generateKey() string {
 		panic(err)
 	}
 	return key.String()
+}
+
+func generateAuthKey() (string, error) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(priv.Seed()), nil
 }
 
 // don't overwrite pre-shared key if we receive asterisks from UI

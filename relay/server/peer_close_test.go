@@ -46,7 +46,7 @@ func TestPeer_CloseDoesNotWaitForStalledWrite(t *testing.T) {
 	peerID := messages.HashID("stalled")
 	peer := NewPeer(relay.metrics, peerID, messages.CurrentProtocolVersion, conn, relay.store, relay.notifier)
 
-	transport, err := messages.MarshalTransportMsg(peerID, []byte("payload"))
+	transport, err := messages.MarshalTransportMsg(messages.CurrentProtocolVersion, peerID, []byte("payload"))
 	require.NoError(t, err)
 	writeErr := make(chan error, 1)
 	go func() {
@@ -81,7 +81,7 @@ func TestRelay_ReconnectDoesNotStallOnOldConnectionWrite(t *testing.T) {
 	oldConn.waitFrames(t, 1)
 
 	sender, _ := acceptPeer(t, relay, "sender")
-	transport, err := messages.MarshalTransportMsg(targetID, []byte("payload"))
+	transport, err := messages.MarshalTransportMsg(messages.CurrentProtocolVersion, targetID, []byte("payload"))
 	require.NoError(t, err)
 	sender.deliver(t, transport)
 	require.True(t, signaled(oldConn.entered), "the forwarded frame must stall on the old connection")

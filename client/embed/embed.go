@@ -241,8 +241,13 @@ func New(opts Options) (*Client, error) {
 	// managed key takes effect on this embedded engine instance.
 	config.ApplyMDMPolicy(mdm.NewLoader(nil).Load())
 
-	if opts.PrivateKey != "" {
+	if opts.PrivateKey != "" && opts.PrivateKey != config.PrivateKey {
 		config.PrivateKey = opts.PrivateKey
+		// In memory only, like the key from the options: Management takes the new auth public key at login.
+		config.AuthKey = ""
+		if _, err := config.EnsureIdentity(); err != nil {
+			return nil, fmt.Errorf("generate auth key: %w", err)
+		}
 	}
 
 	if opts.LazyConnectionEnabled != nil {

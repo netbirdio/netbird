@@ -24,6 +24,7 @@ import (
 
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -3233,6 +3234,38 @@ func TestAddPeer_IPCollisionKeepsLabel(t *testing.T) {
 	}
 }
 
+func TestAddPeer_StoresAuthKey(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+	ctx := context.Background()
+	account := newAccountWithId(ctx, "test-account", "owner", "", "", "", false)
+	require.NoError(t, manager.Store.SaveAccount(ctx, account))
+
+	wgKey, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	added, _, _, _, err := manager.AddPeer(ctx, "", "", "owner", &nbpeer.Peer{
+		Key:        wgKey.PublicKey().String(),
+		AuthPubKey: "auth-key",
+		Meta:       nbpeer.PeerSystemMeta{Hostname: "host", OS: "linux"},
+	}, false)
+	require.NoError(t, err)
+
+	saved, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, added.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "auth-key", saved.AuthPubKey, "registration must store the auth key the peer sent")
+
+	peers, err := manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, account.Id, "", "", "")
+	require.NoError(t, err)
+	require.Len(t, peers, 1)
+	assert.Equal(t, "auth-key", peers[0].AuthPubKey, "the account peer list must load the auth key")
+
+	// On Postgres the full account goes through the pgx loader, which lists its columns by hand.
+	loaded, err := manager.Store.GetAccount(ctx, account.Id)
+	require.NoError(t, err)
+	require.Contains(t, loaded.Peers, added.ID)
+	assert.Equal(t, "auth-key", loaded.Peers[added.ID].AuthPubKey, "the account loader must load the auth key")
+}
+
 func TestAddPeer_ExhaustedIPAllocationFails(t *testing.T) {
 	manager, _, err := createManager(t)
 	require.NoError(t, err)
@@ -3295,6 +3328,48 @@ func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
 		_, _, _, _, err = manager.LoginPeer(ctx, types.PeerLogin{WireGuardPubKey: peer1.Key, SSHKey: "ssh-ed25519 AAAAnew", Meta: current.Meta})
 		require.NoError(t, err)
 		assert.Greater(t, networkSerial(t, manager, account.Id), before)
+	})
+
+	t.Run("LoginPeer replaces the auth key without bumping", func(t *testing.T) {
+		current, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		require.NoError(t, err)
+		login := types.PeerLogin{WireGuardPubKey: peer1.Key, SSHKey: current.SSHKey, Meta: current.Meta}
+
+		prevLevel := log.GetLevel()
+		log.SetLevel(log.DebugLevel)
+		t.Cleanup(func() { log.SetLevel(prevLevel) })
+		hook := logtest.NewGlobal()
+		t.Cleanup(hook.Reset)
+
+		// A first key is routine; replacing or dropping a stored one is rare and logged at info.
+		before := networkSerial(t, manager, account.Id)
+		for _, step := range []struct {
+			authKey string
+			level   log.Level
+		}{
+			{"auth-key-1", log.DebugLevel},
+			{"auth-key-2", log.InfoLevel},
+			{"", log.InfoLevel},
+		} {
+			hook.Reset()
+			login.AuthPubKey = step.authKey
+			_, _, _, _, err = manager.LoginPeer(ctx, login)
+			require.NoError(t, err)
+
+			saved, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+			require.NoError(t, err)
+			assert.Equal(t, step.authKey, saved.AuthPubKey, "every login must replace the stored auth key, empty included")
+
+			var changes []*log.Entry
+			for _, e := range hook.AllEntries() {
+				if strings.Contains(e.Message, "peer auth key") {
+					changes = append(changes, e)
+				}
+			}
+			require.Len(t, changes, 1, "the auth key change to %q must be logged once", step.authKey)
+			assert.Equal(t, step.level, changes[0].Level, "log level, message %q", changes[0].Message)
+		}
+		assert.Equal(t, before, networkSerial(t, manager, account.Id), "the auth key is in no network map")
 	})
 
 	t.Run("MarkPeerConnected and MarkPeerDisconnected", func(t *testing.T) {

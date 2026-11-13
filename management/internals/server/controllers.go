@@ -59,7 +59,7 @@ func (s *BaseServer) IntegratedValidator() integrated_validator.IntegratedValida
 
 func (s *BaseServer) SecretsManager() grpc.SecretsManager {
 	return Create(s, func() grpc.SecretsManager {
-		secretsManager, err := grpc.NewTimeBasedAuthSecretsManager(s.PeersUpdateManager(), s.Config.TURNConfig, s.Config.Relay, s.SettingsManager(), s.GroupsManager())
+		secretsManager, err := grpc.NewTimeBasedAuthSecretsManager(s.PeersUpdateManager(), s.Config.TURNConfig, s.Config.Relay, s.SettingsManager(), s.GroupsManager(), grpc.WithPeerAuth(s.Config.PeerAuth))
 		if err != nil {
 			log.Fatalf("failed to create secrets manager: %v", err)
 		}

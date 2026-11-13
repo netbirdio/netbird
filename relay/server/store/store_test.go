@@ -14,7 +14,9 @@ import (
 const storeWaitTimeout = 2 * time.Second
 
 type MocPeer struct {
-	id messages.PeerID
+	id            messages.PeerID
+	authenticated bool
+	closed        bool
 }
 
 type blockingPeer struct {
@@ -24,7 +26,11 @@ type blockingPeer struct {
 }
 
 func (m *MocPeer) Close() {
+	m.closed = true
+}
 
+func (m *MocPeer) Authenticated() bool {
+	return m.authenticated
 }
 
 func (m *MocPeer) ID() messages.PeerID {
@@ -36,6 +42,10 @@ func (p *blockingPeer) Close() {
 	<-p.release
 }
 
+func (p *blockingPeer) Authenticated() bool {
+	return false
+}
+
 func (p *blockingPeer) ID() messages.PeerID {
 	return p.id
 }
@@ -45,7 +55,7 @@ func TestStore_DeletePeer(t *testing.T) {
 
 	pID := messages.HashID("peer_one")
 	p := &MocPeer{id: pID}
-	s.AddPeer(p)
+	_, _ = s.AddPeer(p)
 	s.DeletePeer(p)
 	if _, ok := s.Peer(pID); ok {
 		t.Errorf("peer was not deleted")
@@ -61,12 +71,49 @@ func TestStore_DeleteDeprecatedPeer(t *testing.T) {
 	p1 := &MocPeer{id: pID1}
 	p2 := &MocPeer{id: pID2}
 
-	s.AddPeer(p1)
-	s.AddPeer(p2)
+	_, _ = s.AddPeer(p1)
+	_, _ = s.AddPeer(p2)
 	s.DeletePeer(p1)
 
 	if _, ok := s.Peer(pID2); !ok {
 		t.Errorf("second peer was deleted")
+	}
+}
+
+func TestStore_AuthenticatedPeerIsNotTakenOver(t *testing.T) {
+	id := messages.HashID("peer_one")
+
+	tests := []struct {
+		name                               string
+		oldAuthenticated, newAuthenticated bool
+		wantReplaced                       bool
+	}{
+		{"legacy replaces legacy", false, false, true},
+		{"authenticated replaces legacy", false, true, true},
+		{"authenticated replaces authenticated", true, true, true},
+		{"legacy cannot replace authenticated", true, false, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := NewStore()
+			oldPeer := &MocPeer{id: id, authenticated: tc.oldAuthenticated}
+			newPeer := &MocPeer{id: id, authenticated: tc.newAuthenticated}
+			_, err := s.AddPeer(oldPeer)
+			require.NoError(t, err)
+
+			replaced, err := s.AddPeer(newPeer)
+			stored, _ := s.Peer(id)
+			if !tc.wantReplaced {
+				assert.ErrorIs(t, err, ErrAuthenticatedPeerExists)
+				assert.Same(t, oldPeer, stored, "the authenticated peer must stay")
+				assert.False(t, oldPeer.closed, "the authenticated peer must not be closed")
+				return
+			}
+			require.NoError(t, err)
+			assert.True(t, replaced, "the second peer is a reconnection")
+			assert.Same(t, newPeer, stored, "the new peer must replace the old one")
+			assert.True(t, oldPeer.closed, "the replaced peer must be closed")
+		})
 	}
 }
 
@@ -78,11 +125,13 @@ func TestStore_AddPeerClosesReplacedPeerOutsideLock(t *testing.T) {
 	releaseOld := sync.OnceFunc(func() { close(old.release) })
 	t.Cleanup(releaseOld)
 	replacement := &MocPeer{id: id}
-	s.AddPeer(old)
+	_, err := s.AddPeer(old)
+	require.NoError(t, err)
 
 	replaced := make(chan bool, 1)
 	go func() {
-		replaced <- s.AddPeer(replacement)
+		ok, _ := s.AddPeer(replacement)
+		replaced <- ok
 	}()
 	select {
 	case <-old.entered:
@@ -94,7 +143,7 @@ func TestStore_AddPeerClosesReplacedPeerOutsideLock(t *testing.T) {
 	go func() {
 		p, _ := s.Peer(id)
 		bystander := &MocPeer{id: messages.HashID("bystander")}
-		s.AddPeer(bystander)
+		_, _ = s.AddPeer(bystander)
 		s.DeletePeer(bystander)
 		stored <- p
 	}()

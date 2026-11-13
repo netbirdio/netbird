@@ -15,6 +15,8 @@ import (
 
 var (
 	ErrPeerAlreadyRegistered = errors.New("peer already registered")
+	// ErrAuthenticatedPeerExists refuses a legacy stream that would replace one opened with peer auth credentials.
+	ErrAuthenticatedPeerExists = errors.New("peer registered with peer auth credentials")
 )
 
 // Peer representation of a connected Peer
@@ -33,6 +35,9 @@ type Peer struct {
 
 	// registration time
 	RegisteredAt time.Time
+
+	// Authenticated is set when the stream was opened with valid peer auth credentials.
+	Authenticated bool
 
 	Cancel context.CancelFunc
 }
@@ -96,6 +101,9 @@ func (registry *Registry) Register(peer *Peer) error {
 	p, loaded := registry.Peers.LoadOrStore(peer.Id, peer)
 	if loaded {
 		pp := p.(*Peer)
+		if pp.Authenticated && !peer.Authenticated {
+			return ErrAuthenticatedPeerExists
+		}
 		if peer.StreamID > pp.StreamID {
 			log.Tracef("peer [%s] is already registered [new streamID %d, previous StreamID %d]. Will override stream.",
 				peer.Id, peer.StreamID, pp.StreamID)
