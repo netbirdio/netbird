@@ -1349,6 +1349,35 @@ func TestServeHTTP_SelfTargetLoopReturns421(t *testing.T) {
 		"a peer dialing a service whose target is itself must get 421")
 }
 
+// TestServeHTTP_SelfTargetLoopAllowedOptionForwards is the opt-out
+// counterpart to TestServeHTTP_SelfTargetLoopReturns421: with
+// WithAllowSelfTargetLoop(true) the same self-target request is
+// forwarded to the backend instead of being refused with 421.
+func TestServeHTTP_SelfTargetLoopAllowedOptionForwards(t *testing.T) {
+	rp := NewReverseProxy(nopOKTransport{}, "auto", nil, nil, WithAllowSelfTargetLoop(true))
+	rp.AddMapping(Mapping{
+		ID:        "svc-1",
+		AccountID: "acct-1",
+		Host:      "private.svc",
+		Paths: map[string]*PathTarget{
+			"/": {
+				URL: &url.URL{Scheme: "http", Host: "100.64.0.5:8080"},
+			},
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "http://private.svc/", nil)
+	req.Host = "private.svc"
+	req.RemoteAddr = "100.64.0.5:55555"
+	req = req.WithContext(types.WithOverlayOrigin(req.Context()))
+	rec := httptest.NewRecorder()
+
+	rp.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code,
+		"with the loop guard disabled the self-target request must reach the backend")
+}
+
 // TestServeHTTP_SelfTargetLoop_NonOverlayRequestPassesThrough verifies
 // the guard is scoped to overlay-origin requests. A public-listener
 // request that happens to share a source IP with the target host must
