@@ -210,6 +210,16 @@ check_use_bin_variable() {
     return 1
 }
 
+install_ui_package() {
+    if "$@"; then
+        return 0
+    fi
+
+    echo "Warning: NetBird UI could not be installed, see the package manager output above." >&2
+    echo "A common cause is a distribution without the GTK4 and WebKitGTK versions the UI requires." >&2
+    echo "Continuing with the NetBird CLI only." >&2
+}
+
 install_netbird() {
     if [ -x "$(command -v netbird)" ]; then
       status_output="$(netbird status 2>&1 || true)"
@@ -238,14 +248,14 @@ install_netbird() {
         ${SUDO} apt-get install netbird -y
 
         if ! $SKIP_UI_APP; then
-            ${SUDO} apt-get install netbird-ui -y
+            install_ui_package ${SUDO} apt-get install netbird-ui -y
         fi
     ;;
     yum)
         add_rpm_repo
         ${SUDO} yum -y install netbird
         if ! $SKIP_UI_APP; then
-            ${SUDO} yum -y install netbird-ui
+            install_ui_package ${SUDO} yum -y install netbird-ui
         fi
     ;;
     dnf)
@@ -253,14 +263,14 @@ install_netbird() {
         ${SUDO} dnf -y install netbird
 
         if ! $SKIP_UI_APP; then
-            ${SUDO} dnf -y install netbird-ui
+            install_ui_package ${SUDO} dnf -y install netbird-ui
         fi
     ;;
     rpm-ostree)
         add_rpm_repo
         ${SUDO} rpm-ostree -y install netbird
         if ! $SKIP_UI_APP; then
-            ${SUDO} rpm-ostree -y install netbird-ui
+            install_ui_package ${SUDO} rpm-ostree -y install netbird-ui
         fi
         # ensure the service is started after install
          ${SUDO} netbird service install || true

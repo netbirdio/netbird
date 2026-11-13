@@ -38,3 +38,7 @@ jobs:
 
       - name: check cli binary
         run: command -v netbird
+
+      - name: check ui binary
+        if: ${{ runner.os == 'Linux' && !matrix.skip_ui_mode }}
+        run: command -v netbird-ui
