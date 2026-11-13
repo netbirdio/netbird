@@ -126,6 +126,14 @@ message BundleResult {
 message SyncRequest {
   // Meta data of the peer
   PeerSystemMeta meta = 1;
+
+  // Set by clients that advertise PeerCapabilityAlignedHeartbeat.
+  AlignedHeartbeatRequest alignedHeartbeat = 2;
+}
+
+// AlignedHeartbeatRequest carries the heartbeat period a client asks for.
+message AlignedHeartbeatRequest {
+  uint32 periodSeconds = 1;
 }
 
 // SyncResponse represents a state that should be applied to the local peer (e.g. Netbird servers config as well as local peer and remote peers configs)
@@ -165,6 +173,16 @@ message SyncResponse {
   NetworkMapEnvelope NetworkMapEnvelope = 8;
 
   int32 Version = 9;
+
+  // Set only on aligned heartbeat messages, which carry no other field.
+  Heartbeat heartbeat = 10;
+}
+
+// Heartbeat marks a SyncResponse as an aligned heartbeat. Its presence is the
+// heartbeat. config is set only on the first heartbeat after the day change,
+// with the newly signed phase.
+message Heartbeat {
+  AlignedHeartbeatConfig config = 1;
 }
 
 message  SyncMetaRequest {
@@ -251,6 +269,8 @@ enum PeerCapability {
   PeerCapabilityIPv6Overlay = 2;
   // Client receives NetworkMap as components and assembles it locally.
   PeerCapabilityComponentNetworkMap = 3;
+  // Client asks for heartbeats aligned on one phase on all its streams.
+  PeerCapabilityAlignedHeartbeat = 4;
 }
 
 // PeerSystemMeta is machine meta data like OS and version.
@@ -425,6 +445,22 @@ message PeerConfig {
 
   // IPv6 overlay address as compact bytes: 16 bytes IP + 1 byte prefix length.
   bytes address_v6 = 9;
+
+  // Answer to an aligned heartbeat request. Unset means no answer in this message.
+  AlignedHeartbeatConfig alignedHeartbeat = 10;
+}
+
+// AlignedHeartbeatConfig is the server answer to an aligned heartbeat request.
+message AlignedHeartbeatConfig {
+  bool enabled = 1;
+  // Confirmed period.
+  uint32 periodSeconds = 2;
+  // Millisecond inside each period, against unix time, when heartbeats are sent.
+  uint32 phaseMillis = 3;
+  // Signature over the peer key, period, phase and day, checked by Signal and relay.
+  bytes phaseSignature = 4;
+  // Unix day (unix seconds / 86400) the phase belongs to.
+  int64 phaseDay = 5;
 }
 
 message AutoUpdateSettings {

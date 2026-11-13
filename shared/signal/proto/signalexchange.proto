@@ -25,6 +25,31 @@ message EncryptedMessage {
 
   // encrypted message Body
   bytes body = 4;
+
+  // Set only on aligned heartbeats from the server. Never encrypted, clients do
+  // not decrypt such a message.
+  ServerHeartbeat serverHeartbeat = 5;
+
+  // Set only on phase corrections a client sends for its own stream.
+  PhaseRequest phaseRequest = 6;
+}
+
+// ServerHeartbeat carries the phase the server sends heartbeats on.
+message ServerHeartbeat {
+  uint32 phaseMillis = 1;
+  // Set when the server is shutting down. The client reconnects at once.
+  bool goingAway = 2;
+}
+
+// PhaseRequest carries the phase a client wants its heartbeats on. The phase
+// Management signed comes with its day, signature and period when the client
+// has a new one, so a stream can switch to the aligned heartbeat without a
+// reconnect. phaseMillis is then the signed phase.
+message PhaseRequest {
+  uint32 phaseMillis = 1;
+  int64 phaseDay = 2;
+  bytes phaseSignature = 3;
+  uint32 periodSeconds = 4;
 }
 
 // A decrypted representation of the EncryptedMessage. Used locally before/after encryption
