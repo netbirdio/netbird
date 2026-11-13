@@ -19,7 +19,7 @@ import (
 const (
 	rpFilterPath          = "net.ipv4.conf.all.rp_filter"
 	rpFilterInterfacePath = "net.ipv4.conf.%s.rp_filter"
-	srcValidMarkPath      = "net.ipv4.conf.all.src_valid_mark"
+	srcValidMarkPath      = "net.ipv4.conf.%s.src_valid_mark"
 	percentEscape         = "%25"
 	dotEscape             = "%2E"
 )
@@ -34,14 +34,17 @@ func Setup(wgIface iface) (map[string]int, error) {
 	keys := map[string]int{}
 	var result *multierror.Error
 
-	oldVal, err := Set(srcValidMarkPath, 1, false)
-	if err != nil {
-		result = multierror.Append(result, err)
-	} else {
-		keys[srcValidMarkPath] = oldVal
+	if wgIface != nil {
+		i := fmt.Sprintf(srcValidMarkPath, EscapeInterfaceName(wgIface.Name()))
+		oldVal, err := Set(i, 1, false)
+		if err != nil {
+			result = multierror.Append(result, err)
+		} else {
+			keys[i] = oldVal
+		}
 	}
 
-	oldVal, err = Set(rpFilterPath, 2, true)
+	oldVal, err := Set(rpFilterPath, 2, true)
 	if err != nil {
 		result = multierror.Append(result, err)
 	} else {
