@@ -874,7 +874,7 @@ message AgentNetworkProvider {
   bool exhausted = 8;
   // limits lists every cap that binds the caller on this provider. Token and
   // USD caps are separate entries.
-  repeated AgentNetworkLimit limits = 10;
+  repeated AgentNetworkLimit limits = 9;
 }
 
 message AgentNetworkLimit {
@@ -904,7 +904,7 @@ message AgentNetworkLimit {
   double cap = 8;
   double used = 9;
   // resets_at is the end of the cap's current window.
-  google.protobuf.Timestamp resets_at = 12;
+  google.protobuf.Timestamp resets_at = 10;
 }
 
 // =====================================================================
