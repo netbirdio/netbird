@@ -9,6 +9,7 @@ import (
 
 	"github.com/quic-go/quic-go"
 
+	nbRelay "github.com/netbirdio/netbird/shared/relay"
 	netErr "github.com/netbirdio/netbird/shared/relay/client/dialer/net"
 )
 
@@ -60,6 +61,11 @@ func (c *Conn) Write(b []byte) (int, error) {
 // Protocol returns the transport name for this connection.
 func (c *Conn) Protocol() string {
 	return Network
+}
+
+// MaxMessageSize returns the largest message a single Write carries.
+func (c *Conn) MaxMessageSize() int {
+	return nbRelay.QUICMaxDatagramSize
 }
 
 func (c *Conn) RemoteAddr() net.Addr {

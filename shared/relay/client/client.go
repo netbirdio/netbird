@@ -154,6 +154,10 @@ type transportConn interface {
 	Protocol() string
 }
 
+type sizedConn interface {
+	MaxMessageSize() int
+}
+
 // NetEvents is the OS network event view the relay consumes: availability
 // gating for the reconnect guard and dial registration for the network change
 // sweep.
@@ -208,6 +212,8 @@ type Client struct {
 	// transport is the negotiated relay transport of the
 	// current connection, guarded by mu.
 	transport string
+
+	maxMsgSize int
 }
 
 // Transport returns the negotiated relay transport of the current connection,
@@ -279,7 +285,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	c.instanceURL = instanceURL
 	c.muInstanceURL.Unlock()
 
-	c.stateSubscription = NewPeersStateSubscription(c.log, c.relayConn, c.closeConnsByPeerID)
+	c.stateSubscription = NewPeersStateSubscription(c.log, c.relayConn, c.maxMsgSize, c.closeConnsByPeerID)
 
 	c.log = c.log.WithField("relay", instanceURL.String())
 	c.log.Infof("relay connection established, server IP: %s", connectedIP(c.relayConn))
@@ -433,6 +439,7 @@ func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 	if tc, ok := conn.(transportConn); ok {
 		c.transport = tc.Protocol()
 	}
+	c.maxMsgSize = maxMessageSize(conn)
 
 	conn, err := dial.WrapConn(conn)
 	if err != nil {
@@ -947,4 +954,11 @@ func extractIPLiteral(s string) netip.Addr {
 		return netip.Addr{}
 	}
 	return ip.Unmap()
+}
+
+func maxMessageSize(conn net.Conn) int {
+	if sc, ok := conn.(sizedConn); ok {
+		return sc.MaxMessageSize()
+	}
+	return messages.MaxMessageSize
 }
