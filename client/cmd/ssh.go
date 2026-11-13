@@ -543,7 +543,7 @@ func runSSH(ctx context.Context, addr string, cmd *cobra.Command) error {
 	if err != nil {
 		cmd.Printf("Failed to connect to %s@%s\n", username, target)
 		cmd.Printf("\nTroubleshooting steps:\n")
-		cmd.Printf("  1. Check peer connectivity: netbird status -d\n")
+		cmd.Printf("  1. Check peer connectivity: netbird status -o detail\n")
 		cmd.Printf("  2. Verify SSH server is enabled on the peer\n")
 		cmd.Printf("  3. Ensure correct hostname/IP is used\n")
 		return fmt.Errorf("dial %s: %w", target, err)

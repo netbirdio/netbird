@@ -140,7 +140,7 @@ bundle where relevant:
 
 ```shell
 netbird version
-netbird status -d -A
+netbird status -o detail -A
 netbird debug for 1m -A -S -U
 ```
 
