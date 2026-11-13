@@ -25,6 +25,9 @@ import (
 //   - The values setup renders for an Anthropic provider work through the
 //     endpoint: base URL as-is, the apiKeyHelper's "-" as the only credential,
 //     and the provider's model. This is the request Claude Code makes.
+//   - The values setup renders for an OpenAI provider work too: the /v1 base
+//     with OpenCode's and pi's placeholder key on Chat Completions, and Codex's
+//     Responses request with no credential at all.
 func TestHarnessSetupClaudeCode(t *testing.T) {
 	ctx := context.Background()
 
@@ -57,11 +60,22 @@ func TestHarnessSetupClaudeCode(t *testing.T) {
 	require.NoError(t, err, "create provider")
 	t.Cleanup(func() { _ = srv.DeleteProvider(context.Background(), prov.Id) })
 
+	openaiProv, err := srv.CreateProvider(ctx, api.AgentNetworkProviderRequest{
+		Name:        "e2e-harness-setup-openai",
+		ProviderId:  "openai_api",
+		UpstreamUrl: vllm.URL,
+		ApiKey:      ptr("sk-harness-setup-e2e"),
+		Enabled:     ptr(true),
+		Models:      &[]api.AgentNetworkProviderModel{{Id: harness.VLLMModel, InputPer1k: 0.001, OutputPer1k: 0.002}},
+	})
+	require.NoError(t, err, "create OpenAI provider")
+	t.Cleanup(func() { _ = srv.DeleteProvider(context.Background(), openaiProv.Id) })
+
 	pol, err := srv.CreatePolicy(ctx, api.AgentNetworkPolicyRequest{
 		Name:                   "e2e-harness-setup",
 		Enabled:                ptr(true),
 		SourceGroups:           []string{grp.Id},
-		DestinationProviderIds: []string{prov.Id},
+		DestinationProviderIds: []string{prov.Id, openaiProv.Id},
 	})
 	require.NoError(t, err, "create policy")
 	t.Cleanup(func() { _ = srv.DeletePolicy(context.Background(), pol.Id) })
@@ -88,5 +102,23 @@ func TestHarnessSetupClaudeCode(t *testing.T) {
 			})
 		}, http.StatusOK)
 		assert.Equal(t, http.StatusOK, code, "the placeholder key and base URL work through the endpoint: %s", resp)
+	})
+
+	t.Run("rendered OpenAI values reach the provider", func(t *testing.T) {
+		chat := `{"model":"` + harness.VLLMModel + `","messages":[{"role":"user","content":"Say hello in one word."}]}`
+		code, resp := callUntil(t, func() (int, string, error) {
+			// OpenCode's openai-compatible SDK and pi send the placeholder key.
+			return cl.PostJSON(ctx, endpoint, proxyIP, "/v1/chat/completions", chat, []string{"Authorization: Bearer not-needed"})
+		}, http.StatusOK)
+		assert.Equal(t, http.StatusOK, code, "the /v1 base and placeholder key work through the endpoint: %s", resp)
+
+		// Codex sends no credential to a provider without env_key. The mock
+		// upstream answers every unmatched path with a chat completion, so
+		// this proves the route, not the Responses body.
+		responses := `{"model":"` + harness.VLLMModel + `","input":"Say hello in one word."}`
+		code, resp = callUntil(t, func() (int, string, error) {
+			return cl.PostJSON(ctx, endpoint, proxyIP, "/v1/responses", responses, nil)
+		}, http.StatusOK)
+		assert.Equal(t, http.StatusOK, code, "Codex's Responses request works without a credential: %s", resp)
 	})
 }

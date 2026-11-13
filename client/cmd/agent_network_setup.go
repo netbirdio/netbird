@@ -112,7 +112,7 @@ func anSetupRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if err := anSetupCheckEndpoint(cmd.Context(), info.GetEndpoint()); err != nil {
+	if err := anSetupCheckEndpoint(cmd.Context(), def, info.GetEndpoint()); err != nil {
 		cmd.PrintErrf("Warning: %v\n", err)
 	}
 
@@ -130,7 +130,7 @@ func anSetupApply(cmd *cobra.Command, def *harness.Definition, settings []harnes
 	plan, err := harness.NewPlan(def.ID, settings, rec, anSetupForce)
 	var unparseable *harness.UnparseableError
 	if errors.As(err, &unparseable) {
-		cmd.PrintErrf("%v\nNetBird only rewrites strict JSON. Add these settings by hand:\n\n", err)
+		cmd.PrintErrf("%v\nNetBird only rewrites files it can parse without losing anything, such as strict JSON. Add these settings by hand:\n\n", err)
 		if perr := anSetupPrintFragments(cmd, settings); perr != nil {
 			return perr
 		}
@@ -217,7 +217,11 @@ func anSetupList(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("read setup record: %w", err)
 	}
 	for _, def := range harness.All() {
-		cmd.Printf("%-14s %-14s %s (%s)\n", def.ID, def.Name, harness.Status(def.ID, rec), def.Files[0].Path(env))
+		paths := make([]string, 0, len(def.Files))
+		for _, f := range def.Files {
+			paths = append(paths, f.Path(env))
+		}
+		cmd.Printf("%-14s %-14s %s (%s)\n", def.ID, def.Name, harness.Status(def.ID, rec), strings.Join(paths, ", "))
 	}
 	return nil
 }
@@ -337,7 +341,7 @@ func anSetupPickModel(cmd *cobra.Command, def *harness.Definition, p *proto.Agen
 
 // anSetupCheckEndpoint makes one request to the endpoint with TLS verified.
 // Any HTTP answer proves the overlay path.
-func anSetupCheckEndpoint(ctx context.Context, endpoint string) error {
+func anSetupCheckEndpoint(ctx context.Context, def *harness.Definition, endpoint string) error {
 	ctx, cancel := context.WithTimeout(ctx, anSetupEndpointTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(endpoint, "/")+"/", nil)
@@ -353,7 +357,7 @@ func anSetupCheckEndpoint(ctx context.Context, endpoint string) error {
 	var uerr x509.UnknownAuthorityError
 	if errors.As(err, &verr) || errors.As(err, &uerr) {
 		return fmt.Errorf("the endpoint's TLS certificate is not trusted: %w. "+
-			"If it is issued by a private CA, Node-based agents such as Claude Code need NODE_EXTRA_CA_CERTS set to that CA", err)
+			"If it is issued by a private CA, %s needs %s set to that CA", err, def.Name, def.CAEnv)
 	}
 	return fmt.Errorf("the endpoint did not answer over NetBird, check 'netbird status': %w", err)
 }

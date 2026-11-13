@@ -1,0 +1,16 @@
+{
+  "model": "netbird/claude-opus-5",
+  "provider": {
+    "netbird": {
+      "models": {
+        "claude-opus-5": {}
+      },
+      "name": "NetBird",
+      "npm": "@ai-sdk/anthropic",
+      "options": {
+        "apiKey": "not-needed",
+        "baseURL": "https://an.example.netbird.test/v1"
+      }
+    }
+  }
+}

@@ -8,15 +8,17 @@ import (
 	"io"
 )
 
-// codec reads and writes one config format as a tree of maps. A new format
-// is a new entry in codecs.
+// codec reads and writes one config format as a tree of maps. encode gets
+// the file's original bytes too, so a format can edit them in place instead
+// of re-encoding. A new format is a new entry in codecs.
 type codec struct {
 	decode func([]byte) (map[string]any, error)
-	encode func(map[string]any) ([]byte, error)
+	encode func(orig []byte, doc map[string]any) ([]byte, error)
 }
 
 var codecs = map[Format]codec{
-	FormatJSON: {decode: decodeJSONDoc, encode: encodeJSONDoc},
+	FormatJSON: {decode: decodeJSONDoc, encode: func(_ []byte, doc map[string]any) ([]byte, error) { return encodeJSONDoc(doc) }},
+	FormatTOML: {decode: decodeTOMLDoc, encode: encodeTOMLDoc},
 }
 
 func codecFor(f Format) codec {
@@ -24,7 +26,7 @@ func codecFor(f Format) codec {
 	if !ok {
 		return codec{
 			decode: func([]byte) (map[string]any, error) { return nil, fmt.Errorf("unsupported format %q", f) },
-			encode: func(map[string]any) ([]byte, error) { return nil, fmt.Errorf("unsupported format %q", f) },
+			encode: func([]byte, map[string]any) ([]byte, error) { return nil, fmt.Errorf("unsupported format %q", f) },
 		}
 	}
 	return c
