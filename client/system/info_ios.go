@@ -16,8 +16,7 @@ func UpdateStaticInfoAsync() {
 	// do nothing
 }
 
-// GetInfo retrieves and parses the system information
-func GetInfo(ctx context.Context) *Info {
+func getInfo(ctx context.Context) *Info {
 
 	sysName := extractOsName(ctx, "sysName")
 	swVersion := extractOsVersion(ctx, "swVersion")

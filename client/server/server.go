@@ -31,6 +31,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	sleephandler "github.com/netbirdio/netbird/client/internal/sleep/handler"
 	"github.com/netbirdio/netbird/client/mdm"
+	"github.com/netbirdio/netbird/client/netevents"
+	"github.com/netbirdio/netbird/client/netevents/watcher"
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -127,9 +129,15 @@ type Server struct {
 
 	connectClient *internal.ConnectClient
 
-	statusRecorder *peer.Status
-	sessionWatcher *internal.SessionWatcher
-	localMetrics   *localmetrics.Manager
+	statusRecorder      *peer.Status
+	netMgr              *netevents.Manager
+	networkWatcher      watcher.Watcher
+	networkWatcherIface string
+	hostNetworkOffline  bool
+	offlineVPNs         map[string]struct{}
+	downFn              func(context.Context, *proto.DownRequest) (*proto.DownResponse, error)
+	sessionWatcher      *internal.SessionWatcher
+	localMetrics        *localmetrics.Manager
 
 	probeThrottle       *probeThrottle
 	persistSyncResponse bool
@@ -217,6 +225,8 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 	agent := &serverAgent{s}
 	s.sleepHandler = sleephandler.New(agent)
 	s.startSleepDetector()
+
+	s.netMgr = netevents.NewManager(s.statusRecorder)
 
 	s.localMetrics = localmetrics.NewManager(ctx, s.statusRecorder, s.clientMetricsGatherer)
 
@@ -341,6 +351,7 @@ func (s *Server) Start() error {
 		return err
 	}
 	s.config = config
+	s.ensureNetworkWatcher(config.WgIface)
 
 	s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(config.RosenpassEnabled, config.RosenpassPermissive)
@@ -393,8 +404,8 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 		}
 	}()
 
-	if s.config.DisableAutoConnect {
-		if err := s.connect(ctx, s.config, s.statusRecorder, runningChan); err != nil {
+	if profileConfig.DisableAutoConnect {
+		if err := s.connect(ctx, profileConfig, statusRecorder, runningChan); err != nil {
 			log.Debugf("run client connection exited with error: %v", err)
 		}
 		log.Tracef("client connection exited")
@@ -1128,6 +1139,14 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
 	log.Infof("up request received")
 	s.mutex.Lock()
+	if s.networkWatcher == nil {
+		iface := "wt0"
+		if s.config != nil && s.config.WgIface != "" {
+			iface = s.config.WgIface
+		}
+		s.ensureNetworkWatcher(iface)
+	}
+	s.publishAggregateNetworkAvailabilityLocked()
 	// clientRunning is the daemon-intent flag (set by previous Up/Start, cleared
 	// by Down). connectionGoroutineRunning() reports whether the previous retry-loop
 	// goroutine is still trying. When intent is up AND goroutine is alive,
@@ -2835,7 +2854,8 @@ func profileOwner(config *profilemanager.Config) (string, bool) {
 
 func (s *Server) connect(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}) error {
 	log.Tracef("running client connection")
-	client := internal.NewConnectClient(ctx, config, statusRecorder, profileOwnerOption(config))
+	client := internal.NewConnectClient(ctx, config, statusRecorder,
+		profileOwnerOption(config), internal.WithNetEvents(s.netMgr))
 	client.SetUpdateManager(s.updateManager)
 	client.SetSyncResponsePersistence(s.persistSyncResponse)
 
