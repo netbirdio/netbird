@@ -1124,4 +1124,43 @@ message AgentNetworkProvider {
   string api_flavor = 4;
   bool all_models_allowed = 5;
   repeated string models = 6;
+  // unlimited is true when a policy without caps pays for the caller and no
+  // account rule binds them.
+  bool unlimited = 7;
+  // exhausted is true when the next request on this provider would be denied
+  // for a spent cap.
+  bool exhausted = 8;
+  // limits lists every cap that binds the caller on this provider. Token and
+  // USD caps are separate entries.
+  repeated AgentNetworkLimit limits = 9;
+}
+
+message AgentNetworkLimit {
+  enum Source {
+    SOURCE_UNSPECIFIED = 0;
+    POLICY = 1;
+    ACCOUNT_RULE = 2;
+  }
+  enum Unit {
+    UNIT_UNSPECIFIED = 0;
+    TOKENS = 1;
+    USD = 2;
+  }
+  enum Scope {
+    SCOPE_UNSPECIFIED = 0;
+    USER = 1;
+    GROUP = 2;
+  }
+  Source source = 1;
+  string source_id = 2;
+  string source_name = 3;
+  Unit unit = 4;
+  Scope scope = 5;
+  // group_id and group_name are set for GROUP scope.
+  string group_id = 6;
+  string group_name = 7;
+  double cap = 8;
+  double used = 9;
+  // resets_at is the end of the cap's current window.
+  google.protobuf.Timestamp resets_at = 10;
 }
