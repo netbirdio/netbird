@@ -49,7 +49,7 @@ func TestSwitchedProfileLabelShowsNameAndShortID(t *testing.T) {
 func TestSwitchedProfileLabelStripsControlChars(t *testing.T) {
 	client := &fakeListProfilesClient{profiles: []*proto.Profile{{Id: "a1b2c3d4e5f60718", Name: "ho\x1b[31mme"}}}
 	label := switchedProfileLabel(context.Background(), client, "celine", profilemanager.ID("a1b2c3d4e5f60718"))
-	assert.NotContains(t, label, "\x1b", "terminal escapes from the daemon must not reach the output")
+	assert.Equal(t, "ho[31mme (id: a1b2c3d4)", label, "terminal escapes from the daemon must not reach the output")
 }
 
 func TestSwitchedProfileLabelFallsBackToID(t *testing.T) {
