@@ -239,6 +239,8 @@ message ProxyMapping {
   AccessRestrictions access_restrictions = 12;
   // NetBird-only: the proxy MUST call ValidateTunnelPeer and fail closed; operator auth schemes are bypassed.
   bool private = 13;
+  // the opposite of service's enabled flag
+  bool disabled = 14;
 }
 
 // SendAccessLogRequest consists of one or more AccessLogs from a Proxy.

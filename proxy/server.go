@@ -1605,8 +1605,10 @@ func (s *Server) processMappings(ctx context.Context, mappings []*proto.ProxyMap
 				"mapping": string(raw),
 			}).Debug("Processing mapping update")
 		}
-		switch mapping.GetType() {
-		case proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED:
+		switch {
+		case mapping.GetType() == proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED, mapping.Disabled:
+			s.removeMapping(ctx, mapping)
+		case mapping.GetType() == proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED:
 			if err := s.addMapping(ctx, mapping); err != nil {
 				s.Logger.WithFields(log.Fields{
 					"service_id": mapping.GetId(),
@@ -1615,7 +1617,7 @@ func (s *Server) processMappings(ctx context.Context, mappings []*proto.ProxyMap
 				}).Error("Error adding new mapping, ignoring this mapping and continuing processing")
 				s.notifyError(ctx, mapping, err)
 			}
-		case proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED:
+		case mapping.GetType() == proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED:
 			if err := s.modifyMapping(ctx, mapping); err != nil {
 				s.Logger.WithFields(log.Fields{
 					"service_id": mapping.GetId(),
@@ -1624,8 +1626,6 @@ func (s *Server) processMappings(ctx context.Context, mappings []*proto.ProxyMap
 				}).Error("failed to modify mapping")
 				s.notifyError(ctx, mapping, err)
 			}
-		case proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED:
-			s.removeMapping(ctx, mapping)
 		}
 	}
 }
