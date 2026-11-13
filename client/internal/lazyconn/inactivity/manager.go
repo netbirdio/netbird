@@ -3,6 +3,7 @@ package inactivity
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -25,9 +26,23 @@ type WgInterface interface {
 type Manager struct {
 	inactivePeersChan chan map[string]struct{}
 
-	iface               WgInterface
-	interestedPeers     map[string]*lazyconn.PeerConfig
+	iface WgInterface
+	// peersMu guards interestedPeers: the engine adds and removes peers while
+	// the Start loop checks them.
+	peersMu             sync.Mutex
+	interestedPeers     map[string]*watchedPeer
 	inactivityThreshold time.Duration
+
+	// now is the clock for add times and idle checks, replaced in tests.
+	now func() monotime.Time
+}
+
+// watchedPeer is a peer under inactivity watch. addedAt counts as activity:
+// the interface keeps the last activity of a peer across a lazy close, so
+// right after a reopen it still reports the traffic of the previous session.
+type watchedPeer struct {
+	cfg     *lazyconn.PeerConfig
+	addedAt monotime.Time
 }
 
 func NewManager(iface WgInterface, configuredThreshold *time.Duration) *Manager {
@@ -41,8 +56,9 @@ func NewManager(iface WgInterface, configuredThreshold *time.Duration) *Manager 
 	return &Manager{
 		inactivePeersChan:   make(chan map[string]struct{}, 1),
 		iface:               iface,
-		interestedPeers:     make(map[string]*lazyconn.PeerConfig),
+		interestedPeers:     make(map[string]*watchedPeer),
 		inactivityThreshold: inactivityThreshold,
+		now:                 monotime.Now,
 	}
 }
 
@@ -60,12 +76,15 @@ func (m *Manager) AddPeer(peerCfg *lazyconn.PeerConfig) {
 		return
 	}
 
+	m.peersMu.Lock()
+	defer m.peersMu.Unlock()
+
 	if _, exists := m.interestedPeers[peerCfg.PublicKey]; exists {
 		return
 	}
 
 	peerCfg.Log.Infof("adding peer to inactivity manager")
-	m.interestedPeers[peerCfg.PublicKey] = peerCfg
+	m.interestedPeers[peerCfg.PublicKey] = &watchedPeer{cfg: peerCfg, addedAt: m.now()}
 }
 
 func (m *Manager) RemovePeer(peer string) {
@@ -73,12 +92,15 @@ func (m *Manager) RemovePeer(peer string) {
 		return
 	}
 
+	m.peersMu.Lock()
+	defer m.peersMu.Unlock()
+
 	pi, ok := m.interestedPeers[peer]
 	if !ok {
 		return
 	}
 
-	pi.Log.Debugf("remove peer from inactivity manager")
+	pi.cfg.Log.Debugf("remove peer from inactivity manager")
 	delete(m.interestedPeers, peer)
 }
 
@@ -125,18 +147,22 @@ func (m *Manager) checkStats() (map[string]struct{}, error) {
 
 	idlePeers := make(map[string]struct{})
 
+	m.peersMu.Lock()
+	defer m.peersMu.Unlock()
+
 	checkTime := time.Now()
-	for peerID, peerCfg := range m.interestedPeers {
+	checkMono := m.now()
+	for peerID, peer := range m.interestedPeers {
 		lastActive, ok := lastActivities[peerID]
 		if !ok {
 			// when peer is in connecting state
-			peerCfg.Log.Warnf("peer not found in wg stats")
+			peer.cfg.Log.Warnf("peer not found in wg stats")
 			continue
 		}
 
-		since := monotime.Since(lastActive)
+		since := time.Duration(checkMono - max(lastActive, peer.addedAt))
 		if since > m.inactivityThreshold {
-			peerCfg.Log.Infof("peer is inactive since time: %s", checkTime.Add(-since).String())
+			peer.cfg.Log.Infof("peer is inactive since time: %s", checkTime.Add(-since).String())
 			idlePeers[peerID] = struct{}{}
 		}
 	}
