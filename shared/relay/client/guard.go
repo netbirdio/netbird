@@ -175,7 +175,10 @@ func (g *Guard) retry(ctx context.Context) error {
 
 func (g *Guard) drainRelayClientChan() {
 	select {
-	case <-g.OnNewRelayClient:
+	case stale := <-g.OnNewRelayClient:
+		if err := stale.Close(); err != nil {
+			log.Debugf("failed to close the replaced relay client: %v", err)
+		}
 	default:
 	}
 }
