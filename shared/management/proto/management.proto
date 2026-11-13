@@ -853,8 +853,8 @@ message GetAgentNetworkInfoResponse {
   }
   State state = 1;
   // endpoint is the account's proxy base URL, "https://<label>.<cluster>".
-  string endpoint = 3;
-  repeated AgentNetworkProvider providers = 6;
+  string endpoint = 2;
+  repeated AgentNetworkProvider providers = 3;
 }
 
 message AgentNetworkProvider {
