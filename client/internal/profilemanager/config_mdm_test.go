@@ -310,10 +310,38 @@ func TestApply_MDMExtraIFaceBlackList_AddsToResolvedList(t *testing.T) {
 	}
 	assert.True(t, cfg.Policy().HasKey(mdm.KeyExtraIFaceBlackList))
 
+}
+
+func TestApply_MDMExtraIFaceBlackList_NotPersistedByLaterWrite(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "config.json")
+	policy := mdm.NewPolicy(map[string]any{mdm.KeyExtraIFaceBlackList: []string{"vxlan", "gre"}})
+
+	managed := configWithMDM(t, ConfigInput{ConfigPath: tmp}, policy)
+	require.Contains(t, managed.IFaceBlackList, "vxlan", "precondition: MDM entry applied")
+
+	// A settings change while the policy is active rewrites the profile file,
+	// as SetConfig or `netbird up --extra-iface-blacklist` would.
+	configWithMDM(t, ConfigInput{ConfigPath: tmp, ExtraIFaceBlackList: []string{"vmnet"}}, policy)
+
 	onDisk := persistedIFaceBlackList(t, tmp)
-	assert.Contains(t, onDisk, "vmnet", "the CLI entry belongs to the profile file")
+	assert.Contains(t, onDisk, "vmnet", "the device's own entry belongs to the profile file")
 	assert.NotContains(t, onDisk, "vxlan", "MDM entries must never be written to the profile file")
 	assert.NotContains(t, onDisk, "gre", "MDM entries must never be written to the profile file")
+}
+
+func TestApply_MDMExtraIFaceBlackList_DoesNotWriteIntoSharedBackingArray(t *testing.T) {
+	// A Config copied by value shares its blacklist backing array with the
+	// original; spare capacity must not let the overlay write into it.
+	shared := make([]string, 1, 4)
+	shared[0] = "docker"
+	original := Config{IFaceBlackList: shared}
+	overlaid := original
+
+	overlaid.ApplyMDMPolicy(mdm.NewPolicy(map[string]any{mdm.KeyExtraIFaceBlackList: "vxlan"}))
+
+	require.Equal(t, []string{"docker", "vxlan"}, overlaid.IFaceBlackList, "precondition: MDM entry applied")
+	assert.Equal(t, []string{"docker"}, original.IFaceBlackList, "the original list must be unchanged")
+	assert.Equal(t, "", shared[:cap(shared)][1], "the shared backing array must not receive the MDM entry")
 }
 
 func TestApply_MDMExtraIFaceBlackList_CommaSeparatedString(t *testing.T) {
