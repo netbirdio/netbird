@@ -191,6 +191,12 @@ func (e *Engine) redialOnUnderlayChange(change networkmonitor.Change) bool {
 		rebound = true
 	}
 
+	// The cached STUN answers belong to the old network; the P2P renegotiation
+	// below must advertise the new one.
+	if e.udpMux != nil {
+		e.udpMux.ForgetMappings()
+	}
+
 	e.netMgr.NotifyNetworkChange()
 	e.moveP2PPeersToRelay(rebound)
 	return true

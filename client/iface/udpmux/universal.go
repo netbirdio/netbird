@@ -181,8 +181,20 @@ func (m *UniversalUDPMuxDefault) UpdateConn(conn net.PacketConn) {
 		wrapped.setPacketConn(conn)
 	}
 
-	// Server-reflexive mappings were learned through the previous socket, on
-	// the network it was on: drop them and release whoever waits on them.
+	m.forgetMappingsLocked()
+}
+
+// ForgetMappings drops the server-reflexive mappings after the host moved to
+// another network, so the next ICE gathering asks the STUN servers again.
+func (m *UniversalUDPMuxDefault) ForgetMappings() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.forgetMappingsLocked()
+}
+
+// forgetMappingsLocked drops the mappings learned on the previous network and
+// releases whoever waits on them. The caller holds m.mu.
+func (m *UniversalUDPMuxDefault) forgetMappingsLocked() {
 	for server, mapped := range m.xorMappedMap {
 		mapped.closeWaiters()
 		delete(m.xorMappedMap, server)

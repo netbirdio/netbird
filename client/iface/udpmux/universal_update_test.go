@@ -78,3 +78,27 @@ func TestUpdateConnKeepsRequestsSentOnTheNewSocket(t *testing.T) {
 	m.mu.Unlock()
 	assert.True(t, pending, "a request sent after the swap keeps its mapping")
 }
+
+// Without a socket rebind (Linux, or a gateway or address change elsewhere)
+// the host still moved to another network: the mappings must go too.
+func TestForgetMappingsDropsServerReflexiveMappings(t *testing.T) {
+	conn, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	m := NewUniversalUDPMuxDefault(UniversalUDPMuxParams{UDPConn: conn})
+	pending := &xorMapped{waitAddrReceived: make(chan struct{}), expiresAt: time.Now().Add(time.Minute)}
+	m.xorMappedMap["198.51.100.1:3478"] = pending
+
+	m.ForgetMappings()
+
+	m.mu.Lock()
+	left := len(m.xorMappedMap)
+	m.mu.Unlock()
+	assert.Zero(t, left, "mappings learned on the old network are dropped")
+	select {
+	case <-pending.waitAddrReceived:
+	default:
+		t.Fatal("a lookup waiting on the old mapping must be released")
+	}
+}
