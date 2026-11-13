@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -200,7 +201,7 @@ func (s *BaseServer) APIHandler() http.Handler {
 	_ = CreateNamed(s, "http_v0api", func() http.Handler {
 		apiRouter := s.ApiRouter()
 		_, err := nbhttp.NewAPIHandler(
-			context.Background(), apiRouter, s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(),
+			context.Background(), apiRouter, s.AuthManager(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(),
 			s.GroupsManager(), s.GeoLocationManager(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(),
 			s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(),
 			s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies,
@@ -381,11 +382,18 @@ func (a *agentNetworkSynthesizerAdapter) SynthesizeServiceForDomain(ctx context.
 
 func (s *BaseServer) proxyOIDCConfig() nbgrpc.ProxyOIDCConfig {
 	return Create(s, func() nbgrpc.ProxyOIDCConfig {
+		scopes := []string{"openid", "profile", "email"}
+		if oauthProvider := s.OAuthConfigProvider(); oauthProvider != nil {
+			// The embedded IdP only adds the groups claim, which the account's JWT
+			// group settings are applied to, when the groups scope is requested.
+			scopes = strings.Fields(oauthProvider.GetDefaultScopes())
+		}
+
 		return nbgrpc.ProxyOIDCConfig{
 			Issuer: s.Config.HttpConfig.AuthIssuer,
 			// todo: double check auth clientID value
 			ClientID:     s.Config.HttpConfig.AuthClientID, // Reuse dashboard client
-			Scopes:       []string{"openid", "profile", "email"},
+			Scopes:       scopes,
 			CallbackURL:  s.Config.HttpConfig.AuthCallbackURL,
 			HMACKey:      []byte(s.Config.DataStoreEncryptionKey), // Use the datastore encryption key for OIDC state HMACs, this should ensure all management instances are using the same key.
 			Audience:     s.Config.HttpConfig.AuthAudience,

@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/netip"
@@ -11,25 +12,31 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
+	"github.com/netbirdio/netbird/management/server/account"
+	serverauth "github.com/netbirdio/netbird/management/server/auth"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/proxy/auth"
+	nbauth "github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/ratelimit"
 )
 
 // AuthCallbackHandler handles OAuth callbacks for proxy authentication.
 type AuthCallbackHandler struct {
 	proxyService   *nbgrpc.ProxyServiceServer
+	authManager    serverauth.Manager
+	accountManager account.Manager
 	rateLimiter    *ratelimit.APIRateLimiter
 	trustedProxies []netip.Prefix
 }
 
 // NewAuthCallbackHandler creates a new OAuth callback handler.
-func NewAuthCallbackHandler(proxyService *nbgrpc.ProxyServiceServer, trustedProxies []netip.Prefix) *AuthCallbackHandler {
+func NewAuthCallbackHandler(proxyService *nbgrpc.ProxyServiceServer, authManager serverauth.Manager, accountManager account.Manager, trustedProxies []netip.Prefix) *AuthCallbackHandler {
 	rateLimiterConfig := &ratelimit.RateLimiterConfig{
 		RequestsPerMinute: 10,
 		Burst:             15,
@@ -39,6 +46,8 @@ func NewAuthCallbackHandler(proxyService *nbgrpc.ProxyServiceServer, trustedProx
 
 	return &AuthCallbackHandler{
 		proxyService:   proxyService,
+		authManager:    authManager,
+		accountManager: accountManager,
 		rateLimiter:    ratelimit.NewAPIRateLimiter(rateLimiterConfig),
 		trustedProxies: trustedProxies,
 	}
@@ -93,18 +102,23 @@ func (h *AuthCallbackHandler) handleCallback(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	userID := extractUserIDFromToken(r.Context(), provider, oidcConfig, token)
+	userID, claims := extractUserFromToken(r.Context(), provider, oidcConfig, token)
 	if userID == "" {
 		log.Error("Failed to extract user ID from OIDC token")
 		http.Error(w, "Failed to validate token", http.StatusUnauthorized)
 		return
 	}
 
-	// GenerateSessionToken applies the service's group and account-status gates,
-	// so a user without access never receives a token. The proxy re-checks the
-	// installed cookie against the service's allowed groups, and renders the
-	// denial page from the error carried back in the redirect.
-	sessionToken, err := h.proxyService.GenerateSessionToken(r.Context(), redirectURL.Hostname(), userID, auth.MethodOIDC)
+	// The account's JWT group settings gate the sign-in like they do for the
+	// HTTP API and the peer login, and GenerateSessionToken then applies the
+	// service's group and account-status gates, so a user without access never
+	// receives a token. The proxy re-checks the installed cookie against the
+	// service's allowed groups, and renders the denial page from the error
+	// carried back in the redirect.
+	var sessionToken string
+	if err = h.applyJWTGroups(r.Context(), userID, claims); err == nil {
+		sessionToken, err = h.proxyService.GenerateSessionToken(r.Context(), redirectURL.Hostname(), userID, auth.MethodOIDC)
+	}
 	if err != nil {
 		log.WithError(err).Error("Failed to create session token")
 		redirectURL.Scheme = "https"
@@ -146,17 +160,46 @@ func sessionTokenErrorDescription(err error) string {
 	if errors.Is(err, nbgrpc.ErrUserBlocked) {
 		return "Your account is blocked"
 	}
-	if errors.Is(err, nbgrpc.ErrUserNotInGroup) {
+	if errors.Is(err, nbgrpc.ErrUserNotInGroup) || errors.Is(err, serverauth.ErrUserNotInAllowedJWTGroups) {
 		return "You are not authorized to access this service"
 	}
 	return "Service configuration error"
 }
 
-func extractUserIDFromToken(ctx context.Context, provider *oidc.Provider, config nbgrpc.ProxyOIDCConfig, token *oauth2.Token) string {
+// applyJWTGroups applies the account's JWT group settings to the sign-in the
+// way the HTTP API and the peer login do: a user outside the allowed JWT groups
+// is refused, and the user's JWT groups are synced so that the service's group
+// gate and the groups embedded in the session token reflect the membership the
+// IdP has just asserted rather than the one left by the user's last request.
+func (h *AuthCallbackHandler) applyJWTGroups(ctx context.Context, userID string, claims jwt.MapClaims) error {
+	user, err := h.accountManager.GetUserByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("get user %s: %w", userID, err)
+	}
+
+	userAuth := nbauth.UserAuth{UserId: userID, AccountId: user.AccountID}
+	userAuth, err = h.authManager.EnsureUserAccessByJWTGroups(ctx, userAuth, &jwt.Token{Claims: claims})
+	if err != nil {
+		return err
+	}
+
+	// Unlike the HTTP API, a failed sync refuses the sign-in: the session token
+	// would otherwise be minted from stale groups. The write is detached from
+	// the request's cancellation like in the auth middleware.
+	if err := h.accountManager.SyncUserJWTGroups(context.WithoutCancel(ctx), userAuth); err != nil {
+		return fmt.Errorf("sync JWT groups of user %s: %w", userID, err)
+	}
+
+	return nil
+}
+
+// extractUserFromToken verifies the ID token of the OIDC response and returns
+// its subject together with its claims.
+func extractUserFromToken(ctx context.Context, provider *oidc.Provider, config nbgrpc.ProxyOIDCConfig, token *oauth2.Token) (string, jwt.MapClaims) {
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
 		log.Warn("No id_token in OIDC response")
-		return ""
+		return "", nil
 	}
 
 	verifier := provider.Verifier(&oidc.Config{
@@ -166,18 +209,16 @@ func extractUserIDFromToken(ctx context.Context, provider *oidc.Provider, config
 	idToken, err := verifier.Verify(ctx, rawIDToken)
 	if err != nil {
 		log.WithError(err).Warn("Failed to verify ID token")
-		return ""
+		return "", nil
 	}
 
-	var claims struct {
-		Subject string `json:"sub"`
-	}
+	claims := jwt.MapClaims{}
 	if err := idToken.Claims(&claims); err != nil {
 		log.WithError(err).Warn("Failed to extract claims from ID token")
-		return ""
+		return "", nil
 	}
 
-	return claims.Subject
+	return idToken.Subject, claims
 }
 
 // resolveClientIP extracts the real client IP from the request.
