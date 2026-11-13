@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"slices"
 	"sync"
 	"time"
 
@@ -73,6 +74,14 @@ type WGIface struct {
 	configurer     device.WGConfigurer
 	filter         device.PacketFilter
 	wgProxyFactory wgProxyFactory
+
+	// overlayPeerKey is the public key of the placeholder peer that owns the overlay range.
+	overlayPeerKey string
+	// overlayRange is the range the placeholder owns on the device, empty while none is reserved.
+	overlayRange []netip.Prefix
+	// staleOverlay holds ranges that were no longer the overlay but could not be removed from the
+	// placeholder, to be retried when the next range is released.
+	staleOverlay []netip.Prefix
 }
 
 func (w *WGIface) GetProxy() wgproxy.Proxy {
@@ -131,12 +140,38 @@ func (w *WGIface) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	return w.tun.Up()
 }
 
-// UpdateAddr updates address of the interface
+// UpdateAddr updates address of the interface. The new overlay range is reserved before the
+// address changes and the old one is released after, so the interface never runs on a range that
+// is not reserved and a failure at any step leaves nothing to roll back.
 func (w *WGIface) UpdateAddr(newAddr wgaddr.Address) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	return w.tun.UpdateAddr(newAddr)
+	if w.configurer == nil {
+		return w.tun.UpdateAddr(newAddr)
+	}
+
+	previous := w.overlayRange
+	next := overlayPrefixes(newAddr)
+	if err := w.addOverlayRange(next); err != nil {
+		return err
+	}
+	w.overlayRange = slices.Clone(previous)
+	for _, p := range next {
+		if !slices.Contains(w.overlayRange, p) {
+			w.overlayRange = append(w.overlayRange, p)
+		}
+	}
+
+	// A failed switch can still have applied the new address, so both ranges stay reserved
+	// until a later change succeeds and releases the one that is not in use.
+	if err := w.tun.UpdateAddr(newAddr); err != nil {
+		return err
+	}
+
+	w.overlayRange = next
+	w.releaseOverlayRanges(previous, next)
+	return nil
 }
 
 // UpdatePeer updates existing Wireguard Peer or creates a new one if doesn't exist
@@ -148,6 +183,8 @@ func (w *WGIface) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAliv
 	if w.configurer == nil {
 		return ErrIfaceNotFound
 	}
+
+	allowedIps = w.withoutOverlayRange(peerKey, allowedIps)
 
 	log.Debugf("updating interface %s peer %s, endpoint %s, allowedIPs %v", w.tun.DeviceName(), peerKey, endpoint, allowedIps)
 	return w.configurer.UpdatePeer(peerKey, allowedIps, keepAlive, endpoint, preSharedKey)
@@ -182,6 +219,10 @@ func (w *WGIface) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	defer w.mu.Unlock()
 	if w.configurer == nil {
 		return ErrIfaceNotFound
+	}
+
+	if err := w.checkNotOverlayRange(allowedIP); err != nil {
+		return err
 	}
 
 	log.Debugf("Adding allowed IP to interface %s and peer %s: allowed IP %s ", w.tun.DeviceName(), peerKey, allowedIP)
