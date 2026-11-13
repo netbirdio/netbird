@@ -90,21 +90,9 @@ func init() {
 	}
 
 	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd, svcStatusCmd, installCmd, uninstallCmd, reconfigureCmd, resetParamsCmd)
-	serviceCmd.PersistentFlags().BoolVar(&profilesDisabled, "disable-profiles", false, "Disables profiles feature. If enabled, the client will not be able to change or edit any profile. To persist this setting, use: netbird service install --disable-profiles")
-	serviceCmd.PersistentFlags().BoolVar(&updateSettingsDisabled, "disable-update-settings", false, "Disables update settings feature. If enabled, the client will not be able to change or edit any settings. To persist this setting, use: netbird service install --disable-update-settings")
-	serviceCmd.PersistentFlags().BoolVar(&captureEnabled, "enable-capture", false, "Enables packet capture via 'netbird debug capture'. To persist, use: netbird service install --enable-capture")
-	serviceCmd.PersistentFlags().BoolVar(&networksDisabled, "disable-networks", false, "Disables network selection. If enabled, the client will not allow listing, selecting, or deselecting networks. To persist, use: netbird service install --disable-networks")
-	serviceCmd.PersistentFlags().BoolVar(&enableJSONSocket, "enable-json-socket", false, "Enables the HTTP/JSON API socket served by grpc-gateway. To persist, use: netbird service install --enable-json-socket")
-	serviceCmd.PersistentFlags().StringVar(&jsonSocket, "json-socket", defaultJSONSocket, "HTTP/JSON API socket address unix://path. tcp://host:port is deprecated: it carries no caller identity, so the daemon refuses every request on it. Requires --enable-json-socket to serve. To persist, use: netbird service install --enable-json-socket --json-socket")
-
-	allowGroupDesc := `Restricts the daemon control socket and the JSON socket to the given group. ` +
-		`Accounts outside it cannot connect at all, so nothing the daemon exposes is reachable from them. ` +
-		`On Windows the daemon's own account, LocalSystem and elevated administrators keep access regardless. ` +
-		`Takes a group name, or a numeric GID on Unix and a SID on Windows; ` +
-		`Unix accepts a single group, Windows a comma-separated list of groups or accounts. ` +
-		`Names are resolved when the service is installed, LDAP, SSSD and Active Directory groups included. ` +
-		`To persist, use: netbird service install --allow-group <group>`
-	serviceCmd.PersistentFlags().StringSliceVar(&allowGroups, "allow-group", nil, allowGroupDesc)
+	addDaemonFlags(runCmd)
+	addDaemonFlags(installCmd)
+	addDaemonFlags(reconfigureCmd)
 
 	serviceCmd.PersistentFlags().StringVarP(&serviceName, "service", "s", defaultServiceName, "Netbird system service name")
 	serviceEnvDesc := `Sets extra environment variables for the service. ` +
@@ -127,6 +115,25 @@ func init() {
 	reconfigureCmd.Flags().StringSliceVar(&serviceEnvVars, "service-env", nil, serviceEnvDesc)
 
 	rootCmd.AddCommand(serviceCmd)
+}
+
+// addDaemonFlags registers the flags the daemon reads at startup on cmd.
+func addDaemonFlags(cmd *cobra.Command) {
+	cmd.Flags().BoolVar(&profilesDisabled, "disable-profiles", false, "Disables profiles feature. If enabled, the client will not be able to change or edit any profile. To persist this setting, use: netbird service install --disable-profiles")
+	cmd.Flags().BoolVar(&updateSettingsDisabled, "disable-update-settings", false, "Disables update settings feature. If enabled, the client will not be able to change or edit any settings. To persist this setting, use: netbird service install --disable-update-settings")
+	cmd.Flags().BoolVar(&captureEnabled, "enable-capture", false, "Enables packet capture via 'netbird debug capture'. To persist, use: netbird service install --enable-capture")
+	cmd.Flags().BoolVar(&networksDisabled, "disable-networks", false, "Disables network selection. If enabled, the client will not allow listing, selecting, or deselecting networks. To persist, use: netbird service install --disable-networks")
+	cmd.Flags().BoolVar(&enableJSONSocket, "enable-json-socket", false, "Enables the HTTP/JSON API socket served by grpc-gateway. To persist, use: netbird service install --enable-json-socket")
+	cmd.Flags().StringVar(&jsonSocket, "json-socket", defaultJSONSocket, "HTTP/JSON API socket address unix://path. tcp://host:port is deprecated: it carries no caller identity, so the daemon refuses every request on it. Requires --enable-json-socket to serve. To persist, use: netbird service install --enable-json-socket --json-socket")
+
+	allowGroupDesc := `Restricts the daemon control socket and the JSON socket to the given group. ` +
+		`Accounts outside it cannot connect at all, so nothing the daemon exposes is reachable from them. ` +
+		`On Windows the daemon's own account, LocalSystem and elevated administrators keep access regardless. ` +
+		`Takes a group name, or a numeric GID on Unix and a SID on Windows; ` +
+		`Unix accepts a single group, Windows a comma-separated list of groups or accounts. ` +
+		`Names are resolved when the service is installed, LDAP, SSSD and Active Directory groups included. ` +
+		`To persist, use: netbird service install --allow-group <group>`
+	cmd.Flags().StringSliceVar(&allowGroups, "allow-group", nil, allowGroupDesc)
 }
 
 func newProgram(ctx context.Context, cancel context.CancelFunc) *program {
