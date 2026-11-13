@@ -11,6 +11,7 @@ import { NotConnectedState } from "@/components/empty-state/NotConnectedState";
 import { useStatus } from "@/contexts/StatusContext";
 import { Peers } from "@/modules/main/advanced/peers/Peers";
 import { Networks } from "@/modules/main/advanced/networks/Networks";
+import { AgentNetworkUsage } from "@/modules/agent-network/AgentNetworkUsage";
 import { NetworksProvider } from "@/contexts/NetworksContext";
 import { PeerDetailProvider, usePeerDetail } from "@/contexts/PeerDetailContext";
 import { useRestrictions } from "@/contexts/RestrictionsContext";
@@ -102,6 +103,7 @@ const AdvancedAppRightPanel = () => {
                 >
                     {section === "peers" && <Peers />}
                     {section === "networks" && <Networks />}
+                    {section === "agentNetwork" && <AgentNetworkUsage />}
                 </div>
             </div>
             {!isConnected && (

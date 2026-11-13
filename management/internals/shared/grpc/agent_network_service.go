@@ -6,6 +6,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
@@ -70,14 +71,52 @@ func agentNetworkInfoToProto(info *types.PeerAgentNetworkInfo) *proto.GetAgentNe
 	}
 	resp.Endpoint = info.Config.Endpoint
 	for _, p := range info.Config.Providers {
-		resp.Providers = append(resp.Providers, &proto.AgentNetworkProvider{
+		pp := &proto.AgentNetworkProvider{
 			Id:               p.ID,
 			Name:             p.Name,
 			CatalogId:        p.CatalogID,
 			ApiFlavor:        p.APIFlavor,
 			AllModelsAllowed: p.AllModelsAllowed,
 			Models:           p.Models,
-		})
+		}
+		if a := p.Allowance; a != nil {
+			pp.Unlimited = a.Unlimited
+			pp.Exhausted = a.Exhausted
+			for _, l := range a.Limits {
+				pp.Limits = append(pp.Limits, agentNetworkLimitToProto(l))
+			}
+		}
+		resp.Providers = append(resp.Providers, pp)
 	}
 	return resp
+}
+
+var (
+	allowanceSourceToProto = map[types.AllowanceSource]proto.AgentNetworkLimit_Source{
+		types.AllowanceSourcePolicy:      proto.AgentNetworkLimit_POLICY,
+		types.AllowanceSourceAccountRule: proto.AgentNetworkLimit_ACCOUNT_RULE,
+	}
+	allowanceUnitToProto = map[types.AllowanceUnit]proto.AgentNetworkLimit_Unit{
+		types.AllowanceUnitTokens: proto.AgentNetworkLimit_TOKENS,
+		types.AllowanceUnitUSD:    proto.AgentNetworkLimit_USD,
+	}
+	allowanceScopeToProto = map[types.AllowanceScope]proto.AgentNetworkLimit_Scope{
+		types.AllowanceScopeUser:  proto.AgentNetworkLimit_USER,
+		types.AllowanceScopeGroup: proto.AgentNetworkLimit_GROUP,
+	}
+)
+
+func agentNetworkLimitToProto(l types.AllowanceLimit) *proto.AgentNetworkLimit {
+	return &proto.AgentNetworkLimit{
+		Source:     allowanceSourceToProto[l.Source],
+		SourceId:   l.SourceID,
+		SourceName: l.SourceName,
+		Unit:       allowanceUnitToProto[l.Unit],
+		Scope:      allowanceScopeToProto[l.Scope],
+		GroupId:    l.GroupID,
+		GroupName:  l.GroupName,
+		Cap:        l.Cap,
+		Used:       l.Used,
+		ResetsAt:   timestamppb.New(l.ResetsAt),
+	}
 }

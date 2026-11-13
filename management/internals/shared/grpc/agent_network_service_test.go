@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -100,6 +101,7 @@ func TestGetAgentNetworkInfo_EncryptedRoundTrip(t *testing.T) {
 	}))
 	accountManager.EXPECT().GetAccountIDForPeerKey(gomock.Any(), clientKey.PublicKey().String()).Return("acct-1", nil)
 
+	resetsAt := time.Date(2026, 11, 7, 0, 0, 0, 0, time.UTC)
 	fake := &fakeAgentNetworkInfo{info: &types.PeerAgentNetworkInfo{
 		State: types.PeerAgentNetworkOK,
 		Config: &types.AgentConfig{
@@ -108,6 +110,14 @@ func TestGetAgentNetworkInfo_EncryptedRoundTrip(t *testing.T) {
 			Providers: []types.AgentConfigProvider{{
 				ID: "prov-1", Name: "OpenAI", CatalogID: "openai_api", APIFlavor: "openai",
 				Models: []string{"gpt-5.4"},
+				Allowance: &types.ProviderAllowance{
+					Exhausted: true,
+					Limits: []types.AllowanceLimit{{
+						Source: types.AllowanceSourcePolicy, SourceID: "pol-1", SourceName: "Engineers",
+						Unit: types.AllowanceUnitUSD, Scope: types.AllowanceScopeUser,
+						Cap: 5, Used: 5.5, ResetsAt: resetsAt,
+					}},
+				},
 			}},
 		},
 	}}
@@ -126,4 +136,16 @@ func TestGetAgentNetworkInfo_EncryptedRoundTrip(t *testing.T) {
 	assert.Equal(t, "prov-1", resp.Providers[0].Id)
 	assert.Equal(t, "openai", resp.Providers[0].ApiFlavor)
 	assert.Equal(t, []string{"gpt-5.4"}, resp.Providers[0].Models)
+	assert.True(t, resp.Providers[0].Exhausted)
+	assert.False(t, resp.Providers[0].Unlimited)
+	require.Len(t, resp.Providers[0].Limits, 1)
+	l := resp.Providers[0].Limits[0]
+	assert.Equal(t, proto.AgentNetworkLimit_POLICY, l.Source)
+	assert.Equal(t, "pol-1", l.SourceId)
+	assert.Equal(t, "Engineers", l.SourceName)
+	assert.Equal(t, proto.AgentNetworkLimit_USD, l.Unit)
+	assert.Equal(t, proto.AgentNetworkLimit_USER, l.Scope)
+	assert.Equal(t, 5.0, l.Cap)
+	assert.Equal(t, 5.5, l.Used)
+	assert.Equal(t, resetsAt, l.ResetsAt.AsTime())
 }

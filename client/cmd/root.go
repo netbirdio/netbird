@@ -182,6 +182,7 @@ func init() {
 	rootCmd.AddCommand(profileCmd)
 	rootCmd.AddCommand(exposeCmd)
 	rootCmd.AddCommand(postureCmd)
+	rootCmd.AddCommand(agentNetworkCmd)
 
 	postureCmd.AddCommand(postureCertProofCmd)
 
