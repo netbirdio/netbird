@@ -302,6 +302,11 @@ const (
 	// MCPSessionRevokedOnTokenReuse indicates that an MCP session was revoked because a refresh token or an authorization code was used twice
 	MCPSessionRevokedOnTokenReuse Activity = 148
 
+	// PeerConnected indicates that a peer opened its sync stream and is now connected
+	PeerConnected Activity = 149
+	// PeerDisconnected indicates that a peer's sync stream ended and the peer is now disconnected
+	PeerDisconnected Activity = 150
+
 	AccountDeleted Activity = 99999
 )
 
@@ -489,6 +494,8 @@ var activityMap = map[Activity]Code{
 	MCPClientSignedIn:             {"MCP client signed in", "mcp.session.start"},
 	MCPClientSignedOut:            {"MCP client signed out", "mcp.session.revoke"},
 	MCPSessionRevokedOnTokenReuse: {"MCP session revoked after token reuse", "mcp.session.replay"},
+	PeerConnected:                 {"Peer connected", "peer.connect"},
+	PeerDisconnected:              {"Peer disconnected", "peer.disconnect"},
 }
 
 // StringCode returns a string code of the activity
