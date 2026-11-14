@@ -839,6 +839,61 @@ func TestValidateTunnelPeerDeniedRecordsNoActivity(t *testing.T) {
 	assert.Empty(t, activityManager.seenMarks, "a denied peer must not be marked seen")
 }
 
+// TestValidateTunnelPeerHasPrivateAccess pins the hint the proxy uses to pick
+// 403 over 404: a not_in_group denial says whether the peer reaches any other
+// enabled private service in the account.
+func TestValidateTunnelPeerHasPrivateAccess(t *testing.T) {
+	const (
+		domain    = "app.example.com"
+		accountID = "account1"
+	)
+	denied := &service.Service{ID: "svc-denied", Domain: domain, AccountID: accountID, Enabled: true, Private: true, AccessGroups: []string{"admins"}}
+
+	tests := []struct {
+		name   string
+		others []*service.Service
+		want   bool
+	}{
+		{name: "no other private service", want: false},
+		{
+			name:   "other private service grants the peer",
+			others: []*service.Service{{ID: "svc-other", AccountID: accountID, Enabled: true, Private: true, AccessGroups: []string{"devs"}}},
+			want:   true,
+		},
+		{
+			name: "only disabled, public or foreign-group services",
+			others: []*service.Service{
+				{ID: "svc-disabled", AccountID: accountID, Enabled: false, Private: true, AccessGroups: []string{"devs"}},
+				{ID: "svc-public", AccountID: accountID, Enabled: true},
+				{ID: "svc-ops", AccountID: accountID, Enabled: true, Private: true, AccessGroups: []string{"ops"}},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := &ProxyServiceServer{
+				serviceManager: &mockReverseProxyManager{
+					proxiesByAccount: map[string][]*service.Service{accountID: append([]*service.Service{denied}, tt.others...)},
+				},
+				peersManager: &mockTunnelPeersManager{
+					peer:   &peer.Peer{ID: "peer1", Name: "agent"},
+					groups: []*types.Group{{ID: "devs", Name: "Devs"}},
+				},
+				usersManager: &mockUsersManager{users: map[string]*types.User{}},
+			}
+
+			resp, err := server.ValidateTunnelPeer(context.Background(), &proto.ValidateTunnelPeerRequest{Domain: domain, TunnelIp: "100.64.0.1"})
+
+			require.NoError(t, err)
+			require.False(t, resp.GetValid())
+			assert.Equal(t, "not_in_group", resp.GetDeniedReason())
+			assert.Equal(t, tt.want, resp.GetHasPrivateAccess())
+		})
+	}
+}
+
 func TestGetAccountProxyByDomain(t *testing.T) {
 	tests := []struct {
 		name             string
