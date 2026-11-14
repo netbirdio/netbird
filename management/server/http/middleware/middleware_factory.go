@@ -6,12 +6,11 @@ import (
 	"github.com/netbirdio/netbird/management/server/auth"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/shared/ratelimit"
-	"github.com/netbirdio/netbird/trustedproxy"
 	"github.com/rs/cors"
 	log "github.com/sirupsen/logrus"
 )
 
-func BuildMiddleware(rateLimiter *ratelimit.APIRateLimiter, authManager auth.Manager, accountManager account.Manager, metrics telemetry.AppMetrics, trustedProxies *trustedproxy.List) []mux.MiddlewareFunc {
+func BuildMiddleware(rateLimiter *ratelimit.APIRateLimiter, authManager auth.Manager, accountManager account.Manager, metrics telemetry.AppMetrics) []mux.MiddlewareFunc {
 	toret := make([]mux.MiddlewareFunc, 0)
 
 	toret = append(toret, metrics.HTTPMiddleware().Handler)
@@ -29,7 +28,6 @@ func BuildMiddleware(rateLimiter *ratelimit.APIRateLimiter, authManager auth.Man
 		accountManager.GetUserFromUserAuth,
 		rateLimiter,
 		metrics.GetMeter(),
-		trustedProxies,
 	).Handler)
 
 	return toret

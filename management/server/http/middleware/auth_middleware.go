@@ -19,7 +19,6 @@ import (
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/shared/ratelimit"
-	"github.com/netbirdio/netbird/trustedproxy"
 )
 
 type EnsureAccountFunc func(ctx context.Context, userAuth auth.UserAuth) (string, string, error)
@@ -35,7 +34,6 @@ type AuthMiddleware struct {
 	syncUserJWTGroups   SyncUserJWTGroupsFunc
 	rateLimiter         *ratelimit.APIRateLimiter
 	patUsageTracker     *PATUsageTracker
-	trustedProxies      *trustedproxy.List
 }
 
 // NewAuthMiddleware instance constructor
@@ -46,7 +44,6 @@ func NewAuthMiddleware(
 	getUserFromUserAuth GetUserFromUserAuthFunc,
 	rateLimiter *ratelimit.APIRateLimiter,
 	meter metric.Meter,
-	trustedProxies *trustedproxy.List,
 ) *AuthMiddleware {
 	var patUsageTracker *PATUsageTracker
 	if meter != nil {
@@ -64,7 +61,6 @@ func NewAuthMiddleware(
 		getUserFromUserAuth: getUserFromUserAuth,
 		rateLimiter:         rateLimiter,
 		patUsageTracker:     patUsageTracker,
-		trustedProxies:      trustedProxies,
 	}
 }
 
@@ -120,9 +116,6 @@ func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, authHeaderParts []
 	}
 
 	ctx := r.Context()
-	if clientIP := m.trustedProxies.ResolveClientIP(r.RemoteAddr, r.Header.Get("X-Forwarded-For")); clientIP.IsValid() {
-		ctx = nbcontext.SetClientIP(ctx, clientIP)
-	}
 
 	userAuth, validatedToken, err := m.authManager.ValidateAndParseToken(ctx, token)
 	if err != nil {

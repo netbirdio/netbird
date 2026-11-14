@@ -246,34 +246,10 @@ func (am *DefaultAccountManager) GetUserFromUserAuth(ctx context.Context, userAu
 
 	if newLogin {
 		meta := map[string]any{"timestamp": userAuth.LastLogin}
-		am.addLoginLocationMeta(ctx, meta)
 		am.StoreEvent(ctx, userAuth.UserId, userAuth.UserId, userAuth.AccountId, activity.DashboardLogin, meta)
 	}
 
 	return user, nil
-}
-
-// addLoginLocationMeta adds the request's source IP and, when geolocation is enabled, its
-// location to a dashboard login event's meta, using the keys peer events use. A failed lookup
-// keeps the IP and leaves the location out.
-func (am *DefaultAccountManager) addLoginLocationMeta(ctx context.Context, meta map[string]any) {
-	clientIP, ok := nbcontext.GetClientIP(ctx)
-	if !ok {
-		return
-	}
-	meta["location_connection_ip"] = clientIP.String()
-
-	if am.geo == nil {
-		return
-	}
-	location, err := am.geo.Lookup(clientIP.AsSlice())
-	if err != nil {
-		log.WithContext(ctx).Debugf("failed to get location for dashboard login ip [%s]: %v", clientIP, err)
-		return
-	}
-	meta["location_country_code"] = location.Country.ISOCode
-	meta["location_city_name"] = location.City.Names.En
-	meta["location_geo_name_id"] = location.City.GeonameID
 }
 
 // ListUsers returns lists of all users under the account.
