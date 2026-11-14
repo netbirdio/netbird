@@ -62,6 +62,9 @@
     "tray.menu.disconnect": {
         "message": "Trennen"
     },
+    "tray.menu.reconnect": {
+        "message": "Neu verbinden"
+    },
     "tray.menu.exitNode": {
         "message": "Exit Node"
     },
@@ -133,6 +136,9 @@
     },
     "notify.error.disconnect": {
         "message": "Trennen fehlgeschlagen"
+    },
+    "notify.error.reconnect": {
+        "message": "Neu verbinden fehlgeschlagen"
     },
     "notify.error.switchProfile": {
         "message": "Wechsel zu {profile} fehlgeschlagen"

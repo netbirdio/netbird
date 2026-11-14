@@ -62,6 +62,9 @@
     "tray.menu.disconnect": {
         "message": "Disconnetti"
     },
+    "tray.menu.reconnect": {
+        "message": "Riconnetti"
+    },
     "tray.menu.exitNode": {
         "message": "Nodo di uscita"
     },
@@ -133,6 +136,9 @@
     },
     "notify.error.disconnect": {
         "message": "Disconnessione non riuscita"
+    },
+    "notify.error.reconnect": {
+        "message": "Riconnessione non riuscita"
     },
     "notify.error.switchProfile": {
         "message": "Impossibile passare a {profile}"

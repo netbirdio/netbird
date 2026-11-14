@@ -62,6 +62,9 @@
     "tray.menu.disconnect": {
         "message": "Bontás"
     },
+    "tray.menu.reconnect": {
+        "message": "Újracsatlakozás"
+    },
     "tray.menu.exitNode": {
         "message": "Exit Node"
     },
@@ -133,6 +136,9 @@
     },
     "notify.error.disconnect": {
         "message": "Bontás sikertelen"
+    },
+    "notify.error.reconnect": {
+        "message": "Újracsatlakozás sikertelen"
     },
     "notify.error.switchProfile": {
         "message": "Átváltás sikertelen erre: {profile}"
