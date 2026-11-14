@@ -43,6 +43,7 @@ func TestNftablesCreateIpSetBatchSize(t *testing.T) {
 			set, err := r.createIpSet(setName, setInput{prefixes: sources})
 			require.NoError(t, err, "set creation must not be rejected")
 			require.NotNil(t, set, "created set must be returned")
+			commitQueuedIpSet(t, r)
 
 			assert.Equal(t, tt.count, kernelSetPrefixCount(t, r, setName),
 				"kernel set must hold every prefix that was requested")
@@ -65,6 +66,7 @@ func TestNftablesUpdateSetBatchSize(t *testing.T) {
 			created, err := r.createIpSet(set.HashedName(), setInput{})
 			require.NoError(t, err, "empty set creation must succeed")
 			require.NotNil(t, created, "created set must be returned")
+			commitQueuedIpSet(t, r)
 
 			require.NoError(t, r.UpdateSet(set, sources), "set update must not be rejected")
 
