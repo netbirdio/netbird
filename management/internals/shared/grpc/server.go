@@ -15,7 +15,6 @@ import (
 	"time"
 
 	jwtv5 "github.com/golang-jwt/jwt/v5"
-	pb "google.golang.org/protobuf/proto" // nolint
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
 	log "github.com/sirupsen/logrus"
@@ -23,6 +22,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+	pb "google.golang.org/protobuf/proto" // nolint
 
 	"github.com/netbirdio/netbird/shared/management/client/common"
 	"github.com/netbirdio/netbird/shared/management/grpc"

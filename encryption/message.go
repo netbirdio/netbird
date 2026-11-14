@@ -1,9 +1,9 @@
 package encryption
 
 import (
-	pb "google.golang.org/protobuf/proto" //nolint
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	pb "google.golang.org/protobuf/proto" //nolint
 )
 
 type Encrypter interface {

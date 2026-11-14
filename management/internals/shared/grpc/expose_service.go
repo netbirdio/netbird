@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	pb "google.golang.org/protobuf/proto" // nolint
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	pb "google.golang.org/protobuf/proto" // nolint
 
 	"github.com/netbirdio/netbird/encryption"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"

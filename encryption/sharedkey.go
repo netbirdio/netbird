@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"sync"
 
-	pb "github.com/golang/protobuf/proto" //nolint
 	"golang.org/x/crypto/nacl/box"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	pb "google.golang.org/protobuf/proto"
 )
 
 // SharedKeyCache encrypts and decrypts messages for one local private key, deriving
