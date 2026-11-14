@@ -350,10 +350,10 @@ func (s *BaseServer) Stop() error {
 	if s.certListener != nil {
 		_ = s.certListener.Close()
 	}
-	s.ManagementGRPCServer().StartDraining()
 	if drainer, ok := s.AccountManager().(interface{ StartDraining() }); ok {
 		drainer.StartDraining()
 	}
+	s.ManagementGRPCServer().StartDraining()
 	s.stopGRPCServer()
 	deadline, _ := ctx.Deadline()
 	releaseCtx, cancelRelease := context.WithDeadline(ctx, deadline.Add(-shutdownCloseReserve))
