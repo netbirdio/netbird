@@ -212,6 +212,7 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 		},
 		disabledLimiter,
 		nil,
+		nil,
 	)
 
 	handlerToTest := authMiddleware.Handler(nextHandler)
@@ -278,6 +279,7 @@ func TestAuthMiddleware_SyncUserJWTGroupsDetachedFromRequestCancellation(t *test
 		},
 		disabledLimiter,
 		nil,
+		nil,
 	)
 
 	handlerToTest := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
@@ -329,6 +331,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 				return &types.User{}, nil
 			},
 			ratelimit.NewAPIRateLimiter(rateLimitConfig),
+			nil,
 			nil,
 		)
 
@@ -382,6 +385,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			},
 			ratelimit.NewAPIRateLimiter(rateLimitConfig),
 			nil,
+			nil,
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -424,6 +428,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 				return &types.User{}, nil
 			},
 			ratelimit.NewAPIRateLimiter(rateLimitConfig),
+			nil,
 			nil,
 		)
 
@@ -468,6 +473,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 				return &types.User{}, nil
 			},
 			ratelimit.NewAPIRateLimiter(rateLimitConfig),
+			nil,
 			nil,
 		)
 
@@ -533,6 +539,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			},
 			ratelimit.NewAPIRateLimiter(rateLimitConfig),
 			nil,
+			nil,
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -592,6 +599,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			},
 			ratelimit.NewAPIRateLimiter(rateLimitConfig),
 			nil,
+			nil,
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -646,6 +654,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 				return &types.User{}, nil
 			},
 			ratelimit.NewAPIRateLimiter(rateLimitConfig),
+			nil,
 			nil,
 		)
 
@@ -747,6 +756,7 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 		},
 		disabledLimiter,
 		nil,
+		nil,
 	)
 
 	for _, tc := range tt {
@@ -824,6 +834,7 @@ func TestAuthMiddleware_MarkPATUsedThrottled(t *testing.T) {
 					return &types.User{}, nil
 				},
 				disabledLimiter,
+				nil,
 				nil,
 			)
 
