@@ -48,15 +48,25 @@ func addSessionEventTestPeer(t *testing.T, manager *DefaultAccountManager) (peer
 func eventsByActivity(t *testing.T, manager *DefaultAccountManager, accountID string, code activity.Activity) []*activity.Event {
 	t.Helper()
 
-	events, err := manager.eventStore.Get(context.Background(), accountID, 0, 100, false)
+	matched, err := queryEventsByActivity(manager, accountID, code)
 	require.NoError(t, err)
+	return matched
+}
+
+// queryEventsByActivity is safe to call from a polling condition, which runs
+// on another goroutine where require would call FailNow.
+func queryEventsByActivity(manager *DefaultAccountManager, accountID string, code activity.Activity) ([]*activity.Event, error) {
+	events, err := manager.eventStore.Get(context.Background(), accountID, 0, 100, false)
+	if err != nil {
+		return nil, err
+	}
 	var matched []*activity.Event
 	for _, e := range events {
 		if e.Activity == code {
 			matched = append(matched, e)
 		}
 	}
-	return matched
+	return matched, nil
 }
 
 func TestDefaultAccountManager_MarkPeerConnected_StoresEvent(t *testing.T) {
@@ -265,8 +275,10 @@ func TestDefaultAccountManager_SessionEventsDisabledByEnv_StoresNoEvent(t *testi
 		return len(eventsByActivity(t, manager, accountID, activity.PeerConnected)) > 0 ||
 			len(eventsByActivity(t, manager, accountID, activity.PeerDisconnected)) > 0
 	}, 300*time.Millisecond, 20*time.Millisecond, "no session events are stored when disabled")
-	assert.NotEmpty(t, eventsByActivity(t, manager, accountID, activity.PeerAddedByUser),
-		"other activity events are unaffected")
+	assert.Eventually(t, func() bool {
+		events, err := queryEventsByActivity(manager, accountID, activity.PeerAddedByUser)
+		return err == nil && len(events) > 0
+	}, 5*time.Second, 10*time.Millisecond, "other activity events are unaffected")
 }
 
 func TestPeerSessionEventsDisabled(t *testing.T) {
