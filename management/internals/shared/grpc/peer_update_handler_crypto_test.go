@@ -15,21 +15,9 @@ import (
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
-type chanSyncSender struct {
-	ctx  context.Context
-	sent chan *proto.EncryptedMessage
-}
-
-func (c *chanSyncSender) Send(m *proto.EncryptedMessage) error {
-	c.sent <- m
-	return nil
-}
-
-func (c *chanSyncSender) Context() context.Context { return c.ctx }
-
-// The stream encrypts with a shared key it precomputes once. The stock client
-// decrypt path must read every send, each with its own nonce, and the
-// envelope must keep naming the server public key.
+// The heartbeat is encrypted once per stream with a precomputed shared key.
+// The stock client decrypt path must read every send, each with its own
+// nonce, and the envelope must keep naming the server public key.
 func TestSendUpdate_PrecomputedDecryptsWithStockPath(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	secretsManager := NewMockSecretsManager(ctrl)
@@ -48,9 +36,9 @@ func TestSendUpdate_PrecomputedDecryptsWithStockPath(t *testing.T) {
 	}
 
 	updates := []*network_map.UpdateMessage{
-		{Update: &proto.SyncResponse{}},
+		heartbeatUpdate(nil),
 		{Update: &proto.SyncResponse{Version: 7}},
-		{Update: &proto.SyncResponse{Version: 8}},
+		heartbeatUpdate(nil),
 	}
 	bodies := make(map[string]bool)
 	for i, update := range updates {
@@ -94,7 +82,7 @@ func TestSendUpdate_ServerKeyChange(t *testing.T) {
 	}
 
 	for i, srvKey := range []wgtypes.Key{firstKey, secondKey} {
-		require.NoError(t, pu.SendUpdate(context.Background(), &network_map.UpdateMessage{Update: &proto.SyncResponse{}}), "send %d", i)
+		require.NoError(t, pu.SendUpdate(context.Background(), heartbeatUpdate(nil)), "send %d", i)
 		select {
 		case msg := <-srv.sent:
 			assert.Equal(t, srvKey.PublicKey().String(), msg.GetWgPubKey(), "send %d names the current server key", i)
@@ -114,7 +102,7 @@ func BenchmarkEncryptMessageUncached(b *testing.B) {
 	require.NoError(b, err)
 	peerKey := peerPriv.PublicKey()
 	encrypter := encryption.DefaultEncrypter{}
-	msg := &proto.SyncResponse{}
+	msg := heartbeatUpdate(nil).Update
 
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
@@ -131,7 +119,7 @@ func BenchmarkEncryptMessagePrecomputed(b *testing.B) {
 	require.NoError(b, err)
 	peerKey := peerPriv.PublicKey()
 	encrypter := &streamEncrypter{}
-	msg := &proto.SyncResponse{}
+	msg := heartbeatUpdate(nil).Update
 
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {

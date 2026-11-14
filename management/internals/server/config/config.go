@@ -57,6 +57,9 @@ type Config struct {
 
 	AgentNetwork AgentNetwork
 
+	// AlignedHeartbeat holds the limits of the aligned heartbeat mobile clients ask for.
+	AlignedHeartbeat AlignedHeartbeat
+
 	// disable default all-to-all policy
 	DisableDefaultPolicy bool
 
@@ -97,6 +100,15 @@ type Relay struct {
 	Addresses      []string
 	CredentialsTTL util.Duration
 	Secret         string
+}
+
+// AlignedHeartbeat bounds the heartbeat period mobile clients may ask for. A
+// requested period outside the limits is clamped to the nearest one. Zero
+// values mean the defaults of 30s and 300s. Signal and relay must use the same
+// limits, or they reject the phases Management signs.
+type AlignedHeartbeat struct {
+	MinPeriod util.Duration
+	MaxPeriod util.Duration
 }
 
 // HttpServerConfig is a config of the HTTP Management service server

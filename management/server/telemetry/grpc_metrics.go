@@ -6,6 +6,8 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+
+	"github.com/netbirdio/netbird/shared/alignedhb/hbmetrics"
 )
 
 const AccountIDLabel = "account_id"
@@ -26,11 +28,21 @@ type GRPCMetrics struct {
 	loginRequestDuration             metric.Int64Histogram
 	loginRequestDurationP95ByAccount metric.Int64Histogram
 	channelQueueLength               metric.Int64Histogram
+	alignedHeartbeat                 *hbmetrics.Metrics
 	ctx                              context.Context
 
 	// Per-account aggregation
 	syncDurationAggregator  *AccountDurationAggregator
 	loginDurationAggregator *AccountDurationAggregator
+}
+
+// AlignedHeartbeat returns the aligned heartbeat counters, nil on a nil
+// GRPCMetrics.
+func (grpcMetrics *GRPCMetrics) AlignedHeartbeat() *hbmetrics.Metrics {
+	if grpcMetrics == nil {
+		return nil
+	}
+	return grpcMetrics.alignedHeartbeat
 }
 
 // NewGRPCMetrics creates new GRPCMetrics struct and registers common metrics of the gRPC server
@@ -138,6 +150,11 @@ func NewGRPCMetrics(ctx context.Context, meter metric.Meter) (*GRPCMetrics, erro
 	syncDurationAggregator := NewAccountDurationAggregator(ctx, 60*time.Second, 5*time.Minute)
 	loginDurationAggregator := NewAccountDurationAggregator(ctx, 60*time.Second, 5*time.Minute)
 
+	alignedHeartbeat, err := hbmetrics.New(meter, "management.grpc.")
+	if err != nil {
+		return nil, err
+	}
+
 	grpcMetrics := &GRPCMetrics{
 		meter:                            meter,
 		syncRequestsCounter:              syncRequestsCounter,
@@ -152,6 +169,7 @@ func NewGRPCMetrics(ctx context.Context, meter metric.Meter) (*GRPCMetrics, erro
 		loginRequestDuration:             loginRequestDuration,
 		loginRequestDurationP95ByAccount: loginRequestDurationP95ByAccount,
 		channelQueueLength:               channelQueue,
+		alignedHeartbeat:                 alignedHeartbeat,
 		ctx:                              ctx,
 		syncDurationAggregator:           syncDurationAggregator,
 		loginDurationAggregator:          loginDurationAggregator,
