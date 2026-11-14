@@ -189,27 +189,29 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 
 		w := WrapResponseWriter(rw)
 
+		reqCtx := ctx
 		handlerDone := make(chan struct{})
-		context.AfterFunc(ctx, func() {
+		stopAfter := context.AfterFunc(reqCtx, func() {
 			select {
 			case <-handlerDone:
 			default:
 				log.Debugf("HTTP request context canceled mid-flight: %v %v (reqID=%s, after %v, cause: %v)",
-					r.Method, r.URL.Path, reqID, time.Since(reqStart), context.Cause(ctx))
+					r.Method, r.URL.Path, reqID, time.Since(reqStart), context.Cause(reqCtx))
 			}
 		})
 
 		// Hold on to req so auth's in-place ctx update is visible after ServeHTTP.
-		req := r.WithContext(ctx)
+		req := r.WithContext(reqCtx)
 		h.ServeHTTP(w, req)
 		close(handlerDone)
+		stopAfter()
 
-		ctx = req.Context()
+		respCtx := req.Context()
 
 		if w.Status() > 399 {
-			log.WithContext(ctx).Errorf("HTTP response %v: %v %v status %v", reqID, r.Method, r.URL, w.Status())
+			log.WithContext(respCtx).Errorf("HTTP response %v: %v %v status %v", reqID, r.Method, r.URL, w.Status())
 		} else {
-			log.WithContext(ctx).Tracef("HTTP response %v: %v %v status %v", reqID, r.Method, r.URL, w.Status())
+			log.WithContext(respCtx).Tracef("HTTP response %v: %v %v status %v", reqID, r.Method, r.URL, w.Status())
 		}
 
 		statusCodeAttr := attribute.Int("code", w.Status())
@@ -220,7 +222,7 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 
 		reqTook := time.Since(reqStart)
 		m.httpRequestDuration.Record(m.ctx, reqTook.Milliseconds(), metric.WithAttributes(endpointAttr, methodAttr))
-		log.WithContext(ctx).Debugf("request %s %s took %d ms and finished with status %d", r.Method, r.URL.Path, reqTook.Milliseconds(), w.Status())
+		log.WithContext(respCtx).Debugf("request %s %s took %d ms and finished with status %d", r.Method, r.URL.Path, reqTook.Milliseconds(), w.Status())
 
 		if w.Status() == 200 && (r.Method == http.MethodPut || r.Method == http.MethodPost || r.Method == http.MethodDelete) {
 			opts := metric.WithAttributeSet(attribute.NewSet(attribute.String("type", "write")))
