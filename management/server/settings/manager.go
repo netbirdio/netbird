@@ -85,6 +85,7 @@ func (m *managerImpl) GetSettings(ctx context.Context, accountID, userID string)
 		settings.Extra.FlowPacketCounterEnabled = extraSettings.FlowPacketCounterEnabled
 		settings.Extra.FlowENCollectionEnabled = extraSettings.FlowENCollectionEnabled
 		settings.Extra.FlowDnsCollectionEnabled = extraSettings.FlowDnsCollectionEnabled
+		settings.Extra.UserEmailMappingEnabled = extraSettings.UserEmailMappingEnabled
 	}
 
 	// Fill in IdP-related runtime settings

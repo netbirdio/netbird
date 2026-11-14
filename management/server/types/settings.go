@@ -178,6 +178,10 @@ type ExtraSettings struct {
 	FlowPacketCounterEnabled bool     `gorm:"-"`
 	FlowENCollectionEnabled  bool     `gorm:"-"`
 	FlowDnsCollectionEnabled bool     `gorm:"-"`
+
+	// UserEmailMappingEnabled opts in to resolving user IDs to emails in streamed
+	// activity events and network traffic events.
+	UserEmailMappingEnabled bool `gorm:"-"`
 }
 
 // Copy copies the ExtraSettings struct
@@ -192,5 +196,6 @@ func (e *ExtraSettings) Copy() *ExtraSettings {
 		FlowPacketCounterEnabled:  e.FlowPacketCounterEnabled,
 		FlowENCollectionEnabled:   e.FlowENCollectionEnabled,
 		FlowDnsCollectionEnabled:  e.FlowDnsCollectionEnabled,
+		UserEmailMappingEnabled:   e.UserEmailMappingEnabled,
 	}
 }
