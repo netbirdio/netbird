@@ -301,7 +301,7 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 		}
 	}
 
-	if returnSettings.AgentNetworkOnly &&
+	if false && returnSettings.AgentNetworkOnly &&
 		(returnSettings.DashboardFeatures == nil ||
 			returnSettings.DashboardFeatures.AgentNetwork == nil ||
 			!*returnSettings.DashboardFeatures.AgentNetwork) {

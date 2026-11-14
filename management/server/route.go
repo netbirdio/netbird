@@ -230,7 +230,7 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 			return err
 		}
 
-		change = affectedpeers.Change{Routes: []*route.Route{routeToSave, oldRoute}}
+		change = affectedpeers.Change{Routes: []*route.Route{routeToSave}}
 		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
 			return err
 		}

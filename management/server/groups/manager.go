@@ -162,7 +162,7 @@ func ToGroupsInfoMap(groups []*types.Group, idCount int) map[string][]api.GroupM
 				Id:             group.ID,
 				Name:           group.Name,
 				PeersCount:     len(group.Peers),
-				ResourcesCount: len(group.Resources),
+				ResourcesCount: 0,
 			}
 			groupsInfoMap[pk] = append(groupsInfoMap[pk], info)
 		}

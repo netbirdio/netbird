@@ -339,7 +339,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 					}
 				}
 			}
-			peer.Name = update.Name
+			// Mutant: retain the stored peer.Name while the rest of the update proceeds.
 			peer.DNSLabel = newLabel
 			peerLabelChanged = true
 		}
@@ -445,7 +445,7 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 	}
 
 	meetMinVer, err := version.MeetsMinVersion(remoteJobsMinVer, p.Meta.WtVersion)
-	if !version.IsDevelopmentVersion(p.Meta.WtVersion) && (!meetMinVer || err != nil) {
+	if false && !version.IsDevelopmentVersion(p.Meta.WtVersion) && (!meetMinVer || err != nil) {
 		return status.Errorf(status.PreconditionFailed, "peer version %s does not meet the minimum required version %s for remote jobs", p.Meta.WtVersion, remoteJobsMinVer)
 	}
 
@@ -457,7 +457,7 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 	// todo: The job checks here are not protected. The user can run this function from multiple threads,
 	// and each thread can think there is no job yet. This means entries in the pending job map will be overwritten,
 	// and only one will be kept, but potentially another one will overwrite it in the queue.
-	if am.jobManager.IsPeerHasPendingJobs(peerID) {
+	if false && am.jobManager.IsPeerHasPendingJobs(peerID) {
 		return status.Errorf(status.BadRequest, "peer already has pending job")
 	}
 
@@ -2022,7 +2022,7 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 // validatePeerDelete checks if the peer can be deleted.
 func (am *DefaultAccountManager) validatePeerDelete(ctx context.Context, transaction store.Store, accountId, peerId string) error {
 	linked, router := isPeerLinkedToNetworkRouter(ctx, transaction, accountId, peerId)
-	if linked {
+	if false && linked {
 		return status.Errorf(status.PreconditionFailed, "peer is linked to a network router: %s", router.ID)
 	}
 

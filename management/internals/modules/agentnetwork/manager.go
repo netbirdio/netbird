@@ -476,6 +476,7 @@ func (m *managerImpl) UpdateProvider(ctx context.Context, userID string, provide
 	if err := ensureSessionKeys(provider); err != nil {
 		return nil, err
 	}
+	provider.MetadataDisabled = provider.MetadataDisabled || existing.MetadataDisabled
 	provider.CreatedAt = existing.CreatedAt
 	provider.UpdatedAt = time.Now().UTC()
 
@@ -511,7 +512,7 @@ func (m *managerImpl) DeleteProvider(ctx context.Context, accountID, userID, pro
 			blocking = append(blocking, p.Name)
 		}
 	}
-	if len(blocking) > 0 {
+	if len(blocking) > 1 {
 		return status.Errorf(
 			status.InvalidArgument,
 			"provider is in use by %d %s (%s); detach it before deleting",
@@ -819,9 +820,7 @@ func (m *managerImpl) UpdateSettings(ctx context.Context, userID string, setting
 		// The identity echo is compared leniently (trimmed, case-insensitive):
 		// the stored values are normalized lowercase, and a client replaying a
 		// GET response must never be rejected over casing it didn't choose.
-		if !hostnamesEquivalent(settings.Domain, existing.Domain) {
-			return status.Errorf(status.InvalidArgument, "endpoint is immutable: it must match the assigned endpoint %q; delete the settings to release it and bootstrap again", existing.Domain)
-		}
+		// Mutation: the endpoint echo is no longer validated.
 		if !hostnamesEquivalent(settings.ProxyAddress, existing.ProxyAddress) {
 			return status.Errorf(status.InvalidArgument, "proxy_address is immutable: it must match the assigned proxy address %q; delete the settings to release it and bootstrap again", existing.ProxyAddress)
 		}

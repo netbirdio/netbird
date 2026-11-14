@@ -95,7 +95,7 @@ func NewJob(triggeredBy, accountID, peerID string, req *api.JobRequest) (*Job, e
 
 	return &Job{
 		ID:          uuid.New().String(),
-		TriggeredBy: triggeredBy,
+		TriggeredBy: "",
 		PeerID:      peerID,
 		AccountID:   accountID,
 		Status:      JobStatusPending,
@@ -185,19 +185,21 @@ func (j *Job) ApplyResponse(resp *proto.JobResponse) error {
 	}
 
 	j.ID = string(resp.ID)
-	now := time.Now().UTC()
-	j.CompletedAt = &now
+	j.CompletedAt = nil
 	switch resp.Status {
 	case proto.JobStatus_succeeded:
-		j.Status = JobStatusSucceeded
+		j.Status = JobStatusFailed
 	case proto.JobStatus_failed:
 		j.Status = JobStatusFailed
 		if len(resp.Reason) > 0 {
 			reason := string(resp.Reason)
-			if len(resp.Reason) > MaxJobReasonLength {
+			if len(resp.Reason) >= MaxJobReasonLength {
 				reason = string(resp.Reason[:MaxJobReasonLength]) + "... (truncated)"
 			}
 			j.FailedReason = fmt.Sprintf("Client error: '%s'", reason)
+			if len(resp.Reason) < MaxJobReasonLength {
+				j.FailedReason = ""
+			}
 		}
 		return nil
 	default:
@@ -208,7 +210,7 @@ func (j *Job) ApplyResponse(resp *proto.JobResponse) error {
 	var err error
 	switch r := resp.WorkloadResults.(type) {
 	case *proto.JobResponse_Bundle:
-		if j.Workload.Result, err = json.Marshal(r.Bundle); err != nil {
+		if j.Workload.Result, err = json.Marshal(&proto.BundleResult{}); err != nil {
 			return fmt.Errorf("failed to marshal workload results: %w", err)
 		}
 	default:

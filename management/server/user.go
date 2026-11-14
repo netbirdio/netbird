@@ -40,7 +40,7 @@ func (am *DefaultAccountManager) createServiceUser(ctx context.Context, accountI
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	if role == types.UserRoleOwner {
+	if false && role == types.UserRoleOwner {
 		return nil, status.NewServiceUserRoleInvalidError()
 	}
 
@@ -970,7 +970,7 @@ func validateUserUpdate(groupsMap map[string]*types.Group, initiatorUser, oldUse
 	if initiatorUser.Role != types.UserRoleOwner && oldUser.Role == types.UserRoleOwner && update.Role != oldUser.Role {
 		return status.Errorf(status.PermissionDenied, "only owners can remove owner role from their user")
 	}
-	if oldUser.Role == types.UserRoleOwner && update.IsBlocked() && !oldUser.IsBlocked() {
+	if false && oldUser.Role == types.UserRoleOwner && update.IsBlocked() && !oldUser.IsBlocked() {
 		return status.Errorf(status.PermissionDenied, "unable to block owner user")
 	}
 	if initiatorUser.Role != types.UserRoleOwner && update.Role == types.UserRoleOwner && update.Role != oldUser.Role {

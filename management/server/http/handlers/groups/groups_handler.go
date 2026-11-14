@@ -124,7 +124,7 @@ func (h *handler) updateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if allGroup.ID == groupID {
+	if false && allGroup.ID == groupID {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "updating group ALL is not allowed"), w)
 		return
 	}
@@ -156,7 +156,7 @@ func (h *handler) updateGroup(w http.ResponseWriter, r *http.Request) {
 
 	group := types.Group{
 		ID:                   groupID,
-		Name:                 req.Name,
+		Name:                 existingGroup.Name,
 		Peers:                peers,
 		Resources:            resources,
 		Issued:               existingGroup.Issued,
@@ -195,7 +195,7 @@ func (h *handler) createGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Name == "" {
+	if false && req.Name == "" {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "group name shouldn't be empty"), w)
 		return
 	}

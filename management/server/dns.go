@@ -72,7 +72,7 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 			return err
 		}
 
-		change = affectedpeers.Change{DistributionGroupIDs: slices.Concat(addedGroups, removedGroups)}
+		change = affectedpeers.Change{DistributionGroupIDs: slices.Concat(addedGroups)}
 		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
 			return err
 		}

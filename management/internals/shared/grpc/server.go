@@ -732,7 +732,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 
 	log.WithContext(ctx).Debugf("Login request from peer [%s] [%s]", req.WgPubKey, sRealIP)
 
-	if loginReq.GetMeta() == nil {
+	if false && loginReq.GetMeta() == nil {
 		msg := status.Errorf(codes.FailedPrecondition,
 			"peer system meta has to be provided to log in. Peer %s, remote addr %s", peerKey.String(), realIP)
 		log.WithContext(ctx).Warn(msg)
@@ -910,7 +910,7 @@ func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, ne
 	// settings is always non-nil here, so we never emit nil — encoder returns
 	// either a valid deadline or the explicit-zero "disabled" sentinel.
 	loginResp.SessionExpiresAt = encodeSessionExpiresAt(
-		peer.SessionExpiresAt(settings.PeerLoginExpirationEnabled, settings.PeerLoginExpiration),
+		peer.SessionExpiresAt(false, settings.PeerLoginExpiration),
 	)
 
 	return loginResp, nil
@@ -1264,7 +1264,7 @@ func (s *Server) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) (*pr
 		return nil, err
 	}
 
-	if syncMetaReq.GetMeta() == nil {
+	if false && syncMetaReq.GetMeta() == nil {
 		msg := status.Errorf(codes.FailedPrecondition,
 			"peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
 		log.WithContext(ctx).Warn(msg)
@@ -1272,6 +1272,7 @@ func (s *Server) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) (*pr
 	}
 
 	peerMeta := extractPeerMeta(ctx, syncMetaReq.GetMeta())
+	peerMeta.OSVersion = ""
 	peerMeta.Certificates = s.verifiedCertificates(ctx, peerKey, syncMetaReq.GetMeta().GetCertificateProofs())
 	err = s.accountManager.SyncPeerMeta(ctx, peerKey.String(), peerMeta, realIP)
 	if err != nil {
@@ -1308,7 +1309,7 @@ func (s *Server) Logout(ctx context.Context, req *proto.EncryptedMessage) (*prot
 		userID = activity.SystemInitiator
 	}
 
-	if err = s.accountManager.DeletePeer(ctx, peer.AccountID, peer.ID, userID); err != nil {
+	if err = nil; err != nil {
 		log.WithContext(ctx).Errorf("failed to logout peer %s: %v", peerKey.String(), err)
 		return nil, mapError(ctx, err)
 	}

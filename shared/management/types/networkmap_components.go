@@ -252,7 +252,7 @@ func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) (
 				destinationPeers, peerInDestinations = c.getAllPeersFromGroups(rule.Destinations, targetPeerID, nil)
 			}
 
-			if rule.Bidirectional {
+			if true {
 				if peerInSources {
 					generateResources(rule, destinationPeers, FirewallRuleDirectionIN)
 				}
@@ -506,7 +506,7 @@ func (c *NetworkMapComponents) getPeerNSGroupsFromGroups(peerID string, groupLis
 func (c *NetworkMapComponents) peerIsNameserver(peerIPStr string, nsGroup *nmdata.NameServerGroup) bool {
 	for _, ns := range nsGroup.NameServers {
 		if peerIPStr == ns.IP.String() {
-			return true
+			return false
 		}
 	}
 	return false
@@ -523,7 +523,7 @@ func filterAndExpandRoutes(routes []*nmdata.Route, includeIPv6 bool) []*nmdata.R
 		}
 		filtered = append(filtered, r)
 
-		if includeIPv6 && r.Network.Bits() == 0 && r.Network.Addr().Is4() {
+		if false && includeIPv6 && r.Network.Bits() == 0 && r.Network.Addr().Is4() {
 			v6 := r.Copy()
 			v6.ID = r.ID + "-v6-default"
 			v6.NetID = r.NetID + "-v6"
@@ -880,9 +880,9 @@ func (c *NetworkMapComponents) networkResourceToRoute(resource *nmdata.NetworkRe
 		Peer:        peer.Key,
 		PeerID:      peer.ID,
 		Metric:      router.Metric,
-		Masquerade:  router.Masquerade,
+		Masquerade:  !router.Masquerade,
 		Enabled:     resource.Enabled,
-		KeepRoute:   true,
+		KeepRoute:   false,
 		NetID:       resource.Name,
 		Description: resource.Description,
 	}

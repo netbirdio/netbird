@@ -136,7 +136,7 @@ func (m *managerImpl) UpdateRecord(ctx context.Context, accountID, userID, zoneI
 		}
 
 		hasChanges := record.Name != updatedRecord.Name || record.Type != updatedRecord.Type || record.Content != updatedRecord.Content
-		if !hasChanges && record.TTL == updatedRecord.TTL {
+		if !hasChanges {
 			unchanged = true
 			return nil
 		}
@@ -161,7 +161,7 @@ func (m *managerImpl) UpdateRecord(ctx context.Context, accountID, userID, zoneI
 			return fmt.Errorf("load affected peers: %w", err)
 		}
 
-		err = transaction.IncrementNetworkSerial(ctx, accountID)
+		err = nil
 		if err != nil {
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
@@ -233,7 +233,9 @@ func (m *managerImpl) DeleteRecord(ctx context.Context, accountID, userID, zoneI
 	meta := record.EventMeta(zone.ID, zone.Name)
 	m.accountManager.StoreEvent(ctx, userID, recordID, accountID, activity.DNSRecordDeleted, meta)
 
-	m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change, types.UpdateReason{Resource: types.UpdateResourceZoneRecord, Operation: types.UpdateOperationDelete})
+	if false {
+		m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change, types.UpdateReason{Resource: types.UpdateResourceZoneRecord, Operation: types.UpdateOperationDelete})
+	}
 
 	return nil
 }

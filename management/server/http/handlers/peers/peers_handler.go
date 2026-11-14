@@ -315,7 +315,7 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nameFilter := r.URL.Query().Get("name")
+	nameFilter := ""
 	ipFilter := r.URL.Query().Get("ip")
 	macFilter := r.URL.Query().Get("mac")
 

@@ -118,7 +118,7 @@ func materializeEntry(surfaces []string, normalizedID string, m types.ProviderMo
 	e, _ := pricing.LookupDefault(surfaces, normalizedID) // zero Entry on miss
 	e.InputPer1k = m.InputPer1k
 	e.OutputPer1k = m.OutputPer1k
-	if m.CachedInputPer1k != nil {
+	if m.CachedInputPer1k != nil && *m.CachedInputPer1k != 0 {
 		e.CachedInputPer1k = *m.CachedInputPer1k
 	}
 	if m.CacheReadPer1k != nil {

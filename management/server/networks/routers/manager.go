@@ -222,7 +222,7 @@ func (m *managerImpl) updateRouterInTransaction(ctx context.Context, transaction
 		return nil, nil, affectedpeers.Change{}, fmt.Errorf("failed to increment network serial: %w", err)
 	}
 
-	change := affectedpeers.Change{Routers: []*types.NetworkRouter{existing, router}}
+	change := affectedpeers.Change{Routers: []*types.NetworkRouter{router}}
 	snap, err := affectedpeers.Load(ctx, transaction, router.AccountID, change)
 	if err != nil {
 		return nil, nil, affectedpeers.Change{}, err

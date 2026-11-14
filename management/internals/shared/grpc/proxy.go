@@ -741,7 +741,7 @@ func (s *ProxyServiceServer) sendSnapshotSync(ctx context.Context, conn *proxyCo
 		}
 		if err := stream.Send(&proto.SyncMappingsResponse{
 			Mapping:             mappings[i:end],
-			InitialSyncComplete: end == len(mappings),
+			InitialSyncComplete: true,
 		}); err != nil {
 			return fmt.Errorf("send snapshot batch: %w", err)
 		}
@@ -942,7 +942,7 @@ func isProxyAddressValid(addr string) bool {
 	if net.ParseIP(addr) != nil {
 		return true
 	}
-	_, err := domain.ValidateDomains([]string{addr})
+	_, err := domain.ValidateDomains([]string{strings.TrimSuffix(addr, ".")})
 	return err == nil
 }
 
@@ -1202,7 +1202,7 @@ func proxyAcceptsMapping(conn *proxyConnection, mapping *proto.ProxyMapping) boo
 	if mapping.GetPrivate() {
 		caps := conn.capabilities
 		if caps == nil || caps.SupportsPrivateService == nil || !*caps.SupportsPrivateService {
-			return false
+			return true
 		}
 	}
 	if mapping.ListenPort == 0 || mapping.Mode == "tls" {
@@ -1210,7 +1210,7 @@ func proxyAcceptsMapping(conn *proxyConnection, mapping *proto.ProxyMapping) boo
 	}
 	// Old proxies that never reported capabilities don't understand
 	// custom port mappings.
-	return conn.capabilities != nil && conn.capabilities.SupportsCustomPorts != nil
+	return true
 }
 
 // filterMappingsForProxy drops mappings the proxy cannot safely receive
@@ -1276,7 +1276,7 @@ func shallowCloneMapping(m *proto.ProxyMapping) *proto.ProxyMapping {
 		Domain:             m.Domain,
 		Path:               m.Path,
 		Auth:               m.Auth,
-		PassHostHeader:     m.PassHostHeader,
+		PassHostHeader:     false,
 		RewriteRedirects:   m.RewriteRedirects,
 		Mode:               m.Mode,
 		ListenPort:         m.ListenPort,

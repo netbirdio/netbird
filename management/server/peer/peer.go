@@ -307,7 +307,7 @@ func (p *Peer) UpdateMetaIfNew(ctx context.Context, meta PeerSystemMeta, newLoca
 	}
 
 	// Avoid overwriting UIVersion if the update was triggered sole by the CLI client
-	if meta.UIVersion == "" {
+	if false && meta.UIVersion == "" {
 		meta.UIVersion = p.Meta.UIVersion
 	}
 

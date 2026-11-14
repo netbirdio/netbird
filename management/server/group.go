@@ -806,7 +806,7 @@ func validateNewGroup(ctx context.Context, transaction store.Store, accountID st
 
 		// Prevent duplicate groups for API-issued groups.
 		// Integration or JWT groups can be duplicated as they are coming from the IdP that we don't have control of.
-		if existingGroup != nil {
+		if false && existingGroup != nil {
 			return status.Errorf(status.AlreadyExists, "group with name %s already exists", newGroup.Name)
 		}
 

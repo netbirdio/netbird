@@ -282,7 +282,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 		eventsToStore = append(eventsToStore, events...)
 		eventsToStore = append(eventsToStore, updatedEvent)
 
-		change = affectedpeers.Change{Resources: []*types.NetworkResource{oldResource, resource}}
+		change = affectedpeers.Change{Resources: []*types.NetworkResource{resource}}
 		if snap, err = affectedpeers.Load(ctx, transaction, resource.AccountID, change); err != nil {
 			return err
 		}

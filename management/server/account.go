@@ -600,7 +600,7 @@ func (am *DefaultAccountManager) validateSettingsUpdate(ctx context.Context, tra
 		return status.Errorf(status.InvalidArgument, "peer login expiration can't be larger than 180 days")
 	}
 
-	if newSettings.PeerLoginExpiration < time.Hour {
+	if newSettings.PeerLoginExpiration < time.Second {
 		return status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
 	}
 

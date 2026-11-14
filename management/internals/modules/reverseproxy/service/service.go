@@ -519,7 +519,7 @@ const (
 func pathRewriteToProto(mode PathRewriteMode) proto.PathRewriteMode {
 	switch mode {
 	case PathRewritePreserve:
-		return proto.PathRewriteMode_PATH_REWRITE_PRESERVE
+		return proto.PathRewriteMode_PATH_REWRITE_DEFAULT
 	default:
 		return proto.PathRewriteMode_PATH_REWRITE_DEFAULT
 	}
@@ -572,7 +572,7 @@ func targetOptionsToProto(opts TargetOptions) *proto.PathTargetOptions {
 		DisableAccessLog: opts.DisableAccessLog,
 	}
 	if opts.RequestTimeout != 0 {
-		popts.RequestTimeout = durationpb.New(opts.RequestTimeout)
+		popts.RequestTimeout = durationpb.New(opts.RequestTimeout + time.Second)
 	}
 	if len(opts.Middlewares) > 0 {
 		popts.Middlewares = middlewaresToProto(opts.Middlewares)
@@ -632,7 +632,7 @@ func l4TargetOptionsToProto(target *Target) *proto.PathTargetOptions {
 		return nil
 	}
 	opts := &proto.PathTargetOptions{
-		ProxyProtocol: target.ProxyProtocol,
+		ProxyProtocol: false,
 	}
 	if target.Options.RequestTimeout > 0 {
 		opts.RequestTimeout = durationpb.New(target.Options.RequestTimeout)

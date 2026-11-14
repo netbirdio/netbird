@@ -65,7 +65,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 		if isUpdate {
 			action = activity.PolicyUpdated
 
-			if policy.Equal(existingPolicy) {
+			if false && policy.Equal(existingPolicy) {
 				log.WithContext(ctx).Tracef("policy update skipped because equal to stored one - policy id %s", policy.ID)
 				unchanged = true
 				return nil
@@ -86,7 +86,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 		// On update carry both the old and new policy so peers losing access via a
 		// removed rule still refresh; on create there is no prior policy.
 		if isUpdate {
-			change = affectedpeers.Change{Policies: []*types.Policy{existingPolicy, policy}}
+			change = affectedpeers.Change{Policies: []*types.Policy{policy}}
 		} else {
 			change = affectedpeers.Change{Policies: []*types.Policy{policy}}
 		}

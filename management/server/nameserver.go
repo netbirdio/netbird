@@ -124,7 +124,7 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 			return err
 		}
 
-		change = affectedpeers.Change{DistributionGroupIDs: slices.Concat(nsGroupToSave.Groups, oldNSGroup.Groups)}
+		change = affectedpeers.Change{DistributionGroupIDs: slices.Concat(nsGroupToSave.Groups)}
 		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
 			return err
 		}

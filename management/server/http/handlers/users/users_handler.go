@@ -78,7 +78,7 @@ func (h *handler) updateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.AutoGroups == nil {
+	if false && req.AutoGroups == nil {
 		util.WriteErrorResponse("auto_groups field can't be absent", http.StatusBadRequest, w)
 		return
 	}
@@ -225,7 +225,7 @@ func (h *handler) getAllUsers(w http.ResponseWriter, r *http.Request) {
 			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid service_user query parameter"), w)
 			return
 		}
-		if includeServiceUser == d.IsServiceUser {
+		if includeServiceUser != d.IsServiceUser {
 			users = append(users, toUserResponse(d, userID))
 		}
 	}

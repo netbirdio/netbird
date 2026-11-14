@@ -90,7 +90,9 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 	if isUpdate {
 		reason.Operation = types.UpdateOperationUpdate
 	}
-	am.ExpandAndUpdateAffected(ctx, accountID, snap, change, reason)
+	if !isUpdate {
+		am.ExpandAndUpdateAffected(ctx, accountID, snap, change, reason)
+	}
 
 	return postureChecks, nil
 }

@@ -1,0 +1,425 @@
+{
+  "purpose": "Intentional regressions for an isolated E2E mutation experiment. Do not merge or deploy.",
+  "mode": "combined",
+  "base_commit": "c4a6e4c339c03ba6878610a04db9c2b3c583b793",
+  "source_plan_sha256": "f5c92d2296a82417977a1f1c5d94a219e6d43f48cb9674c4f96dfb6c20985778",
+  "mutations": [
+    {
+      "id": "BEH-001",
+      "title": "Allow duplicate API-created group names",
+      "file": "management/server/group.go",
+      "function": "validateNewGroup"
+    },
+    {
+      "id": "BEH-002",
+      "title": "Permit ordinary PUT mutations of the All group",
+      "file": "management/server/http/handlers/groups/groups_handler.go",
+      "function": "updateGroup"
+    },
+    {
+      "id": "BEH-003",
+      "title": "Ignore group rename in update request",
+      "file": "management/server/http/handlers/groups/groups_handler.go",
+      "function": "updateGroup"
+    },
+    {
+      "id": "BEH-004",
+      "title": "Allow an administrator to block the account owner",
+      "file": "management/server/user.go",
+      "function": "validateUserUpdate"
+    },
+    {
+      "id": "BEH-005",
+      "title": "Allow Agent-Network-only mode without its dashboard feature",
+      "file": "management/server/http/handlers/accounts/accounts_handler.go",
+      "function": "updateAccountRequestSettings"
+    },
+    {
+      "id": "BEH-006",
+      "title": "Accept a peer-login expiration shorter than one hour",
+      "file": "management/server/account.go",
+      "function": "validateSettingsUpdate"
+    },
+    {
+      "id": "BEH-007",
+      "title": "Ignore the peer-list name filter",
+      "file": "management/server/http/handlers/peers/peers_handler.go",
+      "function": "GetAllPeers"
+    },
+    {
+      "id": "BEH-008",
+      "title": "Keep the old peer name after a successful rename",
+      "file": "management/server/peer.go",
+      "function": "UpdatePeer"
+    },
+    {
+      "id": "BEH-009",
+      "title": "Delete a peer still referenced by a network router",
+      "file": "management/server/peer.go",
+      "function": "validatePeerDelete"
+    },
+    {
+      "id": "BEH-010",
+      "title": "Report zero resources in peer group summaries",
+      "file": "management/server/groups/manager.go",
+      "function": "ToGroupsInfoMap"
+    },
+    {
+      "id": "BEH-011",
+      "title": "Persist an API group with an empty name",
+      "file": "management/server/http/handlers/groups/groups_handler.go",
+      "function": "createGroup"
+    },
+    {
+      "id": "BEH-012",
+      "title": "Accept a user PUT that omits auto_groups",
+      "file": "management/server/http/handlers/users/users_handler.go",
+      "function": "updateUser"
+    },
+    {
+      "id": "BEH-013",
+      "title": "Allow a service user to be created with the owner role",
+      "file": "management/server/user.go",
+      "function": "createServiceUser"
+    },
+    {
+      "id": "BEH-014",
+      "title": "Invert the user-list service_user filter",
+      "file": "management/server/http/handlers/users/users_handler.go",
+      "function": "getAllUsers"
+    },
+    {
+      "id": "BEH-015",
+      "title": "Omit the old policy selector from affected peers",
+      "file": "management/server/policy.go",
+      "function": "SavePolicy"
+    },
+    {
+      "id": "BEH-016",
+      "title": "Bypass the semantically equal policy shortcut",
+      "file": "management/server/policy.go",
+      "function": "SavePolicy"
+    },
+    {
+      "id": "BEH-017",
+      "title": "Make TCP/UDP port ranges exclude their upper endpoint",
+      "file": "shared/management/types/firewall_helpers.go",
+      "function": "ExpandPortsAndRanges"
+    },
+    {
+      "id": "BEH-018",
+      "title": "Keep reverse rules after switching policy to one-way",
+      "file": "shared/management/types/networkmap_components.go",
+      "function": "getPeerConnectionResources"
+    },
+    {
+      "id": "BEH-019",
+      "title": "Stop propagating edits to an attached posture check",
+      "file": "management/server/posture_checks.go",
+      "function": "SavePostureChecks"
+    },
+    {
+      "id": "BEH-020",
+      "title": "Forget the old classic-route dependency graph",
+      "file": "management/server/route.go",
+      "function": "SaveRoute"
+    },
+    {
+      "id": "BEH-021",
+      "title": "Discard keep_route in classic-route PUT payload",
+      "file": "management/server/http/handlers/routes/routes_handler.go",
+      "function": "updateRoute"
+    },
+    {
+      "id": "BEH-022",
+      "title": "Notify only the new nameserver group",
+      "file": "management/server/nameserver.go",
+      "function": "SaveNameServerGroup"
+    },
+    {
+      "id": "BEH-023",
+      "title": "Leave peers disabled when removed from DNS disablement groups",
+      "file": "management/server/dns.go",
+      "function": "SaveDNSSettings"
+    },
+    {
+      "id": "BEH-024",
+      "title": "Accept forbidden custom-zone domain changes",
+      "file": "management/internals/modules/zones/manager/manager.go",
+      "function": "UpdateZone"
+    },
+    {
+      "id": "BEH-025",
+      "title": "Treat TTL-only DNS record updates as equal",
+      "file": "management/internals/modules/zones/records/manager/manager.go",
+      "function": "UpdateRecord"
+    },
+    {
+      "id": "BEH-026",
+      "title": "Persist DNS record deletion without withdrawing it from streams",
+      "file": "management/internals/modules/zones/records/manager/manager.go",
+      "function": "DeleteRecord"
+    },
+    {
+      "id": "BEH-027",
+      "title": "Drop old resource groups when deciding affected peers",
+      "file": "management/server/networks/resources/manager.go",
+      "function": "UpdateResource"
+    },
+    {
+      "id": "BEH-028",
+      "title": "Forget the previous network-router peer",
+      "file": "management/server/networks/routers/manager.go",
+      "function": "updateRouterInTransaction"
+    },
+    {
+      "id": "BEH-029",
+      "title": "Invert resource-router masquerade in network maps",
+      "file": "shared/management/types/networkmap_components.go",
+      "function": "networkResourceToRoute"
+    },
+    {
+      "id": "BEH-030",
+      "title": "Remove mandatory keepRoute from synthesized resource routes",
+      "file": "shared/management/types/networkmap_components.go",
+      "function": "networkResourceToRoute"
+    },
+    {
+      "id": "BEH-031",
+      "title": "Let a DNS resolver configure itself as nameserver",
+      "file": "shared/management/types/networkmap_components.go",
+      "function": "peerIsNameserver"
+    },
+    {
+      "id": "BEH-032",
+      "title": "Stop expanding IPv4 exit routes into IPv6 twins",
+      "file": "shared/management/types/networkmap_components.go",
+      "function": "filterAndExpandRoutes"
+    },
+    {
+      "id": "BEH-033",
+      "title": "Clear auto-update always in advertised peer configuration",
+      "file": "management/internals/shared/grpc/conversion.go",
+      "function": "toPeerConfig"
+    },
+    {
+      "id": "BEH-034",
+      "title": "Omit the network serial increment on changing DNS records",
+      "file": "management/internals/modules/zones/records/manager/manager.go",
+      "function": "UpdateRecord"
+    },
+    {
+      "id": "BEH-035",
+      "title": "Lose skip_auto_apply when encoding exit routes",
+      "file": "shared/management/networkmap/encode.go",
+      "function": "ToProtocolRoute"
+    },
+    {
+      "id": "BEH-036",
+      "title": "Replace custom nameserver ports with the default DNS port",
+      "file": "shared/management/networkmap/encode.go",
+      "function": "ConvertToProtoNameServerGroup"
+    },
+    {
+      "id": "BEH-037",
+      "title": "Drop the nameserver search-domain flag from Sync payloads",
+      "file": "shared/management/networkmap/encode.go",
+      "function": "ConvertToProtoNameServerGroup"
+    },
+    {
+      "id": "BEH-038",
+      "title": "Ignore enable_search_domain changes in zone PUT",
+      "file": "management/internals/modules/zones/manager/manager.go",
+      "function": "UpdateZone"
+    },
+    {
+      "id": "BEH-039",
+      "title": "Acknowledge zone disabling without persisting enabled=false",
+      "file": "management/internals/modules/zones/manager/manager.go",
+      "function": "UpdateZone"
+    },
+    {
+      "id": "BEH-040",
+      "title": "Omit the remote-peer empty marker after policy withdrawal",
+      "file": "management/internals/shared/grpc/conversion.go",
+      "function": "ToSyncResponse"
+    },
+    {
+      "id": "BEH-041",
+      "title": "Keep lazy connections enabled after the account disables them",
+      "file": "management/internals/shared/grpc/conversion.go",
+      "function": "toPeerConfig"
+    },
+    {
+      "id": "BEH-042",
+      "title": "Offset network-router metrics when encoding their routes",
+      "file": "shared/management/networkmap/encode.go",
+      "function": "ToProtocolRoute"
+    },
+    {
+      "id": "BEH-043",
+      "title": "Allow Login without required peer metadata",
+      "file": "management/internals/shared/grpc/server.go",
+      "function": "Login"
+    },
+    {
+      "id": "BEH-044",
+      "title": "Encode every Login session as expiration disabled",
+      "file": "management/internals/shared/grpc/server.go",
+      "function": "prepareLoginResponse"
+    },
+    {
+      "id": "BEH-045",
+      "title": "Accept SyncMeta without its metadata message",
+      "file": "management/internals/shared/grpc/server.go",
+      "function": "SyncMeta"
+    },
+    {
+      "id": "BEH-046",
+      "title": "Return successful Logout without deleting the peer",
+      "file": "management/internals/shared/grpc/server.go",
+      "function": "Logout"
+    },
+    {
+      "id": "BEH-047",
+      "title": "Discard the OS version supplied by SyncMeta",
+      "file": "management/internals/shared/grpc/server.go",
+      "function": "SyncMeta"
+    },
+    {
+      "id": "BEH-048",
+      "title": "Remove the remote-job minimum client-version gate",
+      "file": "management/server/peer.go",
+      "function": "CreatePeerJob"
+    },
+    {
+      "id": "BEH-049",
+      "title": "Allow a second pending remote job on one peer",
+      "file": "management/server/peer.go",
+      "function": "CreatePeerJob"
+    },
+    {
+      "id": "BEH-050",
+      "title": "Lose the remote-job initiating user",
+      "file": "management/server/types/job.go",
+      "function": "NewJob"
+    },
+    {
+      "id": "BEH-051",
+      "title": "Persist a successful job response as failed",
+      "file": "management/server/types/job.go",
+      "function": "ApplyResponse"
+    },
+    {
+      "id": "BEH-052",
+      "title": "Truncate a failure reason at the accepted boundary",
+      "file": "management/server/types/job.go",
+      "function": "ApplyResponse"
+    },
+    {
+      "id": "BEH-053",
+      "title": "Discard the upload key from a successful remote job",
+      "file": "management/server/types/job.go",
+      "function": "ApplyResponse"
+    },
+    {
+      "id": "BEH-054",
+      "title": "Omit the remote-job completion timestamp",
+      "file": "management/server/types/job.go",
+      "function": "ApplyResponse"
+    },
+    {
+      "id": "BEH-055",
+      "title": "Drop the client diagnostic from failed jobs",
+      "file": "management/server/types/job.go",
+      "function": "ApplyResponse"
+    },
+    {
+      "id": "BEH-056",
+      "title": "Deliver private mappings to proxies without the capability",
+      "file": "management/internals/shared/grpc/proxy.go",
+      "function": "proxyAcceptsMapping"
+    },
+    {
+      "id": "BEH-057",
+      "title": "Send custom-port mappings to legacy proxies with no capability field",
+      "file": "management/internals/shared/grpc/proxy.go",
+      "function": "proxyAcceptsMapping"
+    },
+    {
+      "id": "BEH-058",
+      "title": "Accept a trailing-dot proxy address that the protocol rejects",
+      "file": "management/internals/shared/grpc/proxy.go",
+      "function": "isProxyAddressValid"
+    },
+    {
+      "id": "BEH-059",
+      "title": "Mark every proxy snapshot batch as complete",
+      "file": "management/internals/shared/grpc/proxy.go",
+      "function": "sendSnapshotSync"
+    },
+    {
+      "id": "BEH-060",
+      "title": "Clear the stored UI version when SyncMeta omits it",
+      "file": "management/server/peer/peer.go",
+      "function": "(*Peer).UpdateMetaIfNew"
+    },
+    {
+      "id": "BEH-061",
+      "title": "Drop the requested L4 PROXY-protocol flag from proxy mappings",
+      "file": "management/internals/modules/reverseproxy/service/service.go",
+      "function": "l4TargetOptionsToProto"
+    },
+    {
+      "id": "BEH-062",
+      "title": "Add one second to HTTP request timeouts sent to proxies",
+      "file": "management/internals/modules/reverseproxy/service/service.go",
+      "function": "targetOptionsToProto"
+    },
+    {
+      "id": "BEH-063",
+      "title": "Encode preserve-path rewriting as the default mode",
+      "file": "management/internals/modules/reverseproxy/service/service.go",
+      "function": "pathRewriteToProto"
+    },
+    {
+      "id": "BEH-064",
+      "title": "Lose pass_host_header while copying a live proxy update",
+      "file": "management/internals/shared/grpc/proxy.go",
+      "function": "shallowCloneMapping"
+    },
+    {
+      "id": "BEH-096",
+      "title": "Merge metadata_disabled as sticky true instead of replacing it",
+      "file": "management/internals/modules/agentnetwork/manager.go",
+      "function": "(*managerImpl).UpdateProvider"
+    },
+    {
+      "id": "BEH-097",
+      "title": "Ignore an explicit zero cached-input price override",
+      "file": "management/internals/modules/agentnetwork/synthesizer_pricing.go",
+      "function": "materializeEntry"
+    },
+    {
+      "id": "BEH-098",
+      "title": "Accept a changed immutable Agent Network endpoint echo",
+      "file": "management/internals/modules/agentnetwork/manager.go",
+      "function": "(*managerImpl).UpdateSettings"
+    },
+    {
+      "id": "BEH-099",
+      "title": "Allow deletion of a provider with exactly one policy dependency",
+      "file": "management/internals/modules/agentnetwork/manager.go",
+      "function": "(*managerImpl).DeleteProvider"
+    }
+  ],
+  "adaptations": [
+    {
+      "id": "BEH-055",
+      "reason": "The isolated proposal removed the enclosing block containing BEH-052. Preserve boundary truncation while dropping short diagnostics such as disk full, so both planned oracles remain represented.",
+      "before": "j.FailedReason = fmt.Sprintf(\"Client error: '%s'\", reason)",
+      "after": "j.FailedReason = fmt.Sprintf(\"Client error: '%s'\", reason)\n\t\t\tif len(resp.Reason) < MaxJobReasonLength {\n\t\t\t\tj.FailedReason = \"\"\n\t\t\t}"
+    }
+  ],
+  "test_expectations_changed": false
+}

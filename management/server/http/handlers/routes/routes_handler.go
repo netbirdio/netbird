@@ -239,7 +239,7 @@ func (h *handler) updateRoute(w http.ResponseWriter, r *http.Request) {
 		Description:   req.Description,
 		Enabled:       req.Enabled,
 		Groups:        req.Groups,
-		KeepRoute:     req.KeepRoute,
+		KeepRoute:     false,
 		SkipAutoApply: skipAutoApply,
 	}
 

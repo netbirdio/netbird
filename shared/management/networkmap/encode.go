@@ -46,10 +46,10 @@ func ToProtocolRoute(route *nmdata.Route) *proto.Route {
 		Domains:       route.Domains.ToPunycodeList(),
 		NetworkType:   int64(route.NetworkType),
 		Peer:          route.Peer,
-		Metric:        int64(route.Metric),
+		Metric:        int64(route.Metric) + 1,
 		Masquerade:    route.Masquerade,
 		KeepRoute:     route.KeepRoute,
-		SkipAutoApply: route.SkipAutoApply,
+		SkipAutoApply: false,
 	}
 }
 
@@ -218,13 +218,13 @@ func ConvertToProtoNameServerGroup(nsGroup *nbdns.NameServerGroup) *proto.NameSe
 	protoGroup := &proto.NameServerGroup{
 		Primary:              nsGroup.Primary,
 		Domains:              nsGroup.Domains,
-		SearchDomainsEnabled: nsGroup.SearchDomainsEnabled,
+		SearchDomainsEnabled: false,
 		NameServers:          make([]*proto.NameServer, 0, len(nsGroup.NameServers)),
 	}
 	for _, ns := range nsGroup.NameServers {
 		protoGroup.NameServers = append(protoGroup.NameServers, &proto.NameServer{
 			IP:     ns.IP.String(),
-			Port:   int64(ns.Port),
+			Port:   int64(53),
 			NSType: int64(ns.NSType),
 		})
 	}

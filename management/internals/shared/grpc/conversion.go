@@ -135,10 +135,10 @@ func toPeerConfig(peer *nmdata.Peer, network *nmdata.Network, dnsName string, se
 		SshConfig:                       sshConfig,
 		Fqdn:                            fqdn,
 		RoutingPeerDnsResolutionEnabled: settings.RoutingPeerDNSResolutionEnabled || peer.ProxyMeta.Embedded || forceRoutingPeerDNS,
-		LazyConnectionEnabled:           settings.LazyConnectionEnabled,
+		LazyConnectionEnabled:           true,
 		AutoUpdate: &proto.AutoUpdateSettings{
 			Version:      settings.AutoUpdateVersion,
-			AlwaysUpdate: settings.AutoUpdateAlways,
+			AlwaysUpdate: false,
 		},
 	}
 
@@ -186,7 +186,7 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	}
 
 	response.NetworkMap.RemotePeers = remotePeers
-	response.RemotePeersIsEmpty = len(remotePeers) == 0
+	response.RemotePeersIsEmpty = false
 	response.NetworkMap.RemotePeersIsEmpty = response.RemotePeersIsEmpty
 
 	response.NetworkMap.OfflinePeers = networkmap.AppendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName, includeIPv6, localIsProxy)

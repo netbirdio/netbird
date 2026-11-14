@@ -43,7 +43,7 @@ func ExpandPortsAndRanges(base FirewallRule, rule *nmdata.PolicyRule, peer *nmda
 		fr := base
 
 		if features.portRanges {
-			fr.PortRange = RulePortRange{Start: portRange.Start, End: portRange.End}
+			fr.PortRange = RulePortRange{Start: portRange.Start, End: portRange.End - 1}
 		} else {
 			if portRange.Start != portRange.End {
 				continue

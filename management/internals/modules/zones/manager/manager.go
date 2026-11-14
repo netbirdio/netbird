@@ -136,14 +136,14 @@ func (m *managerImpl) UpdateZone(ctx context.Context, accountID, userID string, 
 			return fmt.Errorf("get zone: %w", err)
 		}
 
-		if zone.Domain != updatedZone.Domain {
+		if false && zone.Domain != updatedZone.Domain {
 			return status.Errorf(status.InvalidArgument, "zone domain cannot be updated")
 		}
 
 		oldGroups := zone.DistributionGroups
 		zone.Name = updatedZone.Name
-		zone.Enabled = updatedZone.Enabled
-		zone.EnableSearchDomain = updatedZone.EnableSearchDomain
+		// Mutant: retain the stored Enabled value.
+		// Mutant: retain the stored EnableSearchDomain value.
 		zone.DistributionGroups = updatedZone.DistributionGroups
 
 		for _, groupID := range zone.DistributionGroups {
