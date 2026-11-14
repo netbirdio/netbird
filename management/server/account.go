@@ -339,6 +339,10 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	// (e.g. 100.64.1.1/16) compares equal to the masked form stored on network.Net.
 	newSettings.NetworkRange = newSettings.NetworkRange.Masked()
 
+	// The integration-owned extra fields are not stored in the account settings row, so an
+	// update that omits extra must leave them to the integration instead of zeroing them.
+	extraSupplied := newSettings.Extra != nil
+
 	var oldSettings *types.Settings
 	var updateAccountPeers bool
 	var groupChangesAffectPeers bool
@@ -452,9 +456,12 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, err
 	}
 
-	extraSettingsChanged, err := am.settingsManager.UpdateExtraSettings(ctx, accountID, userID, newSettings.Extra)
-	if err != nil {
-		return nil, err
+	var extraSettingsChanged bool
+	if extraSupplied {
+		extraSettingsChanged, err = am.settingsManager.UpdateExtraSettings(ctx, accountID, userID, newSettings.Extra)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	am.handleRoutingPeerDNSResolutionSettings(ctx, oldSettings, newSettings, userID, accountID)
