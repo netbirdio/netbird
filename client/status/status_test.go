@@ -375,6 +375,8 @@ func TestParsingToJSON(t *testing.T) {
           "fqdn": "some-localhost.awesome-domain.com",
           "quantumResistance": false,
           "quantumResistancePermissive": false,
+          "mlkemEnabled": false,
+          "mlkemStrict": false,
           "networks": [
             "10.10.0.0/24"
           ],
@@ -493,6 +495,8 @@ wireguardPort: 51820
 fqdn: some-localhost.awesome-domain.com
 quantumResistance: false
 quantumResistancePermissive: false
+mlkemEnabled: false
+mlkemStrict: false
 networks:
     - 10.10.0.0/24
 dnsServers:
