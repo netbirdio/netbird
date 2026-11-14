@@ -8,9 +8,16 @@ import (
 
 func TestExtraSettings_Copy(t *testing.T) {
 	src := &ExtraSettings{
-		FlowEnabled:             true,
-		FlowGroups:              []string{"g1"},
-		UserEmailMappingEnabled: true,
+		PeerApprovalEnabled:       true,
+		UserApprovalRequired:      true,
+		IntegratedValidator:       "validator",
+		IntegratedValidatorGroups: []string{"v1"},
+		FlowEnabled:               true,
+		FlowGroups:                []string{"g1"},
+		FlowPacketCounterEnabled:  true,
+		FlowENCollectionEnabled:   true,
+		FlowDnsCollectionEnabled:  true,
+		UserEmailMappingEnabled:   true,
 	}
 
 	dst := src.Copy()
@@ -18,4 +25,7 @@ func TestExtraSettings_Copy(t *testing.T) {
 
 	dst.FlowGroups[0] = "changed"
 	assert.Equal(t, "g1", src.FlowGroups[0], "copy should not share the groups slice")
+
+	dst.IntegratedValidatorGroups[0] = "changed"
+	assert.Equal(t, "v1", src.IntegratedValidatorGroups[0], "copy should not share the validator groups slice")
 }
