@@ -490,7 +490,7 @@ func feedRouterFromListener(ctx context.Context, ln net.Listener, router *nbtcp.
 // so the supplied accountID is ignored at dial time.
 func accountDialResolver(_ types.AccountID, client *embed.Client) nbtcp.DialResolver {
 	return func(_ types.AccountID) (types.DialContextFunc, error) {
-		return client.DialContext, nil
+		return types.GuardLoopbackDial(client.DialContext), nil
 	}
 }
 

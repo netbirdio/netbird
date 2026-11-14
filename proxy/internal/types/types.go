@@ -3,9 +3,16 @@ package types
 
 import (
 	"context"
+	"errors"
 	"net"
+	"net/netip"
+	"strings"
 	"time"
 )
+
+// ErrLoopbackTarget is returned when an overlay dial would connect to a
+// loopback address after the destination is resolved.
+var ErrLoopbackTarget = errors.New("target host must not be a loopback address")
 
 // AccountID represents a unique identifier for a NetBird account.
 type AccountID string
@@ -38,6 +45,63 @@ const (
 
 // DialContextFunc dials a backend through the WireGuard tunnel.
 type DialContextFunc func(ctx context.Context, network, address string) (net.Conn, error)
+
+// GuardLoopbackDial wraps dial so a loopback destination is refused. Literal
+// loopback IPs are rejected before the inner dial; names that resolve to
+// loopback are rejected from the connected remote address.
+func GuardLoopbackDial(dial DialContextFunc) DialContextFunc {
+	return func(ctx context.Context, network, address string) (net.Conn, error) {
+		if err := loopbackDialAddress(address); err != nil {
+			return nil, err
+		}
+		conn, err := dial(ctx, network, address)
+		if err != nil {
+			return nil, err
+		}
+		if err := loopbackRemoteAddr(conn.RemoteAddr()); err != nil {
+			_ = conn.Close()
+			return nil, err
+		}
+		return conn, nil
+	}
+}
+
+func loopbackDialAddress(address string) error {
+	if isLoopbackHost(hostFromDialAddress(address)) {
+		return ErrLoopbackTarget
+	}
+	return nil
+}
+
+func loopbackRemoteAddr(addr net.Addr) error {
+	if addr == nil {
+		return nil
+	}
+	host := hostFromDialAddress(addr.String())
+	parsed, err := netip.ParseAddr(host)
+	if err == nil && parsed.Unmap().IsLoopback() {
+		return ErrLoopbackTarget
+	}
+	return nil
+}
+
+func hostFromDialAddress(address string) string {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		host = address
+	}
+	host = strings.TrimPrefix(host, "[")
+	host = strings.TrimSuffix(host, "]")
+	return strings.TrimSuffix(host, ".")
+}
+
+func isLoopbackHost(host string) bool {
+	if addr, err := netip.ParseAddr(host); err == nil {
+		return addr.Unmap().IsLoopback()
+	}
+	name := strings.ToLower(host)
+	return name == "localhost" || strings.HasSuffix(name, ".localhost")
+}
 
 // dialTimeoutKey is the context key for a per-request dial timeout.
 type dialTimeoutKey struct{}

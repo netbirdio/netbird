@@ -678,6 +678,28 @@ func TestUpdate_AutoAssignsWhenNoPort(t *testing.T) {
 	assert.True(t, updated.PortAutoAssigned, "PortAutoAssigned should be set when update triggers auto-assignment")
 }
 
+func TestCreateServiceFromPeer_TCP_TargetHost(t *testing.T) {
+	mgr, testStore, _ := setupL4Test(t, boolPtr(true))
+	ctx := context.Background()
+
+	resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
+		Port:       5432,
+		Mode:       "tcp",
+		TargetHost: "10.0.0.29",
+	})
+	require.NoError(t, err)
+
+	svc, err := testStore.GetServiceByDomain(ctx, resp.Domain)
+	require.NoError(t, err)
+	require.Len(t, svc.Targets, 1)
+	assert.Equal(t, "10.0.0.29", svc.Targets[0].Host)
+	assert.True(t, svc.Targets[0].HostPinned, "supplied L4 target host is pinned")
+	assert.Equal(t, rpservice.TargetTypePeer, svc.Targets[0].TargetType)
+	assert.Equal(t, testPeerID, svc.Targets[0].TargetId)
+	assert.Equal(t, uint16(5432), svc.Targets[0].Port)
+	require.NoError(t, svc.Validate(), "L4 remote host target must pass service validation")
+}
+
 func TestCreateServiceFromPeer_TCP(t *testing.T) {
 	mgr, _, _ := setupL4Test(t, boolPtr(false))
 	ctx := context.Background()
