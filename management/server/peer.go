@@ -124,6 +124,8 @@ func (am *DefaultAccountManager) markPeerConnected(ctx context.Context, peerPubK
 
 	log.WithContext(ctx).Debugf("mark peer %s connected", peer.ID)
 
+	am.storePeerSessionEvent(ctx, accountID, peer, settings, activity.PeerConnected, nil)
+
 	if err = am.schedulePeerExpirations(ctx, accountID, peer, settings); err != nil {
 		return err
 	}
@@ -211,6 +213,9 @@ func (am *DefaultAccountManager) MarkPeerDisconnected(ctx context.Context, peerP
 
 	log.WithContext(ctx).Debugf("mark peer %s disconnected", peer.ID)
 
+	settings, settingsErr := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	am.storePeerSessionEvent(ctx, accountID, peer, settings, activity.PeerDisconnected, peerDisconnectMeta(sessionStartedAt))
+
 	// Symmetric with MarkPeerConnected: when an embedded proxy peer goes
 	// offline, refresh the peers that had synthesized records pointing at
 	// it so they pull the stale entries instead of waiting out TTL.
@@ -223,15 +228,54 @@ func (am *DefaultAccountManager) MarkPeerDisconnected(ctx context.Context, peerP
 	}
 
 	if peer.AddedWithSSOLogin() && peer.InactivityExpirationEnabled {
-		settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
-		if err != nil {
-			log.WithContext(ctx).Warnf("failed getting account settings to schedule inactivity expiration for peer %s: %v", peer.ID, err)
+		if settingsErr != nil {
+			log.WithContext(ctx).Warnf("failed getting account settings to schedule inactivity expiration for peer %s: %v", peer.ID, settingsErr)
 		} else if settings.PeerInactivityExpirationEnabled {
 			am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
 		}
 	}
 
 	return nil
+}
+
+// peerDisconnectMeta returns the extra event meta for a disconnect: how long the
+// session that just ended lasted, in whole seconds. It is empty when the start is unknown.
+func peerDisconnectMeta(sessionStartedAt int64) map[string]any {
+	if sessionStartedAt <= 0 {
+		return nil
+	}
+	duration := time.Since(time.Unix(0, sessionStartedAt)).Round(time.Second)
+	return map[string]any{"session_duration": int64(duration.Seconds())}
+}
+
+// storePeerSessionEvent records a peer connect or disconnect. A peer owned by a user is
+// attributed to that user; otherwise the event is a system one, which keeps the event
+// listing from looking up a user for every session change. Nil settings are loaded; if
+// that fails the event is still stored, without the DNS domain in its FQDN. Nothing is
+// stored while sessionEventsSuppressed.
+func (am *DefaultAccountManager) storePeerSessionEvent(ctx context.Context, accountID string, peer *nbpeer.Peer, settings *types.Settings, code activity.Activity, extraMeta map[string]any) {
+	if am.sessionEventsSuppressed(code == activity.PeerDisconnected) {
+		return
+	}
+
+	dnsDomain := ""
+	settings, err := am.accountSettings(ctx, accountID, settings)
+	if err != nil {
+		log.WithContext(ctx).Debugf("get account settings for peer %s session event: %v", peer.ID, err)
+	} else {
+		dnsDomain = am.networkMapController.GetDNSDomain(settings)
+	}
+
+	meta := peer.EventMeta(dnsDomain)
+	for k, v := range extraMeta {
+		meta[k] = v
+	}
+
+	initiatorID := peer.UserID
+	if initiatorID == "" {
+		initiatorID = activity.SystemInitiator
+	}
+	am.StoreEvent(ctx, initiatorID, peer.ID, accountID, code, meta)
 }
 
 // resolvePeerLocation looks up the geo location for realIP, returning nil when

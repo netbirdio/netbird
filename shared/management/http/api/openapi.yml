@@ -2424,7 +2424,8 @@ components:
             "peer.job.create",
             "user.password.change",
             "user.invite.link.create", "user.invite.link.accept", "user.invite.link.regenerate", "user.invite.link.delete",
-            "service.create", "service.update", "service.delete"
+            "service.create", "service.update", "service.delete",
+            "peer.connect", "peer.disconnect"
           ]
           example: route.add
         initiator_id:
