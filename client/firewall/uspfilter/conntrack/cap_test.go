@@ -3,10 +3,17 @@ package conntrack
 import (
 	"net/netip"
 	"testing"
+	"time"
 
 	"github.com/google/gopacket/layers"
 	"github.com/stretchr/testify/require"
 )
+
+// The cap tests pin each flow's lastSeen to a distinct, increasing value
+// after admitting it. Eviction picks the smallest lastSeen and breaks ties
+// by map iteration order, and on a coarse clock (Windows) consecutive flows
+// can share a timestamp, which leaves "oldest" undefined and made these
+// assertions flaky.
 
 func TestTCPCapEvicts(t *testing.T) {
 	t.Setenv(EnvTCPMaxEntries, "4")
@@ -18,8 +25,12 @@ func TestTCPCapEvicts(t *testing.T) {
 	src := netip.MustParseAddr("100.64.0.1")
 	dst := netip.MustParseAddr("100.64.0.2")
 
+	base := time.Now().UnixNano()
 	for i := 0; i < 10; i++ {
 		tracker.TrackOutbound(src, dst, uint16(10000+i), 80, TCPSyn, 0)
+		key := ConnKey{SrcIP: src, DstIP: dst, SrcPort: uint16(10000 + i), DstPort: 80}
+		require.Contains(t, tracker.connections, key, "new TCP flow must be admitted")
+		tracker.connections[key].lastSeen.Store(base + int64(i))
 	}
 	require.LessOrEqual(t, len(tracker.connections), 4,
 		"TCP table must not exceed the configured cap")
@@ -85,8 +96,12 @@ func TestUDPCapEvicts(t *testing.T) {
 	src := netip.MustParseAddr("100.64.0.1")
 	dst := netip.MustParseAddr("100.64.0.2")
 
+	base := time.Now().UnixNano()
 	for i := 0; i < 12; i++ {
 		tracker.TrackOutbound(src, dst, uint16(30000+i), 53, 0)
+		key := ConnKey{SrcIP: src, DstIP: dst, SrcPort: uint16(30000 + i), DstPort: 53}
+		require.Contains(t, tracker.connections, key, "new UDP flow must be admitted")
+		tracker.connections[key].lastSeen.Store(base + int64(i))
 	}
 	require.LessOrEqual(t, len(tracker.connections), 5)
 	require.Greater(t, len(tracker.connections), 0)
@@ -110,8 +125,12 @@ func TestICMPCapEvicts(t *testing.T) {
 	dst := netip.MustParseAddr("100.64.0.2")
 
 	echoReq := layers.CreateICMPv4TypeCode(uint8(layers.ICMPv4TypeEchoRequest), 0)
+	base := time.Now().UnixNano()
 	for i := 0; i < 8; i++ {
 		tracker.TrackOutbound(src, dst, uint16(i), echoReq, nil, 64)
+		key := ICMPConnKey{SrcIP: src, DstIP: dst, ID: uint16(i)}
+		require.Contains(t, tracker.connections, key, "new ICMP flow must be admitted")
+		tracker.connections[key].lastSeen.Store(base + int64(i))
 	}
 	require.LessOrEqual(t, len(tracker.connections), 3)
 	require.Greater(t, len(tracker.connections), 0)
