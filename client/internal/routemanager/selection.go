@@ -1,6 +1,7 @@
 package routemanager
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 
@@ -11,6 +12,31 @@ import (
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/route"
 )
+
+// ErrNoRoutesApplied reports that none of the requested network IDs was available,
+// so the request left the selection untouched. Callers use it to tell that apart
+// from a partial failure, which does change the selection.
+var ErrNoRoutesApplied = errors.New("no requested network is available")
+
+// noRoutesAppliedError marks an error as "the request applied nothing" for
+// errors.Is(err, ErrNoRoutesApplied), without altering the wrapped error's
+// message: callers see the original text, not an ErrNoRoutesApplied prefix.
+type noRoutesAppliedError struct{ err error }
+
+func (e *noRoutesAppliedError) Error() string        { return e.err.Error() }
+func (e *noRoutesAppliedError) Unwrap() error        { return e.err }
+func (e *noRoutesAppliedError) Is(target error) bool { return target == ErrNoRoutesApplied }
+
+// noneAvailable reports whether a non-empty request names no known network. An
+// empty request is not a failed lookup: SelectRoutes treats it as deselect all.
+func noneAvailable(requested, all []route.NetID) bool {
+	if len(requested) == 0 {
+		return false
+	}
+	return !slices.ContainsFunc(requested, func(id route.NetID) bool {
+		return slices.Contains(all, id)
+	})
+}
 
 // SelectRoutes selects the routes with the given network IDs and applies the
 // new selection. V4/v6 exit-node pairs are expanded automatically. Exit nodes
@@ -46,11 +72,16 @@ func (m *DefaultManager) DeselectRoutes(ids []route.NetID) error {
 func (m *DefaultManager) deselectRoutes(ids []route.NetID) error {
 	routesMap := m.GetClientRoutesWithNetID()
 	routes := route.ExpandV6ExitPairs(slices.Clone(ids), routesMap)
+	allIDs := maps.Keys(routesMap)
 
 	log.Debugf("deselecting routes with ids: %v", routes)
 
-	if err := m.routeSelector.DeselectRoutes(routes, maps.Keys(routesMap)); err != nil {
-		return fmt.Errorf("deselect routes: %w", err)
+	if err := m.routeSelector.DeselectRoutes(routes, allIDs); err != nil {
+		err = fmt.Errorf("deselect routes: %w", err)
+		if noneAvailable(routes, allIDs) {
+			return &noRoutesAppliedError{err: err}
+		}
+		return err
 	}
 
 	return nil
@@ -106,7 +137,11 @@ func (m *DefaultManager) selectRoutes(ids []route.NetID, appendRoute bool) error
 		}
 	}
 
-	return nberrors.FormatErrorOrNil(merr)
+	err := nberrors.FormatErrorOrNil(merr)
+	if err != nil && noneAvailable(routes, allIDs) {
+		return &noRoutesAppliedError{err: err}
+	}
+	return err
 }
 
 func isExitNodeRoutes(routes []*route.Route) bool {
