@@ -23,7 +23,7 @@ generate_dashboard_env
 generate_docker_compose_traefik
 EOF
 else
-  TRAEFIK_IMAGE=traefik:v3.7.14
+  TRAEFIK_IMAGE=traefik:v3.7.18
   NETBIRD_DOMAIN=netbird.test
   NETBIRD_AGENT_NETWORK=false
   initialize_default_values
