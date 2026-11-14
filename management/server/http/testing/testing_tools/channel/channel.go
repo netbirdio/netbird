@@ -147,7 +147,7 @@ func buildTestAPI(t testing_tools.TB, sqlFile string, peersUpdateManager network
 		}
 		return apiHandler
 	}
-	return ctx, am, middleware.BuildMiddleware(nil, authManagerMock, am, metrics), register
+	return ctx, am, middleware.BuildMiddleware(nil, authManagerMock, am, metrics, nil), register
 }
 
 func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPeerUpdate *network_map.UpdateMessage, validateUpdate bool) (http.Handler, account.Manager, chan struct{}) {
