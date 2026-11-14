@@ -777,7 +777,7 @@ repository, so their detail lives on the PR check, not in the Actions logs.
 ## Discussion and support
 
 - Discussions: <https://github.com/netbirdio/netbird/discussions>
-- Slack: <https://docs.netbird.io/slack-url>
+- Discord: <https://docs.netbird.io/discord-url>
 - Docs: <https://docs.netbird.io>
 - Security: <https://github.com/netbirdio/netbird/security/policy> — never in public
 - Contribution process: [CONTRIBUTING.md](CONTRIBUTING.md)
