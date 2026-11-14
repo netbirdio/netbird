@@ -101,8 +101,7 @@ func TestStopDuringReconnectBackoff(t *testing.T) {
 	ct.Stop()
 
 	ct.mux.Lock()
-	assert.False(t, ct.started, "started should be false after Stop")
-	assert.Nil(t, ct.conn, "conn should be nil after Stop")
+	assert.Nil(t, ct.run, "run should be nil after Stop")
 	ct.mux.Unlock()
 }
 
@@ -140,7 +139,7 @@ func TestStopRaceWithReconnectDial(t *testing.T) {
 	// Stop while dial is in progress (conn is nil at this point).
 	ct.Stop()
 
-	// Let the dial complete. reconnect should detect started==false and close the new conn.
+	// Let the dial complete. reconnect should detect that its run stopped and close the new conn.
 	close(dialProceed)
 
 	// The second connection should be closed (not leaked).
@@ -151,8 +150,7 @@ func TestStopRaceWithReconnectDial(t *testing.T) {
 	}
 
 	ct.mux.Lock()
-	assert.False(t, ct.started)
-	assert.Nil(t, ct.conn)
+	assert.Nil(t, ct.run)
 	ct.mux.Unlock()
 }
 
@@ -197,9 +195,72 @@ func TestCloseRaceWithReconnectDial(t *testing.T) {
 	}
 
 	ct.mux.Lock()
-	assert.False(t, ct.started)
-	assert.Nil(t, ct.conn)
+	assert.Nil(t, ct.run)
 	ct.mux.Unlock()
+}
+
+func TestStopStartWhilePreviousReconnectDialInFlight(t *testing.T) {
+	first := newMockListener()
+	stale := newMockListener()
+	current := newMockListener()
+	dialStarted := make(chan struct{})
+	dialProceed := make(chan struct{})
+	unexpectedDial := make(chan struct{}, 1)
+	callCount := atomic.Int32{}
+
+	ct := New(nil, nil, WithDialer(func() (listener, error) {
+		switch callCount.Add(1) {
+		case 1:
+			return first, nil
+		case 2:
+			close(dialStarted)
+			<-dialProceed
+			return stale, nil
+		case 3:
+			return current, nil
+		default:
+			unexpectedDial <- struct{}{}
+			return nil, assert.AnError
+		}
+	}))
+
+	require.NoError(t, ct.Start(false))
+	first.errChan <- assert.AnError
+
+	select {
+	case <-dialStarted:
+	case <-time.After(15 * time.Second):
+		t.Fatal("timed out waiting for reconnect dial")
+	}
+
+	ct.Stop()
+	require.NoError(t, ct.Start(false))
+
+	ct.mux.Lock()
+	require.NotNil(t, ct.run)
+	assert.Same(t, current, ct.run.conn)
+	ct.mux.Unlock()
+
+	close(dialProceed)
+	select {
+	case <-stale.closedCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stale reconnect connection was not closed")
+	}
+
+	ct.mux.Lock()
+	require.NotNil(t, ct.run)
+	assert.Same(t, current, ct.run.conn)
+	ct.mux.Unlock()
+	assert.False(t, current.closed.Load(), "current run connection should remain open")
+	select {
+	case <-unexpectedDial:
+		t.Error("unexpected conntrack dial")
+	default:
+	}
+
+	ct.Stop()
+	assert.True(t, current.closed.Load(), "current run connection should close on Stop")
 }
 
 func TestStartIsIdempotent(t *testing.T) {
