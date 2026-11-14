@@ -2835,6 +2835,13 @@ func TestDefaultAccountManager_UpdateAccountSettings_OmittedExtraSkipsIntegratio
 		GetExtraSettings(gomock.Any(), gomock.Any()).
 		Return(&types.ExtraSettings{}, nil).
 		AnyTimes()
+	settingsMock.EXPECT().
+		GetSettings(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&types.Settings{Extra: &types.ExtraSettings{
+			FlowEnabled:             true,
+			UserEmailMappingEnabled: true,
+		}}, nil).
+		AnyTimes()
 	var calls []*types.ExtraSettings
 	settingsMock.EXPECT().
 		UpdateExtraSettings(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
@@ -2845,12 +2852,15 @@ func TestDefaultAccountManager_UpdateAccountSettings_OmittedExtraSkipsIntegratio
 		AnyTimes()
 	manager.settingsManager = settingsMock
 
-	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
+	returned, err := manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: false,
 	})
 	require.NoError(t, err)
 	assert.Empty(t, calls, "integration extra settings must not be written when the update omits extra")
+	require.NotNil(t, returned.Extra, "returned settings must carry extra")
+	assert.True(t, returned.Extra.FlowEnabled, "returned settings must report the integration flow state")
+	assert.True(t, returned.Extra.UserEmailMappingEnabled, "returned settings must report the integration email mapping state")
 
 	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
 		PeerLoginExpiration:        time.Hour,

@@ -321,6 +321,28 @@ func (am *DefaultAccountManager) GetIdpManager() idp.Manager {
 	return am.idpManager
 }
 
+// fillIntegrationExtraSettings sets the integration-owned extra fields on the returned
+// settings of an update that omitted extra, since the stored row never holds them. The
+// update is already persisted, so a failed read leaves the settings as they are.
+func (am *DefaultAccountManager) fillIntegrationExtraSettings(ctx context.Context, accountID string, settings *types.Settings) {
+	if settings.Extra == nil {
+		return
+	}
+
+	current, err := am.settingsManager.GetSettings(ctx, accountID, activity.SystemInitiator)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed to read integration extra settings for account %s: %v", accountID, err)
+		return
+	}
+	if current.Extra == nil {
+		return
+	}
+
+	// Copy so the struct shared with the previously loaded settings is not mutated.
+	settings.Extra = settings.Extra.Copy()
+	settings.Extra.CopyIntegrationFieldsFrom(current.Extra)
+}
+
 // UpdateAccountSettings updates Account settings.
 // Only users with role UserRoleAdmin can update the account.
 // User that performs the update has to belong to the account.
@@ -462,6 +484,8 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		if err != nil {
 			return nil, err
 		}
+	} else {
+		am.fillIntegrationExtraSettings(ctx, accountID, newSettings)
 	}
 
 	am.handleRoutingPeerDNSResolutionSettings(ctx, oldSettings, newSettings, userID, accountID)

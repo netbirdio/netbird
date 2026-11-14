@@ -199,3 +199,14 @@ func (e *ExtraSettings) Copy() *ExtraSettings {
 		UserEmailMappingEnabled:   e.UserEmailMappingEnabled,
 	}
 }
+
+// CopyIntegrationFieldsFrom overwrites the integration-owned fields, which are not
+// persisted with the account settings, with the values from src.
+func (e *ExtraSettings) CopyIntegrationFieldsFrom(src *ExtraSettings) {
+	e.FlowEnabled = src.FlowEnabled
+	e.FlowGroups = src.FlowGroups
+	e.FlowPacketCounterEnabled = src.FlowPacketCounterEnabled
+	e.FlowENCollectionEnabled = src.FlowENCollectionEnabled
+	e.FlowDnsCollectionEnabled = src.FlowDnsCollectionEnabled
+	e.UserEmailMappingEnabled = src.UserEmailMappingEnabled
+}
