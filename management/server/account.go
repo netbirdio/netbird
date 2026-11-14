@@ -2044,7 +2044,8 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID 
 		return nil, nil, nil, 0, fmt.Errorf("error syncing peer: %w", err)
 	}
 
-	if err := am.markPeerConnected(ctx, peerPubKey, accountID, syncTime.UnixNano(), netMap, settings); err != nil {
+	sourceIP, _ := netip.AddrFromSlice(realIP)
+	if err := am.markPeerConnected(ctx, peerPubKey, accountID, syncTime.UnixNano(), netMap, settings, sourceIP.Unmap()); err != nil {
 		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peerPubKey, err)
 	}
 

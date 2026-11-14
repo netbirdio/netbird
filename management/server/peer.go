@@ -87,12 +87,13 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 // Disconnects use MarkPeerDisconnected and require the session to match exactly; see
 // PeerStatus.SessionStartedAt for the protocol.
 func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubKey string, accountID string, sessionStartedAt int64, nmap *types.NetworkMap) error {
-	return am.markPeerConnected(ctx, peerPubKey, accountID, sessionStartedAt, nmap, nil)
+	return am.markPeerConnected(ctx, peerPubKey, accountID, sessionStartedAt, nmap, nil, netip.Addr{})
 }
 
 // markPeerConnected is MarkPeerConnected with the account settings the caller already
-// read; nil settings are loaded when needed.
-func (am *DefaultAccountManager) markPeerConnected(ctx context.Context, peerPubKey string, accountID string, sessionStartedAt int64, nmap *types.NetworkMap, settings *types.Settings) error {
+// read; nil settings are loaded when needed. sourceIP is the observed stream address,
+// independent of geolocation; an invalid address means it was unavailable.
+func (am *DefaultAccountManager) markPeerConnected(ctx context.Context, peerPubKey string, accountID string, sessionStartedAt int64, nmap *types.NetworkMap, settings *types.Settings, sourceIP netip.Addr) error {
 	start := time.Now()
 	defer func() {
 		am.metrics.AccountManagerMetrics().RecordPeerStatusUpdateDuration(telemetry.PeerStatusConnect, time.Since(start))
@@ -121,6 +122,7 @@ func (am *DefaultAccountManager) markPeerConnected(ctx context.Context, peerPubK
 		return nil
 	}
 	am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusConnect, telemetry.PeerStatusApplied)
+	am.storePeerConnectionEvent(ctx, accountID, peer, activity.PeerConnected, sourceIP)
 
 	log.WithContext(ctx).Debugf("mark peer %s connected", peer.ID)
 
@@ -208,6 +210,7 @@ func (am *DefaultAccountManager) MarkPeerDisconnected(ctx context.Context, peerP
 		return nil
 	}
 	am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusDisconnect, telemetry.PeerStatusApplied)
+	am.storePeerConnectionEvent(ctx, accountID, peer, activity.PeerDisconnected, netip.Addr{})
 
 	log.WithContext(ctx).Debugf("mark peer %s disconnected", peer.ID)
 

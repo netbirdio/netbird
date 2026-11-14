@@ -302,10 +302,17 @@ const (
 	// MCPSessionRevokedOnTokenReuse indicates that an MCP session was revoked because a refresh token or an authorization code was used twice
 	MCPSessionRevokedOnTokenReuse Activity = 148
 
+	// PeerConnected indicates that a peer established a connection to Management.
+	PeerConnected Activity = 149
+	// PeerDisconnected indicates that Management observed a peer connection end.
+	PeerDisconnected Activity = 150
+
 	AccountDeleted Activity = 99999
 )
 
 var activityMap = map[Activity]Code{
+	PeerConnected:                            {"Peer connected", "peer.connect"},
+	PeerDisconnected:                         {"Peer disconnected", "peer.disconnect"},
 	PeerAddedByUser:                          {"Peer added", "peer.user.add"},
 	PeerAddedWithSetupKey:                    {"Peer added", "peer.setupkey.add"},
 	UserJoined:                               {"User joined", "user.join"},

@@ -241,6 +241,8 @@ const (
 	EventActivityCodeNetworkUpdate                                 EventActivityCode = "network.update"
 	EventActivityCodePeerApprovalRevoke                            EventActivityCode = "peer.approval.revoke"
 	EventActivityCodePeerApprove                                   EventActivityCode = "peer.approve"
+	EventActivityCodePeerConnect                                   EventActivityCode = "peer.connect"
+	EventActivityCodePeerDisconnect                                EventActivityCode = "peer.disconnect"
 	EventActivityCodePeerGroupAdd                                  EventActivityCode = "peer.group.add"
 	EventActivityCodePeerGroupDelete                               EventActivityCode = "peer.group.delete"
 	EventActivityCodePeerInactivityExpirationDisable               EventActivityCode = "peer.inactivity.expiration.disable"
@@ -408,6 +410,10 @@ func (e EventActivityCode) Valid() bool {
 	case EventActivityCodePeerApprovalRevoke:
 		return true
 	case EventActivityCodePeerApprove:
+		return true
+	case EventActivityCodePeerConnect:
+		return true
+	case EventActivityCodePeerDisconnect:
 		return true
 	case EventActivityCodePeerGroupAdd:
 		return true

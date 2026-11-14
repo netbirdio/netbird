@@ -2376,7 +2376,7 @@ components:
           description: The string code of the activity that occurred during the event
           type: string
           enum: [
-            "peer.user.add", "peer.setupkey.add", "user.join", "user.invite", "account.create", "account.delete",
+            "peer.user.add", "peer.setupkey.add", "peer.connect", "peer.disconnect", "user.join", "user.invite", "account.create", "account.delete",
             "user.peer.delete", "rule.add", "rule.update", "rule.delete",
             "policy.add", "policy.update", "policy.delete",
             "setupkey.add", "setupkey.update", "setupkey.revoke", "setupkey.overuse", "setupkey.delete",

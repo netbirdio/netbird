@@ -67,9 +67,10 @@ func (am *DefaultAccountManager) StoreEvent(ctx context.Context, initiatorID, ta
 		return
 	}
 	eventStore := am.eventStore
+	timestamp := time.Now().UTC()
 	save := func(ctx context.Context) {
 		_, err := eventStore.Save(ctx, &activity.Event{
-			Timestamp:   time.Now().UTC(),
+			Timestamp:   timestamp,
 			Activity:    activityID.(activity.Activity),
 			InitiatorID: initiatorID,
 			TargetID:    targetID,
@@ -104,7 +105,7 @@ func (am *DefaultAccountManager) fillEventsWithUserInfo(ctx context.Context, eve
 	}
 
 	for _, event := range events {
-		if !fillEventInitiatorInfo(eventUserInfo, event) {
+		if !fillEventInitiatorInfo(eventUserInfo, event) && event.InitiatorID != activity.SystemInitiator {
 			log.WithContext(ctx).Warnf("failed to resolve user info for initiator: %s", event.InitiatorID)
 		}
 
