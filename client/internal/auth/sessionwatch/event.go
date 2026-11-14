@@ -11,10 +11,11 @@ import (
 // emits.
 
 // Metadata keys attached by the daemon to session-warning SystemEvents.
-// The UI tray reads these to build a locale-aware notification without
-// relying on the daemon's locale-less UserMessage string, and to
-// disambiguate the T-WarningLead notification from the T-FinalWarningLead
-// fallback that auto-opens the SessionAboutToExpire dialog.
+// The notification text itself travels as a message key (see
+// proto.UserMsgSessionExpiresIn); these keys carry the structured deadline
+// the UI needs for its own countdown label, and disambiguate the
+// T-WarningLead notification from the T-FinalWarningLead fallback that
+// auto-opens the SessionAboutToExpire dialog.
 const (
 	// MetaSessionWarning is set to "true" on both warning events (T-10 and
 	// T-2) so the UI can detect a session-warning SystemEvent without
@@ -36,10 +37,9 @@ const (
 	// MetaSessionDeadlineRejected is attached to the ERROR/AUTHENTICATION
 	// SystemEvent the daemon emits when it discards a deadline from the
 	// management server (pre-epoch, too far in the future, or past the
-	// clock-skew tolerance). The value is the rejection reason string.
-	// userMessage is left empty; the UI detects the event via this key
-	// and builds a localized notification — same pattern as the session
-	// warnings above.
+	// clock-skew tolerance). The value is the rejection reason string,
+	// which is diagnostic only: the user-facing text travels as
+	// proto.UserMsgSessionDeadlineReject.
 	MetaSessionDeadlineRejected = "session_deadline_rejected"
 )
 

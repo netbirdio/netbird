@@ -105,7 +105,7 @@ func (m *Manager) CheckUpdateSuccess(ctx context.Context) {
 			cProto.SystemEvent_ERROR,
 			cProto.SystemEvent_SYSTEM,
 			"Auto-update failed",
-			fmt.Sprintf("Auto-update failed: %s", reason),
+			cProto.NewUserMessage(cProto.UserMsgUpdateFailed, cProto.ArgReason, reason),
 			nil,
 		)
 	}
@@ -126,7 +126,7 @@ func (m *Manager) CheckUpdateSuccess(ctx context.Context) {
 			cProto.SystemEvent_INFO,
 			cProto.SystemEvent_SYSTEM,
 			"Auto-update completed",
-			fmt.Sprintf("Your NetBird Client was auto-updated to version %s", m.currentVersion),
+			cProto.NewUserMessage(cProto.UserMsgUpdateCompleted, cProto.ArgVersion, m.currentVersion),
 			nil,
 		)
 		return
@@ -308,7 +308,7 @@ func (m *Manager) NotifyUI() {
 			cProto.SystemEvent_INFO,
 			cProto.SystemEvent_SYSTEM,
 			"New version available",
-			"",
+			nil,
 			map[string]string{"new_version_available": latestVersion.String()},
 		)
 		return
@@ -319,7 +319,7 @@ func (m *Manager) NotifyUI() {
 			cProto.SystemEvent_INFO,
 			cProto.SystemEvent_SYSTEM,
 			"New version available",
-			"",
+			nil,
 			map[string]string{"new_version_available": pendingVersion.String(), "enforced": "true"},
 		)
 	}
@@ -430,7 +430,7 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 			cProto.SystemEvent_INFO,
 			cProto.SystemEvent_SYSTEM,
 			"New version available",
-			"",
+			nil,
 			map[string]string{"new_version_available": updateVersion.String()},
 		)
 		return
@@ -447,7 +447,7 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 		cProto.SystemEvent_INFO,
 		cProto.SystemEvent_SYSTEM,
 		"New version available",
-		"",
+		nil,
 		map[string]string{"new_version_available": updateVersion.String(), "enforced": "true"},
 	)
 }
@@ -484,14 +484,14 @@ func (m *Manager) install(ctx context.Context, pendingVersion *v.Version) error 
 		cProto.SystemEvent_CRITICAL,
 		cProto.SystemEvent_SYSTEM,
 		"Updating client",
-		"Installing update now.",
+		cProto.NewUserMessage(cProto.UserMsgUpdateInstalling),
 		nil,
 	)
 	m.statusRecorder.PublishEvent(
 		cProto.SystemEvent_CRITICAL,
 		cProto.SystemEvent_SYSTEM,
 		"",
-		"",
+		nil,
 		map[string]string{"progress_window": "show", "version": pendingVersion.String()},
 	)
 
@@ -514,7 +514,7 @@ func (m *Manager) install(ctx context.Context, pendingVersion *v.Version) error 
 			cProto.SystemEvent_ERROR,
 			cProto.SystemEvent_SYSTEM,
 			"Auto-update failed",
-			fmt.Sprintf("Auto-update failed: %v", err),
+			cProto.NewUserMessage(cProto.UserMsgUpdateFailed, cProto.ArgReason, err.Error()),
 			nil,
 		)
 		return err

@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -21,32 +22,15 @@ func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 	if !ok {
 		return
 	}
-	// config_changed carries no UserMessage, so handle it before the message gate below.
+	// config_changed carries no user-facing message, so handle it before the gate below.
 	if se.Category == "system" && se.Metadata[proto.MetadataTypeKey] == proto.MetadataTypeConfigChanged {
 		log.Infof("config_changed event received (source=%s); refreshing tray restrictions", se.Metadata[proto.MetadataSourceKey])
 		go t.refreshRestrictions()
 		go t.loadConfig()
-		// MDM gets a localised toast here; the daemon's English "policy_applied"
-		// event is suppressed in shouldSkipSystemEvent. Other sources stay silent.
-		if se.Metadata[proto.MetadataSourceKey] == proto.MetadataSourceMDM {
-			t.profileMu.Lock()
-			enabled := t.notificationsEnabled
-			t.profileMu.Unlock()
-			if enabled {
-				t.notify(
-					t.loc.T("notify.mdm.policyApplied.title"),
-					t.loc.T("notify.mdm.policyApplied.body"),
-					notifyIDMDMPolicy,
-				)
-			}
-		}
 		return
 	}
-	// Session-warning and deadline-rejected events build their body locally from
-	// metadata; every other event needs a UserMessage.
-	isSessionWarning := se.Metadata[authsession.MetaWarning] == "true"
-	isDeadlineRejected := se.Metadata[authsession.MetaDeadlineRejected] != ""
-	if !isSessionWarning && !isDeadlineRejected && se.UserMessage == "" {
+	se = t.withSessionKeys(se)
+	if se.MessageKey == "" && se.UserMessage == "" {
 		return
 	}
 	if shouldSkipSystemEvent(se) {
@@ -61,57 +45,91 @@ func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 		return
 	}
 
-	// Session-warning events route via stable metadata flags rather than
-	// category/severity so a daemon-side reword still lands here. Final warning
-	// auto-opens the SessionExpiration dialog with no notification (the dialog is
-	// the last-chance reminder; doubling up would be noise).
-	if isDeadlineRejected {
-		t.notify(
-			t.loc.T("notify.sessionDeadlineRejected.title"),
-			t.loc.T("notify.sessionDeadlineRejected.body"),
-			notifyIDSessionExpired,
-		)
-		return
-	}
+	body := t.localizedEventMessage(se)
 
-	if se.Metadata != nil && se.Metadata[authsession.MetaWarning] == "true" {
+	// The final session warning auto-opens the SessionExpiration dialog instead of
+	// toasting: the dialog is the last-chance reminder and doubling up would be
+	// noise. This routes on metadata rather than the message key because it is a
+	// behavioural distinction, not a wording one.
+	if se.Metadata[authsession.MetaWarning] == "true" {
 		if se.Metadata[authsession.MetaFinal] == "true" {
 			deadline, _ := authsession.ParseExpiresAt(se.Metadata[authsession.MetaExpiresAt])
 			t.openSessionExpiration(deadline)
 			return
 		}
-		t.notifySessionWarning(
-			t.loc.T("notify.sessionWarning.title"),
-			t.buildSessionWarningBody(se.Metadata),
-		)
+		t.notifySessionWarning(t.eventTitle(se), body)
 		return
 	}
 
-	body := se.UserMessage
 	if id := se.Metadata["id"]; id != "" {
 		body += fmt.Sprintf(" ID: %s", id)
 	}
-	t.notify(eventTitle(se), body, notifyIDEvent+se.ID)
+	id := notifyIDEvent + se.ID
+	if se.Metadata[proto.MetadataTypeKey] == proto.MetadataTypePolicyApplied {
+		id = notifyIDMDMPolicy
+	}
+	t.notify(t.eventTitle(se), body, id)
 }
 
-// eventTitle composes a notification title, e.g. "Critical: DNS", "Warning: Authentication".
-func eventTitle(e services.SystemEvent) string {
-	prefix := titleCase(e.Severity)
-	if prefix == "" {
-		prefix = "Info"
+// withSessionKeys completes the message of a session warning or deadline
+// rejection. A daemon that predates messageKey sent only metadata and left the
+// text to the UI, so such an event is given its keys here instead of being
+// dropped by the message gate. For a warning that carries a deadline, the
+// countdown is always formatted here in the active locale rather than taken
+// from the daemon, which has no locale.
+func (t *Tray) withSessionKeys(se services.SystemEvent) services.SystemEvent {
+	if se.MessageKey == "" && se.Metadata[authsession.MetaDeadlineRejected] != "" {
+		se.MessageKey = string(proto.UserMsgSessionDeadlineReject)
+		se.TitleKey = string(proto.TitleSessionDeadlineReject)
+		return se
 	}
-	category := titleCase(e.Category)
-	if category == "" {
-		category = "System"
+	if se.Metadata[authsession.MetaWarning] != "true" {
+		return se
 	}
-	return prefix + ": " + category
+	if se.MessageKey == "" {
+		se.MessageKey = string(proto.UserMsgSessionExpiresSoon)
+		se.TitleKey = string(proto.TitleSessionWarning)
+	}
+	deadline, err := authsession.ParseExpiresAt(se.Metadata[authsession.MetaExpiresAt])
+	if err != nil || time.Until(deadline) <= 0 {
+		return se
+	}
+	se.MessageKey = string(proto.UserMsgSessionExpiresIn)
+	se.MessageArgs = map[string]string{
+		proto.ArgRemaining: t.formatSessionRemaining(time.Until(deadline)),
+	}
+	return se
 }
 
-func titleCase(s string) string {
-	if s == "" {
-		return ""
+// localizedEventMessage resolves the daemon's message key against the active
+// locale. A key this build does not ship — a daemon newer than the UI — falls
+// back to the daemon's own English rendering rather than showing a bare key.
+func (t *Tray) localizedEventMessage(se services.SystemEvent) string {
+	if body, ok := t.loc.Lookup(se.MessageKey, se.MessageArgs); ok {
+		return body
 	}
-	return strings.ToUpper(s[:1]) + strings.ToLower(s[1:])
+	if se.MessageKey != "" {
+		log.Debugf("no translation for event message key %q, using the daemon's text", se.MessageKey)
+	}
+	return se.UserMessage
+}
+
+// eventTitle resolves the event's own title key, falling back to a title
+// composed from severity and category, e.g. "Critical: DNS" in English. An enum
+// value this build does not know falls back to the Info and System labels.
+func (t *Tray) eventTitle(se services.SystemEvent) string {
+	if title, ok := t.loc.Lookup(se.TitleKey, nil); ok {
+		return title
+	}
+	severity, ok := t.loc.Lookup("event.severity."+strings.ToLower(se.Severity), nil)
+	if !ok {
+		severity = t.loc.T("event.severity.info")
+	}
+	category, ok := t.loc.Lookup("event.category."+strings.ToLower(se.Category), nil)
+	if !ok {
+		category = t.loc.T("event.category.system")
+	}
+	return t.loc.T("event.title", "severity", severity, "category", category)
 }
 
 // shouldSkipSystemEvent reports whether a daemon SystemEvent must not surface as
@@ -120,11 +138,6 @@ func titleCase(s string) string {
 //   - install-progress signals (consumed by the install-progress window)
 //   - the ::/0 partner of an exit-node default route (0.0.0.0/0 already toasted)
 func shouldSkipSystemEvent(se services.SystemEvent) bool {
-	// "policy_applied" carries a hardcoded English message; the localised toast
-	// fires on the paired config_changed (source=mdm) event instead.
-	if se.Metadata[proto.MetadataTypeKey] == proto.MetadataTypePolicyApplied {
-		return true
-	}
 	if _, isUpdate := se.Metadata["new_version_available"]; isUpdate {
 		return true
 	}

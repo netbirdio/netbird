@@ -182,6 +182,78 @@
     "notify.mdm.policyApplied.body": {
         "message": "Конфігурацію NetBird оновлено відповідно до політики вашої організації."
     },
+    "event.title": {
+        "message": "{severity}: {category}"
+    },
+    "event.severity.info": {
+        "message": "Інформація"
+    },
+    "event.severity.warning": {
+        "message": "Попередження"
+    },
+    "event.severity.error": {
+        "message": "Помилка"
+    },
+    "event.severity.critical": {
+        "message": "Критично"
+    },
+    "event.category.network": {
+        "message": "Мережа"
+    },
+    "event.category.dns": {
+        "message": "DNS"
+    },
+    "event.category.authentication": {
+        "message": "Автентифікація"
+    },
+    "event.category.connectivity": {
+        "message": "Підключення"
+    },
+    "event.category.system": {
+        "message": "Система"
+    },
+    "event.panic": {
+        "message": "Служба NetBird аварійно завершила роботу. Перезапустіть службу та надішліть звіт про помилку разом із журналами клієнта."
+    },
+    "event.dns.recovered": {
+        "message": "DNS-сервери знову доступні."
+    },
+    "event.dns.unreachable": {
+        "message": "Не вдалося зв’язатися з одним або кількома DNS-серверами. Це може вплинути на можливість підключатися до деяких сервісів."
+    },
+    "event.exitNode.connected": {
+        "message": "Вихідний вузол підключено."
+    },
+    "event.exitNode.disconnected": {
+        "message": "Вихідний вузол відключено."
+    },
+    "event.exitNode.connectionLost": {
+        "message": "З’єднання з вихідним вузлом втрачено. Це може вплинути на доступ до інтернету."
+    },
+    "event.exitNode.haChange": {
+        "message": "Вихідний вузол відключено через зміну високої доступності."
+    },
+    "event.exitNode.disconnectedUnknown": {
+        "message": "Вихідний вузол відключено з невідомої причини."
+    },
+    "event.update.installing": {
+        "message": "Зараз встановлюється оновлення."
+    },
+    "event.update.completed": {
+        "message": "Клієнт NetBird автоматично оновлено до версії {version}."
+    },
+    "event.update.failed": {
+        "message": "Не вдалося автоматично оновити: {reason}"
+    },
+    "event.certPosture.proven": {
+        "message": "Сертифікат, потрібний політикою пристроїв вашої організації, знову доступний."
+    },
+    "event.certPosture.lost": {
+        "message": "NetBird не вдалося використати сертифікат, потрібний політикою пристроїв вашої організації. Доступ до деяких ресурсів може бути заблоковано, доки сертифікат не стане доступним."
+    },
+    "event.certPosture.storeStuck": {
+        "message": "NetBird не може прочитати сертифікати, потрібні політикою пристроїв вашої організації, оскільки сховище сертифікатів перестало відповідати. Якщо проблема не зникає, перезапустіть службу NetBird."
+    },
     "common.cancel": {
         "message": "Скасувати"
     },
