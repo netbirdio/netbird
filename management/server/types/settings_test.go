@@ -29,3 +29,14 @@ func TestExtraSettings_Copy(t *testing.T) {
 	dst.IntegratedValidatorGroups[0] = "changed"
 	assert.Equal(t, "v1", src.IntegratedValidatorGroups[0], "copy should not share the validator groups slice")
 }
+
+func TestExtraSettings_CopyIntegrationFieldsFrom(t *testing.T) {
+	src := &ExtraSettings{FlowEnabled: true, FlowGroups: []string{"g1"}}
+	dst := &ExtraSettings{}
+
+	dst.CopyIntegrationFieldsFrom(src)
+	assert.Equal(t, []string{"g1"}, dst.FlowGroups, "flow groups should be copied")
+
+	src.FlowGroups[0] = "changed"
+	assert.Equal(t, "g1", dst.FlowGroups[0], "destination should not share the source groups slice")
+}

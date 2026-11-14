@@ -204,7 +204,7 @@ func (e *ExtraSettings) Copy() *ExtraSettings {
 // persisted with the account settings, with the values from src.
 func (e *ExtraSettings) CopyIntegrationFieldsFrom(src *ExtraSettings) {
 	e.FlowEnabled = src.FlowEnabled
-	e.FlowGroups = src.FlowGroups
+	e.FlowGroups = slices.Clone(src.FlowGroups)
 	e.FlowPacketCounterEnabled = src.FlowPacketCounterEnabled
 	e.FlowENCollectionEnabled = src.FlowENCollectionEnabled
 	e.FlowDnsCollectionEnabled = src.FlowDnsCollectionEnabled
