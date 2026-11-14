@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	cacheStore "github.com/eko/gocache/lib/v4/store"
@@ -117,6 +118,11 @@ type DefaultAccountManager struct {
 
 	deletionHooksMu sync.RWMutex
 	deletionHooks   []account.DeletionHook
+
+	// sessionEventsFrom is when peer session events start being recorded, set once at
+	// construction and read-only afterwards. draining is set when shutdown begins.
+	sessionEventsFrom time.Time
+	draining          atomic.Bool
 }
 
 var _ account.Manager = (*DefaultAccountManager)(nil)
@@ -258,6 +264,7 @@ func BuildManager(
 		permissionsManager:       permissionsManager,
 		disableDefaultPolicy:     disableDefaultPolicy,
 		peerLiveness:             peerLiveness,
+		sessionEventsFrom:        start.Add(peerSessionEventsStartupGrace()),
 	}
 
 	am.certChallenges = newCertChallengeRefresher(am.refreshCertificateChallenges)

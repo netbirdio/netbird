@@ -251,8 +251,13 @@ func peerDisconnectMeta(sessionStartedAt int64) map[string]any {
 // storePeerSessionEvent records a peer connect or disconnect. A peer owned by a user is
 // attributed to that user; otherwise the event is a system one, which keeps the event
 // listing from looking up a user for every session change. Nil settings are loaded; if
-// that fails the event is still stored, without the DNS domain in its FQDN.
+// that fails the event is still stored, without the DNS domain in its FQDN. Nothing is
+// stored while sessionEventsSuppressed.
 func (am *DefaultAccountManager) storePeerSessionEvent(ctx context.Context, accountID string, peer *nbpeer.Peer, settings *types.Settings, code activity.Activity, extraMeta map[string]any) {
+	if am.sessionEventsSuppressed(code == activity.PeerDisconnected) {
+		return
+	}
+
 	dnsDomain := ""
 	settings, err := am.accountSettings(ctx, accountID, settings)
 	if err != nil {
