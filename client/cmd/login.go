@@ -428,7 +428,7 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *pro
 
 	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, util.HasGraphicalSession(), false, hint, false)
 	if err != nil {
-		return nil, err
+		return nil, auth.WithSetupKeyAdvice(err)
 	}
 
 	tokenInfo, err := runInteractiveFlow(cmd, oAuthFlow)
