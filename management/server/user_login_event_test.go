@@ -54,7 +54,7 @@ func TestDefaultAccountManager_DashboardLoginEventLocation(t *testing.T) {
 		{
 			name:       "no client ip on the context",
 			geo:        &fakeGeo{geoNameID: 100, isoCode: "US"},
-			wantAbsent: []string{"location_connection_ip", "location_country_code", "location_geo_name_id"},
+			wantAbsent: []string{"location_connection_ip", "location_country_code", "location_city_name", "location_geo_name_id"},
 		},
 	}
 

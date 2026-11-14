@@ -23,6 +23,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
@@ -123,6 +124,7 @@ type Broker struct {
 	accounts  Accounts
 	limiter   Limiter
 	callbacks *ratelimit.APIRateLimiter
+	proxies   *trustedproxy.List
 	http      *http.Client
 	now       func() time.Time
 	closeOnce sync.Once
@@ -156,6 +158,7 @@ func NewBroker(cfg BrokerConfig) (*Broker, error) {
 	if err != nil {
 		return nil, err
 	}
+	proxies := trustedproxy.FromPrefixes(cfg.TrustedProxies)
 	return &Broker{
 		flow:     cfg.Flow,
 		upstream: upstreamConfig(cfg.Flow, cfg.ClientSecret),
@@ -168,12 +171,13 @@ func NewBroker(cfg BrokerConfig) (*Broker, error) {
 		limiter:  cfg.Limiter,
 		http:     &http.Client{Timeout: 15 * time.Second},
 		now:      time.Now,
+		proxies:  proxies,
 		callbacks: ratelimit.NewAPIRateLimiter(&ratelimit.RateLimiterConfig{
 			RequestsPerMinute: callbacksPerMinute,
 			Burst:             callbackBurst,
 			CleanupInterval:   5 * time.Minute,
 			LimiterTTL:        10 * time.Minute,
-			TrustedProxies:    trustedproxy.FromPrefixes(cfg.TrustedProxies),
+			TrustedProxies:    proxies,
 		}),
 	}, nil
 }
@@ -609,7 +613,11 @@ func (b *Broker) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	identity, err := b.loginIdentity(r.Context(), q.Get("code"), login)
+	loginCtx := r.Context()
+	if clientIP := b.proxies.ResolveClientIP(r.RemoteAddr, r.Header.Get("X-Forwarded-For")); clientIP.IsValid() {
+		loginCtx = nbcontext.SetClientIP(loginCtx, clientIP)
+	}
+	identity, err := b.loginIdentity(loginCtx, q.Get("code"), login)
 	if err != nil {
 		log.WithContext(r.Context()).Debugf("MCP login failed: %v", err)
 		b.redirectError(w, r, req.RedirectURI, req.State, "access_denied", "the login could not be verified")
