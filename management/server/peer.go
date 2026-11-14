@@ -325,7 +325,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 			} else {
 				if err != nil {
 					newLabel = ""
-				} else {
+				} else if newLabel != peer.DNSLabel {
 					_, err := transaction.GetPeerIdByLabel(ctx, store.LockingStrengthNone, accountID, newLabel)
 					if err == nil {
 						newLabel = ""
