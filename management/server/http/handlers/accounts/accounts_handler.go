@@ -358,11 +358,6 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		settings.NetworkRangeV6 = prefix
 	}
 
-	if err := h.preserveUserEmailMapping(r.Context(), accountID, userID, req, settings); err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
 	var onboarding *types.AccountOnboarding
 	if req.Onboarding != nil {
 		onboarding = &types.AccountOnboarding{
@@ -392,23 +387,6 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	resp := toAccountResponse(accountID, updatedSettings, meta, updatedOnboarding)
 
 	util.WriteJSONObject(r.Context(), w, &resp)
-}
-
-// preserveUserEmailMapping keeps the account's current UserEmailMappingEnabled value when
-// the request omits it, so older API clients do not reset the setting on update.
-func (h *handler) preserveUserEmailMapping(ctx context.Context, accountID, userID string, req api.PutApiAccountsAccountIdJSONRequestBody, settings *types.Settings) error {
-	if settings.Extra == nil || req.Settings.Extra.UserEmailMappingEnabled != nil {
-		return nil
-	}
-
-	current, err := h.settingsManager.GetSettings(ctx, accountID, userID)
-	if err != nil {
-		return err
-	}
-	if current.Extra != nil {
-		settings.Extra.UserEmailMappingEnabled = current.Extra.UserEmailMappingEnabled
-	}
-	return nil
 }
 
 // deleteAccount is a HTTP DELETE handler to delete an account

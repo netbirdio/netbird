@@ -539,16 +539,10 @@ func TestAccounts_UserEmailMapping(t *testing.T) {
 		assert.True(t, *acc.Settings.Extra.UserEmailMappingEnabled, "enabled value should round-trip in the response")
 	})
 
-	t.Run("update omitting the field keeps an enabled value", func(t *testing.T) {
+	t.Run("update omitting the field with extra present disables it", func(t *testing.T) {
 		acc := do(t, newHandler(t, true), http.MethodPut, extra(""))
 		require.NotNil(t, acc.Settings.Extra.UserEmailMappingEnabled)
-		assert.True(t, *acc.Settings.Extra.UserEmailMappingEnabled, "omitted field must not reset the current value")
-	})
-
-	t.Run("update omitting the field keeps a disabled value", func(t *testing.T) {
-		acc := do(t, newHandler(t, false), http.MethodPut, extra(""))
-		require.NotNil(t, acc.Settings.Extra.UserEmailMappingEnabled)
-		assert.False(t, *acc.Settings.Extra.UserEmailMappingEnabled, "omitted field must keep the disabled value")
+		assert.False(t, *acc.Settings.Extra.UserEmailMappingEnabled, "omitted field with extra present should result in false")
 	})
 
 	t.Run("update enabling the field applies it", func(t *testing.T) {
