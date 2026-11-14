@@ -14,6 +14,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
@@ -470,6 +471,91 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			assert.Equal(t, tc.expectedSettings, actual.Settings)
 		})
 	}
+}
+
+func TestAccounts_UserEmailMapping(t *testing.T) {
+	accountID := "test_account"
+	adminUser := types.NewAdminUser("test_user")
+
+	newHandler := func(t *testing.T, enabled bool) *handler {
+		t.Helper()
+		return initAccountsTestData(t, &types.Account{
+			Id:      accountID,
+			Domain:  "hotmail.com",
+			Network: types.NewNetwork(),
+			Users:   map[string]*types.User{adminUser.Id: adminUser},
+			Settings: &types.Settings{
+				PeerLoginExpiration: time.Hour,
+				Extra:               &types.ExtraSettings{UserEmailMappingEnabled: enabled},
+			},
+		})
+	}
+
+	do := func(t *testing.T, h *handler, method, body string) *api.Account {
+		t.Helper()
+		var reader io.Reader
+		if body != "" {
+			reader = bytes.NewBufferString(body)
+		}
+		req := httptest.NewRequest(method, "/api/accounts/"+accountID, reader)
+		req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
+			UserId:    adminUser.Id,
+			AccountId: accountID,
+			Domain:    "hotmail.com",
+		})
+
+		router := mux.NewRouter()
+		router.HandleFunc("/api/accounts/{accountId}", h.updateAccount).Methods("PUT")
+		router.HandleFunc("/api/accounts", h.getAllAccounts).Methods("GET")
+		if method == http.MethodGet {
+			req.URL.Path = "/api/accounts"
+		}
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, req)
+		require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+
+		if method == http.MethodGet {
+			var got []*api.Account
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &got))
+			require.Len(t, got, 1)
+			return got[0]
+		}
+		var got api.Account
+		require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &got))
+		return &got
+	}
+
+	const base = `"peer_login_expiration": 15552000,"peer_login_expiration_enabled": true`
+	extra := func(fields string) string {
+		return `{"settings": {` + base + `,"extra": {"peer_approval_enabled": false,"user_approval_required": false,` +
+			`"network_traffic_logs_enabled": false,"network_traffic_logs_groups": [],` +
+			`"network_traffic_packet_counter_enabled": false` + fields + `}}}`
+	}
+
+	t.Run("get returns the stored value", func(t *testing.T) {
+		acc := do(t, newHandler(t, true), http.MethodGet, "")
+		require.NotNil(t, acc.Settings.Extra)
+		require.NotNil(t, acc.Settings.Extra.UserEmailMappingEnabled)
+		assert.True(t, *acc.Settings.Extra.UserEmailMappingEnabled, "enabled value should round-trip in the response")
+	})
+
+	t.Run("update omitting the field with extra present disables it", func(t *testing.T) {
+		acc := do(t, newHandler(t, true), http.MethodPut, extra(""))
+		require.NotNil(t, acc.Settings.Extra.UserEmailMappingEnabled)
+		assert.False(t, *acc.Settings.Extra.UserEmailMappingEnabled, "omitted field with extra present should result in false")
+	})
+
+	t.Run("update enabling the field applies it", func(t *testing.T) {
+		acc := do(t, newHandler(t, false), http.MethodPut, extra(`,"user_email_mapping_enabled": true`))
+		require.NotNil(t, acc.Settings.Extra.UserEmailMappingEnabled)
+		assert.True(t, *acc.Settings.Extra.UserEmailMappingEnabled, "explicit true should be applied")
+	})
+
+	t.Run("update disabling the field applies it", func(t *testing.T) {
+		acc := do(t, newHandler(t, true), http.MethodPut, extra(`,"user_email_mapping_enabled": false`))
+		require.NotNil(t, acc.Settings.Extra.UserEmailMappingEnabled)
+		assert.False(t, *acc.Settings.Extra.UserEmailMappingEnabled, "explicit false should be applied")
+	})
 }
 
 func TestCalculateMaxHosts(t *testing.T) {

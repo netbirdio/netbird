@@ -321,6 +321,28 @@ func (am *DefaultAccountManager) GetIdpManager() idp.Manager {
 	return am.idpManager
 }
 
+// fillIntegrationExtraSettings sets the integration-owned extra fields on the returned
+// settings of an update that omitted extra, since the stored row never holds them. The
+// update is already persisted, so a failed read leaves the settings as they are.
+func (am *DefaultAccountManager) fillIntegrationExtraSettings(ctx context.Context, accountID string, settings *types.Settings) {
+	if settings.Extra == nil {
+		return
+	}
+
+	current, err := am.settingsManager.GetSettings(ctx, accountID, activity.SystemInitiator)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed to read integration extra settings for account %s: %v", accountID, err)
+		return
+	}
+	if current.Extra == nil {
+		return
+	}
+
+	// Copy so the struct shared with the previously loaded settings is not mutated.
+	settings.Extra = settings.Extra.Copy()
+	settings.Extra.CopyIntegrationFieldsFrom(current.Extra)
+}
+
 // UpdateAccountSettings updates Account settings.
 // Only users with role UserRoleAdmin can update the account.
 // User that performs the update has to belong to the account.
@@ -338,6 +360,10 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	// Canonicalize the incoming range so a caller-supplied prefix with host bits
 	// (e.g. 100.64.1.1/16) compares equal to the masked form stored on network.Net.
 	newSettings.NetworkRange = newSettings.NetworkRange.Masked()
+
+	// The integration-owned extra fields are not stored in the account settings row, so an
+	// update that omits extra must leave them to the integration instead of zeroing them.
+	extraSupplied := newSettings.Extra != nil
 
 	var oldSettings *types.Settings
 	var updateAccountPeers bool
@@ -452,9 +478,14 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, err
 	}
 
-	extraSettingsChanged, err := am.settingsManager.UpdateExtraSettings(ctx, accountID, userID, newSettings.Extra)
-	if err != nil {
-		return nil, err
+	var extraSettingsChanged bool
+	if extraSupplied {
+		extraSettingsChanged, err = am.settingsManager.UpdateExtraSettings(ctx, accountID, userID, newSettings.Extra)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		am.fillIntegrationExtraSettings(ctx, accountID, newSettings)
 	}
 
 	am.handleRoutingPeerDNSResolutionSettings(ctx, oldSettings, newSettings, userID, accountID)
