@@ -242,3 +242,55 @@ func TestPeerSessionEventsStartupGrace(t *testing.T) {
 		})
 	}
 }
+
+func TestDefaultAccountManager_SessionEventsDisabledByEnv_StoresNoEvent(t *testing.T) {
+	t.Setenv(EnvDisablePeerSessionEvents, "true")
+	manager := newSessionEventManager(t)
+	peerPubKey, accountID, _ := addSessionEventTestPeer(t, manager)
+
+	sessionStart := time.Now().UnixNano()
+	require.NoError(t, manager.MarkPeerConnected(context.Background(), peerPubKey, accountID, sessionStart, nil))
+
+	peer, err := manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, peerPubKey)
+	require.NoError(t, err)
+	assert.True(t, peer.Status.Connected, "the connect itself is still written")
+
+	require.NoError(t, manager.MarkPeerDisconnected(context.Background(), peerPubKey, accountID, sessionStart))
+
+	peer, err = manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, peerPubKey)
+	require.NoError(t, err)
+	assert.False(t, peer.Status.Connected, "the disconnect itself is still written")
+
+	assert.Never(t, func() bool {
+		return len(eventsByActivity(t, manager, accountID, activity.PeerConnected)) > 0 ||
+			len(eventsByActivity(t, manager, accountID, activity.PeerDisconnected)) > 0
+	}, 300*time.Millisecond, 20*time.Millisecond, "no session events are stored when disabled")
+	assert.NotEmpty(t, eventsByActivity(t, manager, accountID, activity.PeerAddedByUser),
+		"other activity events are unaffected")
+}
+
+func TestPeerSessionEventsDisabled(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		set   bool
+		want  bool
+	}{
+		{name: "unset", want: false},
+		{name: "empty", set: true, value: "", want: false},
+		{name: "true", set: true, value: "true", want: true},
+		{name: "one", set: true, value: "1", want: true},
+		{name: "false", set: true, value: "false", want: false},
+		{name: "zero", set: true, value: "0", want: false},
+		{name: "invalid keeps events on", set: true, value: "maybe", want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(EnvDisablePeerSessionEvents, "")
+			if tc.set {
+				t.Setenv(EnvDisablePeerSessionEvents, tc.value)
+			}
+			assert.Equal(t, tc.want, peerSessionEventsDisabled())
+		})
+	}
+}

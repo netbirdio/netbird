@@ -2,6 +2,7 @@ package server
 
 import (
 	"os"
+	"strconv"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -11,6 +12,10 @@ const (
 	// EnvPeerSessionEventsStartupGrace is a Go duration, such as "2m" or "90s", during which
 	// a freshly started instance records no peer connect or disconnect events. "0" disables it.
 	EnvPeerSessionEventsStartupGrace = "NB_PEER_SESSION_EVENTS_STARTUP_GRACE"
+
+	// EnvDisablePeerSessionEvents turns off peer.connect and peer.disconnect events when it
+	// parses as true. Connection state and other activity events are unaffected.
+	EnvDisablePeerSessionEvents = "NB_DISABLE_PEER_SESSION_EVENTS"
 
 	defaultPeerSessionEventsStartupGrace = 2 * time.Minute
 )
@@ -34,15 +39,34 @@ func peerSessionEventsStartupGrace() time.Duration {
 	return grace
 }
 
+// peerSessionEventsDisabled reads EnvDisablePeerSessionEvents once. An unparseable value is
+// logged and leaves the events on.
+func peerSessionEventsDisabled() bool {
+	val := os.Getenv(EnvDisablePeerSessionEvents)
+	if val == "" {
+		return false
+	}
+	disabled, err := strconv.ParseBool(val)
+	if err != nil {
+		log.Warnf("failed to parse %s: %v", EnvDisablePeerSessionEvents, err)
+		return false
+	}
+	return disabled
+}
+
 // StartDraining marks the instance as shutting down, so peers disconnecting from here on
 // leave no peer.disconnect event. It does not change what a disconnect writes.
 func (am *DefaultAccountManager) StartDraining() {
 	am.draining.Store(true)
 }
 
-// sessionEventsSuppressed reports whether peer session events are skipped: during the
-// startup window, when every peer reconnects to the new instance, and while draining.
+// sessionEventsSuppressed reports whether peer session events are skipped: when disabled
+// by the environment, during the startup window, when every peer reconnects to the new
+// instance, and while draining.
 func (am *DefaultAccountManager) sessionEventsSuppressed(disconnect bool) bool {
+	if am.sessionEventsDisabled {
+		return true
+	}
 	if time.Now().Before(am.sessionEventsFrom) {
 		return true
 	}

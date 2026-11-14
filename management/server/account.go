@@ -119,10 +119,12 @@ type DefaultAccountManager struct {
 	deletionHooksMu sync.RWMutex
 	deletionHooks   []account.DeletionHook
 
-	// sessionEventsFrom is when peer session events start being recorded, set once at
+	// sessionEventsFrom is when peer session events start being recorded, and
+	// sessionEventsDisabled turns them off; both are set once at
 	// construction and read-only afterwards. draining is set when shutdown begins.
-	sessionEventsFrom time.Time
-	draining          atomic.Bool
+	sessionEventsFrom     time.Time
+	sessionEventsDisabled bool
+	draining              atomic.Bool
 }
 
 var _ account.Manager = (*DefaultAccountManager)(nil)
@@ -265,6 +267,7 @@ func BuildManager(
 		disableDefaultPolicy:     disableDefaultPolicy,
 		peerLiveness:             peerLiveness,
 		sessionEventsFrom:        start.Add(peerSessionEventsStartupGrace()),
+		sessionEventsDisabled:    peerSessionEventsDisabled(),
 	}
 
 	am.certChallenges = newCertChallengeRefresher(am.refreshCertificateChallenges)
