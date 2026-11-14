@@ -19,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/affectedpeers"
+	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -254,8 +255,8 @@ func (am *DefaultAccountManager) GetUserFromUserAuth(ctx context.Context, userAu
 }
 
 // addLoginLocationMeta adds the request's source IP and, when geolocation is enabled, its
-// location to a dashboard login event's meta, using the keys peer events use. A failed lookup
-// keeps the IP and leaves the location out.
+// location to a dashboard login event's meta, using the keys peer events use. A failed lookup,
+// or a record without geo data, keeps the IP and leaves the location out.
 func (am *DefaultAccountManager) addLoginLocationMeta(ctx context.Context, meta map[string]any) {
 	clientIP, ok := nbcontext.GetClientIP(ctx)
 	if !ok {
@@ -271,9 +272,18 @@ func (am *DefaultAccountManager) addLoginLocationMeta(ctx context.Context, meta 
 		log.WithContext(ctx).Debugf("failed to get location for dashboard login ip [%s]: %v", clientIP, err)
 		return
 	}
+	if !hasGeoData(location) {
+		return
+	}
 	meta["location_country_code"] = location.Country.ISOCode
 	meta["location_city_name"] = location.City.Names.En
 	meta["location_geo_name_id"] = location.City.GeonameID
+}
+
+// hasGeoData reports whether the lookup found anything; an address without geolocation
+// data (private or unknown) yields a zero-valued record and no error.
+func hasGeoData(location *geolocation.Record) bool {
+	return location.Country.ISOCode != "" || location.City.GeonameID != 0
 }
 
 // ListUsers returns lists of all users under the account.

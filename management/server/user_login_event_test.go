@@ -45,6 +45,13 @@ func TestDefaultAccountManager_DashboardLoginEventLocation(t *testing.T) {
 			},
 		},
 		{
+			name:         "empty record keeps the ip",
+			geo:          &fakeGeo{},
+			withClientIP: true,
+			wantMeta:     map[string]any{"location_connection_ip": "203.0.113.10"},
+			wantAbsent:   []string{"location_country_code", "location_city_name", "location_geo_name_id"},
+		},
+		{
 			name:         "failed lookup keeps the ip",
 			geo:          &fakeGeo{err: assert.AnError},
 			withClientIP: true,
@@ -88,7 +95,9 @@ func TestDefaultAccountManager_DashboardLoginEventLocation(t *testing.T) {
 			var event *activity.Event
 			require.Eventually(t, func() bool {
 				events, getErr := eventStore.Get(context.Background(), mockAccountID, 0, 100, false)
-				require.NoError(t, getErr)
+				if !assert.NoError(t, getErr) {
+					return false
+				}
 				for _, e := range events {
 					if e.Activity == activity.DashboardLogin {
 						event = e
