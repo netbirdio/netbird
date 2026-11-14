@@ -25,20 +25,13 @@ import (
 // nor a Windows account name may contain a comma, so nothing is lost by it.
 func resolveAllowGroups(values []string) ([]string, error) {
 	var resolved []string
-	for _, value := range values {
-		for _, entry := range strings.Split(value, ",") {
-			entry = strings.TrimSpace(entry)
-			if entry == "" {
-				continue
-			}
-
-			principal, err := resolveAllowGroup(entry)
-			if err != nil {
-				return nil, fmt.Errorf("resolve allowed group %q: %w", entry, err)
-			}
-			if value := principal.String(); !slices.Contains(resolved, value) {
-				resolved = append(resolved, value)
-			}
+	for _, entry := range mdm.SplitList(values) {
+		principal, err := resolveAllowGroup(entry)
+		if err != nil {
+			return nil, fmt.Errorf("resolve allowed group %q: %w", entry, err)
+		}
+		if value := principal.String(); !slices.Contains(resolved, value) {
+			resolved = append(resolved, value)
 		}
 	}
 

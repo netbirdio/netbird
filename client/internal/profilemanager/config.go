@@ -959,6 +959,32 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 		logApplied(mdm.KeyLazyConnection, state)
 	}
 
+	config.applyMDMExtraIFaceBlackList(policy)
+}
+
+// applyMDMExtraIFaceBlackList appends the MDM interface prefixes missing from
+// the resolved blacklist. It runs after every write of the profile file, so the
+// MDM entries stay in memory only and vanish once the policy drops them.
+func (config *Config) applyMDMExtraIFaceBlackList(policy *mdm.Policy) {
+	if !policy.HasKey(mdm.KeyExtraIFaceBlackList) {
+		return
+	}
+
+	values, ok := policy.GetStringSlice(mdm.KeyExtraIFaceBlackList)
+	if !ok {
+		log.Warnf("MDM %s is not a list of interface names; ignoring it", mdm.KeyExtraIFaceBlackList)
+		return
+	}
+
+	entries := mdm.SplitList(values)
+	added := util.SliceDiff(entries, config.IFaceBlackList)
+	// Clip so the append never writes into a backing array shared with the
+	// slice the policy was applied to.
+	config.IFaceBlackList = append(slices.Clip(config.IFaceBlackList), added...)
+
+	log.Infof("MDM override %s = [ %s ] (added [ %s ])",
+		mdm.KeyExtraIFaceBlackList, strings.Join(entries, " "), strings.Join(added, " "))
+	log.Debugf("interface blacklist with MDM entries: [ %s ]", strings.Join(config.IFaceBlackList, " "))
 }
 
 // ValidateBundleUploadURL sanity-checks a debug-bundle upload URL. An empty
