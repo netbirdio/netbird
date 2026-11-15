@@ -30,6 +30,8 @@ const (
 	MsgTypePeersOnline          = 10
 	MsgTypePeersWentOffline     = 11
 
+	MsgTypeEbpfTransport = 12
+
 	// base size of the message
 	sizeOfVersionByte = 1
 	sizeOfMsgType     = 1
@@ -115,7 +117,8 @@ func DetermineClientMessageType(msg []byte) (MsgType, error) {
 		MsgTypeClose,
 		MsgTypeHealthCheck,
 		MsgTypeSubscribePeerState,
-		MsgTypeUnsubscribePeerState:
+		MsgTypeUnsubscribePeerState,
+		MsgTypeEbpfTransport:
 		return msgType, nil
 	default:
 		return MsgTypeUnknown, fmt.Errorf("invalid msg type %d", msgType)
@@ -137,6 +140,7 @@ func DetermineServerMessageType(msg []byte) (MsgType, error) {
 		MsgTypeClose,
 		MsgTypeHealthCheck,
 		MsgTypePeersOnline,
+		MsgTypeEbpfTransport,
 		MsgTypePeersWentOffline:
 		return msgType, nil
 	default:

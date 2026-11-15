@@ -1,6 +1,7 @@
 package store
 
 import (
+	"net/netip"
 	"sync"
 
 	"github.com/netbirdio/netbird/relay/messages"
@@ -9,6 +10,8 @@ import (
 type IPeer interface {
 	Close()
 	ID() messages.PeerID
+	RemoteAddress() netip.AddrPort
+	Write(b []byte) (int, error)
 }
 
 // Store is a thread-safe store of peers

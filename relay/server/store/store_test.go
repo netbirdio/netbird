@@ -1,6 +1,7 @@
 package store
 
 import (
+	"net/netip"
 	"testing"
 
 	"github.com/netbirdio/netbird/relay/messages"
@@ -16,6 +17,14 @@ func (m *MocPeer) Close() {
 
 func (m *MocPeer) ID() messages.PeerID {
 	return m.id
+}
+
+func (m *MocPeer) RemoteAddress() netip.AddrPort {
+	return netip.AddrPort{}
+}
+
+func (m *MocPeer) Write(b []byte) (int, error) {
+	return len(b), nil
 }
 
 func TestStore_DeletePeer(t *testing.T) {

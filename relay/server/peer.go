@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -23,26 +24,28 @@ const (
 
 // Peer represents a peer connection
 type Peer struct {
-	metrics  *metrics.Metrics
-	log      *log.Entry
-	id       messages.PeerID
-	conn     net.Conn
-	connMu   sync.RWMutex
-	store    *store.Store
-	notifier *store.PeerNotifier
+	metrics    *metrics.Metrics
+	log        *log.Entry
+	id         messages.PeerID
+	conn       net.Conn
+	connMu     sync.RWMutex
+	store      *store.Store
+	notifier   *store.PeerNotifier
+	channelMgr *ChannelManager
 
 	peersListener *store.Listener
 }
 
 // NewPeer creates a new Peer instance and prepare custom logging
-func NewPeer(metrics *metrics.Metrics, id messages.PeerID, conn net.Conn, store *store.Store, notifier *store.PeerNotifier) *Peer {
+func NewPeer(metrics *metrics.Metrics, id messages.PeerID, conn net.Conn, store *store.Store, notifier *store.PeerNotifier, channelMgr *ChannelManager) *Peer {
 	p := &Peer{
-		metrics:  metrics,
-		log:      log.WithField("peer_id", id.String()),
-		id:       id,
-		conn:     conn,
-		store:    store,
-		notifier: notifier,
+		metrics:    metrics,
+		log:        log.WithField("peer_id", id.String()),
+		id:         id,
+		conn:       conn,
+		store:      store,
+		notifier:   notifier,
+		channelMgr: channelMgr,
 	}
 
 	return p
@@ -105,6 +108,10 @@ func (p *Peer) ID() messages.PeerID {
 	return p.id
 }
 
+func (p *Peer) RemoteAddress() netip.AddrPort {
+	return netip.MustParseAddrPort(p.conn.RemoteAddr().String())
+}
+
 func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, hc *healthcheck.Sender, n int, msg []byte) {
 	switch msgType {
 	case messages.MsgTypeHealthCheck:
@@ -122,6 +129,17 @@ func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, hc *
 		p.handleSubscribePeerState(msg)
 	case messages.MsgTypeUnsubscribePeerState:
 		p.handleUnsubscribePeerState(msg)
+	case messages.MsgTypeEbpfTransport:
+		p.metrics.TransferBytesRecv.Add(ctx, int64(n))
+		p.metrics.PeerActivity(p.String())
+		channelID, payload, err := messages.UnmarshalEbpfTransportMsg(msg)
+		if err != nil {
+			p.log.Errorf("failed to unmarshal ebpf transport message: %s", err)
+			return
+		}
+		if err := p.channelMgr.Forward(channelID, payload); err != nil {
+			p.log.Errorf("failed to forward transport message: %s", err)
+		}
 	default:
 		p.log.Warnf("received unexpected message type: %s", msgType)
 	}
@@ -245,6 +263,7 @@ func (p *Peer) handleSubscribePeerState(msg []byte) {
 	if len(onlinePeers) == 0 {
 		return
 	}
+
 	p.log.Debugf("response with %d online peers", len(onlinePeers))
 	p.sendPeersOnline(onlinePeers)
 }
@@ -260,7 +279,13 @@ func (p *Peer) handleUnsubscribePeerState(msg []byte) {
 }
 
 func (p *Peer) sendPeersOnline(peers []messages.PeerID) {
-	msgs, err := messages.MarshalPeersOnline(peers)
+	channelIDs := make([]messages.ChannelID, 0, len(peers))
+	for _, onlinePeer := range peers {
+		channelID := p.channelMgr.Add(p.id, onlinePeer)
+		channelIDs = append(channelIDs, channelID)
+	}
+
+	msgs, err := messages.MarshalPeersOnline(peers, channelIDs)
 	if err != nil {
 		p.log.Errorf("failed to marshal peer location message: %s", err)
 		return

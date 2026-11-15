@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 
+	"github.com/netbirdio/netbird/relay/ebpf/ebpf"
 	//nolint:staticcheck
 	"github.com/netbirdio/netbird/relay/metrics"
 	"github.com/netbirdio/netbird/relay/server/store"
@@ -52,6 +54,7 @@ type Relay struct {
 	validator     Validator
 
 	store       *store.Store
+	channelMgr  *ChannelManager
 	notifier    *store.PeerNotifier
 	instanceURL string
 	preparedMsg *preparedMsg
@@ -86,6 +89,18 @@ func NewRelay(config Config) (*Relay, error) {
 		return nil, fmt.Errorf("creating app metrics: %v", err)
 	}
 
+	var ebpfMgr EbpfMgr
+	if os.Getenv("NB_RELAY_DISABLE_EBPF") == "true" {
+		log.Infof("eBPF disabled, using userspace UDP forwarding")
+		ebpfMgr = noopEbpfMgr{}
+	} else {
+		mgr := ebpf.GetEbpfManagerInstance()
+		if err := mgr.LoadWgProxy(); err != nil {
+			metricsCancel()
+			return nil, err
+		}
+		ebpfMgr = mgr
+	}
 	peerStore := store.NewStore()
 	r := &Relay{
 		metrics:       m,
@@ -94,6 +109,7 @@ func NewRelay(config Config) (*Relay, error) {
 		instanceURL:   config.instanceURL,
 		store:         peerStore,
 		notifier:      store.NewPeerNotifier(peerStore),
+		channelMgr:    NewChannelManager(peerStore, ebpfMgr),
 	}
 
 	r.preparedMsg, err = newPreparedMsg(r.instanceURL)
@@ -128,7 +144,7 @@ func (r *Relay) Accept(conn net.Conn) {
 		return
 	}
 
-	peer := NewPeer(r.metrics, *peerID, conn, r.store, r.notifier)
+	peer := NewPeer(r.metrics, *peerID, conn, r.store, r.notifier, r.channelMgr)
 	peer.log.Infof("peer connected from: %s", conn.RemoteAddr())
 	storeTime := time.Now()
 	r.store.AddPeer(peer)

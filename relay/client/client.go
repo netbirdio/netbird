@@ -11,8 +11,7 @@ import (
 
 	auth "github.com/netbirdio/netbird/relay/auth/hmac"
 	"github.com/netbirdio/netbird/relay/client/dialer"
-	"github.com/netbirdio/netbird/relay/client/dialer/quic"
-	"github.com/netbirdio/netbird/relay/client/dialer/ws"
+	"github.com/netbirdio/netbird/relay/client/dialer/udp"
 	"github.com/netbirdio/netbird/relay/healthcheck"
 	"github.com/netbirdio/netbird/relay/messages"
 )
@@ -143,6 +142,9 @@ type Client struct {
 	listenerMutex        sync.Mutex
 
 	stateSubscription *PeersStateSubscription
+
+	channels      map[messages.PeerID]messages.ChannelID
+	peerByChannel map[messages.ChannelID]messages.PeerID
 }
 
 // NewClient creates a new client for the relay server. The client is not connected to the server until the Connect
@@ -161,7 +163,9 @@ func NewClient(serverURL string, authTokenStore *auth.TokenStore, peerID string)
 				return &buf
 			},
 		},
-		conns: make(map[messages.PeerID]*connContainer),
+		conns:         make(map[messages.PeerID]*connContainer),
+		channels:      make(map[messages.PeerID]messages.ChannelID),
+		peerByChannel: make(map[messages.ChannelID]messages.PeerID),
 	}
 
 	c.log.Infof("create new relay connection: local peerID: %s, local peer hashedID: %s", peerID, hashedID)
@@ -229,7 +233,8 @@ func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (net.Conn, erro
 
 	c.log.Infof("remote peer is available, prepare the relayed connection: %s", peerID)
 	msgChannel := make(chan Msg, 100)
-	conn := NewConn(c, peerID, msgChannel, c.instanceURL)
+	channelID := c.channels[peerID]
+	conn := NewConn(c, peerID, channelID, msgChannel, c.instanceURL)
 
 	c.mu.Lock()
 	_, ok = c.conns[peerID]
@@ -279,7 +284,7 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) connect(ctx context.Context) error {
-	rd := dialer.NewRaceDial(c.log, c.connectionURL, quic.Dialer{}, ws.Dialer{})
+	rd := dialer.NewRaceDial(c.log, c.connectionURL, udp.Dialer{})
 	conn, err := rd.Dial()
 	if err != nil {
 		return err
@@ -415,6 +420,8 @@ func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte,
 		c.log.Debugf("relay connection close by server")
 		c.bufPool.Put(bufPtr)
 		return false
+	case messages.MsgTypeEbpfTransport:
+		return c.handleEbpfTransport(buf, bufPtr, internallyStoppedFlag)
 	}
 
 	return true
@@ -464,20 +471,52 @@ func (c *Client) handleTransportMsg(buf []byte, bufPtr *[]byte, internallyStoppe
 	return true
 }
 
-func (c *Client) writeTo(connReference *Conn, dstID messages.PeerID, payload []byte) (int, error) {
+func (c *Client) handleEbpfTransport(buf []byte, bufPtr *[]byte, internallyStoppedFlag *internalStopFlag) bool {
+	channelID, payload, err := messages.UnmarshalEbpfTransportMsg(buf)
+	if err != nil {
+		if c.serviceIsRunning && !internallyStoppedFlag.isSet() {
+			c.log.Errorf("failed to parse eBPF transport message: %v", err)
+		}
+		c.bufPool.Put(bufPtr)
+		return true
+	}
+
 	c.mu.Lock()
-	conn, ok := c.conns[dstID]
+	if !c.serviceIsRunning {
+		c.mu.Unlock()
+		c.bufPool.Put(bufPtr)
+		return false
+	}
+
+	peerID, ok := c.peerByChannel[channelID]
+	c.mu.Unlock()
+
+	if !ok {
+		c.log.Errorf("peer not found for channelID: %v", channelID)
+		c.bufPool.Put(bufPtr)
+		return true
+	}
+
+	c.mu.Lock()
+	container, ok := c.conns[peerID]
 	c.mu.Unlock()
 	if !ok {
-		return 0, net.ErrClosed
+		c.log.Errorf("peer connection container not found: %s", peerID.String())
+		c.bufPool.Put(bufPtr)
+		return true
 	}
 
-	if conn.conn != connReference {
-		return 0, net.ErrClosed
+	msg := Msg{
+		bufPool: c.bufPool,
+		bufPtr:  bufPtr,
+		Payload: payload,
 	}
+	container.writeMsg(msg)
+	return true
+}
 
-	// todo: use buffer pool instead of create new transport msg.
-	msg, err := messages.MarshalTransportMsg(dstID, payload)
+func (c *Client) writeTo(connReference *Conn, channelID messages.ChannelID, payload []byte) (int, error) {
+	msg, err := messages.MarshalEbpfTransportMsg(channelID, payload)
 	if err != nil {
 		c.log.Errorf("failed to marshal transport message: %s", err)
 		return 0, err
@@ -636,10 +675,16 @@ func (c *Client) readWithTimeout(ctx context.Context, buf []byte) (int, error) {
 }
 
 func (c *Client) handlePeersOnlineMsg(buf []byte) {
-	peersID, err := messages.UnmarshalPeersOnlineMsg(buf)
+	peersID, channels, err := messages.UnmarshalPeersOnlineMsg(buf)
 	if err != nil {
 		c.log.Errorf("failed to unmarshal peers online msg: %s", err)
 		return
+	}
+
+	for n, p := range peersID {
+		chID := channels[n]
+		c.channels[p] = chID
+		c.peerByChannel[chID] = p
 	}
 	c.stateSubscription.OnPeersOnline(peersID)
 }

@@ -6,12 +6,10 @@ import (
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
+
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/relay/server/listener"
-	"github.com/netbirdio/netbird/relay/server/listener/quic"
-	"github.com/netbirdio/netbird/relay/server/listener/ws"
-	quictls "github.com/netbirdio/netbird/relay/tls"
-	log "github.com/sirupsen/logrus"
+	"github.com/netbirdio/netbird/relay/server/listener/udp"
 )
 
 // ListenerConfig is the configuration for the listener.
@@ -57,23 +55,8 @@ func NewServer(config Config) (*Server, error) {
 
 // Listen starts the relay server.
 func (r *Server) Listen(cfg ListenerConfig) error {
-	wSListener := &ws.Listener{
-		Address:   cfg.Address,
-		TLSConfig: cfg.TLSConfig,
-	}
-	r.listeners = append(r.listeners, wSListener)
-
-	tlsConfigQUIC, err := quictls.ServerQUICTLSConfig(cfg.TLSConfig)
-	if err != nil {
-		log.Warnf("Not starting QUIC listener: %v", err)
-	} else {
-		quicListener := &quic.Listener{
-			Address:   cfg.Address,
-			TLSConfig: tlsConfigQUIC,
-		}
-
-		r.listeners = append(r.listeners, quicListener)
-	}
+	udpListener := udp.NewListener(cfg.Address)
+	r.listeners = append(r.listeners, udpListener)
 
 	errChan := make(chan error, len(r.listeners))
 	wg := sync.WaitGroup{}

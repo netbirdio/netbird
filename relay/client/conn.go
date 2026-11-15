@@ -11,6 +11,7 @@ import (
 type Conn struct {
 	client      *Client
 	dstID       messages.PeerID
+	channelID   messages.ChannelID
 	messageChan chan Msg
 	instanceURL *RelayAddr
 }
@@ -20,10 +21,11 @@ type Conn struct {
 // dstID: the destination peer ID
 // messageChan: the channel where the messages will be received
 // instanceURL: the relay instance URL, it used to get the proper server instance address for the remote peer
-func NewConn(client *Client, dstID messages.PeerID, messageChan chan Msg, instanceURL *RelayAddr) *Conn {
+func NewConn(client *Client, dstID messages.PeerID, dstChannelID messages.ChannelID, messageChan chan Msg, instanceURL *RelayAddr) *Conn {
 	c := &Conn{
 		client:      client,
 		dstID:       dstID,
+		channelID:   dstChannelID,
 		messageChan: messageChan,
 		instanceURL: instanceURL,
 	}
@@ -32,7 +34,7 @@ func NewConn(client *Client, dstID messages.PeerID, messageChan chan Msg, instan
 }
 
 func (c *Conn) Write(p []byte) (n int, err error) {
-	return c.client.writeTo(c, c.dstID, p)
+	return c.client.writeTo(c, c.channelID, p)
 }
 
 func (c *Conn) Read(b []byte) (n int, err error) {

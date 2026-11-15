@@ -80,7 +80,7 @@ func TestUnmarshalSubPeerState_Invalid(t *testing.T) {
 func TestMarshalUnmarshalPeersOnline(t *testing.T) {
 	ids := generateTestPeerIDs(testPeerCount)
 
-	msgs, err := MarshalPeersOnline(ids)
+	msgs, err := MarshalPeersOnline(ids, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestMarshalUnmarshalPeersOnline(t *testing.T) {
 }
 
 func TestMarshalPeersOnline_EmptyInput(t *testing.T) {
-	_, err := MarshalPeersOnline([]PeerID{})
+	_, err := MarshalPeersOnline([]PeerID{}, nil)
 	if err == nil {
 		t.Errorf("expected error for empty input")
 	}
