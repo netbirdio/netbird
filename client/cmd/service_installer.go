@@ -22,8 +22,6 @@ var ErrGetServiceStatus = fmt.Errorf("failed to get service status")
 
 // Common service command setup
 func setupServiceCommand(cmd *cobra.Command) error {
-	SetFlagsFromEnvVars(rootCmd)
-	SetFlagsFromEnvVars(serviceCmd)
 	cmd.SetOut(cmd.OutOrStdout())
 	return handleRebrand(cmd)
 }
@@ -116,8 +114,8 @@ func configurePlatformSpecificSettings(svcConfig *service.Config) error {
 }
 
 // Create fully configured service config for install/reconfigure
-func createServiceConfigForInstall() (*service.Config, error) {
-	if err := validateJSONSocketFlags(); err != nil {
+func createServiceConfigForInstall(cmd *cobra.Command) (*service.Config, error) {
+	if err := validateJSONSocketFlags(cmd); err != nil {
 		return nil, err
 	}
 
@@ -155,7 +153,7 @@ var installCmd = &cobra.Command{
 			cmd.PrintErrf("Warning: failed to load saved service params: %v\n", err)
 		}
 
-		svcConfig, err := createServiceConfigForInstall()
+		svcConfig, err := createServiceConfigForInstall(cmd)
 		if err != nil {
 			return err
 		}
@@ -236,7 +234,7 @@ This command will temporarily stop the service, update its configuration, and re
 			return fmt.Errorf("check service status: %w", err)
 		}
 
-		svcConfig, err := createServiceConfigForInstall()
+		svcConfig, err := createServiceConfigForInstall(cmd)
 		if err != nil {
 			return err
 		}

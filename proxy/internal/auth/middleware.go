@@ -66,11 +66,6 @@ type DomainConfig struct {
 	AllowedGroups map[string]struct{}
 	// TargetResolver pins the target and access action used by this auth snapshot.
 	TargetResolver *proxy.TargetResolver
-	// AgentNetwork and SuppressAccessLog classify the domain's requests for
-	// access logging before they are matched to a target, so a rejection that
-	// happens earlier is still logged as an agent-network request.
-	AgentNetwork      bool
-	SuppressAccessLog bool
 }
 
 // DomainOption configures a domain authentication snapshot.
@@ -83,16 +78,6 @@ func WithTargetResolver(resolver *proxy.TargetResolver) DomainOption {
 			return errors.New("target resolver is nil")
 		}
 		config.TargetResolver = resolver
-		return nil
-	}
-}
-
-// WithAgentNetwork marks the domain as serving agent-network targets, with
-// their access-log suppression, for requests rejected before target matching.
-func WithAgentNetwork(agentNetwork, suppressAccessLog bool) DomainOption {
-	return func(config *DomainConfig) error {
-		config.AgentNetwork = agentNetwork
-		config.SuppressAccessLog = suppressAccessLog
 		return nil
 	}
 }
@@ -320,10 +305,6 @@ func setCapturedIDs(r *http.Request, config DomainConfig) {
 	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
 		cd.SetAccountID(config.AccountID)
 		cd.SetServiceID(config.ServiceID)
-		if config.AgentNetwork {
-			cd.SetAgentNetwork(true)
-			cd.SetSuppressAccessLog(config.SuppressAccessLog)
-		}
 	}
 }
 
@@ -400,10 +381,20 @@ func denyPrivate(w http.ResponseWriter, r *http.Request) {
 }
 
 // markAuthRejected attributes the response to the proxy's access checks, so
-// the access log does not report the rejection as the backend's.
+// the access log does not report the rejection as the backend's. The caller
+// was refused before it was identified or its request parsed, so it is not
+// agent-network traffic of any user: the entry goes to the service's regular
+// reverse-proxy log instead of an agent-network row with no user or provider,
+// and the account's agent-network log collection setting does not apply.
 func markAuthRejected(r *http.Request) {
-	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
-		cd.SetOrigin(proxy.OriginAuth)
+	cd := proxy.CapturedDataFromContext(r.Context())
+	if cd == nil {
+		return
+	}
+	cd.SetOrigin(proxy.OriginAuth)
+	if cd.GetAgentNetwork() {
+		cd.SetAgentNetwork(false)
+		cd.SetSuppressAccessLog(false)
 	}
 }
 

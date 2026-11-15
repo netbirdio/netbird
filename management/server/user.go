@@ -699,7 +699,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			return nil, err
 		}
 	} else if len(usersToSave) > 0 {
-		go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids())
+		go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids(), types.UpdateReason{Resource: types.UpdateResourceUser, Operation: types.UpdateOperationUpdate})
 	}
 
 	return updatedUsersInfo, globalErr
