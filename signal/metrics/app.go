@@ -1,7 +1,11 @@
 package metrics
 
 import (
+	"fmt"
+
 	"go.opentelemetry.io/otel/metric"
+
+	"github.com/netbirdio/netbird/shared/alignedhb/hbmetrics"
 )
 
 // AppMetrics holds all the application metrics
@@ -22,6 +26,8 @@ type AppMetrics struct {
 	MessageForwardLatency  metric.Float64Histogram
 
 	MessageSize metric.Int64Histogram
+
+	AlignedHeartbeat *hbmetrics.Metrics
 }
 
 func NewAppMetrics(meter metric.Meter, prefix ...string) (*AppMetrics, error) {
@@ -113,6 +119,11 @@ func NewAppMetrics(meter metric.Meter, prefix ...string) (*AppMetrics, error) {
 		return nil, err
 	}
 
+	alignedHeartbeat, err := hbmetrics.New(meter, p)
+	if err != nil {
+		return nil, fmt.Errorf("aligned heartbeat metrics: %w", err)
+	}
+
 	return &AppMetrics{
 		Meter: meter,
 
@@ -130,6 +141,8 @@ func NewAppMetrics(meter metric.Meter, prefix ...string) (*AppMetrics, error) {
 		MessageForwardLatency:  messageForwardLatency,
 
 		MessageSize: messageSize,
+
+		AlignedHeartbeat: alignedHeartbeat,
 	}, nil
 }
 

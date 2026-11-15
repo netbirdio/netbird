@@ -22,6 +22,9 @@ import (
 	"github.com/netbirdio/netbird/shared/metrics"
 
 	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/shared/alignedhb"
+	alignedka "github.com/netbirdio/netbird/shared/alignedhb/keepalive"
+	"github.com/netbirdio/netbird/shared/alignedhb/phasesig"
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/signal/server"
 	"github.com/netbirdio/netbird/util"
@@ -52,6 +55,13 @@ var (
 	signalLetsencryptListen  string
 	signalCertFile           string
 	signalCertKey            string
+	// alignedHeartbeatSecrets are the relay auth secrets Management signs aligned
+	// heartbeat phases with. The first is current, more can be listed during a rotation.
+	alignedHeartbeatSecrets []string
+	// alignedHeartbeatMinPeriod and alignedHeartbeatMaxPeriod bound the
+	// aligned heartbeat period. They must match the limits of Management.
+	alignedHeartbeatMinPeriod time.Duration
+	alignedHeartbeatMaxPeriod time.Duration
 
 	signalKaep = grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
 		MinTime:             5 * time.Second,
@@ -126,6 +136,11 @@ var (
 				return fmt.Errorf("creating signal server: %v", err)
 			}
 			defer srv.Stop()
+			setPhaseVerifier(srv, alignedHeartbeatSecrets)
+			limits := alignedhb.PeriodLimits{Min: alignedHeartbeatMinPeriod, Max: alignedHeartbeatMaxPeriod}
+			if err := srv.SetPeriodLimits(limits); err != nil {
+				return fmt.Errorf("aligned heartbeat period limits: %w", err)
+			}
 			proto.RegisterSignalExchangeServer(grpcServer, srv)
 
 			grpcRootHandler := grpcHandlerFunc(grpcServer, metricsServer.Meter)
@@ -185,6 +200,9 @@ var (
 			SetupCloseHandler()
 
 			stopCode := <-stopCh
+			// Before the listeners close: aligned clients behind a proxy that does
+			// not pass on the stream end learn about the shutdown from this.
+			srv.GoingAway()
 			if certListener != nil {
 				_ = certListener.Close()
 				log.Infof("stopped LetsEncrypt challenge server")
@@ -316,6 +334,8 @@ func serveHTTP(httpListener net.Listener, handler http.Handler) {
 		h1s := &http.Server{
 			//nolint:staticcheck // h2c also handles the HTTP/1 Upgrade mechanism, which http.Server's UnencryptedHTTP2 does not
 			Handler: h2c.NewHandler(handler, &http2.Server{}),
+			// Aligned heartbeat streams tune the TCP keepalive of their connection.
+			ConnContext: alignedka.ConnContext,
 		}
 		err := h1s.Serve(httpListener)
 		// Closing the listener on shutdown is not a failure.
@@ -368,5 +388,19 @@ func init() {
 	runCmd.PersistentFlags().StringVar(&signalLetsencryptEmail, "letsencrypt-email", "", "email address to use for Let's Encrypt certificate registration")
 	runCmd.PersistentFlags().StringVar(&signalCertFile, "cert-file", "", "Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
 	runCmd.PersistentFlags().StringVar(&signalCertKey, "cert-key", "", "Location of your SSL certificate private key. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
+	runCmd.PersistentFlags().StringSliceVar(&alignedHeartbeatSecrets, "aligned-heartbeat-secret", nil, "relay auth secret Management uses to sign aligned heartbeat phases for mobile clients. Comma separated to accept several during a rotation. Without it mobile clients get the stock Signal stream")
+	runCmd.PersistentFlags().DurationVar(&alignedHeartbeatMinPeriod, "aligned-heartbeat-min-period", alignedhb.MinPeriod, "shortest aligned heartbeat period a mobile client may ask for, a shorter one is raised to it. Must match Management")
+	runCmd.PersistentFlags().DurationVar(&alignedHeartbeatMaxPeriod, "aligned-heartbeat-max-period", alignedhb.MaxPeriod, "longest aligned heartbeat period a mobile client may ask for, a longer one is lowered to it. Must match Management")
 	setFlagsFromEnvVars(runCmd)
+}
+
+// setPhaseVerifier lets srv accept the aligned heartbeat phases signed with
+// secrets. Without a secret every stream stays stock.
+func setPhaseVerifier(srv *server.Server, secrets []string) {
+	v, err := phasesig.NewVerifier(secrets...)
+	if err != nil {
+		log.Infof("aligned heartbeat phase check disabled: %v", err)
+		return
+	}
+	srv.SetPhaseVerifier(v)
 }

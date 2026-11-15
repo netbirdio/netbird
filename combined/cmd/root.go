@@ -34,6 +34,7 @@ import (
 	relayServer "github.com/netbirdio/netbird/relay/server"
 	"github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
+	"github.com/netbirdio/netbird/shared/alignedhb/phasesig"
 	syncgrpc "github.com/netbirdio/netbird/shared/management/grpc"
 	sharedMetrics "github.com/netbirdio/netbird/shared/metrics"
 	"github.com/netbirdio/netbird/shared/relay/auth"
@@ -338,6 +339,12 @@ func (s *serverInstances) createSignalServer(ctx context.Context, cfg *CombinedC
 		cleanupSTUNListeners(s.stunListeners)
 		return fmt.Errorf("failed to create signal server: %w", err)
 	}
+	// Management signs the aligned heartbeat phases with its relay secret. The
+	// local relay secret is accepted too, it is the same one unless an external
+	// relay is configured.
+	if v := phaseVerifier(cfg.Management.Relays.Secret, cfg.Relay.AuthSecret); v != nil {
+		s.signalSrv.SetPhaseVerifier(v)
+	}
 
 	log.Infof("Signal server created")
 	return nil
@@ -413,6 +420,12 @@ func startServers(wg *sync.WaitGroup, srv *relayServer.Server, httpHealthcheck *
 
 func shutdownServers(ctx context.Context, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server, mgmtSrv mgmtServer.Server, signalSrv *signalServer.Server, metricsServer *sharedMetrics.Metrics) error {
 	var errs error
+
+	// Before anything else: the relay shutdown can take a while, and Signal
+	// clients should start reconnecting now.
+	if signalSrv != nil {
+		signalSrv.GoingAway()
+	}
 
 	if err := httpHealthcheck.Shutdown(ctx); err != nil {
 		errs = multierror.Append(errs, fmt.Errorf("failed to close healthcheck server: %w", err))
@@ -823,4 +836,15 @@ func maskSecret(secret string) string {
 		return "****"
 	}
 	return secret[:4] + "..."
+}
+
+// phaseVerifier returns the aligned heartbeat phase verifier for secrets, nil
+// when none is set. Signal and relay then keep every stream stock.
+func phaseVerifier(secrets ...string) *phasesig.Verifier {
+	v, err := phasesig.NewVerifier(secrets...)
+	if err != nil {
+		log.Infof("aligned heartbeat phase check disabled: %v", err)
+		return nil
+	}
+	return v
 }

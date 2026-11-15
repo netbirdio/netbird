@@ -3,6 +3,7 @@ package peer
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"errors"
@@ -35,6 +36,9 @@ type Peer struct {
 	RegisteredAt time.Time
 
 	Cancel context.CancelFunc
+
+	// alignedHeartbeat is set once the stream got the aligned heartbeat answer.
+	alignedHeartbeat atomic.Bool
 }
 
 // Send writes a message to the peer's stream, serializing concurrent senders.
@@ -42,6 +46,18 @@ func (p *Peer) Send(msg *proto.EncryptedMessage) error {
 	p.sendMu.Lock()
 	defer p.sendMu.Unlock()
 	return p.Stream.Send(msg)
+}
+
+// MarkAlignedHeartbeat records that the stream got the aligned heartbeat answer.
+// Only such a client reads the bodiless server messages, a stock client would
+// try to decrypt them.
+func (p *Peer) MarkAlignedHeartbeat() {
+	p.alignedHeartbeat.Store(true)
+}
+
+// AlignedHeartbeat reports whether the stream got the aligned heartbeat answer.
+func (p *Peer) AlignedHeartbeat() bool {
+	return p.alignedHeartbeat.Load()
 }
 
 // NewPeer creates a new instance of a connected Peer
