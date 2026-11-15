@@ -34,6 +34,7 @@ import (
 	relayServer "github.com/netbirdio/netbird/relay/server"
 	"github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
+	alignedka "github.com/netbirdio/netbird/shared/alignedhb/keepalive"
 	"github.com/netbirdio/netbird/shared/alignedhb/phasesig"
 	syncgrpc "github.com/netbirdio/netbird/shared/management/grpc"
 	sharedMetrics "github.com/netbirdio/netbird/shared/metrics"
@@ -261,6 +262,7 @@ func (s *serverInstances) createRelayServer(cfg *CombinedConfig, tlsSupport bool
 		ExposedAddress: cfg.Relay.ExposedAddress,
 		AuthValidator:  authenticator,
 		TLSSupport:     tlsSupport,
+		PhaseVerifier:  phaseVerifier(cfg.Relay.AuthSecret),
 	}
 
 	s.relaySrv, err = createRelayServer(relayCfg, s.stunListeners)
@@ -654,7 +656,10 @@ func handleRelayWebSocket(w http.ResponseWriter, r *http.Request, acceptFn func(
 
 	log.Debugf("Relay WS client connected from: %s", rAddr)
 
-	conn := ws.NewConn(wsConn, rAddr)
+	// The Management HTTP server keeps the accepted connection in the request
+	// context, so a v2 relay connection can tune its socket.
+	netConn, _ := alignedka.ConnFromContext(r.Context())
+	conn := ws.NewConn(wsConn, rAddr, netConn)
 	acceptFn(conn)
 }
 

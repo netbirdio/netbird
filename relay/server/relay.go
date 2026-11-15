@@ -14,6 +14,8 @@ import (
 	"github.com/netbirdio/netbird/relay/healthcheck/peerid"
 	"github.com/netbirdio/netbird/relay/protocol"
 	"github.com/netbirdio/netbird/relay/server/listener"
+	"github.com/netbirdio/netbird/shared/alignedhb"
+	"github.com/netbirdio/netbird/shared/alignedhb/phasesig"
 
 	//nolint:staticcheck
 	"github.com/netbirdio/netbird/relay/metrics"
@@ -32,6 +34,13 @@ type Config struct {
 	ExposedAddress string
 	TLSSupport     bool
 	AuthValidator  Validator
+	// PhaseVerifier checks the aligned heartbeat phases Management signed. Without
+	// it every connection keeps the stock health check.
+	PhaseVerifier *phasesig.Verifier
+	// PeriodLimits bound the aligned heartbeat period. They must match the
+	// limits of Management, which signs phases for the clamped period. The zero
+	// value means the defaults.
+	PeriodLimits alignedhb.PeriodLimits
 
 	instanceURL url.URL
 }
@@ -53,6 +62,9 @@ func (c *Config) validate() error {
 	if c.AuthValidator == nil {
 		return fmt.Errorf("auth validator is required")
 	}
+	if err := c.PeriodLimits.Validate(); err != nil {
+		return fmt.Errorf("aligned heartbeat period limits: %w", err)
+	}
 	return nil
 }
 
@@ -61,6 +73,8 @@ type Relay struct {
 	metrics       *metrics.Metrics
 	metricsCancel context.CancelFunc
 	validator     Validator
+	phaseVerifier *phasesig.Verifier
+	periodLimits  alignedhb.PeriodLimits
 
 	store          *store.Store
 	notifier       *store.PeerNotifier
@@ -102,6 +116,8 @@ func NewRelay(config Config) (*Relay, error) {
 		metrics:        m,
 		metricsCancel:  metricsCancel,
 		validator:      config.AuthValidator,
+		phaseVerifier:  config.PhaseVerifier,
+		periodLimits:   config.PeriodLimits,
 		instanceURL:    config.instanceURL,
 		exposedAddress: config.ExposedAddress,
 		store:          store.NewStore(),
@@ -133,9 +149,12 @@ func (r *Relay) Accept(conn listener.Conn) {
 	defer hsCancel()
 
 	h := handshake{
-		conn:        conn,
-		validator:   r.validator,
-		preparedMsg: r.preparedMsg,
+		conn:          conn,
+		validator:     r.validator,
+		phaseVerifier: r.phaseVerifier,
+		periodLimits:  r.periodLimits,
+		hbMetrics:     r.metrics.AlignedHeartbeat,
+		preparedMsg:   r.preparedMsg,
 	}
 	peerID, err := h.handshakeReceive(hsCtx)
 	if err != nil {
@@ -160,6 +179,8 @@ func (r *Relay) Accept(conn listener.Conn) {
 	r.metrics.RecordAuthenticationTime(time.Since(acceptTime))
 
 	peer := NewPeer(r.metrics, *peerID, h.selectedVersion, conn, r.store, r.notifier)
+	peer.setAlignedSchedule(h.aligned)
+	peer.setPhaseVerifier(r.phaseVerifier, r.periodLimits)
 	peer.log.Infof("peer connected from: %s, advertised protocol version: %d, selected: %d", conn.RemoteAddr(), h.advertisedVersion, h.selectedVersion)
 	storeTime := time.Now()
 	if isReconnection := r.store.AddPeer(peer); isReconnection {

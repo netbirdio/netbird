@@ -21,6 +21,8 @@ import (
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/relay/healthcheck"
 	"github.com/netbirdio/netbird/relay/server"
+	"github.com/netbirdio/netbird/shared/alignedhb"
+	"github.com/netbirdio/netbird/shared/alignedhb/phasesig"
 	"github.com/netbirdio/netbird/shared/metrics"
 	"github.com/netbirdio/netbird/shared/relay/auth"
 	"github.com/netbirdio/netbird/stun"
@@ -53,6 +55,10 @@ type Config struct {
 	EnableSTUN   bool
 	STUNPorts    []int
 	STUNLogLevel string
+	// AlignedHeartbeatMinPeriod and AlignedHeartbeatMaxPeriod bound the aligned
+	// heartbeat period. They must match the limits of Management.
+	AlignedHeartbeatMinPeriod time.Duration
+	AlignedHeartbeatMaxPeriod time.Duration
 }
 
 func (c Config) Validate() error {
@@ -124,6 +130,8 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&cobraConfig.EnableSTUN, "enable-stun", false, "enable embedded STUN server")
 	rootCmd.PersistentFlags().IntSliceVar(&cobraConfig.STUNPorts, "stun-ports", []int{3478}, "ports for the embedded STUN server (can be specified multiple times or comma-separated)")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.STUNLogLevel, "stun-log-level", "info", "log level for STUN server (panic, fatal, error, warn, info, debug, trace)")
+	rootCmd.PersistentFlags().DurationVar(&cobraConfig.AlignedHeartbeatMinPeriod, "aligned-heartbeat-min-period", alignedhb.MinPeriod, "shortest aligned heartbeat period a mobile client may ask for, a shorter one is raised to it. Must match Management")
+	rootCmd.PersistentFlags().DurationVar(&cobraConfig.AlignedHeartbeatMaxPeriod, "aligned-heartbeat-max-period", alignedhb.MaxPeriod, "longest aligned heartbeat period a mobile client may ask for, a longer one is lowered to it. Must match Management")
 
 	setFlagsFromEnvVars(rootCmd)
 }
@@ -187,11 +195,22 @@ func execute(cmd *cobra.Command, args []string) error {
 	hashedSecret := sha256.Sum256([]byte(cobraConfig.AuthSecret))
 	authenticator := auth.NewTimedHMACValidator(hashedSecret[:])
 
+	phaseVerifier, err := phasesig.NewVerifier(cobraConfig.AuthSecret)
+	if err != nil {
+		cleanupSTUNListeners(stunListeners)
+		return fmt.Errorf("aligned heartbeat phase verifier: %w", err)
+	}
+
 	cfg := server.Config{
 		Meter:          metricsServer.Meter,
 		ExposedAddress: cobraConfig.ExposedAddress,
 		AuthValidator:  authenticator,
 		TLSSupport:     tlsSupport,
+		PhaseVerifier:  phaseVerifier,
+		PeriodLimits: alignedhb.PeriodLimits{
+			Min: cobraConfig.AlignedHeartbeatMinPeriod,
+			Max: cobraConfig.AlignedHeartbeatMaxPeriod,
+		},
 	}
 
 	srv, err := createRelayServer(cfg)

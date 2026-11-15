@@ -9,6 +9,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
+	"github.com/netbirdio/netbird/shared/alignedhb/hbmetrics"
 	"github.com/netbirdio/netbird/shared/relay/messages"
 )
 
@@ -19,6 +20,8 @@ const (
 type Metrics struct {
 	metric.Meter
 
+	// AlignedHeartbeat counts heartbeats and phase corrections on v2 connections.
+	AlignedHeartbeat     *hbmetrics.Metrics
 	TransferBytesSent    metric.Int64Counter
 	TransferBytesRecv    metric.Int64Counter
 	AuthenticationTime   metric.Float64Histogram
@@ -98,8 +101,14 @@ func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 		return nil, err
 	}
 
+	alignedHeartbeat, err := hbmetrics.New(meter, "relay_")
+	if err != nil {
+		return nil, err
+	}
+
 	m := &Metrics{
 		Meter:                meter,
+		AlignedHeartbeat:     alignedHeartbeat,
 		TransferBytesSent:    bytesSent,
 		TransferBytesRecv:    bytesRecv,
 		AuthenticationTime:   authTime,

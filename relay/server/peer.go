@@ -12,6 +12,9 @@ import (
 	"github.com/netbirdio/netbird/relay/metrics"
 	"github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/relay/server/store"
+	"github.com/netbirdio/netbird/shared/alignedhb"
+	"github.com/netbirdio/netbird/shared/alignedhb/phasectl"
+	"github.com/netbirdio/netbird/shared/alignedhb/phasesig"
 	"github.com/netbirdio/netbird/shared/relay/healthcheck"
 	"github.com/netbirdio/netbird/shared/relay/messages"
 )
@@ -39,6 +42,17 @@ type Peer struct {
 
 	peersListener *store.Listener
 
+	// phase is the aligned heartbeat schedule, stock until a verified signed
+	// phase arrives.
+	phase *phasectl.Phase
+	// phaseVerifier checks signed phases that arrive after the handshake.
+	phaseVerifier *phasesig.Verifier
+	// periodLimits clamp the period of signed phases before they are verified.
+	periodLimits alignedhb.PeriodLimits
+	// transportPeriod is the heartbeat period the transport was tuned for, zero
+	// while it is stock. Only the Work goroutine uses it after the handshake.
+	transportPeriod time.Duration
+
 	// between the online peer collection step and the notification sending should not be sent offline notifications from another thread
 	notificationMutex sync.Mutex
 }
@@ -58,6 +72,7 @@ func NewPeer(metrics *metrics.Metrics, id messages.PeerID, version messages.Prot
 		ctx:       ctx,
 		ctxCancel: cancel,
 	}
+	p.phase = phasectl.New("relay", id.String(), p.hbMetrics(), p.log)
 
 	return p
 }
@@ -78,7 +93,7 @@ func (p *Peer) Work() {
 
 	ctx := p.ctx
 
-	hc := healthcheck.NewSender(p.log)
+	hc := p.newHealthCheckSender()
 	go hc.StartHealthCheck(ctx)
 	go p.handleHealthcheckEvents(ctx, hc)
 
@@ -127,6 +142,7 @@ func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, hc *
 	switch msgType {
 	case messages.MsgTypeHealthCheck:
 		hc.OnHCResponse()
+		p.handleHealthcheckEcho(msg, hc)
 	case messages.MsgTypeTransport:
 		p.metrics.TransferBytesRecv.Add(ctx, int64(n))
 		p.metrics.PeerActivity(p.String())
@@ -180,6 +196,32 @@ func (p *Peer) String() string {
 	return p.id.String()
 }
 
+// setAlignedSchedule turns the aligned heartbeat on for the connection with the
+// verified signed phase of the handshake. A v1 connection always keeps the stock
+// health check. Call it before Work.
+func (p *Peer) setAlignedSchedule(v *verifiedPhase) {
+	if v == nil || p.version < messages.ProtocolV2 {
+		return
+	}
+	p.phase.Start(alignedhb.Answer(v.schedule), v.day)
+	p.tuneTransport(v.schedule.Period)
+}
+
+// setPhaseVerifier sets the verifier and period limits for signed phases the
+// client sends after the handshake. Without a verifier the connection stays as
+// the handshake left it. Call it before Work.
+func (p *Peer) setPhaseVerifier(v *phasesig.Verifier, limits alignedhb.PeriodLimits) {
+	p.phaseVerifier = v
+	p.periodLimits = limits
+}
+
+func (p *Peer) newHealthCheckSender() *healthcheck.Sender {
+	if s, ok := p.phase.Schedule(); ok {
+		return healthcheck.NewAlignedSender(p.log, healthcheck.AlignedSchedule(s))
+	}
+	return healthcheck.NewSender(p.log)
+}
+
 func (p *Peer) writeWithTimeout(ctx context.Context, buf []byte) error {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
@@ -197,10 +239,15 @@ func (p *Peer) handleHealthcheckEvents(ctx context.Context, hc *healthcheck.Send
 				healthCheck = nil
 				continue
 			}
-			if _, err := p.Write(ctx, p.enc.Healthcheck()); err != nil {
+			p.phase.Tick()
+			msg, aligned := p.healthcheckFrame()
+			if _, err := p.Write(ctx, msg); err != nil {
 				p.log.Errorf("failed to send healthcheck message: %s", err)
 				p.Close()
 				return
+			}
+			if aligned {
+				p.hbMetrics().HeartbeatSent(ctx)
 			}
 		case _, ok := <-hc.Timeout:
 			if !ok {

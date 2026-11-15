@@ -14,6 +14,7 @@ import (
 
 	"github.com/netbirdio/netbird/relay/protocol"
 	relaylistener "github.com/netbirdio/netbird/relay/server/listener"
+	"github.com/netbirdio/netbird/shared/alignedhb/keepalive"
 	"github.com/netbirdio/netbird/shared/relay"
 	"github.com/netbirdio/netbird/trustedproxy"
 )
@@ -46,7 +47,14 @@ func (l *Listener) Bind() error {
 		}
 	}
 
-	listener, err := net.Listen("tcp", addr)
+	// Accepted connections keep the Go default keepalive, aligned heartbeat
+	// connections change it in Conn.UseAlignedHeartbeat. Multipath TCP stays
+	// off, so every accepted connection is a plain TCP socket that
+	// Conn.UseAlignedHeartbeat can tune.
+	var lc net.ListenConfig
+	lc.SetMultipathTCP(false)
+
+	listener, err := lc.Listen(context.Background(), "tcp", addr)
 	if err != nil {
 		return err
 	}
@@ -59,6 +67,7 @@ func (l *Listener) Bind() error {
 		Handler:           mux,
 		TLSConfig:         l.TLSConfig,
 		ReadHeaderTimeout: 5 * time.Second,
+		ConnContext:       keepalive.ConnContext,
 	}
 
 	log.Infof("WS server listening address: %s", addr)
@@ -130,7 +139,8 @@ func (l *Listener) onAccept(w http.ResponseWriter, r *http.Request) {
 
 	log.Infof("WS client connected from: %s", rAddr)
 
-	conn := NewConn(wsConn, rAddr)
+	netConn, _ := keepalive.ConnFromContext(r.Context())
+	conn := NewConn(wsConn, rAddr, netConn)
 	l.acceptFn(conn)
 }
 

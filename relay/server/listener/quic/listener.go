@@ -11,10 +11,18 @@ import (
 
 	"github.com/netbirdio/netbird/relay/protocol"
 	relaylistener "github.com/netbirdio/netbird/relay/server/listener"
+	"github.com/netbirdio/netbird/shared/alignedhb"
 	nbRelay "github.com/netbirdio/netbird/shared/relay"
 )
 
-const Proto protocol.Protocol = "quic"
+const (
+	Proto protocol.Protocol = "quic"
+
+	// maxIdleTimeout stays above the receive timeout of the longest aligned
+	// heartbeat period, so the health check owns the close decision. A client
+	// without the aligned heartbeat pings well inside it.
+	maxIdleTimeout = alignedhb.MaxPeriod + alignedhb.ReceiveMargin
+)
 
 type Listener struct {
 	// Address is the address to listen on
@@ -27,6 +35,7 @@ type Listener struct {
 
 func (l *Listener) Bind() error {
 	quicCfg := &quic.Config{
+		MaxIdleTimeout:    maxIdleTimeout,
 		EnableDatagrams:   true,
 		InitialPacketSize: nbRelay.QUICInitialPacketSize,
 	}

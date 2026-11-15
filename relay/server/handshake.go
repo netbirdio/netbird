@@ -5,7 +5,14 @@ import (
 	"fmt"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/relay/server/listener"
+	"github.com/netbirdio/netbird/shared/alignedhb"
+	"github.com/netbirdio/netbird/shared/alignedhb/hbmetrics"
+	"github.com/netbirdio/netbird/shared/alignedhb/phasectl"
+	"github.com/netbirdio/netbird/shared/alignedhb/phasesig"
+	"github.com/netbirdio/netbird/shared/relay/healthcheck"
 	"github.com/netbirdio/netbird/shared/relay/messages"
 )
 
@@ -13,6 +20,10 @@ const (
 	// handshakeTimeout bounds how long a connection may remain in the
 	// pre-authentication handshake phase before being closed.
 	handshakeTimeout = 10 * time.Second
+
+	// maxProtocolVersion is the highest protocol version this server selects.
+	// Version 2 turns the aligned heartbeat on for clients that offer it.
+	maxProtocolVersion = messages.ProtocolV2
 )
 
 type Validator interface {
@@ -25,24 +36,36 @@ type preparedMsg struct {
 }
 
 type handshake struct {
-	conn        listener.Conn
-	validator   Validator
-	preparedMsg *preparedMsg
+	conn          listener.Conn
+	validator     Validator
+	phaseVerifier *phasesig.Verifier
+	periodLimits  alignedhb.PeriodLimits
+	hbMetrics     *hbmetrics.Metrics
+	preparedMsg   *preparedMsg
 
 	peerID            *messages.PeerID
 	advertisedVersion messages.ProtocolVersion
 	selectedVersion   messages.ProtocolVersion
+	// aligned is set when the selected version turns the aligned heartbeat on.
+	aligned *verifiedPhase
+}
+
+// verifiedPhase is a signed phase the relay verified: the schedule it sets and
+// the day it was signed for.
+type verifiedPhase struct {
+	schedule healthcheck.AlignedSchedule
+	day      int64
 }
 
 func newPreparedMsg(instanceURL string) (*preparedMsg, error) {
-	responses := make(map[messages.ProtocolVersion][]byte, messages.CurrentProtocolVersion)
+	responses := make(map[messages.ProtocolVersion][]byte, maxProtocolVersion)
 	for version := messages.ProtocolV1; ; version++ {
 		ram, err := messages.NewEncoder(version, messages.MaxMessageSize).AuthResponse(instanceURL)
 		if err != nil {
 			return nil, fmt.Errorf("marshal auth response for version %d: %w", version, err)
 		}
 		responses[version] = ram
-		if version == messages.CurrentProtocolVersion {
+		if version == maxProtocolVersion {
 			break
 		}
 	}
@@ -88,10 +111,64 @@ func (h *handshake) handshakeReceive(ctx context.Context) (*messages.PeerID, err
 		return peerID, err
 	}
 
+	selected := messages.SelectVersion(advertised, maxProtocolVersion)
+	var aligned *verifiedPhase
+	if selected >= messages.ProtocolV2 {
+		aligned = alignedSchedule(buf, *peerID, h.phaseVerifier, h.periodLimits, h.hbMetrics, time.Now())
+	}
+
 	h.peerID = peerID
 	h.advertisedVersion = advertised
-	h.selectedVersion = messages.SelectVersion(advertised, messages.CurrentProtocolVersion)
+	h.selectedVersion = selected
+	h.aligned = aligned
 	return peerID, nil
+}
+
+// alignedSchedule reads the aligned heartbeat request from the auth extension
+// area. It returns the verified phase when the client sent a phase Management signed
+// for peerID, nil otherwise: the connection then keeps the stock health check.
+// A malformed extension is ignored the same way, so a capability problem never
+// cuts a client off.
+func alignedSchedule(authMsg []byte, peerID messages.PeerID, verifier *phasesig.Verifier, limits alignedhb.PeriodLimits, m *hbmetrics.Metrics, now time.Time) *verifiedPhase {
+	raw, err := messages.AuthMsgExtension(authMsg)
+	if err != nil {
+		log.Debugf("ignoring auth extension from %s, stock health check: %v", peerID, err)
+		return nil
+	}
+	ext, err := messages.UnmarshalAuthExtension(raw)
+	if err != nil {
+		log.Debugf("ignoring auth extension from %s, stock health check: %v", peerID, err)
+		return nil
+	}
+	return verifySignedPhase(ext, peerID, verifier, limits, m, now)
+}
+
+// verifySignedPhase returns the signed phase in ext, nil when ext has none or
+// it is not a phase Management signed for peerID. The health check runs on the
+// period phasectl.Verify clamped. m counts a phase that fails to verify.
+func verifySignedPhase(ext messages.AuthExtension, peerID messages.PeerID, verifier *phasesig.Verifier, limits alignedhb.PeriodLimits, m *hbmetrics.Metrics, now time.Time) *verifiedPhase {
+	if ext.SignedPhase == nil || ext.PeriodSeconds == 0 {
+		return nil
+	}
+	if verifier == nil {
+		log.Tracef("no phase verifier configured, stock health check for %s", peerID)
+		return nil
+	}
+	requested := time.Duration(ext.PeriodSeconds) * time.Second
+	signed := alignedhb.SignedPhase{
+		Phase:     time.Duration(ext.SignedPhase.PhaseMs) * time.Millisecond,
+		Day:       ext.SignedPhase.Day,
+		Signature: ext.SignedPhase.Signature,
+	}
+	answer, err := phasectl.Verify(verifier, limits, peerID, requested, signed, now, m)
+	if answer.Period != requested {
+		log.Debugf("aligned heartbeat period %s from %s clamped to %s", requested, peerID, answer.Period)
+	}
+	if err != nil {
+		log.Debugf("ignoring aligned heartbeat phase from %s: %v", peerID, err)
+		return nil
+	}
+	return &verifiedPhase{schedule: healthcheck.AlignedSchedule(answer), day: signed.Day}
 }
 
 func (h *handshake) handshakeResponse(ctx context.Context) error {

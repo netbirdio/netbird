@@ -6,12 +6,15 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/shared/alignedhb"
+	"github.com/netbirdio/netbird/shared/alignedhb/phasesig"
 	"github.com/netbirdio/netbird/shared/relay/auth/allow"
 	"github.com/netbirdio/netbird/shared/relay/messages"
 )
@@ -182,39 +185,217 @@ func TestRelay_AuthV1ResponseIsUnchanged(t *testing.T) {
 	assert.Equal(t, messages.ProtocolV1, item.(*Peer).Version(), "a v1 client selects v1")
 }
 
-func TestRelay_AuthEnvelopeSelectsV1(t *testing.T) {
+const testPhaseSecret = "relay-auth-secret"
+
+// signedExtension returns the auth extension of a client that holds the phase
+// Management signed with secret for peerID.
+func signedExtension(t *testing.T, secret string, peerID messages.PeerID, period time.Duration) ([]byte, alignedhb.SignedPhase) {
+	t.Helper()
+	signer, err := phasesig.NewSigner(secret)
+	require.NoError(t, err)
+	sp, err := signer.SignedPhase(peerID, period, time.Now())
+	require.NoError(t, err)
+	ext, err := messages.MarshalAuthExtension(messages.AuthExtension{
+		PeriodSeconds: uint16(period / time.Second),
+		SignedPhase: &messages.AuthSignedPhase{
+			PhaseMs:   uint32(sp.Phase.Milliseconds()),
+			Day:       sp.Day,
+			Signature: sp.Signature,
+		},
+	})
+	require.NoError(t, err)
+	return ext, sp
+}
+
+// newAlignedTestRelay returns a relay whose connections tick every second
+// instead of every 30. The floor is lowered on the unexported field, past the
+// config check that keeps production limits inside the default range.
+func newAlignedTestRelay(t *testing.T, validator Validator) *Relay {
+	t.Helper()
+	relay := newAlignedTestRelayLimits(t, validator, alignedhb.PeriodLimits{})
+	relay.periodLimits = alignedhb.PeriodLimits{Min: time.Second, Max: alignedhb.MaxPeriod}
+	return relay
+}
+
+func newAlignedTestRelayLimits(t *testing.T, validator Validator, limits alignedhb.PeriodLimits) *Relay {
+	t.Helper()
+	verifier, err := phasesig.NewVerifier(testPhaseSecret)
+	require.NoError(t, err)
+	relay, err := NewRelay(Config{
+		ExposedAddress: "rel://127.0.0.1:1234",
+		AuthValidator:  validator,
+		PhaseVerifier:  verifier,
+		PeriodLimits:   limits,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { relay.Shutdown(context.Background()) })
+	return relay
+}
+
+// acceptEnvelope runs the handshake for an auth envelope and returns the stored
+// peer after checking the v2 response.
+func acceptEnvelope(t *testing.T, relay *Relay, validator *recordingValidator, version messages.ProtocolVersion, peerID messages.PeerID, ext []byte) *Peer {
+	t.Helper()
+	token := []byte("future-token")
+	auth, err := messages.MarshalAuthEnvelope(version, peerID, token, ext)
+	require.NoError(t, err)
+
+	conn := newScriptedConn()
+	conn.deliver(t, auth)
+	relay.Accept(conn)
+
+	frames := conn.waitFrames(t, 1)
+	want, err := messages.NewEncoder(messages.ProtocolV2, messages.MaxMessageSize).AuthResponse(relay.instanceURL.String())
+	require.NoError(t, err)
+	assert.Equal(t, want, frames[0], "the response must carry the selected v2 header")
+	assert.Equal(t, [][]byte{token}, validator.calls(), "the validator must receive the token without the extension")
+	assert.False(t, conn.isClosed(), "a v2 connection must stay open")
+
+	item, ok := relay.store.Peer(peerID)
+	require.True(t, ok, "the peer must be stored after the response")
+	p := item.(*Peer)
+	assert.Equal(t, messages.ProtocolV2, p.Version(), "the connection must use the selected v2")
+	return p
+}
+
+func TestRelay_AuthEnvelopeSelectsV2(t *testing.T) {
+	// Without a signed phase a v2 connection keeps the stock health check: the
+	// client has no phase from Management yet and hands it over later.
+	period, err := messages.MarshalAuthExtension(messages.AuthExtension{PeriodSeconds: 90})
+	require.NoError(t, err)
+	unknownOnly := []byte{200, 0, 3, 'a', 'b', 'c'}
+
 	cases := []struct {
 		name    string
 		version messages.ProtocolVersion
 		ext     []byte
 	}{
 		{"v2 without extension", 2, nil},
-		{"v2 with json extension", 2, []byte(`{"cred2":"value"}`)},
-		{"v255 with opaque extension", 255, []byte("opaque-extension-bytes")},
+		{"v2 with period", 2, period},
+		{"v2 with unknown fields only", 2, unknownOnly},
+		{"v255 with period", 255, append(append([]byte(nil), unknownOnly...), period...)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			validator := &recordingValidator{}
-			relay := newTestRelay(t, validator)
-			peerID := messages.HashID("future-client")
-			token := []byte("future-token")
-			auth, err := messages.MarshalAuthEnvelope(tc.version, peerID, token, tc.ext)
+			p := acceptEnvelope(t, newAlignedTestRelay(t, validator), validator, tc.version, messages.HashID("future-client"), tc.ext)
+			assert.Nil(t, scheduleOf(p), "without a signed phase the connection must keep the stock health check")
+		})
+	}
+}
+
+func TestRelay_AuthSignedPhase(t *testing.T) {
+	peerID := messages.HashID("aligned-client")
+
+	t.Run("valid signature turns the schedule on", func(t *testing.T) {
+		ext, sp := signedExtension(t, testPhaseSecret, peerID, 90*time.Second)
+		validator := &recordingValidator{}
+		p := acceptEnvelope(t, newAlignedTestRelay(t, validator), validator, messages.ProtocolV2, peerID, ext)
+		require.NotNil(t, scheduleOf(p), "a phase Management signed must turn the aligned heartbeat on")
+		assert.Equal(t, 90*time.Second, scheduleOf(p).Period, "period")
+		assert.Equal(t, sp.Phase, scheduleOf(p).Phase, "the relay must tick on the signed phase")
+	})
+
+	t.Run("future version with unknown fields", func(t *testing.T) {
+		ext, sp := signedExtension(t, testPhaseSecret, peerID, time.Minute)
+		ext = append([]byte{200, 0, 1, 'x'}, ext...)
+		validator := &recordingValidator{}
+		p := acceptEnvelope(t, newAlignedTestRelay(t, validator), validator, 255, peerID, ext)
+		require.NotNil(t, scheduleOf(p), "unknown fields must be skipped")
+		assert.Equal(t, sp.Phase, scheduleOf(p).Phase, "phase")
+	})
+
+	rejected := map[string]func(t *testing.T) []byte{
+		"wrong secret": func(t *testing.T) []byte {
+			ext, _ := signedExtension(t, "other-secret", peerID, time.Minute)
+			return ext
+		},
+		"phase of another peer": func(t *testing.T) []byte {
+			ext, _ := signedExtension(t, testPhaseSecret, messages.HashID("other-client"), time.Minute)
+			return ext
+		},
+		"phase picked by the client": func(t *testing.T) []byte {
+			_, sp := signedExtension(t, testPhaseSecret, peerID, time.Minute)
+			ext, err := messages.MarshalAuthExtension(messages.AuthExtension{
+				PeriodSeconds: 60,
+				SignedPhase: &messages.AuthSignedPhase{
+					PhaseMs:   uint32(((sp.Phase + 5*time.Second) % time.Minute).Milliseconds()),
+					Day:       sp.Day,
+					Signature: sp.Signature,
+				},
+			})
 			require.NoError(t, err)
-
-			conn := newScriptedConn()
-			conn.deliver(t, auth)
-			relay.Accept(conn)
-
-			frames := conn.waitFrames(t, 1)
-			want, err := messages.MarshalAuthResponse(relay.instanceURL.String())
+			return ext
+		},
+		"signed phase without period": func(t *testing.T) []byte {
+			_, sp := signedExtension(t, testPhaseSecret, peerID, time.Minute)
+			ext, err := messages.MarshalAuthExtension(messages.AuthExtension{
+				SignedPhase: &messages.AuthSignedPhase{
+					PhaseMs:   uint32(sp.Phase.Milliseconds()),
+					Day:       sp.Day,
+					Signature: sp.Signature,
+				},
+			})
 			require.NoError(t, err)
-			assert.Equal(t, want, frames[0], "the response must carry the selected v1 header")
-			assert.Equal(t, [][]byte{token}, validator.calls(), "the validator must receive the token without the extension")
-			assert.False(t, conn.isClosed(), "a higher advertised version must not be rejected")
+			return ext
+		},
+	}
+	for name, ext := range rejected {
+		t.Run(name, func(t *testing.T) {
+			validator := &recordingValidator{}
+			p := acceptEnvelope(t, newAlignedTestRelay(t, validator), validator, messages.ProtocolV2, peerID, ext(t))
+			assert.Nil(t, scheduleOf(p), "a phase that does not verify must keep the stock health check, never close the connection")
+		})
+	}
 
-			item, ok := relay.store.Peer(peerID)
-			require.True(t, ok, "the peer must be stored after the response")
-			assert.Equal(t, messages.ProtocolV1, item.(*Peer).Version(), "the connection must use the selected v1")
+	t.Run("relay without verifier", func(t *testing.T) {
+		ext, _ := signedExtension(t, testPhaseSecret, peerID, time.Minute)
+		validator := &recordingValidator{}
+		p := acceptEnvelope(t, newTestRelay(t, validator), validator, messages.ProtocolV2, peerID, ext)
+		assert.Nil(t, scheduleOf(p), "a relay without a secret must keep the stock health check")
+	})
+}
+
+func TestRelay_AuthV1HasNoAlignedSchedule(t *testing.T) {
+	relay := newTestRelay(t, &recordingValidator{})
+	peerID := messages.HashID("stock-client")
+	auth, err := messages.MarshalAuthMsg(peerID, []byte("token"))
+	require.NoError(t, err)
+
+	conn := newScriptedConn()
+	conn.deliver(t, auth)
+	relay.Accept(conn)
+	conn.waitFrames(t, 1)
+
+	item, ok := relay.store.Peer(peerID)
+	require.True(t, ok, "the peer must be stored")
+	assert.Nil(t, scheduleOf(item.(*Peer)), "a v1 connection must keep the stock health check")
+}
+
+func TestRelay_AuthMalformedExtensionStaysStock(t *testing.T) {
+	// A malformed extension is a capability problem, not an auth failure: the
+	// client is accepted on v2 and keeps the stock health check.
+	peerID := messages.HashID("client")
+	cases := []struct {
+		name string
+		ext  []byte
+	}{
+		{"opaque bytes", []byte("opaque-extension-bytes")},
+		{"truncated header", []byte{messages.ExtTypePeriod, 0}},
+		{"zero period", []byte{messages.ExtTypePeriod, 0, 2, 0, 0}},
+		{"period with wrong length", []byte{messages.ExtTypePeriod, 0, 3, 0, 60, 0}},
+		{"valid signed phase then garbage", func() []byte {
+			ext, _ := signedExtension(t, testPhaseSecret, peerID, time.Minute)
+			return append(ext, messages.ExtTypePeriod, 0)
+		}()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			validator := &recordingValidator{}
+			p := acceptEnvelope(t, newAlignedTestRelay(t, validator), validator, messages.ProtocolV2, peerID, tc.ext)
+			assert.Nil(t, scheduleOf(p), "a malformed extension must keep the stock health check")
+			assert.Equal(t, messages.NewEncoder(messages.ProtocolV2, messages.MaxMessageSize).Healthcheck(), healthcheckMsg(p),
+				"the health check must carry no phase")
 		})
 	}
 }
@@ -283,7 +464,7 @@ func TestRelay_AuthRejectsInvalidToken(t *testing.T) {
 		frame []byte
 	}{
 		{"v1 layout", v1Auth},
-		{"envelope with well-formed extension", envelopeAuth},
+		{"envelope with extension", envelopeAuth},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -379,4 +560,55 @@ func acceptPeer(t *testing.T, relay *Relay, name string) (*scriptedConn, message
 	relay.Accept(conn)
 	conn.waitFrames(t, 1)
 	return conn, peerID
+}
+
+// tunableConn records the heartbeat period the relay tuned its transport for.
+type tunableConn struct {
+	*scriptedConn
+	period atomic.Int64
+}
+
+func (c *tunableConn) UseAlignedHeartbeat(period time.Duration) error {
+	c.period.Store(int64(period))
+	return nil
+}
+
+func (c *tunableConn) tunedPeriod() time.Duration {
+	return time.Duration(c.period.Load())
+}
+
+// Only a connection with a verified signed phase tunes its transport, for the
+// period of that phase. A v1 or a stock v2 connection keeps the stock transport.
+func TestRelay_OnlyAlignedTunesTransport(t *testing.T) {
+	peerID := messages.HashID("transport-client")
+	v1, err := messages.MarshalAuthMsg(peerID, []byte("token"))
+	require.NoError(t, err)
+	v2, err := messages.MarshalAuthEnvelope(messages.ProtocolV2, peerID, []byte("token"), nil)
+	require.NoError(t, err)
+	ext, _ := signedExtension(t, testPhaseSecret, peerID, 2*time.Second)
+	v2Signed, err := messages.MarshalAuthEnvelope(messages.ProtocolV2, peerID, []byte("token"), ext)
+	require.NoError(t, err)
+
+	cases := []struct {
+		name   string
+		auth   []byte
+		period time.Duration
+	}{
+		{"v1 keeps the stock transport", v1, 0},
+		{"v2 without a signed phase keeps the stock transport", v2, 0},
+		{"v2 with a signed phase tunes the transport", v2Signed, 2 * time.Second},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			relay := newAlignedTestRelay(t, &recordingValidator{})
+			conn := &tunableConn{scriptedConn: newScriptedConn()}
+			conn.deliver(t, tc.auth)
+			relay.Accept(conn)
+			conn.waitFrames(t, 1)
+
+			_, ok := relay.store.Peer(peerID)
+			require.True(t, ok, "the peer must be stored")
+			assert.Equal(t, tc.period, conn.tunedPeriod(), "transport tuning")
+		})
+	}
 }

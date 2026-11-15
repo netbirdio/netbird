@@ -11,6 +11,7 @@ import (
 	"github.com/coder/websocket"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/shared/alignedhb/keepalive"
 	"github.com/netbirdio/netbird/shared/relay/messages"
 )
 
@@ -21,16 +22,29 @@ const (
 type Conn struct {
 	*websocket.Conn
 	rAddr *net.TCPAddr
+	// netConn is the accepted connection under the WebSocket, nil when unknown.
+	netConn net.Conn
 
 	closed   bool
 	closedMu sync.Mutex
 }
 
-func NewConn(wsConn *websocket.Conn, rAddr *net.TCPAddr) *Conn {
+func NewConn(wsConn *websocket.Conn, rAddr *net.TCPAddr, netConn net.Conn) *Conn {
 	return &Conn{
-		Conn:  wsConn,
-		rAddr: rAddr,
+		Conn:    wsConn,
+		rAddr:   rAddr,
+		netConn: netConn,
 	}
+}
+
+// UseAlignedHeartbeat sets the socket keepalive for an aligned heartbeat client
+// with heartbeats every period, with the rule Management and Signal use, so no
+// probe wakes the client between two heartbeats. The kernel keeps the stock
+// tolerance for unacknowledged data, so a client without radio for a while
+// keeps its connection. The healthcheck sender closes a client that misses the
+// heartbeat ack.
+func (c *Conn) UseAlignedHeartbeat(period time.Duration) error {
+	return keepalive.SetAligned(c.netConn, period)
 }
 
 func (c *Conn) Read(ctx context.Context, b []byte) (n int, err error) {
