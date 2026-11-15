@@ -1604,3 +1604,66 @@ func TestStripSessionTokenParam(t *testing.T) {
 		})
 	}
 }
+
+func TestProtect_RequiresMatchingAccountIds(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+	kp := generateTestKeyPair(t)
+
+	hdr := newHeaderScheme(t, "Authorization", "Bearer token", "Bearer token")
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "test-account-1", "", nil, false, nil))
+
+	var backendCalled bool
+
+	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		backendCalled = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	tests := []struct {
+		description   string
+		backendCalled bool
+		httpStatus    int
+		requestFunc   func(*http.Request) *http.Request
+	}{
+		{
+			description:   "account id is present and matching",
+			backendCalled: true,
+			httpStatus:    http.StatusOK,
+			requestFunc: func(req *http.Request) *http.Request {
+				d := proxy.CapturedData{}
+				d.SetAccountID("test-account-1")
+				return req.WithContext(proxy.WithCapturedData(req.Context(), &d))
+			},
+		},
+		{
+			description:   "account id is present and not matching",
+			backendCalled: false,
+			httpStatus:    http.StatusForbidden,
+			requestFunc: func(req *http.Request) *http.Request {
+				d := proxy.CapturedData{}
+				d.SetAccountID("test-account-not-matching")
+				return req.WithContext(proxy.WithCapturedData(req.Context(), &d))
+			},
+		},
+		{
+			description:   "account id not present",
+			backendCalled: true,
+			httpStatus:    http.StatusOK,
+			requestFunc:   func(req *http.Request) *http.Request { return req },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.description, func(t *testing.T) {
+			backendCalled = false
+			req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+			req.Header.Set("Authorization", "Bearer token")
+
+			req = tt.requestFunc(req)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			assert.Equal(t, tt.httpStatus, rec.Code)
+			assert.Equal(t, tt.backendCalled, backendCalled)
+		})
+	}
+}

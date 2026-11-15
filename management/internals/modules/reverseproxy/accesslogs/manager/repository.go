@@ -14,18 +14,21 @@ import (
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
+const deleteBatchSize = 10000
+
 type sqlRepository struct {
-	conn *db.Conn
-	db   *gorm.DB
+	conn            *db.Conn
+	db              *gorm.DB
+	deleteBatchSize int
 }
 
 // NewRepository returns the access log repository backed by conn.
 func NewRepository(conn *db.Conn) accesslogs.Repository {
-	return &sqlRepository{conn: conn, db: conn.DB(nil)}
+	return &sqlRepository{conn: conn, db: conn.DB(nil), deleteBatchSize: deleteBatchSize}
 }
 
 func (r *sqlRepository) WithTx(tx *db.Tx) accesslogs.Repository {
-	return &sqlRepository{conn: r.conn, db: r.conn.DB(tx)}
+	return &sqlRepository{conn: r.conn, db: r.conn.DB(tx), deleteBatchSize: r.deleteBatchSize}
 }
 
 func (r *sqlRepository) Create(ctx context.Context, entry *accesslogs.AccessLogEntry) error {
@@ -73,12 +76,28 @@ func (r *sqlRepository) ListByAccount(ctx context.Context, lockStrength db.Locki
 }
 
 func (r *sqlRepository) DeleteOlderThan(ctx context.Context, olderThan time.Time) (int64, error) {
-	result := r.db.Where("timestamp < ?", olderThan).Delete(&accesslogs.AccessLogEntry{})
-	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to delete old access logs: %v", result.Error)
-		return 0, status.Errorf(status.Internal, "failed to delete old access logs")
+	var deleted int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return deleted, err
+		}
+
+		batch := r.db.Model(&accesslogs.AccessLogEntry{}).
+			Select("id").
+			Where("timestamp < ?", olderThan).
+			Order("timestamp").
+			Limit(r.deleteBatchSize)
+		result := r.db.Where("id IN (?)", batch).Delete(&accesslogs.AccessLogEntry{})
+		if result.Error != nil {
+			log.WithContext(ctx).Errorf("failed to delete old access logs: %v", result.Error)
+			return deleted, status.Errorf(status.Internal, "failed to delete old access logs")
+		}
+
+		deleted += result.RowsAffected
+		if result.RowsAffected < int64(r.deleteBatchSize) {
+			return deleted, nil
+		}
 	}
-	return result.RowsAffected, nil
 }
 
 func applyFilters(query *gorm.DB, filter accesslogs.AccessLogFilter) *gorm.DB {

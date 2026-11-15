@@ -11,14 +11,20 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"gopkg.in/yaml.v3"
 
+	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util"
+	configloader "github.com/netbirdio/netbird/util/config"
 	"github.com/netbirdio/netbird/util/crypt"
+)
 
-	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+const (
+	// envRelayAuthSecret is the standalone relay --auth-secret env name so split
+	// and combined deployments share it.
+	envRelayAuthSecret    = "NB_AUTH_SECRET" //nolint:gosec // env var name, not a credential
+	envStoreEncryptionKey = "NB_STORE_ENCRYPTION_KEY"
 )
 
 // CombinedConfig is the root configuration for the combined server.
@@ -441,27 +447,34 @@ func (c *CombinedConfig) autoConfigureClientSettings(exposedProto, exposedHost, 
 	}
 }
 
-// LoadConfig loads configuration from a YAML file
+// LoadConfig loads the combined server configuration.
 func LoadConfig(configPath string) (*CombinedConfig, error) {
-	cfg := DefaultConfig()
-
-	if configPath == "" {
-		return cfg, nil
-	}
-
-	data, err := os.ReadFile(configPath)
+	cfg, err := configloader.Load(configPath, DefaultConfig(), configloader.Options{
+		TagName:           "yaml",
+		AllowMissing:      configPath == "",
+		DecodeErrorPrefix: "failed to parse config file",
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+		return nil, err
 	}
 
-	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
-	}
+	applyServerSecretEnv(cfg)
 
-	// Populate internal configs from server settings
 	cfg.ApplySimplifiedDefaults()
-
 	return cfg, nil
+}
+
+// applyServerSecretEnv copies non-empty environment overrides onto the parsed
+// YAML values before defaults and validation run.
+func applyServerSecretEnv(cfg *CombinedConfig) {
+	if secret := os.Getenv(envRelayAuthSecret); secret != "" {
+		cfg.Server.AuthSecret = secret
+		log.Infof("server.authSecret taken from %s", envRelayAuthSecret)
+	}
+	if key := os.Getenv(envStoreEncryptionKey); key != "" {
+		cfg.Server.Store.EncryptionKey = key
+		log.Infof("server.store.encryptionKey taken from %s", envStoreEncryptionKey)
+	}
 }
 
 // Validate validates the configuration
