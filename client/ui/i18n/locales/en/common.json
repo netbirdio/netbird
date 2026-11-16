@@ -1968,44 +1968,44 @@
         "description": "Heading of the section in the Agent Networks tab that lists coding agents (Claude Code, Codex, OpenCode, Pi) NetBird can configure."
     },
     "agentNetwork.harness.description": {
-        "message": "Point a coding agent on this computer at Agent Networks. NetBird edits your own config for that agent and keeps a record so Undo restores it.",
+        "message": "Send a coding agent on this computer through Agent Networks. NetBird backs up the agent's config first.",
         "description": "Text under the 'Coding agents' heading."
     },
+    "agentNetwork.harness.loadError": {
+        "message": "Couldn't load the coding agents.",
+        "description": "Shown in the 'Coding agents' section when the list could not be loaded. A 'Try again' button and the technical error follow."
+    },
     "agentNetwork.harness.status.configured": {
-        "message": "Set up",
-        "description": "Badge on a coding agent card: NetBird's settings are in place."
+        "message": "Configured",
+        "description": "Badge on a coding agent row: NetBird's settings are in place."
     },
     "agentNetwork.harness.status.edited": {
-        "message": "Changed since",
-        "description": "Badge on a coding agent card: NetBird set it up, but the settings were changed or the file can no longer be read since."
-    },
-    "agentNetwork.harness.status.notConfigured": {
-        "message": "Not set up",
-        "description": "Badge on a coding agent card: NetBird has not configured this agent."
+        "message": "Edited",
+        "description": "Badge on a coding agent row: NetBird set it up, but the settings were changed afterwards or the file can no longer be read."
     },
     "agentNetwork.harness.configure": {
-        "message": "Set up",
-        "description": "Button on a coding agent card that opens the setup dialog."
+        "message": "Set Up",
+        "description": "Button on a coding agent row that opens the setup dialog."
     },
     "agentNetwork.harness.reconfigure": {
         "message": "Change",
-        "description": "Button on a configured coding agent card that opens the setup dialog to pick another provider or model."
+        "description": "Button on a configured coding agent row that opens the setup dialog to pick another provider or model."
     },
     "agentNetwork.harness.undo": {
         "message": "Undo",
-        "description": "Button on a configured coding agent card that restores the settings NetBird replaced."
+        "description": "Button on a configured coding agent row that restores the settings NetBird replaced."
     },
     "agentNetwork.harness.noProvider": {
         "message": "None of your providers works with this agent.",
-        "description": "Shown on a coding agent card when no provider the user may use speaks an API the agent supports."
+        "description": "Tooltip on the disabled Set Up button of a coding agent when no provider the user may use speaks an API the agent supports."
     },
     "agentNetwork.harness.applied": {
-        "message": "Set up for Agent Networks.",
-        "description": "Shown on a coding agent card after setup succeeded."
+        "message": "Configured for Agent Networks.",
+        "description": "Shown on a coding agent row after setup succeeded."
     },
     "agentNetwork.harness.undone": {
         "message": "Your previous settings are back.",
-        "description": "Shown on a coding agent card after Undo succeeded."
+        "description": "Shown on a coding agent row after Undo succeeded."
     },
     "agentNetwork.harness.kept": {
         "message": "Left alone because you changed them: {keys}",
@@ -2013,15 +2013,19 @@
     },
     "agentNetwork.harness.backup": {
         "message": "Backup: {path}",
-        "description": "Shown after a setup or undo, one line per backup file written. {path} is a file path; keep it."
+        "description": "Shown after a setup or undo, one line per backup file written. {path} is a file name; keep it."
     },
     "agentNetwork.harness.dialogTitle": {
-        "message": "Set up {name}",
+        "message": "Set Up {name}",
         "description": "Title of the coding agent setup dialog. {name} is the agent name such as 'Claude Code'; keep it."
     },
-    "agentNetwork.harness.dialogDescription": {
-        "message": "Pick a provider and model. Nothing is written until you confirm.",
-        "description": "Text under the setup dialog title."
+    "agentNetwork.harness.dialogDescription.claudeCode": {
+        "message": "Claude Code will send its requests to Agent Networks instead of your claude.ai login. Your login stays saved. Nothing is written until you confirm.",
+        "description": "Text under the title of the Claude Code setup dialog. Keep 'Claude Code' and 'claude.ai' verbatim."
+    },
+    "agentNetwork.harness.dialogDescription.generic": {
+        "message": "{name} will send its requests to Agent Networks. Nothing is written until you confirm.",
+        "description": "Text under the title of the setup dialog for agents other than Claude Code. {name} is the agent name; keep it."
     },
     "agentNetwork.harness.provider": {
         "message": "Provider",
@@ -2039,6 +2043,10 @@
         "message": "Google Cloud project ID",
         "description": "Label of the field for the Google Cloud project that Vertex AI requests carry."
     },
+    "agentNetwork.harness.vertexProjectHelp": {
+        "message": "The project your Vertex AI requests are sent under.",
+        "description": "Help text under the 'Google Cloud project ID' label in the setup dialog."
+    },
     "agentNetwork.harness.planning": {
         "message": "Checking your settings…",
         "description": "Shown while the setup dialog computes the preview."
@@ -2048,8 +2056,8 @@
         "description": "Shown in the setup dialog when nothing would change."
     },
     "agentNetwork.harness.conflict": {
-        "message": "Settings marked 'Not set by NetBird' hold values you or another tool set. Confirming replaces them; Undo puts them back.",
-        "description": "Warning in the setup dialog when existing settings would be overwritten."
+        "message": "Settings marked 'Not set by NetBird' will be replaced. Undo puts them back.",
+        "description": "Warning line under the preview in the setup dialog when existing settings would be overwritten. Keep 'Not set by NetBird' the same as the badge."
     },
     "agentNetwork.harness.notOurs": {
         "message": "Not set by NetBird",
@@ -2071,20 +2079,12 @@
         "message": "NetBird can't edit {file} without losing comments or formatting. Add these settings by hand:",
         "description": "Shown in the setup dialog when a config file can't be rewritten safely, above the text to paste. {file} is a file path; keep it."
     },
-    "agentNetwork.harness.notice.claudeCode": {
-        "message": "While this is set up, Claude Code sends its requests to Agent Networks instead of your claude.ai login. Your login stays saved; Undo switches back.",
-        "description": "Note in the Claude Code setup dialog. Keep 'Claude Code' and 'claude.ai' verbatim."
-    },
-    "agentNetwork.harness.notice.generic": {
-        "message": "While this is set up, {name} sends its requests to Agent Networks. Undo switches back.",
-        "description": "Note in the setup dialog for agents other than Claude Code. {name} is the agent name; keep it."
-    },
     "agentNetwork.harness.apply": {
-        "message": "Set up",
+        "message": "Set Up",
         "description": "Confirm button of the setup dialog."
     },
     "agentNetwork.harness.replaceAndApply": {
-        "message": "Replace and set up",
+        "message": "Replace and Set Up",
         "description": "Confirm button of the setup dialog when existing settings will be overwritten."
     }
 }
