@@ -15,6 +15,7 @@ type TabEntry = {
     value: NavSection;
     label: string;
     icon: ComponentType<LucideProps>;
+    className?: string;
 };
 
 export const Navigation = () => {
@@ -59,6 +60,8 @@ export const Navigation = () => {
             value: "agentNetwork",
             label: t("nav.agentNetwork.title"),
             icon: BotIcon,
+            // The longest label: a third of the bar only fits it on one line with less padding.
+            className: "px-3 whitespace-nowrap",
         });
     }
 
@@ -136,6 +139,7 @@ export const Navigation = () => {
                             "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-inset",
                             isActive ? "text-netbird" : "text-nb-gray-400 hover:text-nb-gray-300",
                             isDisabled ? "cursor-not-allowed opacity-50" : "cursor-default",
+                            tab.className,
                         )}
                     >
                         <Icon size={14} aria-hidden={"true"} />
