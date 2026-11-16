@@ -125,6 +125,7 @@ func TestIsHealthyConnectingWithoutStream(t *testing.T) {
 	require.Eventually(t, func() bool { return conn.GetState() == connectivity.Connecting }, 5*time.Second, 10*time.Millisecond,
 		"channel should be stuck connecting to a listener that never answers")
 
-	client := &GrpcClient{signalConn: conn, status: StreamDisconnected}
+	client := &GrpcClient{status: StreamDisconnected}
+	client.conn.Swap(conn, sigProto.NewSignalExchangeClient(conn), 0)
 	assert.False(t, client.IsHealthy(), "a connecting channel with no registered stream must not be reported healthy")
 }

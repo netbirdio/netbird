@@ -51,7 +51,7 @@ func CreateConnection(ctx context.Context, addr string, tlsEnabled bool, compone
 		WithCustomDialer(tlsEnabled, component),
 		grpc.WithBlock(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:    30 * time.Second,
+			Time:    KeepaliveTime(component, addr),
 			Timeout: 10 * time.Second,
 		}),
 	}

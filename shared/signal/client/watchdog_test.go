@@ -7,11 +7,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 
+	"github.com/netbirdio/netbird/shared/alignedhb"
 	sigProto "github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/signal/server"
 )
@@ -113,6 +115,27 @@ func TestReceiveAliveTreatsHandoffBlockAsLiveness(t *testing.T) {
 	c.receiveHandoffBlocked.Store(false)
 	c.markReceived()
 	require.True(t, c.receiveAlive(), "a freshly received frame must keep the stream alive")
+}
+
+// An aligned stream is silent for a whole period between heartbeats. The
+// watchdog must not probe it inside the period plus the margin, and a stock
+// stream keeps the stock threshold.
+func TestInactivityThresholdFollowsAlignedPeriod(t *testing.T) {
+	c := &GrpcClient{}
+	assert.Equal(t, receiveInactivityThreshold, c.inactivityThreshold(), "stock stream")
+
+	c.setAlignedAnswer(&alignedhb.Answer{Period: time.Minute})
+	assert.Equal(t, 70*time.Second, c.inactivityThreshold(), "aligned stream at a 60 s period")
+
+	// 50 s of silence is normal between two heartbeats 60 s apart.
+	c.lastReceived.Store(time.Now().Add(-50 * time.Second).UnixNano())
+	assert.True(t, c.receiveAlive(), "an aligned stream between two heartbeats must count as alive")
+	c.lastReceived.Store(time.Now().Add(-75 * time.Second).UnixNano())
+	assert.False(t, c.receiveAlive(), "an aligned stream silent past period plus margin must be probed")
+
+	c.setAlignedAnswer(nil)
+	c.lastReceived.Store(time.Now().Add(-50 * time.Second).UnixNano())
+	assert.False(t, c.receiveAlive(), "a stream back to stock must use the stock threshold")
 }
 
 // fakeRecvStream feeds the receive loop frames from a channel and reports EOF

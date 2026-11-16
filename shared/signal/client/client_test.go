@@ -31,7 +31,8 @@ type signalTestClient struct {
 
 // receive starts the receive loop in the background. The test cleanup
 // cancels the context and waits on done, so no reconnect goroutine
-// outlives the test.
+// outlives the test and reads the package state (alignedRequest, stock
+// marks) of later tests.
 func (c *signalTestClient) receive(handler func(msg *sigProto.Message) error) {
 	go func() {
 		defer close(c.done)

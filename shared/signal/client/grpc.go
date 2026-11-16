@@ -22,7 +22,9 @@ import (
 	"github.com/netbirdio/netbird/client/hbwatch"
 	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/shared/alignedhb"
 	"github.com/netbirdio/netbird/shared/management/client"
+	"github.com/netbirdio/netbird/shared/relay/messages"
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/util/wsproxy"
 )
@@ -54,6 +56,14 @@ const (
 // but no longer delivering messages, so the stream is torn down to reconnect.
 var errReceiveStreamStalled = errors.New("signal receive stream stalled")
 
+// errServerGoingAway is returned by receive when the server announced shutdown.
+var errServerGoingAway = errors.New("signal server going away")
+
+// streamProbeSender is the send side of the ConnectStream.
+type streamProbeSender interface {
+	Send(*proto.EncryptedMessage) error
+}
+
 // ConnStateNotifier is a wrapper interface of the status recorder
 type ConnStateNotifier interface {
 	MarkSignalDisconnected(error)
@@ -64,10 +74,14 @@ type ConnStateNotifier interface {
 type GrpcClient struct {
 	key        wgtypes.Key
 	sharedKeys *encryption.SharedKeyCache
-	realClient proto.SignalExchangeClient
-	signalConn *grpc.ClientConn
-	ctx        context.Context
-	stream     proto.SignalExchange_ConnectStreamClient
+	// conn is the connection, replaced by a redial after a stock answer.
+	conn nbgrpc.RedialConn[proto.SignalExchangeClient]
+	// addr is the server address, the key of its stock mark.
+	addr string
+	// dial creates a connection with the keepalive the stock marks give.
+	dial   nbgrpc.ConnDial
+	ctx    context.Context
+	stream proto.SignalExchange_ConnectStreamClient
 	// connectedCh used to notify goroutines waiting for the connection to the Signal stream
 	connectedCh chan struct{}
 	mux         sync.Mutex
@@ -101,11 +115,34 @@ type GrpcClient struct {
 	// receive backpressure as a dead stream: reconnecting cannot help, since the
 	// new stream feeds the same worker, and only triggers a reconnect storm.
 	receiveHandoffBlocked atomic.Bool
-	watchdogWg            sync.WaitGroup
+	// streamProbeInflight keeps stream probe sends of the watchdog from
+	// overlapping on one stream.
+	streamProbeInflight atomic.Bool
+	watchdogWg          sync.WaitGroup
 
 	registrationTimeout       time.Duration
 	registrationProbeInterval time.Duration
+
+	// alignedAnswer is the aligned heartbeat the server confirmed on the current
+	// stream, nil without an answer. Set it with setAlignedAnswer.
+	alignedAnswer atomic.Pointer[alignedhb.Answer]
+	// tcpKeepAlive follows the TCP keepalive of the connection to the answer.
+	tcpKeepAlive nbgrpc.TCPKeepAlive
+	// phase is the phase request writer of the current stream, nil when the
+	// server sent no aligned heartbeat answer and so may not read the stream.
+	phase atomic.Pointer[phaseWriter]
+	// newStockMark is set when the stock answer of the current stream marked
+	// the server stock anew. Only such a stream reopens on an aligned
+	// Management answer, so a server that stays stock gets one reopen.
+	newStockMark atomic.Bool
+	// streamSendMu serializes writes on the ConnectStream, which gRPC forbids
+	// from more than one goroutine at a time.
+	streamSendMu sync.Mutex
 }
+
+// alignedRequest returns the aligned heartbeat period this client asks for. A
+// var so tests can turn the request on outside mobile builds.
+var alignedRequest = alignedhb.ClientPeriod
 
 // Option configures optional GrpcClient behavior.
 type Option func(*GrpcClient)
@@ -120,6 +157,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 	// Options apply before dialing: the sweeper must wrap the first connection too.
 	c := &GrpcClient{
 		ctx:                       ctx,
+		addr:                      addr,
 		key:                       key,
 		sharedKeys:                encryption.NewSharedKeyCache(key),
 		mux:                       sync.Mutex{},
@@ -132,22 +170,17 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 		opt(c)
 	}
 
-	var extraOpts []grpc.DialOption
+	var sweeper nbgrpc.Sweeper
 	if c.netMgr != nil {
-		extraOpts = append(extraOpts, nbgrpc.WithDialHooks(c.netMgr, nil, nil))
+		sweeper = c.netMgr
 	}
+	// Signal dials are never held: the Signal stream carries the heartbeat
+	// burst the Management retries wait for.
+	extraOpts := []grpc.DialOption{nbgrpc.WithDialHooks(sweeper, &c.tcpKeepAlive, nil)}
 
-	var conn *grpc.ClientConn
-	operation := func() error {
-		var err error
-		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.SignalComponent, extraOpts...)
-		if err != nil {
-			return fmt.Errorf("create connection: %w", err)
-		}
-		return nil
-	}
+	c.dial = nbgrpc.NewConnDial(wsproxy.SignalComponent, addr, tlsEnabled, hbwatch.WaitSignalConnect, logStockDial, extraOpts...)
 
-	err := backoff.Retry(operation, nbgrpc.Backoff(ctx))
+	conn, ka, err := c.dial(ctx)
 	if err != nil {
 		log.Errorf("failed to connect to the signalling server: %v", err)
 		return nil, err
@@ -155,9 +188,54 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 
 	log.Debugf("connected to Signal Service: %v", conn.Target())
 
-	c.signalConn = conn
-	c.realClient = proto.NewSignalExchangeClient(conn)
+	c.conn.Swap(conn, proto.NewSignalExchangeClient(conn), ka)
 	return c, nil
+}
+
+// logStockDial notes a dial with the stock keepalive after a stock answer.
+func logStockDial(ka time.Duration) {
+	_, asked := alignedRequest()
+	nbgrpc.LogStockDial("Signal", asked, ka)
+}
+
+// stockAnswer marks the server stock for this session and redials a connection
+// with the aligned keepalive. It reports whether the mark is new.
+func (c *GrpcClient) stockAnswer() bool {
+	return c.conn.StockAnswer(c.ctx, nbgrpc.Redialer[proto.SignalExchangeClient]{
+		Name:      "Signal",
+		Component: wsproxy.SignalComponent,
+		Addr:      c.addr,
+		Dial:      c.dial,
+		NewClient: proto.NewSignalExchangeClient,
+	})
+}
+
+// answeredStock reports whether the current stream asked for the aligned
+// heartbeat and the server sent no answer to it.
+func (c *GrpcClient) answeredStock() bool {
+	_, asked := alignedRequest()
+	return asked && c.phase.Load() == nil
+}
+
+// reopensOnAlignedAnswer reports whether the current stream reopens on an
+// aligned Management answer: it answered stock and marked the server stock
+// anew. A stream that finds the mark set, as after such a reopen landed on a
+// server that is still stock, stays until the server answers aligned once.
+func (c *GrpcClient) reopensOnAlignedAnswer() bool {
+	return c.answeredStock() && c.newStockMark.Load()
+}
+
+// reopenOnAlignedAnswer cancels a stream the server opened stock when
+// Management answers aligned, so the stream reopens with the signed phase. A
+// stock stream behind a proxy can outlive the stock server it opened on, and
+// only the receive watchdog would drop it, minutes later.
+func reopenOnAlignedAnswer(ctx context.Context, cancelStream context.CancelFunc, mgmtAligned <-chan struct{}) {
+	select {
+	case <-ctx.Done():
+	case <-mgmtAligned:
+		log.Infof("Management answered aligned while the Signal stream runs stock, reopening it")
+		cancelStream()
+	}
 }
 
 func (c *GrpcClient) StreamConnected() bool {
@@ -179,7 +257,7 @@ func (c *GrpcClient) Close() error {
 	c.decryptionWorker = nil
 	c.sharedKeys.Close()
 
-	return c.signalConn.Close()
+	return c.conn.Close()
 }
 
 // SetConnStateListener set the ConnStateNotifier
@@ -202,15 +280,20 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 	}, ctx)
 }
 
+// receiveBackoff is the backoff of the receive retry loop. A var so tests can
+// use waits no timer reaches.
+var receiveBackoff = defaultBackoff
+
 // Receive Connects to the Signal Exchange message stream and starts receiving messages.
 // The messages will be handled by msgHandler function provided.
 // This function is blocking and reconnects to the Signal Exchange if errors occur (e.g. Exchange restart)
 // The connection retry logic will try to reconnect for 30 min and if wasn't successful will propagate the error to the function caller.
 func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Message) error) error {
 
-	backOff := c.netMgr.QuickRetryBackoff(ctx, defaultBackoff(ctx))
+	backOff := c.netMgr.QuickRetryBackoff(ctx, receiveBackoff(ctx))
 
 	operation := func() error {
+		conn := c.conn.Conn()
 		// suspend reconnect attempts while the OS reports no usable network.
 		// Wait only errors on a cancelled context, which means shutdown, so
 		// stop the loop without reporting a failure.
@@ -221,27 +304,17 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 			backOff.Reset()
 			// dials attempted while offline grew the channel's internal backoff;
 			// reset it too, or the reconnect waits out that timer first
-			c.signalConn.ResetConnectBackoff()
+			conn.ResetConnectBackoff()
 		}
 
 		c.notifyStreamDisconnected()
 
-		connState := c.signalConn.GetState()
-		log.Debugf("signal connection state %v", connState)
-		if connState == connectivity.Shutdown {
-			return backoff.Permanent(fmt.Errorf("connection to signal has been shut down"))
+		if err := c.conn.Ready(ctx, conn, "Signal"); err != nil {
+			return err
 		}
-		if !(connState == connectivity.Ready || connState == connectivity.Idle) {
-			// A dial may already be in flight (e.g. triggered by another RPC
-			// after a network change); wait for it to settle and proceed if
-			// the channel became usable, instead of burning a backoff round on
-			// a successful dial. A failed dial errors out as before.
-			c.signalConn.WaitForStateChange(ctx, connState)
-			connState = c.signalConn.GetState()
-			if !(connState == connectivity.Ready || connState == connectivity.Idle) {
-				return fmt.Errorf("connection to signal is not ready and in %s state", connState)
-			}
-		}
+
+		// Taken before the stream opens, so an answer during the open counts.
+		mgmtAligned := alignedhb.SignedAnswerAnnounced()
 
 		// connect to Signal stream identifying ourselves with a public WireGuard key
 		// todo once the key rotation logic has been implemented, consider changing to some other identifier (received from management)
@@ -267,12 +340,38 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 		c.watchdogWg.Add(1)
 		go func() {
 			defer c.watchdogWg.Done()
-			c.watchReceiveStream(streamCtx, cancelStream)
+			c.watchReceiveStream(streamCtx, cancelStream, stream)
 		}()
+		if c.reopensOnAlignedAnswer() {
+			c.watchdogWg.Add(1)
+			go func() {
+				defer c.watchdogWg.Done()
+				reopenOnAlignedAnswer(streamCtx, cancelStream, mgmtAligned)
+			}()
+		}
+		// A missed tick reconnects at once. A probe first costs a full period
+		// when the phone sleeps before the answer is checked.
+		reg := hbwatch.Registration{
+			Kind: hbwatch.ActionReconnect,
+			Addr: c.addr,
+			Stale: func() {
+				log.Warnf("signal stream is stale, reconnecting")
+				cancelStream()
+			},
+		}
+		if pw := c.phase.Load(); pw != nil {
+			reg.Correct = pw.correct
+			go pw.forwardSignedPhases(streamCtx)
+		}
+		if a := c.alignedAnswer.Load(); a != nil {
+			reg.AlignedPeriod = a.Period
+		}
+		unregisterStale := hbwatch.Register(hbwatch.Signal, reg)
 
 		// start receiving messages from the Signal stream (from other peers through signal)
 		err = c.receive(stream)
 
+		unregisterStale()
 		cancelStream()
 		c.watchdogWg.Wait()
 
@@ -331,21 +430,71 @@ func (c *GrpcClient) notifyStreamConnected() {
 func (c *GrpcClient) connect(ctx context.Context, cancel context.CancelFunc, key string) (proto.SignalExchange_ConnectStreamClient, error) {
 	c.stream = nil
 
+	// A new stream starts stock until its own answer arrives.
+	c.setAlignedAnswer(nil)
+	c.phase.Store(nil)
+	c.newStockMark.Store(false)
+
 	// add key fingerprint to the request header to be identified on the server side
 	md := metadata.New(map[string]string{proto.HeaderId: key})
+	alignedReq, sentSeq, asked := alignedStreamRequest(key)
+	if asked {
+		md.Set(alignedhb.MetadataKey, alignedReq.Value())
+	}
 	metaCtx := metadata.NewOutgoingContext(ctx, md)
-	stream, err := c.realClient.ConnectStream(metaCtx, grpc.WaitForReady(true))
+	stream, err := c.conn.Client().ConnectStream(metaCtx, grpc.WaitForReady(true))
 	c.stream = stream
 	if err != nil {
 		return nil, err
 	}
 	stopProbes := c.probeUntilRegistered(ctx)
 	defer stopProbes()
-	if err := awaitRegistration(stream, c.registrationTimeout, cancel); err != nil {
+	header, err := awaitRegistration(stream, c.registrationTimeout, cancel)
+	if err != nil {
 		return nil, err
+	}
+	if asked {
+		c.applyAlignedAnswer(header, stream, key, sentSeq)
 	}
 
 	return stream, nil
+}
+
+// applyAlignedAnswer reads the aligned heartbeat answer of a new stream. Any
+// answer shows that the server reads the stream, so phase requests may be
+// written on it. Only an answer with a phase turns the aligned heartbeat on.
+func (c *GrpcClient) applyAlignedAnswer(header metadata.MD, stream streamProbeSender, key string, sentSeq uint64) {
+	answer, aligned, ok := alignedAnswerFromHeader(header)
+	if !ok {
+		c.newStockMark.Store(c.stockAnswer())
+		return
+	}
+	nbgrpc.ClearStock(wsproxy.SignalComponent, c.addr)
+	if aligned {
+		c.setAlignedAnswer(&answer)
+	}
+	c.phase.Store(newPhaseWriter(stream, &c.streamSendMu, messages.HashID(key), key, answer.Period, sentSeq))
+}
+
+// alignedHeartbeat returns the aligned heartbeat the Signal server confirmed on
+// the current stream. ok is false without an answer, which keeps the client stock.
+func (c *GrpcClient) alignedHeartbeat() (answer alignedhb.Answer, ok bool) {
+	a := c.alignedAnswer.Load()
+	if a == nil {
+		return alignedhb.Answer{}, false
+	}
+	return *a, true
+}
+
+// setAlignedAnswer records the aligned heartbeat answer of the current stream,
+// nil for none, and sets the TCP keepalive of the connection to match.
+func (c *GrpcClient) setAlignedAnswer(answer *alignedhb.Answer) {
+	c.alignedAnswer.Store(answer)
+	if answer == nil {
+		c.tcpKeepAlive.SetStock()
+		return
+	}
+	c.tcpKeepAlive.SetAligned(answer.Period)
 }
 
 // probeUntilRegistered sends a self-addressed heartbeat every
@@ -376,27 +525,71 @@ func (c *GrpcClient) probeUntilRegistered(ctx context.Context) func() {
 	}
 }
 
-func awaitRegistration(stream proto.SignalExchange_ConnectStreamClient, timeout time.Duration, cancel context.CancelFunc) error {
+// alignedStreamRequest returns the aligned heartbeat request for a stream of the
+// peer with public key key, and the sequence number of the signed phase in it.
+// It carries the last phase Management signed, with the period it was signed
+// for, once the client has one.
+func alignedStreamRequest(key string) (alignedhb.StreamRequest, uint64, bool) {
+	period, asked := alignedRequest()
+	if !asked {
+		return alignedhb.StreamRequest{}, 0, false
+	}
+	stored, ok := alignedhb.LoadStoredPhase(messages.HashID(key))
+	if !ok {
+		return alignedhb.StreamRequest{Period: period}, 0, true
+	}
+	return alignedhb.StreamRequest{Period: stored.Period, Signed: &stored.Signed}, stored.Seq, true
+}
+
+// alignedAnswerFromHeader returns the aligned heartbeat answer in the
+// registration header. ok is false when an old server sent none or it is
+// unreadable. aligned is false for an answer without a phase: the server reads
+// the stream but has no valid signed phase yet.
+func alignedAnswerFromHeader(header metadata.MD) (answer alignedhb.Answer, aligned, ok bool) {
+	v := header.Get(alignedhb.MetadataKey)
+	if len(v) == 0 {
+		return alignedhb.Answer{}, false, false
+	}
+	answer, aligned, err := alignedhb.ParseStreamAnswer(v[0])
+	if err != nil {
+		log.Warnf("ignoring aligned heartbeat answer from Signal: %v", err)
+		return alignedhb.Answer{}, false, false
+	}
+	if clamped, ok := alignedhb.ClampAnswer(answer); ok {
+		log.Warnf("aligned heartbeat period %s from Signal outside %s to %s, using %s",
+			answer.Period, alignedhb.MinPeriod, alignedhb.MaxPeriod, clamped.Period)
+		answer = clamped
+	}
+	if !aligned {
+		log.Infof("Signal reads the stream, period %s, waiting for a signed phase", answer.Period)
+		return answer, false, true
+	}
+	log.Infof("aligned heartbeat on the Signal stream, period %s, phase %d ms", answer.Period, answer.Phase.Milliseconds())
+	return answer, true, true
+}
+
+func awaitRegistration(stream proto.SignalExchange_ConnectStreamClient, timeout time.Duration, cancel context.CancelFunc) (metadata.MD, error) {
 	// A timer rather than a context deadline: the stream context must outlive registration.
 	timer := time.AfterFunc(timeout, cancel)
 	header, err := stream.Header()
 	if !timer.Stop() {
-		return fmt.Errorf("no registration header from the Signal server within %s", timeout)
+		return nil, fmt.Errorf("no registration header from the Signal server within %s", timeout)
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	registered := header.Get(proto.HeaderRegistered)
 	if len(registered) == 0 {
-		return fmt.Errorf("didn't receive a registration header from the Signal server whille connecting to the streams")
+		return nil, fmt.Errorf("didn't receive a registration header from the Signal server whille connecting to the streams")
 	}
-	return nil
+	return header, nil
 }
 
 // Ready indicates whether the client is okay and Ready to be used
 // for now it just checks whether gRPC connection to the service is in state Ready
 func (c *GrpcClient) Ready() bool {
-	return c.signalConn.GetState() == connectivity.Ready || c.signalConn.GetState() == connectivity.Idle
+	state := c.conn.Conn().GetState()
+	return state == connectivity.Ready || state == connectivity.Idle
 }
 
 // IsHealthy reports whether the Signal connection is usable, based on the
@@ -411,7 +604,7 @@ func (c *GrpcClient) IsHealthy() bool {
 		return false
 	}
 
-	switch c.signalConn.GetState() {
+	switch c.conn.Conn().GetState() {
 	case connectivity.TransientFailure:
 		return false
 	case connectivity.Connecting:
@@ -547,7 +740,7 @@ func (c *GrpcClient) send(parentCtx context.Context, msg *proto.Message) error {
 		}
 		ctx, cancel := context.WithTimeout(parentCtx, attemptTimeout)
 
-		_, err = c.realClient.Send(ctx, encryptedMessage)
+		_, err = c.conn.Client().Send(ctx, encryptedMessage)
 
 		cancel()
 
@@ -581,8 +774,17 @@ func (c *GrpcClient) idleSinceReceive() time.Duration {
 // stopped calling Recv, so the stream looks silent while being healthy, and
 // reconnecting would not help, so the watchdog must treat it as alive.
 func (c *GrpcClient) receiveAlive() bool {
-	return c.idleSinceReceive() < receiveInactivityThreshold ||
-		c.receiveHandoffBlocked.Load()
+	return c.idleSinceReceive() < c.inactivityThreshold() || c.receiveHandoffBlocked.Load()
+}
+
+// inactivityThreshold returns how long the stream may be silent before the
+// watchdog probes it. An aligned stream is silent for a whole period between
+// heartbeats, so it gets the receive timeout of its period.
+func (c *GrpcClient) inactivityThreshold() time.Duration {
+	if a := c.alignedAnswer.Load(); a != nil {
+		return alignedhb.ReceiveTimeout(a.Period)
+	}
+	return receiveInactivityThreshold
 }
 
 // watchReceiveStream guards against a receive stream that is transport-alive but
@@ -591,7 +793,7 @@ func (c *GrpcClient) receiveAlive() bool {
 // server routes back to this client. If the probe does not round-trip within
 // receiveProbeTimeout the receive direction is considered dead and cancelStream
 // is called so the retry loop reconnects.
-func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream context.CancelFunc) {
+func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream context.CancelFunc, stream streamProbeSender) {
 	ticker := time.NewTicker(receiveWatchdogInterval)
 	defer ticker.Stop()
 
@@ -615,6 +817,7 @@ func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream contex
 			}
 
 			if probeSentAt.IsZero() {
+				c.sendStreamProbe(stream, &c.streamProbeInflight)
 				if err := c.sendReceiveProbe(ctx); err != nil {
 					log.Debugf("failed to send signal receive probe: %v", err)
 				}
@@ -635,6 +838,33 @@ func (c *GrpcClient) sendReceiveProbe(ctx context.Context) error {
 		RemoteKey: self,
 		Body:      &proto.Body{Type: proto.Body_HEARTBEAT},
 	})
+}
+
+// sendStreamProbe writes one frame on the ConnectStream itself. A Go reverse
+// proxy whose backend stream already ended holds the client stream open until
+// the client writes on it, so this write lets the proxy end it. The send runs in
+// its own goroutine because it can block on flow control until cancelStream.
+// inflight keeps sends on one stream from overlapping, which gRPC forbids.
+// The server drops stream frames without a phase request, so the frame needs no
+// marker. Only a server that answered the aligned heartbeat request reads the
+// stream: on an old server the writes would fill the flow control window, so
+// nothing is written there.
+func (c *GrpcClient) sendStreamProbe(stream streamProbeSender, inflight *atomic.Bool) {
+	if c.phase.Load() == nil {
+		return
+	}
+	if !inflight.CompareAndSwap(false, true) {
+		return
+	}
+	self := c.key.PublicKey().String()
+	go func() {
+		defer inflight.Store(false)
+		c.streamSendMu.Lock()
+		defer c.streamSendMu.Unlock()
+		if err := stream.Send(&proto.EncryptedMessage{Key: self, RemoteKey: self}); err != nil {
+			log.Debugf("failed to send signal stream probe: %v", err)
+		}
+	}()
 }
 
 // receive receives messages from other peers coming through the Signal Exchange
@@ -660,8 +890,31 @@ func (c *GrpcClient) receive(stream proto.SignalExchange_ConnectStreamClient) er
 
 		// Any frame from the server proves the receive direction is alive.
 		c.markReceived()
+		hb := c.serverHeartbeat(msg)
+		// Going-away rides in a server heartbeat, so the same gate decides: only
+		// the server of an aligned stream can send it. It carries no phase.
+		if hb.GetGoingAway() {
+			log.Infof("signal server going away, reconnecting")
+			return errServerGoingAway
+		}
+		if hb != nil {
+			c.seenHeartbeat(hb)
+		} else {
+			hbwatch.Touch(hbwatch.Signal)
+		}
 
 		if msg == nil {
+			continue
+		}
+
+		// A server heartbeat is not end to end encrypted and has no body, so it
+		// never goes to the decryption worker, forged or not.
+		if msg.GetServerHeartbeat() != nil {
+			if hb == nil {
+				log.Debugf("ignoring signal heartbeat from [%s]: not written by the server of an aligned stream", msg.GetKey())
+				continue
+			}
+			log.Tracef("received signal heartbeat, phase %d ms", hb.GetPhaseMillis())
 			continue
 		}
 
