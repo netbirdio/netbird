@@ -21,6 +21,9 @@ export const useAgentNetworkInfo = ({ enabled, pollMs }: Options) => {
     const [info, setInfo] = useState<AgentNetworkInfo | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+    // Bumped by refresh() to rerun the fetch effect on demand.
+    const [refreshTick, setRefreshTick] = useState(0);
+    const refresh = useCallback(() => setRefreshTick((n) => n + 1), []);
 
     const load = useCallback(async (isCancelled: () => boolean) => {
         setLoading(true);
@@ -57,7 +60,7 @@ export const useAgentNetworkInfo = ({ enabled, pollMs }: Options) => {
             clearInterval(timer);
             document.removeEventListener("visibilitychange", refreshIfVisible);
         };
-    }, [enabled, pollMs, load]);
+    }, [enabled, pollMs, load, refreshTick]);
 
-    return { info, error, loading };
+    return { info, error, loading, refresh };
 };
