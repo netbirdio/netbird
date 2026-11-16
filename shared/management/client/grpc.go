@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -18,6 +20,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
+	grpcbackoff "google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/connectivity"
 
 	nbgrpc "github.com/netbirdio/netbird/client/grpc"
@@ -25,9 +28,11 @@ import (
 	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/shared/alignedhb"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	nbmgmtgrpc "github.com/netbirdio/netbird/shared/management/grpc"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/relay/messages"
 	"github.com/netbirdio/netbird/util/wsproxy"
 )
 
@@ -56,10 +61,13 @@ type ConnStateNotifier interface {
 }
 
 type GrpcClient struct {
-	key                   wgtypes.Key
-	realClient            proto.ManagementServiceClient
+	key wgtypes.Key
+	// conn is the connection, replaced by a redial after a stock answer.
+	conn nbgrpc.RedialConn[proto.ManagementServiceClient]
+	// dial creates a connection with the keepalive the stock marks give.
+	dial nbgrpc.ConnDial
+
 	ctx                   context.Context
-	conn                  *grpc.ClientConn
 	connStateCallback     ConnStateNotifier
 	connStateCallbackLock sync.RWMutex
 	serverURL             string
@@ -75,7 +83,28 @@ type GrpcClient struct {
 	// connection while the Sync stream keeps failing.
 	syncStreamMu  sync.RWMutex
 	syncStreamErr error
+
+	// alignedAnswer is the aligned heartbeat Management confirmed on the current
+	// Sync stream, nil without an answer or when it is off. Set it with
+	// setAlignedAnswer.
+	alignedAnswer atomic.Pointer[alignedhb.Answer]
+	// tcpKeepAlive follows the TCP keepalive of the connection to the answer.
+	tcpKeepAlive nbgrpc.TCPKeepAlive
+	// downSince is the Unix nano time a Management stream last went down, zero
+	// while the streams are up. The dial hold reads it from gRPC's dial goroutine.
+	downSince atomic.Int64
+	// dialAt is the wall Unix ms of the last dial the hold let through while
+	// down, dialsDown the count of those dials. A wake ends the channel's own
+	// backoff once it passed on the wall clock, see onWake.
+	dialAt    atomic.Int64
+	dialsDown atomic.Int32
+	// unsubscribeWake removes onWake from the heartbeat watcher.
+	unsubscribeWake func()
 }
+
+// alignedRequest returns the aligned heartbeat period this client asks for. A
+// var so tests can turn the request on outside mobile builds.
+var alignedRequest = alignedhb.ClientPeriod
 
 type ExposeRequest struct {
 	NamePrefix string
@@ -143,28 +172,22 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		extraOpts = append(extraOpts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxSize)))
 		log.Infof("management gRPC max receive message size set to %d bytes", maxSize)
 	}
+	var sweeper nbgrpc.Sweeper
 	if c.netMgr != nil {
-		extraOpts = append(extraOpts, nbgrpc.WithDialHooks(c.netMgr, nil, nil))
+		sweeper = c.netMgr
 	}
+	extraOpts = append(extraOpts, nbgrpc.WithDialHooks(sweeper, &c.tcpKeepAlive, c.waitDial))
 
-	var conn *grpc.ClientConn
-	operation := func() error {
-		var err error
-		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.ManagementComponent, extraOpts...)
-		if err != nil {
-			return fmt.Errorf("create connection: %w", err)
-		}
-		return nil
-	}
+	c.dial = nbgrpc.NewConnDial(wsproxy.ManagementComponent, addr, tlsEnabled, hbwatch.WaitMgmtConnect, logStockDial, extraOpts...)
 
-	err := backoff.Retry(operation, nbgrpc.Backoff(ctx))
+	conn, ka, err := c.dial(ctx)
 	if err != nil {
 		log.Errorf("failed creating connection to Management Service: %v", err)
 		return nil, err
 	}
 
-	c.conn = conn
-	c.realClient = proto.NewManagementServiceClient(conn)
+	c.conn.Swap(conn, proto.NewManagementServiceClient(conn), ka)
+	c.unsubscribeWake = hbwatch.OnWake(c.onWake)
 	return c, nil
 }
 
@@ -175,6 +198,9 @@ func (c *GrpcClient) GetServerURL() string {
 
 // Close closes connection to the Management Service
 func (c *GrpcClient) Close() error {
+	if c.unsubscribeWake != nil {
+		c.unsubscribeWake()
+	}
 	return c.conn.Close()
 }
 
@@ -198,37 +224,106 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 	}, ctx)
 }
 
+// streamBackoff is the backoff of the stream retry loops. A var so tests can
+// use waits no timer reaches.
+var streamBackoff = defaultBackoff
+
+// waitDial holds a dial of the gRPC channel while the retry gate holds
+// Management retries. gRPC redials on its own backoff while the server is
+// gone, so without the hold those dials would wake a locked, idle device
+// outside the heartbeat burst.
+func (c *GrpcClient) waitDial(ctx context.Context) error {
+	down := c.downSince.Load()
+	if down == 0 {
+		return nil
+	}
+	if _, err := hbwatch.WaitManagementRetry(ctx, hbwatch.RetryDial, time.Unix(0, down), c.netMgr.Changed()); err != nil {
+		return err
+	}
+	c.dialAt.Store(hbwatch.WallNow().UnixMilli())
+	c.dialsDown.Add(1)
+	return nil
+}
+
+// onWake ends the gRPC channel's own reconnect backoff at a wake once it passed
+// on the wall clock: its timer counts only awake time on mobile. The redial
+// still goes through waitDial and the retry gate.
+func (c *GrpcClient) onWake(w hbwatch.Wake) {
+	at := c.dialAt.Load()
+	if c.downSince.Load() == 0 || at == 0 {
+		return
+	}
+	conn := c.conn.Conn()
+	if conn == nil || conn.GetState() != connectivity.TransientFailure {
+		return
+	}
+	due := time.UnixMilli(at).Add(channelBackoffBound(int(c.dialsDown.Load())))
+	overdue := w.At.Sub(due)
+	if overdue < 0 {
+		return
+	}
+	hbwatch.LogWaitWoken(hbwatch.WaitMgmtDial, overdue, w.Kind)
+	conn.ResetConnectBackoff()
+}
+
+// channelBackoffBound is the longest backoff the gRPC channel waits after its
+// dials-th failed dial in a row, with gRPC's default backoff. It is measured
+// from the dial start, so a dial that ran into its connect timeout can be let
+// through early, still only at a wake.
+func channelBackoffBound(dials int) time.Duration {
+	cfg := grpcbackoff.DefaultConfig
+	d := float64(cfg.BaseDelay)
+	for i := 1; i < dials && d < float64(cfg.MaxDelay); i++ {
+		d *= cfg.Multiplier
+	}
+	d = math.Min(d, float64(cfg.MaxDelay))
+	return time.Duration(d * (1 + cfg.Jitter))
+}
+
 // ready indicates whether the client is okay and ready to be used
 // for now it just checks whether gRPC connection to the service is ready
 func (c *GrpcClient) ready() bool {
-	return c.conn.GetState() == connectivity.Ready || c.conn.GetState() == connectivity.Idle
+	state := c.conn.Conn().GetState()
+	return state == connectivity.Ready || state == connectivity.Idle
 }
 
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
 func (c *GrpcClient) Sync(ctx context.Context, getInfo func(ctx context.Context) *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
-	return c.withMgmtStream(ctx, hbwatch.RetrySync, func(ctx context.Context, serverPubKey wgtypes.Key, backOff backoff.BackOff) error {
-		return c.handleSyncStream(ctx, serverPubKey, getInfo, msgHandler, backOff)
+	return c.withMgmtStream(ctx, hbwatch.RetrySync, func(ctx context.Context, serverPubKey wgtypes.Key, backOff backoff.BackOff, up func()) error {
+		return c.handleSyncStream(ctx, serverPubKey, getInfo, msgHandler, backOff, up)
 	})
 }
 
 // Job wraps the real client's Job endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
 func (c *GrpcClient) Job(ctx context.Context, msgHandler func(msg *proto.JobRequest) *proto.JobResponse) error {
-	return c.withMgmtStream(ctx, hbwatch.RetryJob, func(ctx context.Context, serverPubKey wgtypes.Key, backOff backoff.BackOff) error {
-		return c.handleJobStream(ctx, serverPubKey, msgHandler, backOff)
+	return c.withMgmtStream(ctx, hbwatch.RetryJob, func(ctx context.Context, serverPubKey wgtypes.Key, backOff backoff.BackOff, up func()) error {
+		return c.handleJobStream(ctx, serverPubKey, msgHandler, backOff, up)
 	})
 }
 
 // withMgmtStream runs a streaming operation against the ManagementService
 // It takes care of retries, connection readiness, and fetching server public key.
+// The handler calls up once its stream is established. key names the stream
+// for the retry gate, which lets each stream through once per period.
 func (c *GrpcClient) withMgmtStream(
 	ctx context.Context,
 	key hbwatch.RetryKey,
-	handler func(ctx context.Context, serverPubKey wgtypes.Key, backOff backoff.BackOff) error,
+	handler func(ctx context.Context, serverPubKey wgtypes.Key, backOff backoff.BackOff, up func()) error,
 ) error {
-	backOff := c.netMgr.QuickRetryBackoff(ctx, defaultBackoff(ctx))
-	operation := func() error {
+	backOff := c.netMgr.QuickRetryBackoff(ctx, streamBackoff(ctx))
+	// downSince is when the stream last went down, zero while it is up. Only
+	// the retry loop goroutine touches it.
+	var downSince time.Time
+	up := func() {
+		downSince = time.Time{}
+		c.downSince.Store(0)
+		c.dialAt.Store(0)
+		c.dialsDown.Store(0)
+	}
+	attempt := func() error {
+		conn := c.conn.Conn()
 		// suspend reconnect attempts while the OS reports no usable network.
 		// Wait only errors on a cancelled context, which means shutdown, so
 		// stop the loop without reporting a failure.
@@ -239,24 +334,11 @@ func (c *GrpcClient) withMgmtStream(
 			backOff.Reset()
 			// dials attempted while offline grew the channel's internal backoff;
 			// reset it too, or the reconnect waits out that timer first
-			c.conn.ResetConnectBackoff()
+			conn.ResetConnectBackoff()
 		}
 
-		connState := c.conn.GetState()
-		log.Debugf("management connection state %v", connState)
-		if connState == connectivity.Shutdown {
-			return backoff.Permanent(fmt.Errorf("connection to management has been shut down"))
-		}
-		if !(connState == connectivity.Ready || connState == connectivity.Idle) {
-			// A dial may already be in flight (e.g. the other stream triggered
-			// it after a network change); wait for it to settle and proceed if
-			// the channel became usable, instead of burning a backoff round on
-			// a successful dial. A failed dial errors out as before.
-			c.conn.WaitForStateChange(ctx, connState)
-			connState = c.conn.GetState()
-			if !(connState == connectivity.Ready || connState == connectivity.Idle) {
-				return fmt.Errorf("connection to management is not ready and in %s state", connState)
-			}
+		if err := c.conn.Ready(ctx, conn, "Management"); err != nil {
+			return err
 		}
 
 		serverPubKey, err := c.getServerPublicKey()
@@ -265,7 +347,29 @@ func (c *GrpcClient) withMgmtStream(
 			return err
 		}
 
-		return handler(ctx, *serverPubKey, backOff)
+		return handler(ctx, *serverPubKey, backOff, up)
+	}
+	operation := func() error {
+		if !downSince.IsZero() {
+			// A locked, idle mobile device retries only inside a wake it has
+			// anyway, see hbwatch.WaitManagementRetry.
+			waited, err := hbwatch.WaitManagementRetry(ctx, key, downSince, c.netMgr.Changed())
+			if err != nil {
+				log.Debugf("management connection context has been canceled while holding a retry, this usually indicates shutdown")
+				return nil //nolint:nilerr // a cancelled context means shutdown, not a retryable failure
+			}
+			if waited {
+				// The channel may sit in its own backoff after held dials; this
+				// wake is the time to dial.
+				c.conn.Conn().ResetConnectBackoff()
+			}
+		}
+		err := attempt()
+		if err != nil && downSince.IsZero() {
+			downSince = hbwatch.WallNow()
+			c.downSince.CompareAndSwap(0, downSince.UnixNano())
+		}
+		return err
 	}
 
 	err := nbgrpc.Retry(ctx, operation, backOff, c.netMgr, hbwatch.WaitKey(key))
@@ -281,11 +385,12 @@ func (c *GrpcClient) handleJobStream(
 	serverPubKey wgtypes.Key,
 	msgHandler func(msg *proto.JobRequest) *proto.JobResponse,
 	backOff backoff.BackOff,
+	up func(),
 ) error {
 	ctx, cancelStream := context.WithCancel(ctx)
 	defer cancelStream()
 
-	stream, err := c.realClient.Job(ctx)
+	stream, err := c.conn.Client().Job(ctx)
 	if err != nil {
 		log.Errorf("failed to open job stream: %v", err)
 		return err
@@ -310,6 +415,7 @@ func (c *GrpcClient) handleJobStream(
 	//     bubbles up to trigger a full engine restart / data-plane teardown
 	//     instead of a silent reconnection.
 	backOff.Reset()
+	up()
 
 	// Main loop: receive, process, respond
 	for {
@@ -426,11 +532,11 @@ func (c *GrpcClient) sendJobResponse(
 	return nil
 }
 
-func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.Key, getInfo func(ctx context.Context) *system.Info, msgHandler func(msg *proto.SyncResponse) error, backOff backoff.BackOff) error {
-	ctx, cancelStream := context.WithCancel(ctx)
+func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.Key, getInfo func(ctx context.Context) *system.Info, msgHandler func(msg *proto.SyncResponse) error, backOff backoff.BackOff, up func()) error {
+	streamCtx, cancelStream := context.WithCancel(ctx)
 	defer cancelStream()
 
-	stream, err := c.connectToSyncStream(ctx, serverPubKey, getInfo(ctx))
+	stream, err := c.connectToSyncStream(streamCtx, serverPubKey, getInfo(streamCtx))
 	if err != nil {
 		log.Debugf("failed to open Management Service stream: %s", err)
 		c.notifyDisconnected(err)
@@ -457,12 +563,28 @@ func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.
 	//     bubbles up to trigger a full engine restart / data-plane teardown
 	//     instead of a silent reconnection.
 	backOff.Reset()
+	up()
+
+	// Sync is server-stream only and cannot be probed, so a stale stream is
+	// cancelled and the retry loop reconnects.
+	reconnect := func() {
+		log.Warnf("management sync stream is stale, reconnecting")
+		cancelStream()
+	}
+	unregisterStale := hbwatch.Register(hbwatch.Management, hbwatch.Registration{
+		Kind:  hbwatch.ActionReconnect,
+		Stale: reconnect,
+		Addr:  c.serverURL,
+	})
+	defer unregisterStale()
 
 	// blocking until error
 	err = c.receiveUpdatesEvents(stream, serverPubKey, msgHandler)
 	if err != nil {
 		c.notifyDisconnected(err)
 		c.setSyncStreamDisconnected(err)
+		// Check the parent context, not streamCtx: a stale-check cancelStream
+		// must reconnect, only a parent cancel is shutdown.
 		if ctx.Err() != nil {
 			log.Debugf("management connection context has been canceled, this usually indicates shutdown")
 			return nil
@@ -479,6 +601,11 @@ func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.
 
 func (c *GrpcClient) connectToSyncStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info) (proto.ManagementService_SyncClient, error) {
 	req := &proto.SyncRequest{Meta: infoToMetaData(sysInfo)}
+	if period, ok := alignedRequest(); ok {
+		req.AlignedHeartbeat = &proto.AlignedHeartbeatRequest{PeriodSeconds: alignedhb.PeriodSeconds(period)}
+	}
+	// A new stream starts stock until its own answer arrives.
+	c.setAlignedAnswer(nil)
 
 	myPrivateKey := c.key
 	myPublicKey := myPrivateKey.PublicKey()
@@ -489,7 +616,7 @@ func (c *GrpcClient) connectToSyncStream(ctx context.Context, serverPubKey wgtyp
 		return nil, err
 	}
 	syncReq := &proto.EncryptedMessage{WgPubKey: myPublicKey.String(), Body: encryptedReq}
-	sync, err := c.realClient.Sync(ctx, syncReq)
+	sync, err := c.conn.Client().Sync(ctx, syncReq)
 	if err != nil {
 		return nil, err
 	}
@@ -497,6 +624,7 @@ func (c *GrpcClient) connectToSyncStream(ctx context.Context, serverPubKey wgtyp
 }
 
 func (c *GrpcClient) receiveUpdatesEvents(stream proto.ManagementService_SyncClient, serverPubKey wgtypes.Key, msgHandler func(msg *proto.SyncResponse) error) error {
+	first := true
 	for {
 		update, err := stream.Recv()
 		if err == io.EOF {
@@ -508,7 +636,6 @@ func (c *GrpcClient) receiveUpdatesEvents(stream proto.ManagementService_SyncCli
 			return err
 		}
 
-		log.Debugf("got an update message from Management Service")
 		decryptedResp := &proto.SyncResponse{}
 		err = encryption.DecryptMessage(serverPubKey, c.key, update.Body, decryptedResp)
 		if err != nil {
@@ -516,6 +643,17 @@ func (c *GrpcClient) receiveUpdatesEvents(stream proto.ManagementService_SyncCli
 			return err
 		}
 
+		// A heartbeat only proves the stream is alive, so it skips the handler
+		// and its sync lock.
+		if hb := decryptedResp.GetHeartbeat(); hb != nil {
+			c.handleHeartbeat(hb)
+			continue
+		}
+
+		c.applyAlignedAnswer(decryptedResp, first)
+		first = false
+		hbwatch.Touch(hbwatch.Management)
+		log.Debugf("got an update message from Management Service")
 		if err := msgHandler(decryptedResp); err != nil {
 			log.Errorf("failed handling an update message received from Management Service: %v", err.Error())
 		}
@@ -537,7 +675,7 @@ func (c *GrpcClient) HealthCheck() error {
 func (c *GrpcClient) getServerPublicKey() (*wgtypes.Key, error) {
 	mgmCtx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
 	defer cancel()
-	resp, err := c.realClient.GetServerKey(mgmCtx, &proto.Empty{})
+	resp, err := c.conn.Client().GetServerKey(mgmCtx, &proto.Empty{})
 	if err != nil {
 		return nil, fmt.Errorf("failed getting Management Service public key: %w", err)
 	}
@@ -553,7 +691,7 @@ func (c *GrpcClient) getServerPublicKey() (*wgtypes.Key, error) {
 // IsHealthy returns the current connection status without blocking.
 // Used by the engine to monitor connectivity in the background.
 func (c *GrpcClient) IsHealthy() bool {
-	switch c.conn.GetState() {
+	switch c.conn.Conn().GetState() {
 	case connectivity.TransientFailure:
 		return false
 	case connectivity.Connecting:
@@ -567,7 +705,7 @@ func (c *GrpcClient) IsHealthy() bool {
 	ctx, cancel := context.WithTimeout(c.ctx, healthCheckTimeout)
 	defer cancel()
 
-	_, err := c.realClient.IsHealthy(ctx, &proto.Empty{})
+	_, err := c.conn.Client().IsHealthy(ctx, &proto.Empty{})
 	if err != nil {
 		c.notifyDisconnected(err)
 		log.Warnf("health check returned: %s", err)
@@ -606,7 +744,7 @@ func (c *GrpcClient) login(req *proto.LoginRequest) (*proto.LoginResponse, error
 		defer cancel()
 
 		var err error
-		resp, err = c.realClient.Login(mgmCtx, &proto.EncryptedMessage{
+		resp, err = c.conn.Client().Login(mgmCtx, &proto.EncryptedMessage{
 			WgPubKey: c.key.PublicKey().String(),
 			Body:     loginReq,
 		})
@@ -621,7 +759,7 @@ func (c *GrpcClient) login(req *proto.LoginRequest) (*proto.LoginResponse, error
 		return nil
 	}
 
-	err = backoff.Retry(operation, nbgrpc.Backoff(c.ctx))
+	err = nbgrpc.Retry(c.ctx, operation, nbgrpc.Backoff(c.ctx), nil, hbwatch.WaitMgmtLogin)
 	if err != nil {
 		// PermissionDenied is how management asks an unknown peer to register,
 		// which the caller does next, so it is not an error worth reporting.
@@ -689,7 +827,7 @@ func (c *GrpcClient) ExtendAuthSession(sysInfo *system.Info, jwtToken string) (*
 	mgmCtx, cancel := context.WithTimeout(c.ctx, ConnectTimeout)
 	defer cancel()
 
-	resp, err := c.realClient.ExtendAuthSession(mgmCtx, &proto.EncryptedMessage{
+	resp, err := c.conn.Client().ExtendAuthSession(mgmCtx, &proto.EncryptedMessage{
 		WgPubKey: c.key.PublicKey().String(),
 		Body:     reqBody,
 	})
@@ -727,7 +865,7 @@ func (c *GrpcClient) GetDeviceAuthorizationFlow() (*proto.DeviceAuthorizationFlo
 		return nil, err
 	}
 
-	resp, err := c.realClient.GetDeviceAuthorizationFlow(mgmCtx, &proto.EncryptedMessage{
+	resp, err := c.conn.Client().GetDeviceAuthorizationFlow(mgmCtx, &proto.EncryptedMessage{
 		WgPubKey: c.key.PublicKey().String(),
 		Body:     encryptedMSG},
 	)
@@ -771,7 +909,7 @@ func (c *GrpcClient) GetPKCEAuthorizationFlow(sessionExtend bool) (*proto.PKCEAu
 		return nil, err
 	}
 
-	resp, err := c.realClient.GetPKCEAuthorizationFlow(mgmCtx, &proto.EncryptedMessage{
+	resp, err := c.conn.Client().GetPKCEAuthorizationFlow(mgmCtx, &proto.EncryptedMessage{
 		WgPubKey: c.key.PublicKey().String(),
 		Body:     encryptedMSG,
 	})
@@ -812,7 +950,7 @@ func (c *GrpcClient) SyncMeta(sysInfo *system.Info) error {
 	mgmCtx, cancel := context.WithTimeout(c.ctx, ConnectTimeout)
 	defer cancel()
 
-	_, err = c.realClient.SyncMeta(mgmCtx, &proto.EncryptedMessage{
+	_, err = c.conn.Client().SyncMeta(mgmCtx, &proto.EncryptedMessage{
 		WgPubKey: c.key.PublicKey().String(),
 		Body:     syncMetaReq,
 	})
@@ -872,7 +1010,7 @@ func (c *GrpcClient) Logout() error {
 		return fmt.Errorf("encrypt logout message: %w", err)
 	}
 
-	_, err = c.realClient.Logout(mgmCtx, &proto.EncryptedMessage{
+	_, err = c.conn.Client().Logout(mgmCtx, &proto.EncryptedMessage{
 		WgPubKey: c.key.PublicKey().String(),
 		Body:     encryptedMSG,
 	})
@@ -903,7 +1041,7 @@ func (c *GrpcClient) CreateExpose(ctx context.Context, req ExposeRequest) (*Expo
 	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
 	defer cancel()
 
-	resp, err := c.realClient.CreateExpose(mgmCtx, &proto.EncryptedMessage{
+	resp, err := c.conn.Client().CreateExpose(mgmCtx, &proto.EncryptedMessage{
 		WgPubKey: c.key.PublicKey().String(),
 		Body:     encReq,
 	})
@@ -935,7 +1073,7 @@ func (c *GrpcClient) RenewExpose(ctx context.Context, domain string) error {
 	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
 	defer cancel()
 
-	_, err = c.realClient.RenewExpose(mgmCtx, &proto.EncryptedMessage{
+	_, err = c.conn.Client().RenewExpose(mgmCtx, &proto.EncryptedMessage{
 		WgPubKey: c.key.PublicKey().String(),
 		Body:     encReq,
 	})
@@ -958,7 +1096,7 @@ func (c *GrpcClient) StopExpose(ctx context.Context, domain string) error {
 	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
 	defer cancel()
 
-	_, err = c.realClient.StopExpose(mgmCtx, &proto.EncryptedMessage{
+	_, err = c.conn.Client().StopExpose(mgmCtx, &proto.EncryptedMessage{
 		WgPubKey: c.key.PublicKey().String(),
 		Body:     encReq,
 	})
@@ -1091,7 +1229,171 @@ func peerCapabilities(info system.Info) []proto.PeerCapability {
 	if !info.DisableIPv6 {
 		caps = append(caps, proto.PeerCapability_PeerCapabilityIPv6Overlay)
 	}
+	if _, ok := alignedRequest(); ok {
+		caps = append(caps, proto.PeerCapability_PeerCapabilityAlignedHeartbeat)
+	}
 	return caps
+}
+
+// handleHeartbeat hands a Management heartbeat to the watcher. The first one
+// after the day change carries the newly signed phase, which is applied first:
+// Management already moved its tick to it.
+func (c *GrpcClient) handleHeartbeat(hb *proto.Heartbeat) {
+	if cfg := hb.GetConfig(); cfg != nil {
+		log.Infof("new aligned heartbeat phase from Management")
+		if c.applyAlignedConfig(cfg) {
+			alignedhb.AnnounceSignedAnswer()
+		}
+	}
+	log.Tracef("got a heartbeat from Management Service")
+	if a := c.alignedAnswer.Load(); a != nil {
+		hbwatch.Seen(hbwatch.Management, hbwatch.Heartbeat{Period: a.Period, Phase: a.Phase})
+	}
+}
+
+// applyAlignedAnswer records the aligned heartbeat answer when resp carries one.
+// first marks the first response of the Sync stream, the only one Management
+// answers the request in: a peer config without the field there means a stock
+// server. Later updates without the field keep the current state. A client that
+// did not ask ignores the field. The signed phase is kept beyond this stream, so
+// Signal and relay streams that reopen while Management is gone still get it.
+// A signed answer is announced once per stream, so a stock Signal stream reopens.
+func (c *GrpcClient) applyAlignedAnswer(resp *proto.SyncResponse, first bool) {
+	if cfg := alignedConfig(resp); cfg != nil {
+		if c.applyAlignedConfig(cfg) && first {
+			alignedhb.AnnounceSignedAnswer()
+		}
+		return
+	}
+	if !first {
+		return
+	}
+	if _, asked := alignedRequest(); asked && hasPeerConfig(resp) {
+		// An old server sends the peer config without the field.
+		c.stockAnswer()
+	}
+}
+
+// hasPeerConfig reports whether resp carries a peer config.
+func hasPeerConfig(resp *proto.SyncResponse) bool {
+	return resp.GetPeerConfig() != nil || resp.GetNetworkMap().GetPeerConfig() != nil
+}
+
+// logStockDial notes a dial with the stock keepalive after a stock answer.
+func logStockDial(ka time.Duration) {
+	_, asked := alignedRequest()
+	nbgrpc.LogStockDial("Management", asked, ka)
+}
+
+// stockAnswer marks the server stock for this session and redials a connection
+// with the aligned keepalive.
+func (c *GrpcClient) stockAnswer() {
+	c.conn.StockAnswer(c.ctx, nbgrpc.Redialer[proto.ManagementServiceClient]{
+		Name:      "Management",
+		Component: wsproxy.ManagementComponent,
+		Addr:      c.serverURL,
+		Dial:      c.dial,
+		NewClient: proto.NewManagementServiceClient,
+	})
+}
+
+// applyAlignedConfig records an aligned heartbeat config from a peer config or
+// a heartbeat. A client that did not ask ignores it. It reports a config with a
+// signed phase, which Signal and relay streams can open aligned with.
+func (c *GrpcClient) applyAlignedConfig(cfg *proto.AlignedHeartbeatConfig) bool {
+	if _, asked := alignedRequest(); !asked {
+		return false
+	}
+	peer := messages.HashID(c.key.PublicKey().String())
+	answer, signed, err := answerFromConfig(cfg)
+	if err != nil {
+		log.Warnf("ignoring aligned heartbeat answer from Management: %v", err)
+		c.setAlignedAnswer(nil)
+		c.stockAnswer()
+		return false
+	}
+	switch {
+	case answer == nil:
+		log.Infof("aligned heartbeat off on the Management stream")
+		alignedhb.ClearSignedPhase(peer)
+		c.stockAnswer()
+	case signed == nil:
+		log.Infof("aligned heartbeat on the Management stream, period %s, phase %d ms, unsigned", answer.Period, answer.Phase.Milliseconds())
+	default:
+		log.Infof("aligned heartbeat on the Management stream, period %s, phase %d ms, day %d", answer.Period, answer.Phase.Milliseconds(), signed.Day)
+		alignedhb.StoreSignedPhase(peer, answer.Period, *signed)
+	}
+	if answer != nil {
+		nbgrpc.ClearStock(wsproxy.ManagementComponent, c.serverURL)
+	}
+	c.setAlignedAnswer(answer)
+	return answer != nil && signed != nil
+}
+
+// alignedHeartbeat returns the aligned heartbeat Management confirmed on the
+// current Sync stream. ok is false without an answer, which keeps the client stock.
+func (c *GrpcClient) alignedHeartbeat() (answer alignedhb.Answer, ok bool) {
+	a := c.alignedAnswer.Load()
+	if a == nil {
+		return alignedhb.Answer{}, false
+	}
+	return *a, true
+}
+
+// setAlignedAnswer records the aligned heartbeat answer of the Sync stream, nil
+// for none, and sets the TCP keepalive of the connection to match.
+func (c *GrpcClient) setAlignedAnswer(answer *alignedhb.Answer) {
+	c.alignedAnswer.Store(answer)
+	if answer == nil {
+		c.tcpKeepAlive.SetStock()
+		return
+	}
+	c.tcpKeepAlive.SetAligned(answer.Period)
+}
+
+// alignedConfig returns the aligned heartbeat config from the peer config of
+// resp. Envelope responses carry the peer config at the top level, legacy ones
+// under the network map.
+func alignedConfig(resp *proto.SyncResponse) *proto.AlignedHeartbeatConfig {
+	if cfg := resp.GetPeerConfig().GetAlignedHeartbeat(); cfg != nil {
+		return cfg
+	}
+	return resp.GetNetworkMap().GetPeerConfig().GetAlignedHeartbeat()
+}
+
+// answerFromConfig converts the config into an answer, nil when it is off, and
+// the signed phase, nil when Management sent no signature. A period outside
+// the client limits is clamped and the signature dropped: it covers the period
+// Management sent, so Signal and relay would reject it anyway.
+func answerFromConfig(cfg *proto.AlignedHeartbeatConfig) (*alignedhb.Answer, *alignedhb.SignedPhase, error) {
+	if !cfg.GetEnabled() {
+		return nil, nil, nil
+	}
+	if cfg.GetPeriodSeconds() == 0 {
+		return nil, nil, errors.New("zero period")
+	}
+	period := time.Duration(cfg.GetPeriodSeconds()) * time.Second
+	phase := time.Duration(cfg.GetPhaseMillis()) * time.Millisecond
+	if !alignedhb.ValidPhase(phase, period) {
+		return nil, nil, fmt.Errorf("phase %d ms outside period %s", cfg.GetPhaseMillis(), period)
+	}
+	answer := &alignedhb.Answer{Period: period, Phase: phase}
+	if clamped, ok := alignedhb.ClampAnswer(*answer); ok {
+		log.Warnf("aligned heartbeat period %s from Management outside %s to %s, using period %s, phase %d ms, unsigned",
+			period, alignedhb.MinPeriod, alignedhb.MaxPeriod, clamped.Period, clamped.Phase.Milliseconds())
+		return &clamped, nil, nil
+	}
+	sig := cfg.GetPhaseSignature()
+	if len(sig) == 0 {
+		return answer, nil, nil
+	}
+	if len(sig) > alignedhb.MaxSignatureLen {
+		return nil, nil, fmt.Errorf("phase signature length %d", len(sig))
+	}
+	if cfg.GetPhaseDay() < 0 {
+		return nil, nil, fmt.Errorf("negative phase day %d", cfg.GetPhaseDay())
+	}
+	return answer, &alignedhb.SignedPhase{Phase: phase, Day: cfg.GetPhaseDay(), Signature: sig}, nil
 }
 
 func syncMessageVersion(info system.Info) int32 {

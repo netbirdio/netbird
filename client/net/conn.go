@@ -22,6 +22,11 @@ func (c *Conn) Close() error {
 	return closeConn(c.ID, c.Conn)
 }
 
+// NetConn returns the wrapped connection.
+func (c *Conn) NetConn() net.Conn {
+	return c.Conn
+}
+
 // TCPConn wraps net.TCPConn to override its Close method to include hook functionality.
 type TCPConn struct {
 	*net.TCPConn
@@ -31,6 +36,11 @@ type TCPConn struct {
 // Close overrides the net.TCPConn Close method to execute all registered hooks after closing the connection.
 func (c *TCPConn) Close() error {
 	return closeConn(c.ID, c.TCPConn)
+}
+
+// NetConn returns the wrapped connection.
+func (c *TCPConn) NetConn() net.Conn {
+	return c.TCPConn
 }
 
 // closeConn is a helper function to close connections and execute close hooks.

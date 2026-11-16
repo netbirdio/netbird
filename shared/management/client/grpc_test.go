@@ -104,7 +104,8 @@ func TestLoginDisconnectedTransport(t *testing.T) {
 	conn, err := grpc.NewClient("passthrough:///127.0.0.1:1", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	require.NoError(t, conn.Close())
-	client := &GrpcClient{conn: conn}
+	client := &GrpcClient{}
+	client.conn.Swap(conn, mgmtProto.NewManagementServiceClient(conn), 0)
 	_, err = client.login(&mgmtProto.LoginRequest{})
 	require.Error(t, err)
 	assert.Equal(t, codes.Unavailable, status.Code(err), "disconnected login must be retryable")
