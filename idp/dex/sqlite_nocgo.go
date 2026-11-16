@@ -3,7 +3,7 @@
 package dex
 
 import (
-	sql "github.com/dexidp/dex/storage/sql"
+	sql "github.com/netbirdio/dex/storage/sql"
 )
 
 // newSQLite3 for non-CGO builds. The dex SQLite3 stub has no fields and its

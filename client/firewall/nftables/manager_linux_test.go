@@ -20,6 +20,7 @@ import (
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 var ifaceMock = &iFaceMock{
@@ -107,12 +108,7 @@ func TestNftablesManager(t *testing.T) {
 	}
 	// Since DROP rules are inserted at position 0, the DROP rule comes first
 	expectedDropExprs := []expr.Any{
-		&expr.Payload{
-			DestRegister: 1,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       uint32(9),
-			Len:          uint32(1),
-		},
+		&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
 		&expr.Cmp{
 			Register: 1,
 			Op:       expr.CmpOpEq,
@@ -240,6 +236,170 @@ func TestNftablesManagerRuleOrder(t *testing.T) {
 	require.Less(t, denyRuleIndex, acceptRuleIndex,
 		"deny rule should come before accept rule in nftables chain (deny at index %d, accept at index %d)",
 		denyRuleIndex, acceptRuleIndex)
+}
+
+// TestNftablesManagerDenyRedirectMark verifies the prerouting counterparts
+// of peer ACL rules. The forward filter accepts any packet carrying the
+// redirect mark without consulting the input chain, so traffic that DNAT
+// diverts from input to forward (e.g. a published container port) is
+// governed by these counterparts alone: a deny must drop new traffic
+// before DNAT rather than leave it to the forward filter, where a route
+// ACL could accept it, and it must precede the counterpart of an
+// overlapping accept.
+func TestNftablesManagerDenyRedirectMark(t *testing.T) {
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+
+	defer func() {
+		err = manager.Close(nil)
+		require.NoError(t, err)
+	}()
+
+	ip := netip.MustParseAddr("100.96.0.2").Unmap()
+	testClient := &nftables.Conn{}
+
+	// Accept everything from the peer first, then deny tcp/80 from it.
+	_, err = manager.AddFilterRule(nil, pfx(ip.AsSlice()), fw.Network{}, fw.ProtocolALL, nil, nil, fw.ActionAccept)
+	require.NoError(t, err, "failed to add accept rule")
+
+	_, err = manager.AddFilterRule(nil, pfx(ip.AsSlice()), fw.Network{}, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionDrop)
+	require.NoError(t, err, "failed to add deny rule")
+
+	err = manager.Flush()
+	require.NoError(t, err, "failed to flush")
+
+	rules, err := testClient.GetRules(manager.family4.workTable, manager.family4.chainPrerouting)
+	require.NoError(t, err, "failed to get prerouting rules")
+
+	wantSrc := ip.AsSlice()
+	redirectMark := binaryutil.NativeEndian.PutUint32(nbnet.PreroutingFwmarkRedirected)
+	var acceptRuleIndex, denyRuleIndex = -1, -1
+	for i, rule := range rules {
+		var hasSrc, hasPort80, setsMark bool
+		for _, e := range rule.Exprs {
+			switch e := e.(type) {
+			case *expr.Cmp:
+				if e.Op == expr.CmpOpEq && bytes.Equal(e.Data, wantSrc) {
+					hasSrc = true
+				}
+				if len(e.Data) == 2 && binary.BigEndian.Uint16(e.Data) == 80 {
+					hasPort80 = true
+				}
+			case *expr.Immediate:
+				if bytes.Equal(e.Data, redirectMark) {
+					setsMark = true
+				}
+			}
+		}
+
+		if !hasSrc {
+			continue
+		}
+		if hasPort80 {
+			t.Logf("Rule [%d]: src=%s port=80 mark=%v", i, ip, setsMark)
+			denyRuleIndex = i
+			require.False(t, setsMark, "deny counterpart must not set the redirect mark")
+			requireDropUnlessEstablished(t, rule.Exprs)
+		} else {
+			t.Logf("Rule [%d]: src=%s mark=%v", i, ip, setsMark)
+			acceptRuleIndex = i
+			require.True(t, setsMark, "accept counterpart must set the redirect mark")
+		}
+	}
+
+	require.NotEqual(t, -1, acceptRuleIndex, "accept counterpart should exist in the prerouting chain")
+	require.NotEqual(t, -1, denyRuleIndex, "deny counterpart should exist in the prerouting chain")
+	require.Less(t, denyRuleIndex, acceptRuleIndex,
+		"deny counterpart should come before accept counterpart in the prerouting chain (deny at index %d, accept at index %d)",
+		denyRuleIndex, acceptRuleIndex)
+}
+
+// requireDropUnlessEstablished asserts the rule ends with the conntrack
+// state exemption followed by the drop: the state match skips established
+// and related packets, and the drop is the last expression so it only
+// fires after every other match.
+func requireDropUnlessEstablished(t *testing.T, exprs []expr.Any) {
+	t.Helper()
+
+	require.GreaterOrEqual(t, len(exprs), 4, "deny counterpart is too short")
+	tail := exprs[len(exprs)-4:]
+
+	ct, ok := tail[0].(*expr.Ct)
+	require.True(t, ok, "deny counterpart must read the conntrack state before the verdict")
+	require.Equal(t, expr.CtKeySTATE, ct.Key, "deny counterpart must read the conntrack state")
+
+	bitwise, ok := tail[1].(*expr.Bitwise)
+	require.True(t, ok, "deny counterpart must mask the conntrack state")
+	require.Equal(t,
+		binaryutil.NativeEndian.PutUint32(expr.CtStateBitESTABLISHED|expr.CtStateBitRELATED),
+		bitwise.Mask, "deny counterpart must mask established and related")
+
+	cmp, ok := tail[2].(*expr.Cmp)
+	require.True(t, ok, "deny counterpart must compare the masked state")
+	require.Equal(t, expr.CmpOpEq, cmp.Op, "deny counterpart must continue only when neither bit is set")
+	require.Equal(t, []byte{0, 0, 0, 0}, cmp.Data, "deny counterpart must compare against no state bits")
+
+	verdict, ok := tail[3].(*expr.Verdict)
+	require.True(t, ok, "deny counterpart must end in a verdict")
+	require.Equal(t, expr.VerdictDrop, verdict.Kind, "deny counterpart must drop after its matches, before DNAT")
+}
+
+// TestNftablesManagerHairpinDropBeforeRouteACLs checks the hairpin drop sits
+// in the route ACL chain after the established accept, so established traffic
+// skips it, and ahead of the route accept rules, so they can't let a hairpin
+// flow through.
+func TestNftablesManagerHairpinDropBeforeRouteACLs(t *testing.T) {
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+
+	defer func() {
+		err = manager.Close(nil)
+		require.NoError(t, err)
+	}()
+
+	// An exit-node style route rule: accept any source to any destination.
+	any4 := netip.MustParsePrefix("0.0.0.0/0")
+	_, err = manager.AddFilterRule(nil, []netip.Prefix{any4}, fw.Network{Prefix: any4}, fw.ProtocolALL, nil, nil, fw.ActionAccept)
+	require.NoError(t, err, "failed to add route accept rule")
+	require.NoError(t, manager.Flush(), "failed to flush")
+
+	testClient := &nftables.Conn{}
+	rules, err := testClient.GetRules(manager.family4.workTable, manager.family4.chains[chainNameRoutingFw])
+	require.NoError(t, err, "failed to get rules")
+
+	var establishedIndex, hairpinIndex = -1, -1
+	for i, rule := range rules {
+		var iif, oif, ctState bool
+		var lastKey expr.MetaKey
+		for _, e := range rule.Exprs {
+			switch e := e.(type) {
+			case *expr.Meta:
+				lastKey = e.Key
+			case *expr.Cmp:
+				// Only count an interface match against the wg interface itself.
+				if e.Op == expr.CmpOpEq && bytes.Equal(e.Data, ifname(ifaceMock.Name())) {
+					iif = iif || lastKey == expr.MetaKeyIIFNAME
+					oif = oif || lastKey == expr.MetaKeyOIFNAME
+				}
+			case *expr.Ct:
+				ctState = ctState || e.Key == expr.CtKeySTATE
+			case *expr.Verdict:
+				if e.Kind == expr.VerdictDrop && iif && oif {
+					hairpinIndex = i
+				}
+				if e.Kind == expr.VerdictAccept && ctState {
+					establishedIndex = i
+				}
+			}
+		}
+	}
+
+	require.NotEqual(t, -1, establishedIndex, "established accept should exist in the route chain")
+	require.NotEqual(t, -1, hairpinIndex, "hairpin drop rule should exist in the route chain")
+	require.Less(t, establishedIndex, hairpinIndex, "hairpin drop should come after the established accept")
+	require.Less(t, hairpinIndex, len(rules)-1, "hairpin drop should come before the route accept rule")
 }
 
 func TestNFtablesCreatePerformance(t *testing.T) {

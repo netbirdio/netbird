@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	b64 "encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -17,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -32,6 +34,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness/peerlivenesstest"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/internals/server/config"
@@ -1340,7 +1343,8 @@ func Test_RegisterPeerByUser(t *testing.T) {
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
 	permissionsManager := permissions.NewManager(s)
-	peersManager := peers.NewManager(s, permissionsManager)
+	peerLiveness := peerlivenesstest.NewStarted(t, s)
+	peersManager := peers.NewManager(s, permissionsManager, peerLiveness)
 
 	ctx := context.Background()
 
@@ -1349,9 +1353,9 @@ func Test_RegisterPeerByUser(t *testing.T) {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
-	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{}, nil)
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager, peerLiveness)), &config.Config{}, nil)
 
-	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore)
+	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1431,7 +1435,8 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 		Return(&types.ExtraSettings{}, nil).
 		AnyTimes()
 	permissionsManager := permissions.NewManager(s)
-	peersManager := peers.NewManager(s, permissionsManager)
+	peerLiveness := peerlivenesstest.NewStarted(t, s)
+	peersManager := peers.NewManager(s, permissionsManager, peerLiveness)
 
 	ctx := context.Background()
 
@@ -1440,9 +1445,9 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
-	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{}, nil)
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager, peerLiveness)), &config.Config{}, nil)
 
-	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore)
+	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1589,7 +1594,8 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 	settingsMockManager := settings.NewMockManager(ctrl)
 
 	permissionsManager := permissions.NewManager(s)
-	peersManager := peers.NewManager(s, permissionsManager)
+	peerLiveness := peerlivenesstest.NewStarted(t, s)
+	peersManager := peers.NewManager(s, permissionsManager, peerLiveness)
 
 	ctx := context.Background()
 
@@ -1598,9 +1604,9 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
-	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{}, nil)
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager, peerLiveness)), &config.Config{}, nil)
 
-	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore)
+	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1674,7 +1680,8 @@ func Test_LoginPeer(t *testing.T) {
 		Return(&types.ExtraSettings{}, nil).
 		AnyTimes()
 	permissionsManager := permissions.NewManager(s)
-	peersManager := peers.NewManager(s, permissionsManager)
+	peerLiveness := peerlivenesstest.NewStarted(t, s)
+	peersManager := peers.NewManager(s, permissionsManager, peerLiveness)
 
 	ctx := context.Background()
 
@@ -1683,9 +1690,9 @@ func Test_LoginPeer(t *testing.T) {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
-	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{}, nil)
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager, peerLiveness)), &config.Config{}, nil)
 
-	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore)
+	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -3254,4 +3261,238 @@ func TestAddPeer_ExhaustedIPAllocationFails(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, peers, 1)
 	assert.Equal(t, netip.MustParseAddr("100.64.0.1"), peers[0].IP)
+}
+
+func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
+	manager, _, account, peer1, peer2, _ := setupNetworkMapTest(t)
+	ctx := context.Background()
+
+	t.Run("SyncPeer with changed meta bumps, unchanged does not", func(t *testing.T) {
+		current, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		require.NoError(t, err)
+
+		before := networkSerial(t, manager, account.Id)
+		_, _, _, _, err = manager.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peer1.Key, Meta: current.Meta}, account.Id)
+		require.NoError(t, err)
+		assert.Equal(t, before, networkSerial(t, manager, account.Id))
+
+		meta := current.Meta
+		meta.Hostname = "renamed-host"
+		_, _, _, _, err = manager.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peer1.Key, Meta: meta}, account.Id)
+		require.NoError(t, err)
+		assert.Greater(t, networkSerial(t, manager, account.Id), before)
+	})
+
+	t.Run("LoginPeer with changed ssh key bumps, unchanged does not", func(t *testing.T) {
+		current, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		require.NoError(t, err)
+
+		before := networkSerial(t, manager, account.Id)
+		_, _, _, _, err = manager.LoginPeer(ctx, types.PeerLogin{WireGuardPubKey: peer1.Key, SSHKey: current.SSHKey, Meta: current.Meta})
+		require.NoError(t, err)
+		assert.Equal(t, before, networkSerial(t, manager, account.Id))
+
+		_, _, _, _, err = manager.LoginPeer(ctx, types.PeerLogin{WireGuardPubKey: peer1.Key, SSHKey: "ssh-ed25519 AAAAnew", Meta: current.Meta})
+		require.NoError(t, err)
+		assert.Greater(t, networkSerial(t, manager, account.Id), before)
+	})
+
+	t.Run("MarkPeerConnected and MarkPeerDisconnected", func(t *testing.T) {
+		session := time.Now().UTC().UnixNano()
+
+		before := networkSerial(t, manager, account.Id)
+		require.NoError(t, manager.MarkPeerConnected(ctx, peer2.Key, account.Id, session, nil))
+		require.NoError(t, manager.MarkPeerDisconnected(ctx, peer2.Key, account.Id, session))
+		assert.Equal(t, before, networkSerial(t, manager, account.Id), "regular peers must not bump")
+
+		expired, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+		require.NoError(t, err)
+		expired.Status.LoginExpired = true
+		require.NoError(t, manager.Store.SavePeer(ctx, account.Id, expired))
+
+		session += 2
+		require.NoError(t, manager.MarkPeerConnected(ctx, peer2.Key, account.Id, session, nil))
+		afterExpired := networkSerial(t, manager, account.Id)
+		assert.Equal(t, before, afterExpired, "login-expired reconnect writes no network map data")
+
+		embedded, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+		require.NoError(t, err)
+		embedded.Status.LoginExpired = false
+		embedded.ProxyMeta.Embedded = true
+		require.NoError(t, manager.Store.SavePeer(ctx, account.Id, embedded))
+
+		require.NoError(t, manager.MarkPeerDisconnected(ctx, peer2.Key, account.Id, session))
+		afterDisconnect := networkSerial(t, manager, account.Id)
+		assert.Greater(t, afterDisconnect, afterExpired, "embedded proxy disconnect must bump")
+
+		session += 2
+		require.NoError(t, manager.MarkPeerConnected(ctx, peer2.Key, account.Id, session, nil))
+		assert.Greater(t, networkSerial(t, manager, account.Id), afterDisconnect, "embedded proxy connect must bump")
+	})
+
+	t.Run("embedded proxy write is not applied when the increment fails", func(t *testing.T) {
+		embedded, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+		require.NoError(t, err)
+		require.True(t, embedded.ProxyMeta.Embedded)
+		session := embedded.Status.SessionStartedAt
+
+		original := manager.Store
+		manager.Store = &serialFailingStore{Store: original}
+		t.Cleanup(func() { manager.Store = original })
+
+		require.Error(t, manager.MarkPeerDisconnected(ctx, peer2.Key, account.Id, session))
+		current, err := original.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+		require.NoError(t, err)
+		assert.Equal(t, session, current.Status.SessionStartedAt, "a failed increment leaves the connection untouched")
+		assert.True(t, current.Status.Connected)
+
+		manager.Store = original
+		before := networkSerial(t, manager, account.Id)
+		require.NoError(t, manager.MarkPeerConnected(ctx, peer2.Key, account.Id, session-1, nil))
+		assert.Greater(t, networkSerial(t, manager, account.Id), before, "a write that does not apply still bumped")
+		current, err = original.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+		require.NoError(t, err)
+		assert.Equal(t, session, current.Status.SessionStartedAt)
+	})
+}
+
+type serialFailingStore struct {
+	store.Store
+}
+
+func (s *serialFailingStore) IncrementNetworkSerial(context.Context, string) error {
+	return errors.New("increment failed")
+}
+
+type txCountingStore struct {
+	store.Store
+	txs atomic.Int32
+}
+
+func (s *txCountingStore) ExecuteInTransaction(ctx context.Context, f func(store.Store) error) error {
+	s.txs.Add(1)
+	return s.Store.ExecuteInTransaction(ctx, f)
+}
+
+func TestPeerSyncAndLogin_LockOnlyOnChange(t *testing.T) {
+	manager, _, account, peer1, _, _ := setupNetworkMapTest(t)
+	ctx := context.Background()
+	counting := &txCountingStore{Store: manager.Store}
+	manager.Store = counting
+
+	current, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+	require.NoError(t, err)
+
+	t.Run("SyncPeer without meta change opens no transaction", func(t *testing.T) {
+		counting.txs.Store(0)
+		_, _, _, _, err := manager.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peer1.Key, Meta: current.Meta}, account.Id)
+		require.NoError(t, err)
+		assert.Zero(t, counting.txs.Load())
+	})
+
+	t.Run("SyncPeer with meta change saves in one transaction", func(t *testing.T) {
+		counting.txs.Store(0)
+		meta := current.Meta
+		meta.Hostname = "lock-on-change-host"
+		_, _, _, _, err := manager.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peer1.Key, Meta: meta}, account.Id)
+		require.NoError(t, err)
+		assert.Equal(t, int32(1), counting.txs.Load())
+
+		saved, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "lock-on-change-host", saved.Meta.Hostname)
+	})
+
+	t.Run("LoginPeer without change opens no transaction", func(t *testing.T) {
+		saved, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		require.NoError(t, err)
+
+		counting.txs.Store(0)
+		_, _, _, _, err = manager.LoginPeer(ctx, types.PeerLogin{WireGuardPubKey: peer1.Key, SSHKey: saved.SSHKey, Meta: saved.Meta})
+		require.NoError(t, err)
+		assert.Zero(t, counting.txs.Load())
+	})
+
+	t.Run("LoginPeer with new ssh key saves in one transaction", func(t *testing.T) {
+		counting.txs.Store(0)
+		_, _, _, _, err := manager.LoginPeer(ctx, types.PeerLogin{WireGuardPubKey: peer1.Key, SSHKey: "ssh-ed25519 AAAAlockonchange", Meta: current.Meta})
+		require.NoError(t, err)
+		assert.Equal(t, int32(1), counting.txs.Load())
+
+		saved, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "ssh-ed25519 AAAAlockonchange", saved.SSHKey)
+	})
+
+	t.Run("LoginPeer rejects a user mismatch without a transaction", func(t *testing.T) {
+		counting.txs.Store(0)
+		_, _, _, _, err := manager.LoginPeer(ctx, types.PeerLogin{WireGuardPubKey: peer1.Key, UserID: "someone-else", SSHKey: "ssh-ed25519 AAAAother", Meta: current.Meta})
+		assert.Equal(t, status.NewPeerLoginMismatchError(), err)
+		assert.Zero(t, counting.txs.Load())
+
+		saved, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "ssh-ed25519 AAAAlockonchange", saved.SSHKey, "a rejected login must not store its ssh key")
+	})
+
+	t.Run("LoginPeer rejects disallowed extra DNS labels without a transaction", func(t *testing.T) {
+		counting.txs.Store(0)
+		_, _, _, _, err := manager.LoginPeer(ctx, types.PeerLogin{WireGuardPubKey: peer1.Key, SSHKey: "ssh-ed25519 AAAAlabels", ExtraDNSLabels: []string{"extra"}, Meta: current.Meta})
+		errStatus, ok := status.FromError(err)
+		require.True(t, ok, "expected a status error, got %v", err)
+		assert.Equal(t, status.PreconditionFailed, errStatus.Type())
+		assert.Zero(t, counting.txs.Load())
+	})
+}
+
+func TestCheckPeerMaySync(t *testing.T) {
+	manager, _, account, peer1, peer2, _ := setupNetworkMapTest(t)
+	ctx := context.Background()
+
+	require.NoError(t, manager.CheckPeerMaySync(ctx, account.Id, peer1.Key, nil))
+
+	expired, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+	require.NoError(t, err)
+	expired.Status.LoginExpired = true
+	require.NoError(t, manager.Store.SavePeer(ctx, account.Id, expired))
+	assert.Equal(t, status.NewPeerLoginExpiredError(), manager.CheckPeerMaySync(ctx, account.Id, peer1.Key, nil))
+
+	owner := types.NewRegularUser("blocked-owner", "", "")
+	owner.AccountID = account.Id
+	owner.Blocked = true
+	require.NoError(t, manager.Store.SaveUser(ctx, owner))
+	blocked, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+	require.NoError(t, err)
+	blocked.UserID = owner.Id
+	require.NoError(t, manager.Store.SavePeer(ctx, account.Id, blocked))
+	err = manager.CheckPeerMaySync(ctx, account.Id, peer2.Key, nil)
+	errStatus, ok := status.FromError(err)
+	require.True(t, ok, "expected a status error, got %v", err)
+	assert.Equal(t, status.PermissionDenied, errStatus.Type())
+
+	assert.Equal(t, status.NewPeerNotRegisteredError(), manager.CheckPeerMaySync(ctx, account.Id, "unknown-key", nil))
+}
+
+type failingPeerLookupStore struct {
+	store.Store
+}
+
+func (s *failingPeerLookupStore) GetPeerByPeerPubKey(context.Context, store.LockingStrength, string) (*nbpeer.Peer, error) {
+	return nil, status.Errorf(status.Internal, "issue getting peer from store: connection reset")
+}
+
+func TestPeerLookupErrorKeepsTransientStoreErrors(t *testing.T) {
+	manager, _, account, peer1, _, _ := setupNetworkMapTest(t)
+	ctx := context.Background()
+	manager.Store = &failingPeerLookupStore{Store: manager.Store}
+
+	err := manager.CheckPeerMaySync(ctx, account.Id, peer1.Key, nil)
+	errStatus, ok := status.FromError(err)
+	require.True(t, ok, "expected a status error, got %v", err)
+	assert.Equal(t, status.Internal, errStatus.Type(), "a store failure must not look like an unregistered peer")
+
+	_, _, _, _, err = manager.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peer1.Key}, account.Id)
+	errStatus, ok = status.FromError(err)
+	require.True(t, ok, "expected a status error, got %v", err)
+	assert.Equal(t, status.Internal, errStatus.Type(), "a store failure must not look like an unregistered peer")
 }

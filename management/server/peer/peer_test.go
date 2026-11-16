@@ -1,9 +1,11 @@
 package peer
 
 import (
+	"database/sql"
 	"fmt"
 	"net/netip"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -163,4 +165,71 @@ func TestPeerCapabilities(t *testing.T) {
 			assert.Equal(t, tt.srcPrefixes, p.SupportsSourcePrefixes())
 		})
 	}
+}
+
+func TestPeerStatus_ApplyConnection(t *testing.T) {
+	own := time.Now().Add(-time.Hour).UTC()
+	fresh := time.Now().Add(-time.Minute).UTC()
+	stale := time.Now().Add(-InstanceStaleAfter - time.Minute).UTC()
+	session := sql.NullInt64{Int64: 42, Valid: true}
+	ownSeen := sql.NullTime{Time: own, Valid: true}
+
+	tests := []struct {
+		name         string
+		session      sql.NullInt64
+		lastSeen     sql.NullTime
+		instance     sql.NullTime
+		wantConn     bool
+		wantSession  int64
+		wantLastSeen time.Time
+	}{
+		{name: "held by a live instance", session: session, lastSeen: ownSeen, instance: sql.NullTime{Time: fresh, Valid: true}, wantConn: true, wantSession: 42, wantLastSeen: fresh},
+		{name: "held by a stale instance", session: session, lastSeen: ownSeen, instance: sql.NullTime{Time: stale, Valid: true}, wantSession: 42, wantLastSeen: stale},
+		{name: "released or held by a missing instance", session: session, lastSeen: ownSeen, wantSession: 42, wantLastSeen: own},
+		{name: "never seen", session: session, wantSession: 42},
+		{name: "no record", wantLastSeen: time.Time{}},
+		{name: "instance older than own last seen", session: session, lastSeen: ownSeen, instance: sql.NullTime{Time: own.Add(-time.Minute), Valid: true}, wantSession: 42, wantLastSeen: own},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			status := PeerStatus{LastSeen: time.Now(), Connected: true, SessionStartedAt: 7}
+			status.ApplyConnection(tt.session, tt.lastSeen, tt.instance)
+			assert.Equal(t, tt.wantConn, status.Connected)
+			assert.Equal(t, tt.wantSession, status.SessionStartedAt)
+			assert.True(t, tt.wantLastSeen.Equal(status.LastSeen), "LastSeen = %v, want %v", status.LastSeen, tt.wantLastSeen)
+		})
+	}
+}
+
+func TestPeer_EventMeta(t *testing.T) {
+	p := &Peer{
+		Name:     "laptop",
+		DNSLabel: "laptop",
+		UserID:   "user-1",
+		Meta: PeerSystemMeta{
+			Hostname:           "laptop.local",
+			OS:                 "Fedora Linux",
+			OSVersion:          "41",
+			SystemSerialNumber: "SN-1234",
+		},
+	}
+
+	meta := p.EventMeta("netbird.cloud")
+
+	assert.Equal(t, "SN-1234", meta["serial_number"], "serial number should come from the system meta")
+	assert.Equal(t, "Fedora Linux", meta["os"], "os should come from the system meta")
+	assert.Equal(t, "41", meta["os_version"], "os version should come from the system meta")
+	assert.Equal(t, "laptop.local", meta["hostname"], "hostname should come from the system meta")
+	assert.Equal(t, "user-1", meta["user_id"], "user id should be the peer owner")
+	assert.Equal(t, "laptop.netbird.cloud", meta["fqdn"], "existing keys should be kept")
+}
+
+func TestPeer_EventMeta_NoUser(t *testing.T) {
+	// Peers added with a setup key have no owner, so the key is left out rather than empty.
+	p := &Peer{Name: "server", DNSLabel: "server"}
+
+	meta := p.EventMeta("netbird.cloud")
+
+	_, ok := meta["user_id"]
+	assert.False(t, ok, "user_id should be omitted for peers without a user")
 }

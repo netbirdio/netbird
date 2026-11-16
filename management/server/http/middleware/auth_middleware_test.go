@@ -212,6 +212,7 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 		},
 		disabledLimiter,
 		nil,
+		nil,
 	)
 
 	handlerToTest := authMiddleware.Handler(nextHandler)
@@ -278,6 +279,7 @@ func TestAuthMiddleware_SyncUserJWTGroupsDetachedFromRequestCancellation(t *test
 		},
 		disabledLimiter,
 		nil,
+		nil,
 	)
 
 	handlerToTest := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
@@ -329,6 +331,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 				return &types.User{}, nil
 			},
 			ratelimit.NewAPIRateLimiter(rateLimitConfig),
+			nil,
 			nil,
 		)
 
@@ -382,6 +385,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			},
 			ratelimit.NewAPIRateLimiter(rateLimitConfig),
 			nil,
+			nil,
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -424,6 +428,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 				return &types.User{}, nil
 			},
 			ratelimit.NewAPIRateLimiter(rateLimitConfig),
+			nil,
 			nil,
 		)
 
@@ -468,6 +473,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 				return &types.User{}, nil
 			},
 			ratelimit.NewAPIRateLimiter(rateLimitConfig),
+			nil,
 			nil,
 		)
 
@@ -533,6 +539,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			},
 			ratelimit.NewAPIRateLimiter(rateLimitConfig),
 			nil,
+			nil,
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -592,6 +599,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			},
 			ratelimit.NewAPIRateLimiter(rateLimitConfig),
 			nil,
+			nil,
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -646,6 +654,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 				return &types.User{}, nil
 			},
 			ratelimit.NewAPIRateLimiter(rateLimitConfig),
+			nil,
 			nil,
 		)
 
@@ -747,6 +756,7 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 		},
 		disabledLimiter,
 		nil,
+		nil,
 	)
 
 	for _, tc := range tt {
@@ -775,6 +785,70 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 				assert.Equal(t, 200, result.StatusCode)
 			} else {
 				assert.Equal(t, 401, result.StatusCode)
+			}
+		})
+	}
+}
+
+func TestAuthMiddleware_MarkPATUsedThrottled(t *testing.T) {
+	tt := []struct {
+		name       string
+		lastUsed   *time.Time
+		expectMark bool
+	}{
+		{name: "never used", lastUsed: nil, expectMark: true},
+		{name: "used just now", lastUsed: util.ToPtr(time.Now().UTC()), expectMark: false},
+		{name: "used before the update interval", lastUsed: util.ToPtr(time.Now().UTC().Add(-2 * types.PATLastUsedUpdateInterval)), expectMark: true},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			pat := &types.PersonalAccessToken{
+				ID:             tokenID,
+				ExpirationDate: util.ToPtr(time.Now().UTC().AddDate(0, 0, 7)),
+				LastUsed:       tc.lastUsed,
+			}
+
+			marked := 0
+			mockAuth := &auth.MockManager{
+				GetPATInfoFunc: func(_ context.Context, _ string) (*types.User, *types.PersonalAccessToken, string, string, error) {
+					return testAccount.Users[userID], pat, testAccount.Domain, testAccount.DomainCategory, nil
+				},
+				MarkPATUsedFunc: func(_ context.Context, _ string) error {
+					marked++
+					return nil
+				},
+			}
+
+			disabledLimiter := ratelimit.NewAPIRateLimiter(nil)
+			disabledLimiter.SetEnabled(false)
+			authMiddleware := NewAuthMiddleware(
+				mockAuth,
+				func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
+					return userAuth.AccountId, userAuth.UserId, nil
+				},
+				func(ctx context.Context, userAuth nbauth.UserAuth) error {
+					return nil
+				},
+				func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
+					return &types.User{}, nil
+				},
+				disabledLimiter,
+				nil,
+				nil,
+			)
+
+			handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+			req := httptest.NewRequest("GET", "http://testing/test", nil)
+			req.Header.Set("Authorization", "Token "+PAT)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+			if tc.expectMark {
+				assert.Equal(t, 1, marked, "MarkPATUsed must be called")
+			} else {
+				assert.Equal(t, 0, marked, "MarkPATUsed must be skipped")
 			}
 		})
 	}

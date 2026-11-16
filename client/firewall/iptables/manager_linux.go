@@ -139,6 +139,10 @@ func (m *Manager) initChains(stateManager *statemanager.Manager) error {
 	var initialized []initStep
 	for _, s := range steps {
 		if err := s.r.init(stateManager); err != nil {
+			// The failing family may already have installed chains and jumps.
+			if rerr := s.r.Reset(); rerr != nil {
+				log.Warnf("rollback %s: %v", s.name, rerr)
+			}
 			for i := len(initialized) - 1; i >= 0; i-- {
 				if rerr := initialized[i].r.Reset(); rerr != nil {
 					log.Warnf("rollback %s: %v", initialized[i].name, rerr)

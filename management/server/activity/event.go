@@ -17,7 +17,7 @@ type ActivityDescriber interface { //nolint:revive
 // Event represents a network/system activity event.
 type Event struct {
 	// Timestamp of the event
-	Timestamp time.Time
+	Timestamp time.Time `gorm:"index:idx_events_account_timestamp,priority:2"`
 	// Activity that was performed during the event
 	Activity Activity `gorm:"type:integer"`
 	// ID of the event (can be empty, meaning that it wasn't yet generated)
@@ -31,7 +31,7 @@ type Event struct {
 	// TargetID is the ID of an object that was effected by the event (e.g., a peer)
 	TargetID string
 	// AccountID is the ID of an account where the event happened
-	AccountID string `gorm:"index"`
+	AccountID string `gorm:"index;index:idx_events_account_timestamp,priority:1,option:CONCURRENTLY"`
 
 	// Meta of the event, e.g. deleted peer information like name, IP, etc
 	Meta map[string]any `gorm:"serializer:json"`

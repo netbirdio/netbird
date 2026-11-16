@@ -58,6 +58,12 @@ const (
 	KeyLLMRequestPrompt  = "llm.request_prompt"
 	KeyLLMPolicyDecision = "llm_policy.decision"
 	KeyLLMPolicyReason   = "llm_policy.reason"
+	// Deny attribution (emitted by llm_limit_check on the deny path) for
+	// the admin's access log only, never the client: the id of the policy
+	// or account budget rule whose cap blocked the request, and
+	// management's detail naming the exhausted cap and its usage.
+	KeyLLMPolicyBlockedBy = "llm_policy.blocked_by"
+	KeyLLMPolicyDetail    = "llm_policy.detail"
 
 	// LLM router routing decision (emitted by llm_router). The router
 	// stamps the resolved provider id so downstream middlewares and

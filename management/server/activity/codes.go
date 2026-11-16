@@ -292,6 +292,16 @@ const (
 	// AccountPeerHostnameCollisionRejectionDisabled indicates that a user disabled rejecting peer hostname collisions for the account
 	AccountPeerHostnameCollisionRejectionDisabled Activity = 145
 
+	// The MCP session events' client_name meta is chosen by the client, and their access meta is
+	// what the user approved at consent, still limited by the user's role.
+
+	// MCPClientSignedIn indicates that a user signed an MCP client in through the MCP OAuth broker
+	MCPClientSignedIn Activity = 146
+	// MCPClientSignedOut indicates that an MCP client ended its session at the revocation endpoint
+	MCPClientSignedOut Activity = 147
+	// MCPSessionRevokedOnTokenReuse indicates that an MCP session was revoked because a refresh token or an authorization code was used twice
+	MCPSessionRevokedOnTokenReuse Activity = 148
+
 	AccountDeleted Activity = 99999
 )
 
@@ -475,6 +485,10 @@ var activityMap = map[Activity]Code{
 	DomainDeleted:                 {"Domain deleted", "domain.delete"},
 	DomainValidated:               {"Domain validated", "domain.validate"},
 	CustomDomainValidationExpired: {"Unvalidated domain registration expired", "domain.validation.expire"},
+
+	MCPClientSignedIn:             {"MCP client signed in", "mcp.session.start"},
+	MCPClientSignedOut:            {"MCP client signed out", "mcp.session.revoke"},
+	MCPSessionRevokedOnTokenReuse: {"MCP session revoked after token reuse", "mcp.session.replay"},
 }
 
 // StringCode returns a string code of the activity
