@@ -93,11 +93,11 @@ func agentNetworkInfoError(err error) error {
 // renderAgentNetworkUsage prints resp for the user identified by email, which
 // may be empty. Reset countdowns are relative to now.
 func renderAgentNetworkUsage(w io.Writer, resp *proto.GetAgentNetworkInfoResponse, email string, now time.Time, asJSON bool) error {
-	if resp.GetState() == proto.GetAgentNetworkInfoResponse_MANAGEMENT_UNSUPPORTED {
-		return errors.New(agentNetworkUnsupportedText)
-	}
 	if asJSON {
 		return writeAgentNetworkJSON(w, resp, email)
+	}
+	if resp.GetState() == proto.GetAgentNetworkInfoResponse_MANAGEMENT_UNSUPPORTED {
+		return errors.New(agentNetworkUnsupportedText)
 	}
 
 	switch resp.GetState() {

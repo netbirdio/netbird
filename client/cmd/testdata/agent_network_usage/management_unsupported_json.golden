@@ -1,1 +1,4 @@
-error: the NetBird management server does not report Agent Networks usage; ask your administrator to upgrade it
+{
+  "user_email": "ada@example.com",
+  "state": "MANAGEMENT_UNSUPPORTED"
+}
