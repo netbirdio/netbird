@@ -20,6 +20,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
 	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/ssh"
@@ -102,6 +103,11 @@ type ConfigInput struct {
 
 	LocalMetricsEnabled *bool
 	LocalMetricsAddress *string
+
+	// Name is the profile's display name, independent of the on-disk
+	// filename. Empty leaves the stored name unchanged.
+	Name  string
+	Owner *ipcauth.Identity
 }
 
 // Config Configuration type
@@ -217,6 +223,8 @@ type Config struct {
 	// state via Policy() and the mdm.Policy API (HasKey, ManagedKeys,
 	// IsEmpty).
 	policy *mdm.Policy `json:"-"`
+
+	Owners []string
 }
 
 // ApplyMDMPolicy overlays the supplied MDM Policy on top of the current
@@ -285,7 +293,7 @@ func baseConfigDir() (string, error) {
 	return os.UserConfigDir()
 }
 
-func getConfigDirForUser(username string) (string, error) {
+func getConfigDirForUserLegacy(username string) (string, error) {
 	if ConfigDirOverride != "" {
 		return ConfigDirOverride, nil
 	}
@@ -350,7 +358,9 @@ func newConfigSkeleton() *Config {
 // ServerSSHAllowed is the one field whose default depends on the config's age.
 // A brand-new profile gets false from newConfigSkeleton, which runs before
 // this, so what is resolved here is only the legacy case: a config written by a
-// version that had no such field keeps SSH on, for backwards compatibility.
+// version that had no such field keeps SSH on, for backwards compatibility, when
+// it carries the peer's private key. A config without one never ran an SSH
+// server and resolves to off, as does every config on Android.
 func (config *Config) resolveUnsetDefaults() (updated bool) {
 	// Fields that default to false on every platform.
 	for _, field := range []**bool{
@@ -389,11 +399,17 @@ func (config *Config) resolveUnsetDefaults() (updated bool) {
 	}
 
 	if config.ServerSSHAllowed == nil {
-		if runtime.GOOS == "android" {
+		switch {
+		case runtime.GOOS == "android":
 			// default to disabled SSH on Android for security
 			log.Infof("setting SSH server to false by default on Android")
 			config.ServerSSHAllowed = util.False()
-		} else {
+		case config.PrivateKey == "":
+			// Old versions wrote the peer's key together with the config, so a file
+			// without one never ran an SSH server and there is nothing to preserve.
+			log.Infof("setting SSH server to false by default for a configuration without identity")
+			config.ServerSSHAllowed = util.False()
+		default:
 			// enables SSH for configs from old versions to preserve backwards compatibility
 			log.Infof("falling back to enabled SSH server for pre-existing configuration")
 			config.ServerSSHAllowed = util.True()
@@ -465,8 +481,12 @@ func (config *Config) EnsureIdentity() (bool, error) {
 }
 
 func (config *Config) apply(input ConfigInput) (updated bool, err error) {
-	if config.Name != "" {
-		sanitized, err := sanitizeDisplayName(config.Name)
+	name := config.Name
+	if input.Name != "" {
+		name = input.Name
+	}
+	if name != "" {
+		sanitized, err := sanitizeDisplayName(name)
 		if err != nil {
 			return false, fmt.Errorf("invalid profile name: %w", err)
 		}
@@ -825,6 +845,13 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
+	if input.Owner != nil {
+		ownerString := ipcauth.OwnerPrincipalForIdentity(*input.Owner)
+		config.Owners = append([]string{}, ownerString)
+		log.Infof("setting '%s' as owner for profile %s", ownerString, config.Name)
+		updated = true
+	}
+
 	// Initialise the MDM overlay to "no enforcement" so Config.Policy()
 	// never returns a stale or nil policy on a freshly applied Config.
 	// Lifecycle owners that want to enforce a real MDM policy invoke
@@ -932,6 +959,32 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 		logApplied(mdm.KeyLazyConnection, state)
 	}
 
+	config.applyMDMExtraIFaceBlackList(policy)
+}
+
+// applyMDMExtraIFaceBlackList appends the MDM interface prefixes missing from
+// the resolved blacklist. It runs after every write of the profile file, so the
+// MDM entries stay in memory only and vanish once the policy drops them.
+func (config *Config) applyMDMExtraIFaceBlackList(policy *mdm.Policy) {
+	if !policy.HasKey(mdm.KeyExtraIFaceBlackList) {
+		return
+	}
+
+	values, ok := policy.GetStringSlice(mdm.KeyExtraIFaceBlackList)
+	if !ok {
+		log.Warnf("MDM %s is not a list of interface names; ignoring it", mdm.KeyExtraIFaceBlackList)
+		return
+	}
+
+	entries := mdm.SplitList(values)
+	added := util.SliceDiff(entries, config.IFaceBlackList)
+	// Clip so the append never writes into a backing array shared with the
+	// slice the policy was applied to.
+	config.IFaceBlackList = append(slices.Clip(config.IFaceBlackList), added...)
+
+	log.Infof("MDM override %s = [ %s ] (added [ %s ])",
+		mdm.KeyExtraIFaceBlackList, strings.Join(entries, " "), strings.Join(added, " "))
+	log.Debugf("interface blacklist with MDM entries: [ %s ]", strings.Join(config.IFaceBlackList, " "))
 }
 
 // ValidateBundleUploadURL sanity-checks a debug-bundle upload URL. An empty
@@ -1190,15 +1243,17 @@ func update(input ConfigInput) (*Config, error) {
 		return nil, err
 	}
 
-	// A write path is a provisioning point: a stored profile can legitimately
-	// carry no identity (a mobile logout clears the keys in place), and the
-	// next config write is what has to mint a new one. Reads leave that alone.
-	identityGenerated, err := config.EnsureIdentity()
+	// apply runs first so the defaults it resolves see the identity that is
+	// stored, not one minted a moment ago.
+	updated, err := config.apply(input)
 	if err != nil {
 		return nil, err
 	}
 
-	updated, err := config.apply(input)
+	// A write path is a provisioning point: a stored profile can legitimately
+	// carry no identity (a mobile logout clears the keys in place), and the
+	// next config write is what has to mint a new one. Reads leave that alone.
+	identityGenerated, err := config.EnsureIdentity()
 	if err != nil {
 		return nil, err
 	}
@@ -1393,13 +1448,13 @@ func directUpdate(input ConfigInput) (*Config, error) {
 		return nil, err
 	}
 
-	// Same provisioning point as update(); see the note there.
-	identityGenerated, err := config.EnsureIdentity()
+	// Same order as update(); see the notes there.
+	updated, err := config.apply(input)
 	if err != nil {
 		return nil, err
 	}
 
-	updated, err := config.apply(input)
+	identityGenerated, err := config.EnsureIdentity()
 	if err != nil {
 		return nil, err
 	}

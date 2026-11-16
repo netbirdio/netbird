@@ -20,6 +20,7 @@ const (
 	HTTPSource   ExecutionContext = "HTTP"
 	GRPCSource   ExecutionContext = "GRPC"
 	SystemSource ExecutionContext = "SYSTEM"
+	MCPSource    ExecutionContext = "MCP"
 )
 
 // ContextHook is a custom hook for add the source information for the entry

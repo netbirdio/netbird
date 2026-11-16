@@ -17,13 +17,10 @@ const (
 	ClientStateNoNetwork     = int(peer.ClientStateNoNetwork)
 )
 
-// ConnectionListener export internal Listener for mobile.
-//
-// It intentionally lacks OnStateChanged for now: adding a method to a gomobile
-// interface breaks every Swift implementation, so the iOS app keeps building
-// against the legacy per-state callbacks. A follow-up will extend it together
-// with the app.
+// ConnectionListener exports the internal listener for mobile, carrying typed
+// states as plain integers for gomobile bindings.
 type ConnectionListener interface {
+	OnStateChanged(state int)
 	OnConnected()
 	OnDisconnected()
 	OnConnecting()
@@ -38,6 +35,6 @@ type connectionListenerAdapter struct {
 	ConnectionListener
 }
 
-// OnStateChanged is dropped on iOS until the app adopts the state callback;
-// the legacy per-state callbacks continue to fire.
-func (a connectionListenerAdapter) OnStateChanged(peer.ClientState) {}
+func (a connectionListenerAdapter) OnStateChanged(state peer.ClientState) {
+	a.ConnectionListener.OnStateChanged(int(state))
+}

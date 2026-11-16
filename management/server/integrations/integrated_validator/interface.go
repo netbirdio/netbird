@@ -21,6 +21,9 @@ type IntegratedValidator interface {
 	GetInvalidPeers(ctx context.Context, accountID string, extraSettings *types.ExtraSettings) (map[string]string, error)
 	PeerDeleted(ctx context.Context, accountID, peerID string, extraSettings *types.ExtraSettings) error
 	SetPeerInvalidationListener(fn func(accountID string, peerIDs []string))
+	// SetPeerValidationChangeListener registers fn to be called with the peers whose
+	// validation state changed outside a login or sync, so their network maps can be pushed.
+	SetPeerValidationChangeListener(fn func(accountID string, peerIDs []string))
 	Stop(ctx context.Context)
 	ValidateFlowResponse(ctx context.Context, peerKey string, flowResponse *proto.PKCEAuthorizationFlow) *proto.PKCEAuthorizationFlow
 }

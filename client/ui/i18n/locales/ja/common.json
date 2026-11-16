@@ -8,6 +8,9 @@
     "tray.status.daemonUnavailable": {
         "message": "実行されていません"
     },
+    "tray.status.daemonAccessDenied": {
+        "message": "アクセス権なし"
+    },
     "tray.status.error": {
         "message": "エラー"
     },
@@ -674,6 +677,9 @@
     "settings.security.rosenpass.help": {
         "message": "WireGuard® に加えて Rosenpass によるポスト量子鍵交換を追加します。"
     },
+    "settings.security.rosenpass.deprecated": {
+        "message": "非推奨: Rosenpass のサポートは今後のリリースで削除される可能性があります。"
+    },
     "settings.security.rosenpassPermissive.label": {
         "message": "寛容モードを有効にする"
     },
@@ -1331,6 +1337,12 @@
     "daemon.unavailable.docsLink": {
         "message": "ドキュメント"
     },
+    "daemon.accessDenied.title": {
+        "message": "NetBird サービスへのアクセス権がありません"
+    },
+    "daemon.accessDenied.description": {
+        "message": "管理者がこのデバイスの NetBird サービスを特定のユーザーまたはグループに制限しており、お使いのアカウントは含まれていません。アクセスについては管理者にお問い合わせください。"
+    },
     "daemon.outdated.title": {
         "message": "NetBird サービスが古くなっています"
     },
@@ -1360,6 +1372,9 @@
     },
     "error.daemon_unreachable": {
         "message": "NetBird デーモンが応答していません。サービスが実行されているか確認してください。"
+    },
+    "error.daemon_access_denied": {
+        "message": "お使いのアカウントには、このデバイスで NetBird サービスを使用する権限がありません。アクセスについては管理者にお問い合わせください。"
     },
     "error.settings_locked": {
         "message": "この端末では設定を変更できません。管理者によってロックされています。"
@@ -1393,5 +1408,23 @@
     },
     "settings.ssh.privilege.authorizePending": {
         "message": "承認を待っています…"
+    },
+    "profile.ownedByAnother.name": {
+        "message": "別のユーザー"
+    },
+    "profile.ownedByAnother.hint": {
+        "message": "アクティブなプロファイルは別のユーザーのものです。変更や切断はその所有者のみが行えます。"
+    },
+    "error.privilege_required": {
+        "message": "この操作には昇格した権限が必要です。"
+    },
+    "error.session_held": {
+        "message": "別のユーザーがこのマシンを接続しています。"
+    },
+    "error.not_profile_owner": {
+        "message": "このプロファイルは別のユーザーのものです。"
+    },
+    "error.profile_unowned": {
+        "message": "このプロファイルにはまだ所有者がいません。"
     }
 }

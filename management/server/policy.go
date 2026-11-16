@@ -51,6 +51,10 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 	var unchanged bool
 	var snap *affectedpeers.Snapshot
 	var change affectedpeers.Change
+	reason := types.UpdateReason{Resource: types.UpdateResourcePolicy, Operation: types.UpdateOperationCreate}
+	if isUpdate {
+		reason.Operation = types.UpdateOperationUpdate
+	}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		existingPolicy, err = validatePolicy(ctx, transaction, accountID, policy)
@@ -59,13 +63,13 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 		}
 
 		if isUpdate {
+			action = activity.PolicyUpdated
+
 			if policy.Equal(existingPolicy) {
 				log.WithContext(ctx).Tracef("policy update skipped because equal to stored one - policy id %s", policy.ID)
 				unchanged = true
 				return nil
 			}
-
-			action = activity.PolicyUpdated
 
 			policy.PublicID = existingPolicy.PublicID
 
@@ -96,13 +100,13 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 		return nil, err
 	}
 
+	am.StoreEvent(ctx, userID, policy.ID, accountID, action, policy.EventMeta())
+
 	if unchanged {
 		return policy, nil
 	}
 
-	am.StoreEvent(ctx, userID, policy.ID, accountID, action, policy.EventMeta())
-
-	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change, reason)
 
 	return policy, nil
 }
@@ -145,7 +149,7 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 
 	am.StoreEvent(ctx, userID, policyID, accountID, activity.PolicyRemoved, policy.EventMeta())
 
-	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change, types.UpdateReason{Resource: types.UpdateResourcePolicy, Operation: types.UpdateOperationDelete})
 
 	return nil
 }

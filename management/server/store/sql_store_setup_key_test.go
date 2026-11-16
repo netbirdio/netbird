@@ -22,7 +22,7 @@ func TestSqlite_GetSetupKeyBySecret(t *testing.T) {
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
-	plainKey := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
+	plainKey := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB" // gitleaks:allow
 	hashedKey := sha256.Sum256([]byte(plainKey))
 	encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
 
@@ -47,7 +47,7 @@ func TestSqlite_incrementSetupKeyUsage(t *testing.T) {
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
-	plainKey := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
+	plainKey := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB" // gitleaks:allow
 	hashedKey := sha256.Sum256([]byte(plainKey))
 	encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
 

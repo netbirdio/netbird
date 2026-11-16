@@ -9,6 +9,8 @@
 package mdm
 
 import (
+	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -68,11 +70,32 @@ const (
 	// (which defaults to disabled). Stored on Config as RemoteJobsAllowed.
 	KeyRemoteJobsAllowed = "allowRemoteJobs"
 
+	// KeyAllowGroups restricts the daemon control socket and the JSON socket
+	// to the listed principals, overriding the install-time --allow-group in
+	// both directions: a managed host can be restricted without a reinstall,
+	// and an empty value lifts a restriction the install set. Absent = defer to
+	// the install-time flag.
+	//
+	// Read as a list of principals in kind:value form, "gid:1001" on Unix and
+	// "sid:S-1-5-21-..." on Windows, either as a real list or comma-separated.
+	// Resolved principals rather than group names because this is read on the
+	// daemon's boot path, where resolving a name can block on an unreachable
+	// LDAP or Active Directory backend. A name is still accepted, and still
+	// resolved, for a host where that is not a concern.
+	KeyAllowGroups = "allowGroups"
+
 	// KeyBundleUploadURL overrides the debug-bundle upload service URL for
 	// remote jobs, taking precedence over the management-supplied value. Read
 	// as a string; must be an https URL with a host. Absent = defer to the
 	// management-supplied URL (or the default upload server).
 	KeyBundleUploadURL = "debugBundleUploadURL"
+
+	// KeyExtraIFaceBlackList adds interface name prefixes to the blacklist
+	// used for connection candidate discovery. Additive, unlike every other
+	// key: the defaults, the profile file and the --extra-iface-blacklist flag
+	// keep their entries, so a device can still exclude its own interfaces.
+	// Read as a list or a comma-separated string.
+	KeyExtraIFaceBlackList = "extraIFaceBlackList"
 )
 
 // Split-tunnel mode literals (KeySplitTunnelMode values).
@@ -155,23 +178,45 @@ func NewLoader(f PolicyFetcher) *Loader {
 //   - source present, zero keys:             info "MDM enrolled (no managed keys)"
 //   - source present, N keys:                info "MDM enrolled with N managed keys: [...]"
 func (l *Loader) Load() *Policy {
-	if l == nil {
-		return &Policy{values: map[string]any{}}
-	}
-	values, err := l.loadPlatform()
+	policy, err := l.LoadWithError()
 	if err != nil {
 		log.Tracef("MDM policy load: %v", err)
 		return &Policy{values: map[string]any{}}
 	}
+	return policy
+}
+
+// LoadWithError reads the platform-native MDM configuration and reports a
+// source that is present but could not be read, which Load hides behind an
+// empty Policy.
+//
+// A caller that enforces a managed security setting must use this and fail
+// closed: an unreadable source is not the same as an absent one, and treating
+// it as absent silently drops whatever the administrator configured. A caller
+// that only decides a default, such as the UI's autostart checkbox, is better
+// served by Load.
+//
+// An absent source is not an error. The platform loaders return the
+// documented (nil, nil) sentinel for "not enrolled", so only a real read
+// failure surfaces here.
+func (l *Loader) LoadWithError() (*Policy, error) {
+	if l == nil {
+		return &Policy{values: map[string]any{}}, nil
+	}
+
+	values, err := l.loadPlatform()
+	if err != nil {
+		return nil, fmt.Errorf("read MDM policy source: %w", err)
+	}
 	if values == nil {
-		return &Policy{values: map[string]any{}}
+		return &Policy{values: map[string]any{}}, nil
 	}
 	if len(values) == 0 {
 		log.Info("MDM enrolled (no managed keys)")
 	} else {
 		log.Infof("MDM enrolled with %d managed key(s): %v", len(values), sortedKeys(values))
 	}
-	return &Policy{values: values}
+	return &Policy{values: values}, nil
 }
 
 // IsEmpty reports whether the Policy has no managed keys.
@@ -299,6 +344,20 @@ func (p *Policy) GetStringSlice(key string) ([]string, bool) {
 		return []string{t}, true
 	}
 	return nil, false
+}
+
+// SplitList flattens comma-separated values into trimmed, non-empty, unique
+// entries, since one managed-configuration string can carry a whole list.
+func SplitList(values []string) []string {
+	var entries []string
+	for _, value := range values {
+		for _, entry := range strings.Split(value, ",") {
+			if entry = strings.TrimSpace(entry); entry != "" && !slices.Contains(entries, entry) {
+				entries = append(entries, entry)
+			}
+		}
+	}
+	return entries
 }
 
 // sortedKeys returns the keys of m as a deterministic, lexicographically
