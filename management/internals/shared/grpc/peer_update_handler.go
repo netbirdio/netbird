@@ -7,6 +7,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/encryption"
@@ -14,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/shared/management/certposture"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/testhb"
 )
 
 func PeerUpdateHandlerFactory(
@@ -55,11 +57,32 @@ type PeerUpdateHandler struct {
 	encrypter          encryption.Encrypter
 	debouncer          Debouncer
 	cleanupFunc        func()
+	// hbSchedule is the test heartbeat schedule the client sent on Sync.
+	hbSchedule testhb.ClientSchedule
 }
 
 func (pu *PeerUpdateHandler) WithMetrics(appMetrics telemetry.AppMetrics) *PeerUpdateHandler {
 	pu.appMetrics = appMetrics
 	return pu
+}
+
+// WithTestHBSchedule sets the test heartbeat schedule the client sent on Sync.
+func (pu *PeerUpdateHandler) WithTestHBSchedule(cs testhb.ClientSchedule) *PeerUpdateHandler {
+	pu.hbSchedule = cs
+	return pu
+}
+
+// testHBClientSchedule reads the test heartbeat schedule from the Sync metadata.
+// arrival is the wall time when the Sync handler started.
+func testHBClientSchedule(ctx context.Context, arrival time.Time) testhb.ClientSchedule {
+	if !testhb.Enabled() {
+		return testhb.ClientSchedule{}
+	}
+	v := metadata.ValueFromIncomingContext(ctx, testhb.MetadataKey)
+	if len(v) == 0 {
+		return testhb.ClientSchedule{}
+	}
+	return testhb.ClientScheduleFor(testhb.ServiceManagement, v[0], arrival)
 }
 
 //go:generate go tool mockgen -source=./peer_update_handler.go -destination=./sync_sender_mock.go -package=grpc
@@ -72,6 +95,17 @@ func (pu *PeerUpdateHandler) HandleUpdates(ctx context.Context) error {
 	log.WithContext(ctx).Tracef("starting to handle updates for peer %s", pu.peerKey.String())
 
 	defer pu.debouncer.Stop()
+
+	// Test-only heartbeat, nil (never fires) unless NB_TEST_HB_MODE is set.
+	// It shares this loop so the stream is only written from one goroutine.
+	hbCtx, hbCancel := context.WithCancel(ctx)
+	defer hbCancel()
+	hbKey := testhb.PhaseKey(pu.peerKey.String())
+	hb := testhb.TickerWithClient(hbCtx, hbKey, testhb.ServiceManagement, pu.hbSchedule)
+	if hb != nil && pu.hbSchedule.OK {
+		log.WithContext(ctx).Infof("testhb: client schedule svc=management key=%s p=%d period=%d skew=%d",
+			hbKey, pu.hbSchedule.PhaseMs, int64(pu.hbSchedule.Period/time.Second), pu.hbSchedule.SkewMs)
+	}
 
 	for {
 		select {
@@ -110,6 +144,19 @@ func (pu *PeerUpdateHandler) HandleUpdates(ctx context.Context) error {
 					return err
 				}
 			}
+
+		case <-hb:
+			if testhb.Muted(testhb.ServiceManagement) {
+				log.WithContext(ctx).Infof("testhb: muted management heartbeat key=%s", hbKey)
+				continue
+			}
+			if err := pu.SendUpdate(ctx, &network_map.UpdateMessage{Update: &proto.SyncResponse{}}); err != nil {
+				log.WithContext(ctx).Debugf("error while sending a test heartbeat to peer %s: %v", pu.peerKey.String(), err)
+				return err
+			}
+			mode := testhb.CurrentMode()
+			log.WithContext(ctx).Infof("testhb: sent management heartbeat key=%s mode=%s t=%d%s",
+				hbKey, mode, time.Now().UnixMilli(), testhb.LogSuffix(mode, pu.hbSchedule))
 
 		// condition when client <-> server connection has been terminated
 		case <-pu.srv.Context().Done():

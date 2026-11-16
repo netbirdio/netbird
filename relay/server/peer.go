@@ -14,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/relay/server/store"
 	"github.com/netbirdio/netbird/shared/relay/healthcheck"
 	"github.com/netbirdio/netbird/shared/relay/messages"
+	"github.com/netbirdio/netbird/shared/testhb"
 )
 
 const (
@@ -62,6 +63,16 @@ func NewPeer(metrics *metrics.Metrics, id messages.PeerID, version messages.Prot
 	return p
 }
 
+// testHBSchedule returns the test heartbeat schedule the client sent when its
+// connection opened, if the transport carries one.
+func (p *Peer) testHBSchedule() testhb.ClientSchedule {
+	c, ok := p.conn.(interface{ TestHBSchedule() testhb.ClientSchedule })
+	if !ok {
+		return testhb.ClientSchedule{}
+	}
+	return c.TestHBSchedule()
+}
+
 // Work reads data from the connection
 // It manages the protocol (healthcheck, transport, close). Read the message and determine the message type and handle
 // the message accordingly.
@@ -78,7 +89,7 @@ func (p *Peer) Work() {
 
 	ctx := p.ctx
 
-	hc := healthcheck.NewSender(p.log)
+	hc := healthcheck.NewSenderWithClientSchedule(p.log, p.ID().String(), p.testHBSchedule())
 	go hc.StartHealthCheck(ctx)
 	go p.handleHealthcheckEvents(ctx, hc)
 

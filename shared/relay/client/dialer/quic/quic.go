@@ -16,6 +16,8 @@ import (
 	quictls "github.com/netbirdio/netbird/shared/relay/tls"
 )
 
+const maxIdleTimeout = 4 * time.Minute
+
 type Dialer struct {
 }
 
@@ -49,8 +51,7 @@ func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn,
 	}
 
 	quicConfig := &quic.Config{
-		KeepAlivePeriod:   30 * time.Second,
-		MaxIdleTimeout:    4 * time.Minute,
+		MaxIdleTimeout:    maxIdleTimeout,
 		EnableDatagrams:   true,
 		InitialPacketSize: nbRelay.QUICInitialPacketSize,
 		Tracer:            connectionTracer(quicURL),

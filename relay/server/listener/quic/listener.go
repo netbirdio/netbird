@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/quic-go/quic-go"
 	log "github.com/sirupsen/logrus"
@@ -14,7 +15,11 @@ import (
 	nbRelay "github.com/netbirdio/netbird/shared/relay"
 )
 
-const Proto protocol.Protocol = "quic"
+const (
+	Proto protocol.Protocol = "quic"
+
+	maxIdleTimeout = 150 * time.Second
+)
 
 type Listener struct {
 	// Address is the address to listen on
@@ -27,6 +32,7 @@ type Listener struct {
 
 func (l *Listener) Bind() error {
 	quicCfg := &quic.Config{
+		MaxIdleTimeout:    maxIdleTimeout,
 		EnableDatagrams:   true,
 		InitialPacketSize: nbRelay.QUICInitialPacketSize,
 	}
