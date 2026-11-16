@@ -54,35 +54,3 @@ UsersPath:
         "$ref": "../openapi.yaml#/components/responses/unprocessable"
       '500':
         "$ref": "../openapi.yaml#/components/responses/internal_error"
-UserPath:
-  get:
-    summary: Update a User
-    description: Update information about a User
-    tags: [ Users ]
-    security:
-      - BearerAuth: [ ]
-      - TokenAuth: [ ]
-    parameters:
-      - in: path
-        name: userId
-        required: true
-        schema:
-          type: string
-        description: The unique identifier of a user
-    responses:
-      '200':
-        description: A User object
-        content:
-          application/json:
-            schema:
-              $ref: './user_components.yaml#/components/schemas/User'
-      '400':
-        "$ref": "../openapi.yaml#/components/responses/bad_request"
-      '401':
-        "$ref": "../openapi.yaml#/components/responses/requires_authentication"
-      '403':
-        "$ref": "../openapi.yaml#/components/responses/forbidden"
-      '422':
-        "$ref": "../openapi.yaml#/components/responses/unprocessable"
-      '500':
-        "$ref": "../openapi.yaml#/components/responses/internal_error"

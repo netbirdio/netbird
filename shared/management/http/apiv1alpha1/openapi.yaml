@@ -246,5 +246,3 @@ paths:
     $ref: './peer/peer.yaml'
   /users:
     $ref: './user/user_paths.yaml#/UsersPath'
-  /users/{userId}:
-    $ref: './user/user_paths.yaml#/UserPath'

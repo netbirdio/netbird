@@ -1,7 +1,6 @@
 package users
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -31,69 +30,7 @@ func NewHandler(accountManager account.Manager) *Handler {
 
 func (h *Handler) WithEndpointsForRouter(router *mux.Router) *mux.Router {
 	router.HandleFunc("/users", h.getAllUsers).Methods("GET", "OPTIONS")
-	router.HandleFunc("/users/{userId}", h.updateUser).Methods("GET", "OPTIONS")
 	return router
-}
-
-// updateUser is a PUT requests to update User data
-func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPut {
-		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
-		return
-	}
-
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	accountID, userID := userAuth.AccountId, userAuth.UserId
-	vars := mux.Vars(r)
-	targetUserID := vars["userId"]
-	if len(targetUserID) == 0 {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid user ID"), w)
-		return
-	}
-
-	existingUser, err := h.accountManager.GetUserByID(r.Context(), targetUserID)
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	req := &apiv1alpha1.User{}
-	err = json.NewDecoder(r.Body).Decode(req)
-	if err != nil {
-		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
-		return
-	}
-
-	if req.AutoGroups == nil {
-		util.WriteErrorResponse("auto_groups field can't be absent", http.StatusBadRequest, w)
-		return
-	}
-
-	userRole := types.StrRoleToUserRole(req.Role)
-	if userRole == types.UserRoleUnknown {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid user role"), w)
-		return
-	}
-
-	newUser, err := h.accountManager.SaveUser(r.Context(), accountID, userID, &types.User{
-		Id:                   targetUserID,
-		Role:                 userRole,
-		AutoGroups:           req.AutoGroups,
-		Blocked:              req.IsBlocked,
-		Issued:               existingUser.Issued,
-		IntegrationReference: existingUser.IntegrationReference,
-	})
-
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-	util.WriteJSONObject(r.Context(), w, toUserResponse(newUser, userID))
 }
 
 // getAllUsers returns a list of users of the account this user belongs to.
