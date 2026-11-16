@@ -181,7 +181,8 @@ func (s *SqlStore) getAccountUsersPaginated(ctx context.Context,
 		if lockStrength != LockingStrengthNone {
 			tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 		}
-		tx = tx.Where(accountIDCondition, accountID)
+		tx = tx.Where(accountIDCondition, accountID).
+			Where("(non_deletable = ? OR non_deletable IS NULL)", false)
 		return filters.AsConditions(tx)
 	}
 
@@ -234,8 +235,12 @@ type userFilters struct {
 func (uf *userFilters) AsConditions(db *gorm.DB) *gorm.DB {
 	tx := uf.fuzzyNameSearchConditionFunc(db, uf.Name)
 
-	if uf.ServiceUser != nil && *uf.ServiceUser {
-		tx = tx.Where("is_service_user is true")
+	if uf.ServiceUser != nil {
+		if *uf.ServiceUser {
+			tx = tx.Where("is_service_user = ?", true)
+		} else {
+			tx = tx.Where("(is_service_user = ? OR is_service_user IS NULL)", false)
+		}
 	}
 
 	return tx
