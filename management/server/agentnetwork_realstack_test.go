@@ -70,12 +70,15 @@ func TestAgentNetwork_ProviderCRUD_FansOutToProxyAndClientPeers(t *testing.T) {
 		AccountID: accountID,
 		Key:       proxyPeerKey,
 		IP:        netip.MustParseAddr(proxyIP),
-		Status:    &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Status:    &nbpeer.PeerStatus{},
 		ProxyMeta: nbpeer.ProxyMeta{Embedded: true, Cluster: clusterAddr},
 		DNSLabel:  "agent-net-proxy",
 	}
 	account.Groups[groupAID] = &types.Group{ID: groupAID, Name: "groupA", Peers: []string{addedClient.ID}}
 	require.NoError(t, am.Store.SaveAccount(ctx, account), "SaveAccount must persist proxy peer + group")
+	connected, err := am.peerLiveness.Connect(ctx, accountID, proxyPeerID, time.Now().UTC().UnixNano())
+	require.NoError(t, err)
+	require.True(t, connected, "the embedded proxy peer must be connected")
 
 	// Subscribe to BOTH peers' update channels — this is how we observe the
 	// real fan-out.

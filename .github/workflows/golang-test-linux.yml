@@ -244,6 +244,14 @@ jobs:
           NB_TEST_PKCS11_DISPOSABLE: "1"
         run: CGO_ENABLED=0 go test -tags pkcs11 -timeout 5m ./client/internal/pkcs11/... ./client/internal/certproof/...
 
+      - name: Test SSH privilege drop
+        # purego marks the runtime as cgo without libc's setxid hooks, so the syscall
+        # package's setuid family panics in this build. Drop privileges as root to cover it.
+        run: |
+          CGO_ENABLED=0 go test -c -tags 'pkcs11 privileged' -o "$RUNNER_TEMP/ssh-server.test" ./client/ssh/server/
+          sudo "$RUNNER_TEMP/ssh-server.test" -test.run '^TestDropPrivilegesAllThreads$' -test.v
+          CGO_ENABLED=0 GOARCH=arm64 go test -c -tags 'pkcs11 privileged' -o "$RUNNER_TEMP/ssh-server-arm64.test" ./client/ssh/server/
+
   test_client_on_docker:
     name: "Client (Docker) / Unit"
     needs: [build-cache]
@@ -303,11 +311,11 @@ jobs:
             -e GOCACHE=${CONTAINER_GOCACHE} \
             -e GOMODCACHE=${CONTAINER_GOMODCACHE} \
             -e CONTAINER=${CONTAINER} \
-            golang:1.26.7-alpine \
+            golang:1.26.10-alpine \
             sh -c ' \
               apk update; apk add --no-cache \
                 ca-certificates iptables ip6tables dbus dbus-dev libpcap-dev build-base; \
-              go test -buildvcs=false -tags "devcert privileged" -v -timeout 10m -p 1 $(go list -e -buildvcs=false ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /combined -e /client/ui -e /upload-server -e /client/testutil/privileged -e tools/mysql-migrate)
+              go test -buildvcs=false -tags "devcert privileged" -v -timeout 10m -p 1 $(go list -e -buildvcs=false ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /combined -e /client/ui -e /upload-server -e /client/testutil/privileged)
             '
 
   test_relay:
@@ -498,7 +506,7 @@ jobs:
       fail-fast: false
       matrix:
         arch: ["amd64"]
-        store: ["sqlite", "postgres", "mysql"]
+        store: ["sqlite", "postgres"]
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout code
@@ -546,10 +554,6 @@ jobs:
           DOCKER_USER: ${{ secrets.DOCKER_USER }}
           DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
         run: echo "$DOCKER_TOKEN" | sudo docker login --username "$DOCKER_USER" --password-stdin
-
-      - name: download mysql image
-        if: matrix.store == 'mysql'
-        run: docker pull mlsmaycon/warmed-mysql:8
 
       # The -json stream goes through tools/gotestsummary so the log shows one
       # line per test, the output of failed tests, the head of a timeout panic

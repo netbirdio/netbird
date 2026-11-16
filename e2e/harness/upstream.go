@@ -20,9 +20,15 @@ const (
 	fakeUpstreamPort  = "443/tcp"
 )
 
+// FakeUpstreamRejectedKey is the API key the fake upstream refuses with an
+// OpenAI-shaped 401, so a test can produce an error the provider itself
+// returns, as opposed to one the proxy generates.
+const FakeUpstreamRejectedKey = "sk-e2e-rejected"
+
 // fakeUpstreamNginxConf serves a canned OpenAI-shaped chat completion for any
 // path over a self-signed certificate, so the proxy reaches it only when the
-// provider opts into skipping TLS verification.
+// provider opts into skipping TLS verification. Requests carrying
+// FakeUpstreamRejectedKey get a 401 instead.
 const fakeUpstreamNginxConf = `pid /tmp/nginx.pid;
 events {}
 http {
@@ -32,6 +38,9 @@ http {
     ssl_certificate_key /certs/tls.key;
     location / {
       default_type application/json;
+      if ($http_authorization = "Bearer ` + FakeUpstreamRejectedKey + `") {
+        return 401 '{"error":{"message":"Incorrect API key provided","type":"invalid_request_error","code":"invalid_api_key"}}';
+      }
       return 200 '{"id":"chatcmpl-e2e","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"pong"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}';
     }
   }

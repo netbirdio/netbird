@@ -24,6 +24,15 @@ linters:
   settings:
     errcheck:
       check-type-assertions: false
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: ^(fmt\.Print(|f|ln)|print|println)$
+        # Builds that link libc through purego mark the runtime as cgo without
+        # registering the libc setxid hooks, so these panic in AllThreadsSyscall.
+        - pattern: ^(syscall|unix)\.(Setgroups|Set(e|re|res)?[ug]id|AllThreadsSyscall6?)$
+          pkg: ^(syscall|golang\.org/x/sys/unix)$
+          msg: use the setgroups/setgid/setuid helpers in client/ssh/server, which go through libc in purego builds
     gocritic:
       disabled-checks:
         - commentFormatting
@@ -86,6 +95,9 @@ linters:
       - linters:
           - forbidigo
         path: signal/cmd/root\.go
+      - linters:
+          - forbidigo
+        path: client/ssh/server/setid_unix\.go
       - linters:
           - unused
         path: sharedsock/filter\.go

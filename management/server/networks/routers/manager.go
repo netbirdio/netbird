@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
+	nbtypes "github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -35,8 +36,7 @@ type managerImpl struct {
 	accountManager     account.Manager
 }
 
-type mockManager struct {
-}
+type mockManager struct{}
 
 func NewManager(store store.Store, permissionsManager permissions.Manager, accountManager account.Manager) Manager {
 	return &managerImpl{
@@ -128,7 +128,7 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 
 	m.accountManager.StoreEvent(ctx, userID, router.ID, router.AccountID, activity.NetworkRouterCreated, router.EventMeta(network))
 
-	m.accountManager.ExpandAndUpdateAffected(ctx, router.AccountID, snap, change)
+	m.accountManager.ExpandAndUpdateAffected(ctx, router.AccountID, snap, change, nbtypes.UpdateReason{Resource: nbtypes.UpdateResourceNetworkRouter, Operation: nbtypes.UpdateOperationCreate})
 
 	return router, nil
 }
@@ -177,7 +177,11 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 
 	m.accountManager.StoreEvent(ctx, userID, router.ID, router.AccountID, activity.NetworkRouterUpdated, router.EventMeta(network))
 
-	m.accountManager.ExpandAndUpdateAffected(ctx, router.AccountID, snap, change)
+	if change.IsEmpty() {
+		return router, nil
+	}
+
+	m.accountManager.ExpandAndUpdateAffected(ctx, router.AccountID, snap, change, nbtypes.UpdateReason{Resource: nbtypes.UpdateResourceNetworkRouter, Operation: nbtypes.UpdateOperationUpdate})
 
 	return router, nil
 }
@@ -205,6 +209,10 @@ func (m *managerImpl) updateRouterInTransaction(ctx context.Context, transaction
 	// UpdateNetworkRouter (which does Updates(router) with Select("*"))
 	// doesn't clobber it with the request's zero value.
 	router.PublicID = existing.PublicID
+
+	if router.Equal(existing) {
+		return network, nil, affectedpeers.Change{}, nil
+	}
 
 	if err = transaction.UpdateNetworkRouter(ctx, router); err != nil {
 		return nil, nil, affectedpeers.Change{}, fmt.Errorf("failed to update network router: %w", err)
@@ -263,7 +271,7 @@ func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, netwo
 
 	event()
 
-	m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change, nbtypes.UpdateReason{Resource: nbtypes.UpdateResourceNetworkRouter, Operation: nbtypes.UpdateOperationDelete})
 
 	return nil
 }

@@ -192,15 +192,17 @@ func (s *Server) createExecutorCommand(logger *log.Entry, session ssh.Session, l
 	if err != nil {
 		return nil, nil, fmt.Errorf("parse user credentials: %w", err)
 	}
+	_, isSftp := session.(sftpSession)
 	privilegeDropper := NewPrivilegeDropper(WithLogger(logger))
 	config := ExecutorConfig{
-		UID:        uid,
-		GID:        gid,
-		Groups:     groups,
-		WorkingDir: localUser.HomeDir,
-		Shell:      getUserShell(localUser.Uid),
-		Command:    session.RawCommand(),
-		PTY:        hasPty,
+		NoLoginShell: isSftp,
+		UID:          uid,
+		GID:          gid,
+		Groups:       groups,
+		WorkingDir:   localUser.HomeDir,
+		Shell:        getUserShell(localUser.Uid),
+		Command:      session.RawCommand(),
+		PTY:          hasPty,
 	}
 
 	cmd, err := privilegeDropper.CreateExecutorCommand(session.Context(), config)
@@ -243,7 +245,7 @@ func (s *Server) createDirectPtyCommand(session ssh.Session, localUser *user.Use
 // preparePtyEnv prepares environment variables for Pty execution
 func (s *Server) preparePtyEnv(localUser *user.User, ptyReq ssh.Pty, session ssh.Session) []string {
 	termType := ptyReq.Term
-	if termType == "" {
+	if termType == "" || !acceptEnv("TERM="+termType) {
 		termType = "xterm-256color"
 	}
 

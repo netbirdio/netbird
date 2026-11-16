@@ -111,6 +111,24 @@ func TestLocalIPManager(t *testing.T) {
 			testIP:   netip.MustParseAddr("::1"),
 			expected: true,
 		},
+		{
+			name: "IPv4 unspecified address",
+			setupAddr: wgaddr.Address{
+				IP:      netip.MustParseAddr("100.64.0.1"),
+				Network: netip.MustParsePrefix("100.64.0.0/16"),
+			},
+			testIP:   netip.IPv4Unspecified(),
+			expected: true,
+		},
+		{
+			name: "IPv6 unspecified address",
+			setupAddr: wgaddr.Address{
+				IP:      netip.MustParseAddr("100.64.0.1"),
+				Network: netip.MustParsePrefix("100.64.0.0/16"),
+			},
+			testIP:   netip.IPv6Unspecified(),
+			expected: true,
+		},
 	}
 
 	for _, tt := range tests {

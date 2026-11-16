@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,7 +53,7 @@ func Test_LatestVersion_Linux(t *testing.T) {
 		sub := recorder.SubscribeToEvents()
 		defer recorder.UnsubscribeFromEvents(sub)
 
-		m := NewManager(recorder, statemanager.New(tmpFile))
+		m := NewManager(context.Background(), recorder, statemanager.New(tmpFile))
 		m.update = mockUpdate
 		m.currentVersion = c.daemonVersion
 		m.Start(context.Background())
@@ -95,7 +96,7 @@ func Test_SetVersion_FallsBackToDownloadOnly_Linux(t *testing.T) {
 	sub := recorder.SubscribeToEvents()
 	defer recorder.UnsubscribeFromEvents(sub)
 
-	m := NewManager(recorder, statemanager.New(tmpFile))
+	m := NewManager(context.Background(), recorder, statemanager.New(tmpFile))
 	m.update = &versionUpdateMock{latestVersion: v.Must(v.NewSemver("1.0.5"))}
 	m.currentVersion = "1.0.0"
 	m.Start(context.Background())
@@ -110,4 +111,34 @@ func Test_SetVersion_FallsBackToDownloadOnly_Linux(t *testing.T) {
 	}
 
 	m.Stop()
+}
+
+// The installer here is a stub that fails at once, so the forced install path
+// can run end to end in a test without installing anything.
+func Test_SetVersion_ForceInstallsWithoutSubscriber_Linux(t *testing.T) {
+	recorder := peer.NewRecorder("")
+	sub := recorder.SubscribeToEvents()
+	defer recorder.UnsubscribeFromEvents(sub)
+
+	m := NewManager(context.Background(), recorder, statemanager.New(path.Join(t.TempDir(), "update-test-force-install.json")))
+	m.update = &versionUpdateMock{}
+	m.currentVersion = "1.0.0"
+	m.autoUpdateSupported = func() bool { return true }
+	defer m.Stop()
+
+	// No UI has subscribed to daemon events, and the test never calls Start.
+	m.SetVersion("1.0.1", true)
+
+	event := waitForAnyEvent(sub, 2*time.Second)
+	if event == nil || event.GetMessage() != "Updating client" {
+		t.Fatalf("a forced directive newer than the current version must start an install without a UI subscriber, got %v", event)
+	}
+
+	// The stub installer's error proves RunInstallation itself was called.
+	for event != nil && event.GetMessage() != "Auto-update failed" {
+		event = waitForAnyEvent(sub, 2*time.Second)
+	}
+	if event == nil || !strings.Contains(event.GetUserMessage(), "unsupported platform") {
+		t.Fatalf("the forced install must reach the installer, got %v", event)
+	}
 }

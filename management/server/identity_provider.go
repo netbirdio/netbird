@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dexidp/dex/storage"
+	"github.com/netbirdio/dex/storage"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 

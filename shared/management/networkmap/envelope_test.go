@@ -244,6 +244,7 @@ func TestEnvelopeToNetworkMap_EmptyComponents(t *testing.T) {
 	})
 
 	envelope := mgmtgrpc.EncodeNetworkMapEnvelope(mgmtgrpc.ComponentsEnvelopeInput{
+		Peer:       &nmdata.Peer{ID: "peer-A", Key: localPeerKey, IP: netip.AddrFrom4([4]byte{100, 64, 0, 1})},
 		Components: c,
 		DNSDomain:  "netbird.cloud",
 	})

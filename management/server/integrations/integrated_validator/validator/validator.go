@@ -55,6 +55,9 @@ func (v *IntegratedValidatorImpl) PeerDeleted(_ context.Context, _, _ string, _ 
 func (v *IntegratedValidatorImpl) SetPeerInvalidationListener(_ func(accountID string, peerIDs []string)) {
 }
 
+func (v *IntegratedValidatorImpl) SetPeerValidationChangeListener(_ func(accountID string, peerIDs []string)) {
+}
+
 func (v *IntegratedValidatorImpl) Stop(_ context.Context) {
 }
 

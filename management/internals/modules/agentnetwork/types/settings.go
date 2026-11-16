@@ -21,8 +21,7 @@ type Settings struct {
 	AccountID string `gorm:"primaryKey"`
 
 	// Domain is the gateway endpoint hostname agents call. Globally unique
-	// across accounts. Sized explicitly because MySQL cannot index an
-	// unbounded TEXT column; 255 covers the RFC 1035 253-octet bound.
+	// across accounts. 255 covers the RFC 1035 253-octet bound.
 	Domain string `gorm:"type:varchar(255);uniqueIndex:idx_agent_network_settings_domain"`
 
 	// ProxyAddress is the declared cluster address of the proxy serving this

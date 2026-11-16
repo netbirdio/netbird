@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/google/uuid"
@@ -868,9 +869,10 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 				close(done)
 			}()
 
+			// Renamed so the save is a real change; identical saves are skipped.
 			err := manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
 				ID:    "groupA",
-				Name:  "GroupA",
+				Name:  "GroupA-renamed",
 				Peers: []string{peer1.ID, peer2.ID},
 			})
 			assert.NoError(t, err)
@@ -880,6 +882,52 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			case <-time.After(peerUpdateTimeout):
 				t.Error("timeout waiting for peerShouldReceiveUpdate")
 			}
+		})
+
+		// Saving a linked group unchanged, peers in a different order, must not write
+		// or send peer update
+		step(t, "saving unchanged linked group", func(t *testing.T) {
+			settleAffectedUpdates(updMsg)
+			before, err := manager.Store.GetAccountNetwork(context.Background(), store.LockingStrengthNone, account.Id)
+			require.NoError(t, err)
+
+			err = manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
+				ID:    "groupA",
+				Name:  "GroupA-renamed",
+				Peers: []string{peer2.ID, peer1.ID},
+			})
+			assert.NoError(t, err)
+
+			time.Sleep(peerUpdateSettleTime)
+			synctest.Wait()
+			assert.Empty(t, updMsg, "peer must not receive an update")
+
+			after, err := manager.Store.GetAccountNetwork(context.Background(), store.LockingStrengthNone, account.Id)
+			require.NoError(t, err)
+			assert.Equal(t, before.Serial, after.Serial, "network serial must not change")
+		})
+
+		// Saving a linked group unchanged through the batch update must not write
+		// or send peer update
+		step(t, "saving unchanged linked group in batch", func(t *testing.T) {
+			settleAffectedUpdates(updMsg)
+			before, err := manager.Store.GetAccountNetwork(context.Background(), store.LockingStrengthNone, account.Id)
+			require.NoError(t, err)
+
+			err = manager.UpdateGroups(context.Background(), account.Id, userID, []*types.Group{{
+				ID:    "groupA",
+				Name:  "GroupA-renamed",
+				Peers: []string{peer1.ID, peer2.ID},
+			}})
+			assert.NoError(t, err)
+
+			time.Sleep(peerUpdateSettleTime)
+			synctest.Wait()
+			assert.Empty(t, updMsg, "peer must not receive an update")
+
+			after, err := manager.Store.GetAccountNetwork(context.Background(), store.LockingStrengthNone, account.Id)
+			require.NoError(t, err)
+			assert.Equal(t, before.Serial, after.Serial, "network serial must not change")
 		})
 
 		// adding peer to a used group should update account peers and send peer update
@@ -939,9 +987,10 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 				close(done)
 			}()
 
+			// Renamed so the save is a real change; identical saves are skipped.
 			err := manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
 				ID:    "groupC",
-				Name:  "GroupC",
+				Name:  "GroupC-renamed",
 				Peers: []string{peer1.ID, peer3.ID},
 			})
 			assert.NoError(t, err)
@@ -1419,6 +1468,91 @@ func TestDefaultAccountManager_GroupPeersMustBelongToAccount(t *testing.T) {
 		stored, err := manager.Store.GetGroupByID(context.Background(), store.LockingStrengthNone, account.Id, group.ID)
 		require.NoError(t, err)
 		assert.Equal(t, []string{peer1.ID}, stored.Peers, "rejected direct adds must not change membership")
+	})
+}
+
+func TestDefaultAccountManager_GroupResourcesMustBelongToAccount(t *testing.T) {
+	manager, _, account, _, _, _ := setupNetworkMapTest(t)
+	ctx := context.Background()
+
+	otherUserID := "other_user"
+	otherAccount, err := createAccount(manager, "other_account", otherUserID, "")
+	require.NoError(t, err)
+
+	permissionsManager := permissions.NewManager(manager.Store)
+	groupsManager := groups.NewManager(manager.Store, permissionsManager, manager)
+	resourcesManager := resources.NewManager(manager.Store, permissionsManager, groupsManager, manager, manager.serviceManager)
+
+	ownNetwork := &networkTypes.Network{ID: "own-net", AccountID: account.Id, Name: "own-net"}
+	require.NoError(t, manager.Store.SaveNetwork(ctx, ownNetwork))
+	ownResource, err := resourcesManager.CreateResource(ctx, userID, &resourceTypes.NetworkResource{
+		AccountID: account.Id, NetworkID: ownNetwork.ID, Name: "own-res", Address: "10.0.0.0/24", Enabled: true,
+	})
+	require.NoError(t, err)
+
+	foreignNetwork := &networkTypes.Network{ID: "foreign-net", AccountID: otherAccount.Id, Name: "foreign-net"}
+	require.NoError(t, manager.Store.SaveNetwork(ctx, foreignNetwork))
+	foreignResource, err := resourcesManager.CreateResource(ctx, otherUserID, &resourceTypes.NetworkResource{
+		AccountID: otherAccount.Id, NetworkID: foreignNetwork.ID, Name: "foreign-res", Address: "10.1.0.0/24", Enabled: true,
+	})
+	require.NoError(t, err)
+
+	ownRef := types.Resource{ID: ownResource.ID, Type: types.ResourceType(ownResource.Type)}
+	foreignRef := types.Resource{ID: foreignResource.ID, Type: types.ResourceType(foreignResource.Type)}
+
+	assertRejected := func(t *testing.T, err error) {
+		t.Helper()
+		require.Error(t, err)
+		s, ok := status.FromError(err)
+		require.True(t, ok, "expected status error, got %v", err)
+		assert.Equal(t, status.InvalidArgument, s.Type(), "resource outside the account should be rejected as invalid argument")
+	}
+
+	t.Run("create rejects foreign resource", func(t *testing.T) {
+		err := manager.CreateGroup(ctx, account.Id, userID, &types.Group{
+			Name:      "foreign-res-group",
+			Issued:    types.GroupIssuedAPI,
+			Resources: []types.Resource{foreignRef},
+		})
+		assertRejected(t, err)
+
+		_, err = manager.Store.GetGroupByName(ctx, store.LockingStrengthNone, account.Id, "foreign-res-group")
+		assert.Error(t, err, "rejected create must not persist the group")
+	})
+
+	t.Run("update rejects foreign and unknown resources", func(t *testing.T) {
+		group := &types.Group{ID: "res-own", Name: "res-own", Issued: types.GroupIssuedAPI, Resources: []types.Resource{ownRef}}
+		require.NoError(t, manager.CreateGroup(ctx, account.Id, userID, group))
+
+		group.Resources = []types.Resource{ownRef, foreignRef}
+		assertRejected(t, manager.UpdateGroup(ctx, account.Id, userID, group))
+
+		group.Resources = []types.Resource{ownRef, {ID: "does-not-exist", Type: types.ResourceTypeHost}}
+		assertRejected(t, manager.UpdateGroup(ctx, account.Id, userID, group))
+
+		assertRejected(t, manager.UpdateGroups(ctx, account.Id, userID, []*types.Group{
+			{ID: group.ID, Name: group.Name, Issued: types.GroupIssuedAPI, Resources: []types.Resource{ownRef, foreignRef}},
+		}))
+
+		stored, err := manager.Store.GetGroupByID(ctx, store.LockingStrengthNone, account.Id, group.ID)
+		require.NoError(t, err)
+		assert.Equal(t, []types.Resource{ownRef}, stored.Resources, "rejected updates must not change resources")
+	})
+
+	t.Run("pre-existing foreign reference does not block owner delete", func(t *testing.T) {
+		group := &types.Group{ID: "res-polluted", Name: "res-polluted", Issued: types.GroupIssuedAPI}
+		require.NoError(t, manager.CreateGroup(ctx, account.Id, userID, group))
+		require.NoError(t, manager.Store.AddResourceToGroup(ctx, account.Id, group.ID, &foreignRef))
+
+		group.Resources = []types.Resource{foreignRef}
+		group.Name = "res-polluted-renamed"
+		assert.NoError(t, manager.UpdateGroup(ctx, account.Id, userID, group), "keeping an existing resource must not be rejected")
+
+		err := resourcesManager.DeleteResource(ctx, otherAccount.Id, otherUserID, foreignNetwork.ID, foreignResource.ID)
+		require.NoError(t, err, "owner must be able to delete its resource despite a foreign group referencing it")
+
+		_, err = manager.Store.GetNetworkResourceByID(ctx, store.LockingStrengthNone, otherAccount.Id, foreignResource.ID)
+		assert.Error(t, err, "resource should be deleted")
 	})
 }
 

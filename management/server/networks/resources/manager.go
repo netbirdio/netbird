@@ -131,7 +131,7 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 		event()
 	}
 
-	m.accountManager.ExpandAndUpdateAffected(ctx, resource.AccountID, snap, change)
+	m.accountManager.ExpandAndUpdateAffected(ctx, resource.AccountID, snap, change, nbtypes.UpdateReason{Resource: nbtypes.UpdateResourceNetworkResource, Operation: nbtypes.UpdateOperationCreate})
 
 	return resource, nil
 }
@@ -224,6 +224,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 	var eventsToStore []func()
 	var snap *affectedpeers.Snapshot
 	var change affectedpeers.Change
+	var unchanged bool
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		network, err := transaction.GetNetworkByID(ctx, store.LockingStrengthUpdate, resource.AccountID, resource.NetworkID)
 		if err != nil {
@@ -258,6 +259,16 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 			oldResource.GroupIDs = append(oldResource.GroupIDs, g.ID)
 		}
 
+		updatedEvent := func() {
+			m.accountManager.StoreEvent(ctx, userID, resource.ID, resource.AccountID, activity.NetworkResourceUpdated, resource.EventMeta(network))
+		}
+
+		if resource.Equal(oldResource) {
+			unchanged = true
+			eventsToStore = append(eventsToStore, updatedEvent)
+			return nil
+		}
+
 		err = transaction.SaveNetworkResource(ctx, resource)
 		if err != nil {
 			return fmt.Errorf("failed to save network resource: %w", err)
@@ -269,9 +280,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 		}
 
 		eventsToStore = append(eventsToStore, events...)
-		eventsToStore = append(eventsToStore, func() {
-			m.accountManager.StoreEvent(ctx, userID, resource.ID, resource.AccountID, activity.NetworkResourceUpdated, resource.EventMeta(network))
-		})
+		eventsToStore = append(eventsToStore, updatedEvent)
 
 		change = affectedpeers.Change{Resources: []*types.NetworkResource{oldResource, resource}}
 		if snap, err = affectedpeers.Load(ctx, transaction, resource.AccountID, change); err != nil {
@@ -293,6 +302,10 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 		event()
 	}
 
+	if unchanged {
+		return resource, nil
+	}
+
 	// TODO: optimize to only reload reverse proxies that are affected by the resource update instead of all of them
 	go func() {
 		err := m.serviceManager.ReloadAllServicesForAccount(ctx, resource.AccountID)
@@ -301,7 +314,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 		}
 	}()
 
-	m.accountManager.ExpandAndUpdateAffected(ctx, resource.AccountID, snap, change)
+	m.accountManager.ExpandAndUpdateAffected(ctx, resource.AccountID, snap, change, nbtypes.UpdateReason{Resource: nbtypes.UpdateResourceNetworkResource, Operation: nbtypes.UpdateOperationUpdate})
 
 	return resource, nil
 }
@@ -401,7 +414,7 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 		event()
 	}
 
-	m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change, nbtypes.UpdateReason{Resource: nbtypes.UpdateResourceNetworkResource, Operation: nbtypes.UpdateOperationDelete})
 
 	return nil
 }

@@ -61,23 +61,17 @@ func (p *Preferences) SetManagementURL(url string) {
 	p.configInput.ManagementURL = url
 }
 
-// GetAdminURL read url from config file
+// GetAdminURL returns the default admin panel URL.
+//
+// Deprecated: the admin URL is no longer stored or used by the client.
 func (p *Preferences) GetAdminURL() (string, error) {
-	if p.configInput.AdminURL != "" {
-		return p.configInput.AdminURL, nil
-	}
-
-	cfg, err := profilemanager.ReadConfigOrDefault(p.configInput.ConfigPath)
-	if err != nil {
-		return "", err
-	}
-	return cfg.AdminURL.String(), err
+	return profilemanager.DefaultAdminURL, nil
 }
 
-// SetAdminURL store the given url and wait for commit
-func (p *Preferences) SetAdminURL(url string) {
-	p.configInput.AdminURL = url
-}
+// SetAdminURL is a no-op kept for API compatibility.
+//
+// Deprecated: the admin URL is no longer stored or used by the client.
+func (p *Preferences) SetAdminURL(_ string) {}
 
 // HasPreSharedKey reports whether a pre-shared key is staged, persisted, or
 // enforced by MDM; the key itself is never handed to the native layer.
