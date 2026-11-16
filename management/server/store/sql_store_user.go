@@ -238,9 +238,7 @@ type userFilters struct {
 }
 
 func (uf *userFilters) AsConditions(db *gorm.DB) *gorm.DB {
-	tx := db
-
-	uf.fuzzyNameSearchConditionFunc(db, uf.Name)
+	tx := uf.fuzzyNameSearchConditionFunc(db, uf.Name)
 
 	if uf.ServiceUser != nil && *uf.ServiceUser {
 		tx = tx.Where("is_service_user is true")
@@ -254,13 +252,12 @@ func fuzzyNameSearchConditionPostgres(db *gorm.DB, pattern string) *gorm.DB {
 		return db
 	}
 
-	tx := db
 	b := newBloomFilter(160)
 	for _, trigram := range toTrigrams(pattern) {
 		b.add([]byte(trigram))
 	}
 
-	tx = db.Where("bitmap_to_bitarray(name_hash_1) @> bitmap_to_bitarray(?)", b.buckets[0])
+	tx := db.Where("bitmap_to_bitarray(name_hash_1) @> bitmap_to_bitarray(?)", b.buckets[0])
 	tx = tx.Where("bitmap_to_bitarray(name_hash_2) @> bitmap_to_bitarray(?)", b.buckets[1])
 	tx = tx.Where("bitmap_to_bitarray(name_hash_3) @> bitmap_to_bitarray(?)", b.buckets[2])
 	tx = tx.Where("bitmap_to_bitarray(name_hash_4) @> bitmap_to_bitarray(?)", b.buckets[3])
@@ -285,7 +282,7 @@ func fuzzyNameSearchConditionSqlite(db *gorm.DB, pattern string) *gorm.DB {
 		if bucket == 0 {
 			continue
 		}
-		tx = db.Where(fmt.Sprintf("name_hash_%d & ? > 0", i), bucket)
+		tx = tx.Where(fmt.Sprintf("name_hash_%d & ? = ?", i+1), bucket, bucket)
 	}
 
 	return tx
