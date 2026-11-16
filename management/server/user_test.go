@@ -1435,6 +1435,57 @@ func TestUser_GetUsersFromAccount_ForUser(t *testing.T) {
 	assert.Equal(t, 2, len(users))
 }
 
+func TestUser_GetUsersFromAccountPaginated(t *testing.T) {
+	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	const regularUserID = "regular-user"
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
+	account.Users[regularUserID] = &types.User{Id: regularUserID, Role: types.UserRoleUser}
+	account.Users[mockServiceUserID] = &types.User{Id: mockServiceUserID, Role: types.UserRoleUser, IsServiceUser: true}
+	account.Users["integration-user"] = &types.User{Id: "integration-user", Role: types.UserRoleAdmin, IsServiceUser: true, NonDeletable: true}
+	require.NoError(t, s.SaveAccount(context.Background(), account))
+
+	am := DefaultAccountManager{
+		Store:              s,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissions.NewManager(s),
+	}
+
+	ids := func(users []*types.UserInfo) []string {
+		out := make([]string, 0, len(users))
+		for _, u := range users {
+			out = append(out, u.ID)
+		}
+		return out
+	}
+
+	t.Run("owner pages through users in id order", func(t *testing.T) {
+		// The non-deletable user is never listed, leaving three users ordered by id.
+		page1, count, err := am.GetUsersFromAccountPaginated(context.Background(), mockAccountID, mockUserID,
+			store.PaginationState{Page: 1, PageSize: 2}, store.UserFilters{}, store.UserSorting{})
+		require.NoError(t, err)
+		assert.Equal(t, 3, count, "total count on page 1")
+		assert.Equal(t, []string{regularUserID, mockServiceUserID}, ids(page1), "users on page 1")
+
+		page2, count, err := am.GetUsersFromAccountPaginated(context.Background(), mockAccountID, mockUserID,
+			store.PaginationState{Page: 2, PageSize: 2}, store.UserFilters{}, store.UserSorting{})
+		require.NoError(t, err)
+		assert.Equal(t, 3, count, "total count on page 2")
+		assert.Equal(t, []string{mockUserID}, ids(page2), "users on page 2")
+	})
+
+	t.Run("regular user sees only themselves", func(t *testing.T) {
+		users, count, err := am.GetUsersFromAccountPaginated(context.Background(), mockAccountID, regularUserID,
+			store.PaginationState{Page: 1, PageSize: 10}, store.UserFilters{}, store.UserSorting{})
+		require.NoError(t, err)
+		assert.Equal(t, 1, count, "total count for a regular user")
+		assert.Equal(t, []string{regularUserID}, ids(users), "users visible to a regular user")
+	})
+
+}
+
 func TestDefaultAccountManager_SaveUser(t *testing.T) {
 	manager, _, err := createManager(t)
 	if err != nil {

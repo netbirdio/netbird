@@ -1145,6 +1145,22 @@ func (mr *MockManagerMockRecorder) GetUsersFromAccount(ctx, accountID, userID an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUsersFromAccount", reflect.TypeOf((*MockManager)(nil).GetUsersFromAccount), ctx, accountID, userID)
 }
 
+// GetUsersFromAccountPaginated mocks base method.
+func (m *MockManager) GetUsersFromAccountPaginated(ctx context.Context, accountID, initiatorUserID string, pagination store.PaginationState, filters store.UserFilters, sorting store.UserSorting) ([]*types.UserInfo, int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUsersFromAccountPaginated", ctx, accountID, initiatorUserID, pagination, filters, sorting)
+	ret0, _ := ret[0].([]*types.UserInfo)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetUsersFromAccountPaginated indicates an expected call of GetUsersFromAccountPaginated.
+func (mr *MockManagerMockRecorder) GetUsersFromAccountPaginated(ctx, accountID, initiatorUserID, pagination, filters, sorting any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUsersFromAccountPaginated", reflect.TypeOf((*MockManager)(nil).GetUsersFromAccountPaginated), ctx, accountID, initiatorUserID, pagination, filters, sorting)
+}
+
 // GetValidatedPeers mocks base method.
 func (m *MockManager) GetValidatedPeers(ctx context.Context, accountID string) (map[string]struct{}, map[string]string, error) {
 	m.ctrl.T.Helper()

@@ -63,6 +63,7 @@ type MockAccountManager struct {
 	DeletePolicyFunc                      func(ctx context.Context, accountID, policyID, userID string) error
 	ListPoliciesFunc                      func(ctx context.Context, accountID, userID string) ([]*types.Policy, error)
 	GetUsersFromAccountFunc               func(ctx context.Context, accountID, userID string) (map[string]*types.UserInfo, error)
+	GetUsersFromAccountPaginatedFunc      func(ctx context.Context, accountID, userID string, pagination store.PaginationState, filters store.UserFilters, sorting store.UserSorting) ([]*types.UserInfo, int, error)
 	UpdatePeerMetaFunc                    func(ctx context.Context, peerID string, meta nbpeer.PeerSystemMeta) error
 	UpdatePeerFunc                        func(ctx context.Context, accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
 	UpdatePeerIPFunc                      func(ctx context.Context, accountID, userID, peerID string, newIP netip.Addr) error
@@ -297,12 +298,12 @@ func (am *MockAccountManager) GetUsersFromAccount(ctx context.Context, accountID
 	return nil, status.Errorf(codes.Unimplemented, "method GetUsersFromAccount is not implemented")
 }
 
-func (am *MockAccountManager) GetUsersFromAccountPaginated(ctx context.Context, accountID string, userID string, pagination store.PaginationState, filters store.UserFilters, sorting store.UserSorting) (map[string]*types.UserInfo, int, error) {
-	if am.GetUsersFromAccountFunc != nil {
-		users, err := am.GetUsersFromAccountFunc(ctx, accountID, userID)
-		return users, len(users), err
+// GetUsersFromAccountPaginated mock implementation of GetUsersFromAccountPaginated from server.AccountManager interface
+func (am *MockAccountManager) GetUsersFromAccountPaginated(ctx context.Context, accountID string, userID string, pagination store.PaginationState, filters store.UserFilters, sorting store.UserSorting) ([]*types.UserInfo, int, error) {
+	if am.GetUsersFromAccountPaginatedFunc != nil {
+		return am.GetUsersFromAccountPaginatedFunc(ctx, accountID, userID, pagination, filters, sorting)
 	}
-	return nil, 0, status.Errorf(codes.Unimplemented, "method GetUsersFromAccount is not implemented")
+	return nil, 0, status.Errorf(codes.Unimplemented, "method GetUsersFromAccountPaginated is not implemented")
 }
 
 // DeletePeer mock implementation of DeletePeer from server.AccountManager interface

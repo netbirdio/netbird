@@ -1067,10 +1067,10 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 	return am.BuildUserInfosForAccount(ctx, accountID, initiatorUserID, accountUsers)
 }
 
-// GetUsersFromAccount performs a batched request for users from IDP by account ID apply filter on what data to return
-// based on provided user role.
+// GetUsersFromAccountPaginated returns one page of the account's users in store order, with the
+// total number of users matching the filters. Callers without users read permission get only themselves.
 func (am *DefaultAccountManager) GetUsersFromAccountPaginated(ctx context.Context, accountID, initiatorUserID string,
-	pagination store.PaginationState, filters store.UserFilters, sorting store.UserSorting) (map[string]*types.UserInfo, int, error) {
+	pagination store.PaginationState, filters store.UserFilters, sorting store.UserSorting) ([]*types.UserInfo, int, error) {
 	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Read)
 	if err != nil {
 		return nil, 0, status.NewPermissionValidationError(err)
@@ -1100,11 +1100,21 @@ func (am *DefaultAccountManager) GetUsersFromAccountPaginated(ctx context.Contex
 		accountUsers = append(accountUsers, user)
 		count = len(accountUsers)
 	default:
-		return map[string]*types.UserInfo{}, 0, nil
+		return []*types.UserInfo{}, 0, nil
 	}
 
-	users, err := am.BuildUserInfosForAccount(ctx, accountID, initiatorUserID, accountUsers)
-	return users, count, err
+	infos, err := am.BuildUserInfosForAccount(ctx, accountID, initiatorUserID, accountUsers)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	users := make([]*types.UserInfo, 0, len(accountUsers))
+	for _, u := range accountUsers {
+		if info, ok := infos[u.Id]; ok {
+			users = append(users, info)
+		}
+	}
+	return users, count, nil
 }
 
 // BuildUserInfosForAccount builds user info for the given account.
