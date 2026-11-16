@@ -147,7 +147,7 @@ func (h pqCallbackHandler) OnNewPSKReady(remoteID pqkem.RemoteID, gen uint64, ps
 // stays up on the previous PSK meanwhile (the Signal channel is independent of the
 // broken data path).
 func (h pqCallbackHandler) OnRekeyFailed(remoteID pqkem.RemoteID) error {
-	log.Warnf("pqkem: post-quantum rekey failed for peer %s, re-bootstrapping over signal", remoteID)
+	log.Debugf("pqkem: post-quantum key exchange failed for peer %s", remoteID)
 	if h.recoverPQKeyOverSignal != nil {
 		h.recoverPQKeyOverSignal(string(remoteID))
 	}

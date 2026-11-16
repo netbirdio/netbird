@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -368,4 +370,20 @@ func TestPQHandshaker_EmptyAnswerWithoutOfferKeepsHint(t *testing.T) {
 	hI.OnAnswer(pqTestPeerKey, nil)
 
 	assert.True(t, hI.ShouldSendBootstrapOffer(pqTestPeerKey), "an empty answer with no KEM offer in flight must not mark the peer non-capable")
+}
+
+// TestPQCallbackHandler_RekeyFailedLeavesSeverityToConn: the handler cannot tell an
+// offline peer from a real failure, so it must not warn; the connection decides.
+func TestPQCallbackHandler_RekeyFailedLeavesSeverityToConn(t *testing.T) {
+	hook := logtest.NewGlobal()
+	defer hook.Reset()
+
+	var recovered []string
+	h := pqCallbackHandler{recoverPQKeyOverSignal: func(k string) { recovered = append(recovered, k) }}
+	require.NoError(t, h.OnRekeyFailed(pqkem.RemoteID(pqTestPeerKey)))
+
+	assert.Equal(t, []string{pqTestPeerKey}, recovered, "the failure must still be handed to the connection")
+	for _, e := range hook.AllEntries() {
+		assert.Greater(t, e.Level, log.WarnLevel, "unexpected %s: %s", e.Level, e.Message)
+	}
 }

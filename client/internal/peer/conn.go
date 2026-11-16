@@ -787,6 +787,7 @@ func (conn *Conn) RecoverPQKeyOverSignal() {
 		conn.Log.Debugf("pqkem: peer not connected, leaving the KEM re-bootstrap to the reconnect guard")
 		return
 	}
+	conn.Log.Warnf("pqkem: post-quantum key exchange failed with a connected peer, re-bootstrapping over signal")
 	if err := h.SendOffer(); err != nil {
 		conn.Log.Debugf("pqkem: PQ key recovery over signal failed: %v", err)
 	}

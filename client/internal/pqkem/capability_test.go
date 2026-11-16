@@ -1,8 +1,12 @@
 package pqkem
 
 import (
+	"context"
+	"log/slog"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -207,4 +211,57 @@ func assertErrorMarker(t *testing.T, reply []byte) {
 	typ, _, err := Decode(reply)
 	require.NoError(t, err)
 	assert.Equal(t, MsgError, typ, "the reply must be an error marker")
+}
+
+// levelRecorder keeps the warning-or-above records a manager logs.
+type levelRecorder struct {
+	mu    sync.Mutex
+	warns []slog.Record
+}
+
+func (r *levelRecorder) Enabled(context.Context, slog.Level) bool { return true }
+func (r *levelRecorder) Handle(_ context.Context, rec slog.Record) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if rec.Level >= slog.LevelWarn {
+		r.warns = append(r.warns, rec)
+	}
+	return nil
+}
+func (r *levelRecorder) WithAttrs([]slog.Attr) slog.Handler { return r }
+func (r *levelRecorder) WithGroup(string) slog.Handler      { return r }
+
+func (r *levelRecorder) warnings() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var msgs []string
+	for _, rec := range r.warns {
+		msgs = append(msgs, rec.Message)
+	}
+	return msgs
+}
+
+// TestManager_InitialTimeoutNotWarned: with lazy connections off, every reconnect offer to
+// an offline peer starts a bootstrap that can only time out. The manager cannot tell that
+// from a real failure, so it must report it without a warning and leave the severity to
+// the host, which knows whether the peer is connected.
+func TestManager_InitialTimeoutNotWarned(t *testing.T) {
+	wg := newFakeWG()
+	rec := &levelRecorder{}
+	d := NewManager("bbbb", wg, slog.New(rec)) // initiator vs "aaaa"
+	d.retryInterval = 5 * time.Millisecond
+	d.maxRetries = 1
+	d.Start(&loopback{ep: epB, sw: newSwitch()})
+	defer d.Stop()
+
+	offer, err := d.SignalOffer("aaaa")
+	require.NoError(t, err)
+	require.NotNil(t, offer, "precondition: the bootstrap offer goes out")
+
+	require.Eventually(t, func() bool {
+		wg.mu.Lock()
+		defer wg.mu.Unlock()
+		return len(wg.failed) == 1
+	}, 2*time.Second, 5*time.Millisecond, "the unanswered bootstrap must still be reported to the host")
+	assert.Empty(t, rec.warnings(), "an unanswered bootstrap must not be logged as a warning")
 }

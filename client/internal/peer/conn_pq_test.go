@@ -169,14 +169,27 @@ func TestConn_RecoverPQKeyOverSignalOnlyWhenConnected(t *testing.T) {
 		return false
 	}
 
+	warned := func(hook *logtest.Hook) bool {
+		for _, e := range hook.AllEntries() {
+			if e.Level <= log.WarnLevel {
+				return true
+			}
+		}
+		return false
+	}
+
+	// An offline peer's bootstrap can only time out; with lazy connections off that
+	// happens at every reconnect offer, so it must stay out of the warnings.
 	c, hook := newConn()
 	c.RecoverPQKeyOverSignal()
 	assert.False(t, offerAttempted(hook), "a disconnected peer must be left to the reconnect guard")
+	assert.False(t, warned(hook), "a disconnected peer's failed exchange must not be warned about")
 
 	c, hook = newConn()
 	c.statusRelay.SetConnected()
 	c.RecoverPQKeyOverSignal()
 	assert.True(t, offerAttempted(hook), "a connected peer must get a recovery offer")
+	assert.True(t, warned(hook), "a failed exchange with a connected peer must be warned about")
 }
 
 // TestConn_QuantumResistant covers the status flag: Rosenpass counts only when both sides

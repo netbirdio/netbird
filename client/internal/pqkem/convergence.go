@@ -385,7 +385,8 @@ func (m *Manager) raiseFailure(remoteID RemoteID, fail, initial bool) {
 		return
 	}
 	if initial {
-		m.logger.Warn("pqkem: initial exchange failed — no PQ PSK established for peer (strict mode keeps the peer blocked until it converges)", "peer", remoteID)
+		// Debug: an offline peer's bootstrap ends here too. The host knows if it was reachable.
+		m.debug("pqkem: initial exchange failed, no PQ PSK established for peer", "peer", remoteID)
 	} else {
 		m.logger.Warn("pqkem: rekey failed after retries — staying on the previous PSK", "peer", remoteID)
 	}
