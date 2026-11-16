@@ -395,7 +395,7 @@ func (s *SqlStore) GetAccountOwner(ctx context.Context, lockStrength LockingStre
 }
 
 func (s *SqlStore) getUsers(ctx context.Context, accountID string) ([]types.User, error) {
-	const query = `SELECT id, account_id, role, is_service_user, non_deletable, service_user_name, auto_groups, blocked, pending_approval, last_login, created_at, issued, integration_ref_id, integration_ref_integration_type, email, name FROM users WHERE account_id =? 1`
+	const query = `SELECT id, account_id, role, is_service_user, non_deletable, service_user_name, auto_groups, blocked, pending_approval, last_login, created_at, issued, integration_ref_id, integration_ref_integration_type, email, name FROM users WHERE account_id = $1`
 	rows, err := s.pgxPool().Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
