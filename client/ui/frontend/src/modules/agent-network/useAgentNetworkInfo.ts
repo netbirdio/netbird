@@ -23,6 +23,9 @@ export const useAgentNetworkInfo = ({ enabled, pollMs }: Options) => {
     const [loading, setLoading] = useState(false);
     // Counts successful fetches, so dependents can refresh along with the info.
     const [fetchCount, setFetchCount] = useState(0);
+    // Bumped by refresh() to rerun the fetch effect on demand.
+    const [refreshTick, setRefreshTick] = useState(0);
+    const refresh = useCallback(() => setRefreshTick((n) => n + 1), []);
 
     const load = useCallback(async (isCancelled: () => boolean) => {
         setLoading(true);
@@ -60,7 +63,7 @@ export const useAgentNetworkInfo = ({ enabled, pollMs }: Options) => {
             clearInterval(timer);
             document.removeEventListener("visibilitychange", refreshIfVisible);
         };
-    }, [enabled, pollMs, load]);
+    }, [enabled, pollMs, load, refreshTick]);
 
-    return { info, error, loading, fetchCount };
+    return { info, error, loading, fetchCount, refresh };
 };

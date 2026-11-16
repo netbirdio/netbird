@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
-import { BotIcon, CircleAlertIcon, ShieldBanIcon, UserXIcon } from "lucide-react";
+import Skeleton from "react-loading-skeleton";
+import { BotIcon, CircleAlertIcon, RefreshCwIcon, ShieldBanIcon, UserXIcon } from "lucide-react";
 import type {
     AgentNetworkInfo,
     AgentNetworkLimit,
@@ -9,13 +10,17 @@ import type {
 } from "@bindings/services/models.js";
 import { cn } from "@/lib/cn";
 import { Badge } from "@/components/Badge";
-import { EmptyState } from "@/components/empty-state/EmptyState";
+import { Button } from "@/components/buttons/Button";
+import { SquareIcon } from "@/components/SquareIcon";
+import { Tooltip } from "@/components/Tooltip";
+import { TruncatedText } from "@/components/TruncatedText";
+import { contentTop, EmptyState } from "@/components/empty-state/EmptyState";
 import { useDirection } from "@/hooks/useDirection";
 import { AGENT_NETWORK_POLL_MS, useAgentNetworkInfo } from "./useAgentNetworkInfo";
 import { HarnessSection } from "./HarnessSection";
 
 export const AgentNetworkUsage = () => {
-    const { info, error, fetchCount } = useAgentNetworkInfo({
+    const { info, error, loading, fetchCount, refresh } = useAgentNetworkInfo({
         enabled: true,
         pollMs: AGENT_NETWORK_POLL_MS,
     });
@@ -23,6 +28,8 @@ export const AgentNetworkUsage = () => {
         <AgentNetworkUsageView
             info={info}
             error={error}
+            loading={loading}
+            onRefresh={refresh}
             setup={info && <HarnessSection refreshKey={fetchCount} />}
         />
     );
@@ -31,24 +38,25 @@ export const AgentNetworkUsage = () => {
 type ViewProps = {
     info: AgentNetworkInfo | null;
     error: string | null;
+    loading?: boolean;
+    onRefresh?: () => void;
     // Rendered under the providers, only in the "ok" state with providers.
     setup?: ReactNode;
 };
 
 // Pure view, kept apart from the fetching so every state can be rendered from a fixture.
-export const AgentNetworkUsageView = ({ info, error, setup }: ViewProps) => {
+export const AgentNetworkUsageView = ({
+    info,
+    error,
+    loading = false,
+    onRefresh,
+    setup,
+}: ViewProps) => {
     const { t } = useTranslation();
     const dir = useDirection();
 
     if (!info) {
-        if (!error) return null;
-        return (
-            <EmptyState
-                icon={CircleAlertIcon}
-                title={t("agentNetwork.error.title")}
-                description={error}
-            />
-        );
+        return error ? <LoadError error={error} onRetry={onRefresh} /> : <UsageSkeleton />;
     }
 
     switch (info.state) {
@@ -71,7 +79,13 @@ export const AgentNetworkUsageView = ({ info, error, setup }: ViewProps) => {
         case "ok":
             break;
         default:
-            return null;
+            return (
+                <EmptyState
+                    icon={CircleAlertIcon}
+                    title={t("agentNetwork.unknown.title")}
+                    description={t("agentNetwork.unknown.description")}
+                />
+            );
     }
 
     if (info.providers.length === 0) {
@@ -87,74 +101,180 @@ export const AgentNetworkUsageView = ({ info, error, setup }: ViewProps) => {
     const now = new Date();
 
     return (
-        <ScrollArea.Root dir={dir} type={"auto"} className={"min-h-0 flex-1 overflow-hidden"}>
-            <ScrollArea.Viewport className={"h-full w-full"}>
-                <div className={"flex flex-col gap-3 px-6 py-4"}>
-                    {error && (
-                        <p className={"text-xs text-red-500"}>
-                            {t("agentNetwork.error.stale", { error })}
-                        </p>
-                    )}
-                    {info.userEmail && (
-                        <p className={"text-xs text-nb-gray-350"}>
-                            {t("agentNetwork.signedInAs", { email: info.userEmail })}
-                        </p>
-                    )}
-                    {info.providers.map((p) => (
-                        <ProviderCard key={p.id} provider={p} now={now} />
-                    ))}
-                    {setup}
-                </div>
-            </ScrollArea.Viewport>
-            <ScrollArea.Scrollbar
-                orientation={"vertical"}
+        <div className={"flex h-full min-h-0 w-full flex-col"}>
+            <div
                 className={
-                    "flex w-1.5 touch-none bg-transparent py-1 transition-colors select-none"
+                    "flex h-12 shrink-0 items-center gap-2 border-b border-nb-gray-910 ps-6 pe-3"
                 }
             >
-                <ScrollArea.Thumb
-                    className={"relative flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700"}
+                <h2
+                    className={
+                        "shrink-0 text-xs font-semibold tracking-wider text-nb-gray-400 uppercase"
+                    }
+                >
+                    {t("agentNetwork.usage.title")}
+                </h2>
+                <TruncatedText
+                    text={info.userEmail}
+                    className={"min-w-0 flex-1 truncate text-xs text-nb-gray-400"}
                 />
-            </ScrollArea.Scrollbar>
-        </ScrollArea.Root>
+                {onRefresh && <RefreshButton loading={loading} onRefresh={onRefresh} />}
+            </div>
+            <ScrollArea.Root dir={dir} type={"auto"} className={"min-h-0 flex-1 overflow-hidden"}>
+                {/* Radix wraps the content in a display:table box, which grows with
+                    nowrap text instead of letting it truncate. */}
+                <ScrollArea.Viewport className={"h-full w-full [&>div]:block!"}>
+                    {error && (
+                        <div
+                            role={"alert"}
+                            className={
+                                "mx-6 mt-4 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-700 dark:text-red-300"
+                            }
+                        >
+                            {t("agentNetwork.error.stale")}
+                            <span className={"block opacity-80 select-text"}>{error}</span>
+                        </div>
+                    )}
+                    <div className={"flex flex-col divide-y divide-nb-gray-920"}>
+                        {info.providers.map((p) => (
+                            <ProviderSection key={p.id} provider={p} now={now} />
+                        ))}
+                    </div>
+                    {setup}
+                </ScrollArea.Viewport>
+                <ScrollArea.Scrollbar
+                    orientation={"vertical"}
+                    className={
+                        "flex w-1.5 touch-none bg-transparent py-1 transition-colors select-none"
+                    }
+                >
+                    <ScrollArea.Thumb
+                        className={
+                            "relative flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700"
+                        }
+                    />
+                </ScrollArea.Scrollbar>
+            </ScrollArea.Root>
+        </div>
     );
 };
 
-const ProviderCard = ({ provider, now }: { provider: AgentNetworkProvider; now: Date }) => {
+const RefreshButton = ({ loading, onRefresh }: { loading: boolean; onRefresh: () => void }) => {
     const { t } = useTranslation();
     return (
-        <section
-            aria-label={provider.name}
-            className={"rounded-lg border border-nb-gray-900 bg-nb-gray-920 px-4 py-3"}
-        >
-            <div className={"flex items-center gap-2"}>
-                <h3 className={"truncate text-sm font-medium text-nb-gray-100"}>{provider.name}</h3>
-                <span className={"truncate text-xs text-nb-gray-400"}>{provider.catalogId}</span>
+        <Tooltip content={t("common.refresh")}>
+            <button
+                type={"button"}
+                onClick={onRefresh}
+                disabled={loading}
+                aria-label={t("common.refresh")}
+                aria-busy={loading}
+                className={cn(
+                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-md",
+                    "text-nb-gray-300 hover:bg-nb-gray-910 hover:text-nb-gray-100",
+                    "cursor-default outline-hidden transition-colors",
+                    "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                    "wails-no-draggable",
+                    "disabled:opacity-50 disabled:hover:bg-transparent",
+                )}
+            >
+                <RefreshCwIcon
+                    size={14}
+                    aria-hidden={"true"}
+                    className={loading ? "animate-spin" : undefined}
+                />
+            </button>
+        </Tooltip>
+    );
+};
+
+const UsageSkeleton = () => {
+    const { t } = useTranslation();
+    return (
+        <div aria-busy={"true"} aria-label={t("common.loading")} className={"px-6 py-4"}>
+            <Skeleton width={90} height={14} className={"mb-5"} />
+            {[0, 1].map((i) => (
+                <div key={i} className={"mb-6"}>
+                    <Skeleton width={140} height={14} />
+                    <Skeleton height={8} className={"mt-3"} />
+                    <Skeleton width={180} height={10} />
+                </div>
+            ))}
+        </div>
+    );
+};
+
+// EmptyState's layout plus a retry button, which the shared component has no slot for.
+const LoadError = ({ error, onRetry }: { error: string; onRetry?: () => void }) => {
+    const { t } = useTranslation();
+    return (
+        <div role={"alert"} className={"py-12 text-center"}>
+            <div
+                className={"relative mx-auto flex max-w-sm flex-col items-center justify-start"}
+                style={{ top: contentTop("7.8rem") }}
+            >
+                <SquareIcon icon={CircleAlertIcon} className={"mb-3"} />
+                <p className={"mb-1 text-[0.95rem] font-medium text-nb-gray-200"}>
+                    {t("agentNetwork.error.title")}
+                </p>
+                <p className={"text-sm text-nb-gray-350"}>{t("agentNetwork.error.description")}</p>
+                {onRetry && (
+                    <Button variant={"secondary"} size={"xs"} className={"mt-4"} onClick={onRetry}>
+                        {t("agentNetwork.error.retry")}
+                    </Button>
+                )}
+                <p className={"mt-4 text-xs break-words text-nb-gray-400 select-text"}>{error}</p>
+            </div>
+        </div>
+    );
+};
+
+const ProviderSection = ({ provider, now }: { provider: AgentNetworkProvider; now: Date }) => {
+    const { t, i18n } = useTranslation();
+    // The catalog id is only worth showing when the admin gave the provider another name.
+    const showCatalogId =
+        provider.catalogId !== "" &&
+        provider.catalogId.toLowerCase() !== provider.name.toLowerCase();
+    const reset = soonestReset(provider.limits);
+    return (
+        <section aria-label={provider.name} className={"min-w-0 px-6 py-4"}>
+            <div className={"flex min-w-0 items-center gap-2"}>
+                <h3 className={"min-w-0 text-sm font-medium text-nb-gray-100"}>
+                    <TruncatedText text={provider.name} className={"block truncate"} />
+                </h3>
+                {showCatalogId && (
+                    <span className={"shrink-0 text-xs text-nb-gray-400"}>
+                        {provider.catalogId}
+                    </span>
+                )}
                 <span className={"flex-1"} />
                 {provider.exhausted && (
                     <Badge variant={"danger"}>{t("agentNetwork.badge.exhausted")}</Badge>
                 )}
-                {!provider.exhausted && provider.unlimited && (
-                    <Badge variant={"success"}>{t("agentNetwork.badge.unlimited")}</Badge>
-                )}
             </div>
             {provider.exhausted && (
-                <p className={"mt-1 text-xs text-red-500"}>
-                    {t("agentNetwork.exhaustedDescription")}
+                <p className={"mt-1 text-xs text-nb-gray-300"}>
+                    {reset
+                        ? t("agentNetwork.exhaustedUntil", {
+                              relative: formatUntil(reset, now, i18n.language),
+                          })
+                        : t("agentNetwork.exhaustedDescription")}
                 </p>
             )}
-            {provider.limits.length === 0 && !provider.unlimited && (
-                <p className={"mt-2 text-xs text-nb-gray-350"}>{t("agentNetwork.noLimits")}</p>
+            {!provider.exhausted && (provider.unlimited || provider.limits.length === 0) && (
+                <p className={"mt-1 text-xs text-nb-gray-400"}>{t("agentNetwork.noLimits")}</p>
             )}
-            <ul className={"mt-1 flex flex-col"}>
-                {provider.limits.map((l, i) => (
-                    <LimitRow
-                        key={`${l.source}:${l.sourceId}:${l.unit}:${l.scope}:${i}`}
-                        limit={l}
-                        now={now}
-                    />
-                ))}
-            </ul>
+            {provider.limits.length > 0 && (
+                <ul className={"mt-3 flex flex-col gap-4"}>
+                    {provider.limits.map((l, i) => (
+                        <LimitRow
+                            key={`${l.source}:${l.sourceId}:${l.unit}:${l.scope}:${i}`}
+                            limit={l}
+                            now={now}
+                        />
+                    ))}
+                </ul>
+            )}
         </section>
     );
 };
@@ -173,23 +293,31 @@ const LimitRow = ({ limit, now }: { limit: AgentNetworkLimit; now: Date }) => {
         limit.scope === "group"
             ? t("agentNetwork.limit.group", { name: limit.groupName || limit.groupId })
             : t("agentNetwork.limit.you");
-    const usedOfCap = t(
-        limit.unit === "usd"
-            ? "agentNetwork.limit.usedOfCapUsd"
-            : "agentNetwork.limit.usedOfCapTokens",
-        {
-            used: formatAmount(limit.unit, limit.used, lang),
-            cap: formatAmount(limit.unit, limit.cap, lang),
-        },
+    const usedOfCap = (compact: boolean) =>
+        t(
+            limit.unit === "usd"
+                ? "agentNetwork.limit.usedOfCapUsd"
+                : "agentNetwork.limit.usedOfCapTokens",
+            {
+                used: formatAmount(limit.unit, limit.used, lang, compact),
+                cap: formatAmount(limit.unit, limit.cap, lang, compact),
+            },
+        );
+    const exact = usedOfCap(false);
+    const amount = (
+        <span className={"shrink-0 text-nb-gray-300 tabular-nums"}>
+            {usedOfCap(true)} · {formatPercent(ratio, lang)}
+        </span>
     );
 
     return (
-        <li className={"border-t border-nb-gray-910 py-2.5 first:border-t-0"}>
-            <div className={"flex items-baseline gap-2 text-xs"}>
-                <span className={"min-w-0 flex-1 truncate text-nb-gray-200"}>
-                    {sourceLabel} · {scopeLabel}
-                </span>
-                <span className={"shrink-0 text-nb-gray-300 tabular-nums"}>{usedOfCap}</span>
+        <li className={"min-w-0"}>
+            <div className={"flex items-baseline gap-3 text-xs"}>
+                <TruncatedText
+                    text={sourceLabel}
+                    className={"min-w-0 flex-1 truncate text-nb-gray-200"}
+                />
+                {limit.unit === "usd" ? amount : <Tooltip content={exact}>{amount}</Tooltip>}
             </div>
             <div
                 role={"progressbar"}
@@ -197,33 +325,57 @@ const LimitRow = ({ limit, now }: { limit: AgentNetworkLimit; now: Date }) => {
                 aria-valuemin={0}
                 aria-valuemax={100}
                 aria-valuenow={percent}
-                aria-valuetext={usedOfCap}
+                aria-valuetext={exact}
                 className={"mt-1.5 h-1.5 overflow-hidden rounded-full bg-nb-gray-900"}
             >
                 <div
-                    className={cn(
-                        "h-full rounded-full transition-all",
-                        ratio >= 1 ? "bg-red-500" : ratio >= 0.8 ? "bg-yellow-500" : "bg-netbird",
-                    )}
+                    className={cn("h-full rounded-full transition-all", barColor(ratio))}
                     style={{ width: `${percent}%` }}
                 />
             </div>
-            {limit.resetsAt && (
-                <p className={"mt-1 text-[0.7rem] text-nb-gray-400"}>
-                    {t("agentNetwork.limit.resets", {
-                        relative: formatUntil(new Date(limit.resetsAt), now, lang),
-                        at: formatAt(new Date(limit.resetsAt), lang),
-                    })}
-                </p>
-            )}
+            <div className={"mt-1.5 flex items-baseline gap-3 text-xs text-nb-gray-400"}>
+                <TruncatedText text={scopeLabel} className={"min-w-0 flex-1 truncate"} />
+                {limit.resetsAt && (
+                    <Tooltip content={formatAt(new Date(limit.resetsAt), lang)}>
+                        <span className={"shrink-0"}>
+                            {t("agentNetwork.limit.resets", {
+                                relative: formatUntil(new Date(limit.resetsAt), now, lang),
+                            })}
+                        </span>
+                    </Tooltip>
+                )}
+            </div>
         </li>
     );
 };
 
-const formatAmount = (unit: string, value: number, lang: string): string =>
-    unit === "usd"
-        ? new Intl.NumberFormat(lang, { style: "currency", currency: "USD" }).format(value)
-        : new Intl.NumberFormat(lang, { maximumFractionDigits: 0 }).format(value);
+// Neutral until it needs attention, so the brand color stays reserved for actions.
+const barColor = (ratio: number): string => {
+    if (ratio >= 1) return "bg-red-500";
+    if (ratio >= 0.8) return "bg-yellow-500";
+    return "bg-nb-gray-500";
+};
+
+// The reset of the used-up limit that comes back first, which is when requests work again.
+const soonestReset = (limits: AgentNetworkLimit[]): Date | null => {
+    const times = limits
+        .filter((l) => l.resetsAt && l.used >= l.cap)
+        .map((l) => new Date(l.resetsAt).getTime());
+    return times.length > 0 ? new Date(Math.min(...times)) : null;
+};
+
+const formatAmount = (unit: string, value: number, lang: string, compact: boolean): string => {
+    if (unit === "usd") {
+        return new Intl.NumberFormat(lang, { style: "currency", currency: "USD" }).format(value);
+    }
+    return new Intl.NumberFormat(
+        lang,
+        compact ? { notation: "compact", maximumFractionDigits: 1 } : { maximumFractionDigits: 0 },
+    ).format(value);
+};
+
+const formatPercent = (ratio: number, lang: string): string =>
+    new Intl.NumberFormat(lang, { style: "percent", maximumFractionDigits: 0 }).format(ratio);
 
 const formatAt = (at: Date, lang: string): string =>
     new Intl.DateTimeFormat(lang, { dateStyle: "medium", timeStyle: "short" }).format(at);
