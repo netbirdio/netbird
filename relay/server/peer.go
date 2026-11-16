@@ -24,15 +24,17 @@ const (
 
 // Peer represents a peer connection
 type Peer struct {
-	metrics  *metrics.Metrics
-	log      *log.Entry
-	id       messages.PeerID
-	version  messages.ProtocolVersion
-	enc      messages.Encoder
-	conn     listener.Conn
-	connMu   sync.RWMutex
-	store    *store.Store
-	notifier *store.PeerNotifier
+	metrics *metrics.Metrics
+	log     *log.Entry
+	id      messages.PeerID
+	version messages.ProtocolVersion
+	enc     messages.Encoder
+	// authenticated is set before the peer is stored and never changes after.
+	authenticated bool
+	conn          listener.Conn
+	connMu        sync.RWMutex
+	store         *store.Store
+	notifier      *store.PeerNotifier
 
 	ctx       context.Context
 	ctxCancel context.CancelFunc
@@ -116,6 +118,11 @@ func (p *Peer) Work() {
 
 func (p *Peer) ID() messages.PeerID {
 	return p.id
+}
+
+// Authenticated reports whether the peer presented a valid token bound to its keys with a proof.
+func (p *Peer) Authenticated() bool {
+	return p.authenticated
 }
 
 // Version returns the protocol version selected for this connection

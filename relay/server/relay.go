@@ -2,23 +2,31 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
+	"golang.org/x/time/rate"
 
 	"github.com/netbirdio/netbird/relay/healthcheck/peerid"
 	"github.com/netbirdio/netbird/relay/protocol"
 	"github.com/netbirdio/netbird/relay/server/listener"
+	"github.com/netbirdio/netbird/shared/peerauth"
+	"github.com/netbirdio/netbird/shared/relay/messages"
 
 	//nolint:staticcheck
 	"github.com/netbirdio/netbird/relay/metrics"
 	"github.com/netbirdio/netbird/relay/server/store"
 )
+
+// misconfigLogInterval bounds the error logged for every peer retry while peer auth is misconfigured.
+const misconfigLogInterval = time.Minute
 
 type Listener interface {
 	Bind() error
@@ -32,8 +40,23 @@ type Config struct {
 	ExposedAddress string
 	TLSSupport     bool
 	AuthValidator  Validator
+	PeerAuth       PeerAuthConfig
 
 	instanceURL url.URL
+}
+
+// PeerAuthConfig configures the verification of the tokens bound to the peer keys. With no keys,
+// a peer presenting such a token is refused.
+type PeerAuthConfig struct {
+	Keys peerauth.TokenKeys
+	// Hostnames, when set, are the only names accepted in proofs: the exposed address hostname
+	// and any global name the relays share behind a load balancer. Empty skips the name check.
+	Hostnames []string
+	// Required refuses peers presenting no bound token.
+	Required bool
+	// CheckTime bounds the proof timestamp to peerauth.DefaultSkew from this Relay's clock. Off, a
+	// proof is valid as long as its token, so peer clocks need not be in sync.
+	CheckTime bool
 }
 
 func (c *Config) validate() error {
@@ -50,8 +73,8 @@ func (c *Config) validate() error {
 	}
 	c.instanceURL = *instanceURL
 
-	if c.AuthValidator == nil {
-		return fmt.Errorf("auth validator is required")
+	if c.AuthValidator == nil && !c.PeerAuth.Required {
+		return fmt.Errorf("an auth validator is required unless peer auth is required")
 	}
 	return nil
 }
@@ -61,6 +84,9 @@ type Relay struct {
 	metrics       *metrics.Metrics
 	metricsCancel context.CancelFunc
 	validator     Validator
+	verifier      *peerauth.Verifier
+	authRequired  bool
+	misconfigLog  *rate.Sometimes
 
 	store          *store.Store
 	notifier       *store.PeerNotifier
@@ -80,7 +106,7 @@ type Relay struct {
 //	  - Meter: A metric.Meter used for emitting metrics. If not set, a default no-op meter will be used.
 //	  - ExposedAddress: The external address clients use to reach this relay. Required.
 //	  - TLSSupport: A boolean indicating if the relay uses TLS. Affects the generated instance URL.
-//	  - AuthValidator: A Validator implementation used to authenticate peers. Required.
+//	  - AuthValidator: A Validator for legacy tokens. Required unless PeerAuth.Required is set.
 //
 // Returns:
 //
@@ -98,10 +124,19 @@ func NewRelay(config Config) (*Relay, error) {
 		return nil, fmt.Errorf("creating app metrics: %v", err)
 	}
 
+	verifier, err := newPeerAuthVerifier(config.PeerAuth, config.instanceURL)
+	if err != nil {
+		metricsCancel()
+		return nil, fmt.Errorf("peer auth: %w", err)
+	}
+
 	r := &Relay{
 		metrics:        m,
 		metricsCancel:  metricsCancel,
 		validator:      config.AuthValidator,
+		verifier:       verifier,
+		authRequired:   config.PeerAuth.Required,
+		misconfigLog:   &rate.Sometimes{First: 1, Interval: misconfigLogInterval},
 		instanceURL:    config.instanceURL,
 		exposedAddress: config.ExposedAddress,
 		store:          store.NewStore(),
@@ -135,15 +170,21 @@ func (r *Relay) Accept(conn listener.Conn) {
 	h := handshake{
 		conn:        conn,
 		validator:   r.validator,
+		verifier:    r.verifier,
+		required:    r.authRequired,
 		preparedMsg: r.preparedMsg,
 	}
 	peerID, err := h.handshakeReceive(hsCtx)
 	if err != nil {
-		if peerid.IsHealthCheck(peerID) {
-			log.Debugf("health check connection from %s", conn.RemoteAddr())
-		} else {
-			log.Errorf("failed to handshake: %s", err)
+		r.logHandshakeFailure(peerID, conn, err)
+		if cErr := conn.Close(); cErr != nil {
+			log.Errorf("failed to close connection, %s: %s", conn.RemoteAddr(), cErr)
 		}
+		return
+	}
+
+	if r.takesOverAuthenticatedPeer(*peerID, h.authenticated) {
+		log.Infof("refused peer %s from %s: %s", peerID, conn.RemoteAddr(), store.ErrAuthenticatedPeerExists)
 		if cErr := conn.Close(); cErr != nil {
 			log.Errorf("failed to close connection, %s: %s", conn.RemoteAddr(), cErr)
 		}
@@ -160,9 +201,18 @@ func (r *Relay) Accept(conn listener.Conn) {
 	r.metrics.RecordAuthenticationTime(time.Since(acceptTime))
 
 	peer := NewPeer(r.metrics, *peerID, h.selectedVersion, conn, r.store, r.notifier)
-	peer.log.Infof("peer connected from: %s, advertised protocol version: %d, selected: %d", conn.RemoteAddr(), h.advertisedVersion, h.selectedVersion)
+	peer.authenticated = h.authenticated
 	storeTime := time.Now()
-	if isReconnection := r.store.AddPeer(peer); isReconnection {
+	isReconnection, err := r.store.AddPeer(peer)
+	if err != nil {
+		peer.log.Infof("refused peer from %s: %s", conn.RemoteAddr(), err)
+		if cErr := conn.Close(); cErr != nil {
+			log.Errorf("failed to close connection, %s: %s", conn.RemoteAddr(), cErr)
+		}
+		return
+	}
+	peer.log.Infof("peer connected from: %s, advertised protocol version: %d, selected: %d, authenticated: %t", conn.RemoteAddr(), h.advertisedVersion, h.selectedVersion, h.authenticated)
+	if isReconnection {
 		r.metrics.RecordPeerReconnection()
 	}
 	r.notifier.PeerCameOnline(peer.ID())
@@ -205,4 +255,66 @@ func (r *Relay) Shutdown(ctx context.Context) {
 // InstanceURL returns the instance URL of the relay server
 func (r *Relay) InstanceURL() url.URL {
 	return r.instanceURL
+}
+
+// takesOverAuthenticatedPeer refuses a takeover before the handshake response, so the peer is not
+// told it connected; AddPeer still refuses one racing in after this check.
+func (r *Relay) takesOverAuthenticatedPeer(peerID messages.PeerID, authenticated bool) bool {
+	if authenticated {
+		return false
+	}
+	old, ok := r.store.Peer(peerID)
+	return ok && old.Authenticated()
+}
+
+// newPeerAuthVerifier returns nil when no keys are configured: bound tokens are then refused.
+func newPeerAuthVerifier(cfg PeerAuthConfig, instanceURL url.URL) (*peerauth.Verifier, error) {
+	if len(cfg.Keys.Ed25519) == 0 {
+		if cfg.Required {
+			return nil, errors.New("peer auth required without Management public keys")
+		}
+		return nil, nil //nolint:nilnil // no keys: bound tokens are refused
+	}
+	if err := cfg.Keys.Validate(); err != nil {
+		return nil, err
+	}
+	if err := peerauth.ValidateHostnames(cfg.Hostnames); err != nil {
+		return nil, err
+	}
+	if len(cfg.Hostnames) > 0 && !slices.Contains(cfg.Hostnames, instanceURL.Hostname()) {
+		log.Warnf("peer auth hostnames %v miss the exposed address hostname %s: peers dialing this instance directly will be refused",
+			cfg.Hostnames, instanceURL.Hostname())
+	}
+	v := &peerauth.Verifier{Service: peerauth.ServiceRelay, Keys: cfg.Keys, Hostnames: cfg.Hostnames}
+	if cfg.CheckTime {
+		v.Skew = peerauth.DefaultSkew
+	}
+	return v, nil
+}
+
+// logHandshakeFailure logs refused peer auth credentials at debug when a peer repeats them on every
+// retry (none, or an expired token), at info when they do not verify, and at error, once per
+// interval, when this Relay lacks the keys to verify them.
+func (r *Relay) logHandshakeFailure(peerID *messages.PeerID, conn listener.Conn, err error) {
+	switch {
+	case peerid.IsHealthCheck(peerID):
+		log.Debugf("health check connection from %s", conn.RemoteAddr())
+	case errors.Is(err, errPeerAuthRequired), errors.Is(err, peerauth.ErrTokenExpired):
+		log.Debugf("refused peer: %s", err)
+	case errors.Is(err, errPeerAuthNotConfigured):
+		logged := false
+		r.misconfigLog.Do(func() {
+			logged = true
+			log.Errorf("refused peer: %s", err)
+		})
+		if !logged {
+			log.Debugf("refused peer: %s", err)
+		}
+	case errors.Is(err, peerauth.ErrStaleProof):
+		log.Infof("refused peer, check the peer clock: %s", err)
+	case errors.Is(err, errInvalidCredentials):
+		log.Infof("refused peer: %s", err)
+	default:
+		log.Errorf("failed to handshake: %s", err)
+	}
 }

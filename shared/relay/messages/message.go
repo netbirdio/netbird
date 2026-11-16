@@ -17,7 +17,9 @@ const (
 	MaxMessageSize       = 8820
 
 	ProtocolV1 ProtocolVersion = 1
-	// CurrentProtocolVersion is the highest protocol version this build supports.
+	// ProtocolV2 is advertised only by a client presenting the auth token with a proof.
+	ProtocolV2 ProtocolVersion = 2
+	// CurrentProtocolVersion is the version a client advertises when it presents no auth token.
 	CurrentProtocolVersion = ProtocolV1
 
 	// authEnvelopeMinVersion is the first advertised version whose Auth message carries a
@@ -81,7 +83,7 @@ type MsgType byte
 // ProtocolVersion is the relay wire protocol version carried in the first byte of every frame.
 type ProtocolVersion uint8
 
-// Encoder marshals server-originated messages with the protocol version selected for one connection.
+// Encoder marshals messages with the protocol version selected for one connection.
 type Encoder struct {
 	version ProtocolVersion
 }
@@ -169,6 +171,16 @@ func (e Encoder) PeersWentOffline(ids []PeerID) ([][]byte, error) {
 	return marshalPeerIDs(e.version, ids, byte(MsgTypePeersWentOffline))
 }
 
+// SubPeerState creates the messages subscribing to the online state of the peers.
+func (e Encoder) SubPeerState(ids []PeerID) ([][]byte, error) {
+	return marshalPeerIDs(e.version, ids, byte(MsgTypeSubscribePeerState))
+}
+
+// UnsubPeerState creates the messages unsubscribing from the online state of the peers.
+func (e Encoder) UnsubPeerState(ids []PeerID) ([][]byte, error) {
+	return marshalPeerIDs(e.version, ids, byte(MsgTypeUnsubscribePeerState))
+}
+
 // ReadVersion returns the protocol version carried in the frame header. Zero is invalid.
 func ReadVersion(msg []byte) (ProtocolVersion, error) {
 	if len(msg) < sizeOfProtoHeader {
@@ -199,6 +211,19 @@ func ValidateVersion(msg []byte) (int, error) {
 		return 0, fmt.Errorf("%d: %w", version, ErrUnsupportedVersion)
 	}
 	return int(version), nil
+}
+
+// ValidateSelectedVersion returns the version the relay selected in its auth response, which
+// must not exceed the version the client advertised.
+func ValidateSelectedVersion(msg []byte, advertised ProtocolVersion) (ProtocolVersion, error) {
+	version, err := ReadVersion(msg)
+	if err != nil {
+		return 0, err
+	}
+	if version > advertised {
+		return 0, fmt.Errorf("%d above advertised %d: %w", version, advertised, ErrUnsupportedVersion)
+	}
+	return version, nil
 }
 
 // ValidateConnectionVersion checks that the frame carries the version selected for the connection.
@@ -357,13 +382,13 @@ func MarshalCloseMsg() []byte {
 	return NewEncoder(CurrentProtocolVersion).CloseMsg()
 }
 
-// MarshalTransportMsg creates a transport message.
+// MarshalTransportMsg creates a transport message stamped with the protocol version of the connection.
 // The transport message is used to exchange data between peers. The message contains the data to be exchanged and the
 // destination peer hashed ID.
-func MarshalTransportMsg(peerID PeerID, payload []byte) ([]byte, error) {
+func MarshalTransportMsg(version ProtocolVersion, peerID PeerID, payload []byte) ([]byte, error) {
 	// todo validate size
 	msg := make([]byte, headerTotalSizeTransport+len(payload))
-	msg[0] = byte(CurrentProtocolVersion)
+	msg[0] = byte(version)
 	msg[1] = byte(MsgTypeTransport)
 	copy(msg[sizeOfProtoHeader:], peerID[:])
 	copy(msg[sizeOfProtoHeader+peerIDSize:], payload)
@@ -411,6 +436,23 @@ func UpdateTransportMsg(msg []byte, version ProtocolVersion, peerID PeerID) erro
 // message. If the client does not respond to the health check message, the server will close the connection.
 func MarshalHealthcheck() []byte {
 	return healthCheckMsg
+}
+
+// UnmarshalAuthExtension returns the extension area that follows the token in the auth envelope,
+// or nil for an Auth message of a version without the envelope.
+func UnmarshalAuthExtension(msg []byte) ([]byte, error) {
+	version, err := ReadVersion(msg)
+	if err != nil {
+		return nil, err
+	}
+	if version < authEnvelopeMinVersion {
+		return nil, nil
+	}
+	token, err := unmarshalAuthEnvelopeToken(msg)
+	if err != nil {
+		return nil, err
+	}
+	return msg[offsetAuthToken+len(token):], nil
 }
 
 func unmarshalAuthEnvelopeToken(msg []byte) ([]byte, error) {
