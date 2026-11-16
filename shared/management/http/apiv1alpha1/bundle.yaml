@@ -929,6 +929,7 @@ components:
               default: 100
           - in: query
             description: filter users by name
+            name: name
             required: false
             schema:
               type: string
@@ -939,13 +940,11 @@ components:
             description: Filters users and returns either regular users or service users
         responses:
           '200':
-            description: A JSON array of Users
+            description: A page of Users
             content:
               application/json:
                 schema:
-                  type: array
-                  items:
-                    $ref: '#/components/schemas/UserBatch'
+                  $ref: '#/components/schemas/UserBatch'
           '400':
             "$ref": "#/components/responses/bad_request"
           '401':

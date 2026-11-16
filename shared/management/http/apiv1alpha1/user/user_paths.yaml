@@ -39,13 +39,11 @@ UsersPath:
         description: Filters users and returns either regular users or service users
     responses:
       '200':
-        description: A JSON array of Users
+        description: A page of Users
         content:
           application/json:
             schema:
-              type: array
-              items:
-                $ref: './user_components.yaml#/components/schemas/UserBatch'
+              $ref: './user_components.yaml#/components/schemas/UserBatch'
       '400':
         "$ref": "../openapi.yaml#/components/responses/bad_request"
       '401':
