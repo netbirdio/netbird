@@ -868,14 +868,19 @@ func (e *Engine) initFirewall() error {
 		e.blockLanAccess()
 	}
 
-	if e.rpManager == nil || !e.config.RosenpassEnabled {
-		return nil
+	if e.rpManager != nil && e.config.RosenpassEnabled {
+		e.allowOverlayUDPPort("rosenpass", uint16(e.rpManager.GetAddress().Port))
 	}
 
-	rosenpassPort := e.rpManager.GetAddress().Port
-	port := firewallManager.Port{Values: []uint16{uint16(rosenpassPort)}}
+	return nil
+}
 
-	// IPv4-only: rosenpass peers connect via AllowedIps[0] which is always v4.
+// allowOverlayUDPPort accepts inbound UDP from any overlay peer on a port a local
+// service listens on, so the peer ACLs do not drop it. Failure is logged, not fatal.
+func (e *Engine) allowOverlayUDPPort(service string, portValue uint16) {
+	port := firewallManager.Port{Values: []uint16{portValue}}
+
+	// IPv4-only: the peers reach the service via AllowedIps[0], which is always v4.
 	if _, err := e.firewall.AddFilterRule(
 		nil,
 		[]netip.Prefix{netip.PrefixFrom(netip.IPv4Unspecified(), 0)},
@@ -885,13 +890,11 @@ func (e *Engine) initFirewall() error {
 		&port,
 		firewallManager.ActionAccept,
 	); err != nil {
-		log.Errorf("failed to allow rosenpass interface traffic: %v", err)
-		return nil
+		log.Errorf("failed to allow %s interface traffic: %v", service, err)
+		return
 	}
 
-	log.Infof("rosenpass interface traffic allowed on port %d", rosenpassPort)
-
-	return nil
+	log.Infof("%s interface traffic allowed on port %d", service, portValue)
 }
 
 func (e *Engine) blockLanAccess() {
