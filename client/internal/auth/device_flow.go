@@ -308,10 +308,13 @@ func (d *DeviceAuthorizationFlow) WaitToken(ctx context.Context, info AuthFlowIn
 			// callers store to send back as the login_hint. Without it a client
 			// driven through the device flow — Android TV and tvOS — never binds
 			// an account to its profile and every later login goes out blind.
-			if email, err := parseEmailFromIDToken(tokenInfo.IDToken); err != nil {
+			if email, fromEmailClaim, err := parseEmailFromIDToken(tokenInfo.IDToken); err != nil {
 				log.Warnf("failed to parse email from ID token: %v", err)
 			} else {
 				tokenInfo.Email = email
+				if fromEmailClaim {
+					tokenInfo.EmailClaim = email
+				}
 			}
 
 			log.Infof("device flow: user authorization confirmed after %d polls in %s", polls, time.Since(start).Round(time.Second))

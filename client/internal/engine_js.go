@@ -13,6 +13,7 @@ func (e *Engine) createICEConfig() icemaker.Config {
 		InterfaceBlackList:   e.config.IFaceBlackList,
 		DisableIPv6Discovery: e.config.DisableIPv6Discovery,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
+		WGDetector:           e.wgDetector,
 	}
 	return cfg
 }

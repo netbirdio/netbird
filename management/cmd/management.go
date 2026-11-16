@@ -143,6 +143,7 @@ var (
 				MgmtPort:                    mgmtPort,
 				MgmtMetricsPort:             mgmtMetricsPort,
 				DisableLegacyManagementPort: disableLegacyManagementPort,
+				LetsEncryptListenAddress:    mgmtLetsencryptListen,
 				DisableMetrics:              disableMetrics,
 				DisableGeoliteUpdate:        disableGeoliteUpdate,
 				UserDeleteFromIDPEnabled:    userDeleteFromIDPEnabled,
@@ -213,15 +214,25 @@ func LoadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*nbconfig.Confi
 // ApplyCommandLineOverrides applies command-line flag overrides to the config
 func ApplyCommandLineOverrides(cfg *nbconfig.Config) {
 	if mgmtLetsencryptDomain != "" {
-		cfg.HttpConfig.LetsEncryptDomain = mgmtLetsencryptDomain
+		ensureHttpConfig(cfg).LetsEncryptDomain = mgmtLetsencryptDomain
 	}
 	if mgmtDataDir != "" {
 		cfg.Datadir = mgmtDataDir
 	}
 	if certKey != "" && certFile != "" {
-		cfg.HttpConfig.CertFile = certFile
-		cfg.HttpConfig.CertKey = certKey
+		httpConfig := ensureHttpConfig(cfg)
+		httpConfig.CertFile = certFile
+		httpConfig.CertKey = certKey
 	}
+}
+
+// ensureHttpConfig creates the HttpConfig section only when a flag writes to
+// it, since the embedded IdP warns about any HttpConfig it finds.
+func ensureHttpConfig(cfg *nbconfig.Config) *nbconfig.HttpServerConfig {
+	if cfg.HttpConfig == nil {
+		cfg.HttpConfig = &nbconfig.HttpServerConfig{}
+	}
+	return cfg.HttpConfig
 }
 
 // ApplyEmbeddedIdPConfig populates HttpConfig and EmbeddedIdP storage from config when embedded IdP is enabled.
@@ -362,6 +373,9 @@ func LogConfigInfo(cfg *nbconfig.Config) {
 	}
 	if cfg.Relay != nil {
 		log.Infof("Relay addresses: %v", cfg.Relay.Addresses)
+	}
+	if cfg.Signal != nil {
+		log.Infof("Signal addresses: %v", cfg.Signal.URI)
 	}
 }
 

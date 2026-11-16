@@ -42,12 +42,12 @@ func TestAllocatePeerIP(t *testing.T) {
 }
 
 func TestAllocatePeerIPSmallSubnet(t *testing.T) {
-	// Test /27 network (10.0.0.0/27) - should only have 30 usable IPs (10.0.0.1 to 10.0.0.30)
+	// Test /27 network (10.0.0.0/27) - should only have 29 usable IPs (10.0.0.1 to 10.0.0.29)
 	prefix := netip.MustParsePrefix("10.0.0.0/27")
 	var ips []netip.Addr
 
 	// Allocate all available IPs in the /27 network
-	for i := 0; i < 30; i++ {
+	for i := 0; i < 29; i++ {
 		ip, err := AllocatePeerIP(prefix, ips)
 		if err != nil {
 			t.Fatal(err)
@@ -61,7 +61,7 @@ func TestAllocatePeerIPSmallSubnet(t *testing.T) {
 		ips = append(ips, ip)
 	}
 
-	assert.Len(t, ips, 30)
+	assert.Len(t, ips, 29)
 
 	// Verify all IPs are unique
 	uniq := make(map[string]struct{})
@@ -86,13 +86,13 @@ func TestAllocatePeerIPVariousCIDRs(t *testing.T) {
 		cidr           string
 		expectedUsable int
 	}{
-		{"/30 network", "192.168.1.0/30", 2},   // 4 total - 2 reserved = 2 usable
-		{"/29 network", "192.168.1.0/29", 6},   // 8 total - 2 reserved = 6 usable
-		{"/28 network", "192.168.1.0/28", 14},  // 16 total - 2 reserved = 14 usable
-		{"/27 network", "192.168.1.0/27", 30},  // 32 total - 2 reserved = 30 usable
-		{"/26 network", "192.168.1.0/26", 62},  // 64 total - 2 reserved = 62 usable
-		{"/25 network", "192.168.1.0/25", 126}, // 128 total - 2 reserved = 126 usable
-		{"/16 network", "10.0.0.0/16", 65534},  // 65536 total - 2 reserved = 65534 usable
+		{"/30 network", "192.168.1.0/30", 1},   // 4 total - 3 reserved = 1 usable
+		{"/29 network", "192.168.1.0/29", 5},   // 8 total - 3 reserved = 5 usable
+		{"/28 network", "192.168.1.0/28", 13},  // 16 total - 3 reserved = 13 usable
+		{"/27 network", "192.168.1.0/27", 29},  // 32 total - 3 reserved = 29 usable
+		{"/26 network", "192.168.1.0/26", 61},  // 64 total - 3 reserved = 61 usable
+		{"/25 network", "192.168.1.0/25", 125}, // 128 total - 3 reserved = 125 usable
+		{"/16 network", "10.0.0.0/16", 65533},  // 65536 total - 3 reserved = 65533 usable
 	}
 
 	for _, tc := range testCases {
@@ -117,14 +117,16 @@ func TestAllocatePeerIPVariousCIDRs(t *testing.T) {
 				// Verify IP is within the correct range
 				assert.True(t, prefix.Contains(ip), "allocated IP %s is not within network %s", ip.String(), prefix.String())
 
-				// Verify IP is not network or broadcast address
+				// Verify IP is not network, DNS resolver or broadcast address
 				networkAddr := prefix.Masked().Addr()
 				hostBits := 32 - prefix.Bits()
 				b := networkAddr.As4()
 				baseIP := binary.BigEndian.Uint32(b[:])
+				dnsIP := uint32ToIP(baseIP + (1 << hostBits) - 2)
 				broadcastIP := uint32ToIP(baseIP + (1 << hostBits) - 1)
 
 				assert.NotEqual(t, networkAddr, ip, "allocated network address %s", ip.String())
+				assert.NotEqual(t, dnsIP, ip, "allocated DNS resolver address %s", ip.String())
 				assert.NotEqual(t, broadcastIP, ip, "allocated broadcast address %s", ip.String())
 
 				ips = append(ips, ip)
@@ -141,6 +143,68 @@ func TestAllocatePeerIPVariousCIDRs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAllocatePeerIPSkipsDNSResolverIP(t *testing.T) {
+	prefix := netip.MustParsePrefix("192.168.1.0/29")
+	ips := []netip.Addr{
+		netip.MustParseAddr("192.168.1.1"),
+		netip.MustParseAddr("192.168.1.2"),
+		netip.MustParseAddr("192.168.1.3"),
+		netip.MustParseAddr("192.168.1.4"),
+	}
+
+	ip, err := AllocatePeerIP(prefix, ips)
+	require.NoError(t, err)
+	assert.Equal(t, netip.MustParseAddr("192.168.1.5"), ip)
+
+	_, err = AllocatePeerIP(prefix, append(ips, ip))
+	assert.Error(t, err, "192.168.1.6 is the DNS resolver address and must not be allocated")
+}
+
+func TestAllocateRandomPeerIPSkipsReservedIPs(t *testing.T) {
+	for _, cidr := range []string{"192.168.1.0/30", "192.168.1.0/29"} {
+		t.Run(cidr, func(t *testing.T) {
+			prefix := netip.MustParsePrefix(cidr)
+			for i := 0; i < 1000; i++ {
+				ip, err := AllocateRandomPeerIP(prefix)
+				require.NoError(t, err)
+				require.True(t, prefix.Contains(ip), "allocated IP %s is not within network %s", ip, prefix)
+				require.False(t, IsReservedPeerIP(prefix, ip), "allocated reserved IP %s", ip)
+			}
+		})
+	}
+
+	ip, err := AllocateRandomPeerIP(netip.MustParsePrefix("192.168.1.0/30"))
+	require.NoError(t, err)
+	assert.Equal(t, netip.MustParseAddr("192.168.1.1"), ip)
+}
+
+func TestIsReservedPeerIP(t *testing.T) {
+	prefix := netip.MustParsePrefix("100.64.0.0/24")
+	testCases := []struct {
+		ip       string
+		reserved bool
+	}{
+		{"100.64.0.0", true},
+		{"100.64.0.1", false},
+		{"100.64.0.253", false},
+		{"100.64.0.254", true},
+		{"100.64.0.255", true},
+		{"::ffff:100.64.0.254", true},
+		{"100.64.1.254", false},
+		{"fd12:3456:7890:abcd::1", false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.ip, func(t *testing.T) {
+			assert.Equal(t, tc.reserved, IsReservedPeerIP(prefix, netip.MustParseAddr(tc.ip)))
+		})
+	}
+
+	smallest := netip.MustParsePrefix("192.168.1.0/30")
+	assert.False(t, IsReservedPeerIP(smallest, netip.MustParseAddr("192.168.1.1")))
+	assert.True(t, IsReservedPeerIP(smallest, netip.MustParseAddr("192.168.1.2")))
 }
 
 func TestAllocateIPv4InvalidPrefixes(t *testing.T) {

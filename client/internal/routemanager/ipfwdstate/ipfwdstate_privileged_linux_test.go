@@ -10,8 +10,7 @@ import (
 )
 
 // TestRequestRoutingV6ToV4Transition verifies that a v4-only routing request
-// releases a previously held routing-owned v6 reference without touching
-// references held by DNAT rules.
+// releases a previously held routing-owned v6 reference.
 func TestRequestRoutingV6ToV4Transition(t *testing.T) {
 	f := NewIPForwardingState("wt-fwd-test")
 
@@ -24,13 +23,6 @@ func TestRequestRoutingV6ToV4Transition(t *testing.T) {
 	v4, v6 = f.Counts()
 	assert.Equal(t, 1, v4, "v4 reference kept")
 	assert.Equal(t, 0, v6, "routing-owned v6 reference released")
-
-	// A DNAT-held reference survives a v4-only routing request.
-	require.NoError(t, f.RequestForwarding(true), "dnat v6 reference")
-	require.NoError(t, f.RequestRouting(false), "repeat v4-only request")
-	_, v6 = f.Counts()
-	assert.Equal(t, 1, v6, "dnat-held v6 reference survives")
-	require.NoError(t, f.ReleaseForwarding(true), "release dnat v6 reference")
 
 	require.NoError(t, f.ReleaseRouting(), "release routing")
 	v4, v6 = f.Counts()

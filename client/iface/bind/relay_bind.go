@@ -7,15 +7,15 @@ import (
 	"sync"
 
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/conn"
 
 	"github.com/netbirdio/netbird/client/iface/udpmux"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 // RelayBindJS is a conn.Bind implementation for WebAssembly environments.
 // Do not limit to build only js, because we want to be able to run tests
 type RelayBindJS struct {
-	*conn.StdNetBind
+	*wgbackend.StdNetBind
 
 	recvChan         chan recvMessage
 	endpoints        map[netip.Addr]net.Conn
@@ -34,12 +34,12 @@ func NewRelayBindJS() *RelayBindJS {
 }
 
 // Open creates a receive function for handling relay packets in WASM.
-func (s *RelayBindJS) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
+func (s *RelayBindJS) Open(uport uint16) ([]wgbackend.ReceiveFunc, uint16, error) {
 	log.Debugf("Open: creating receive function for port %d", uport)
 
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 
-	receiveFn := func(bufs [][]byte, sizes []int, eps []conn.Endpoint) (int, error) {
+	receiveFn := func(bufs [][]byte, sizes []int, eps []wgbackend.Endpoint) (int, error) {
 		select {
 		case <-s.ctx.Done():
 			return 0, net.ErrClosed
@@ -49,13 +49,13 @@ func (s *RelayBindJS) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
 			}
 			copy(bufs[0], msg.Buffer)
 			sizes[0] = len(msg.Buffer)
-			eps[0] = conn.Endpoint(msg.Endpoint)
+			eps[0] = wgbackend.Endpoint(msg.Endpoint)
 			return 1, nil
 		}
 	}
 
 	log.Debugf("Open: receive function created, returning port %d", uport)
-	return []conn.ReceiveFunc{receiveFn}, uport, nil
+	return []wgbackend.ReceiveFunc{receiveFn}, uport, nil
 }
 
 func (s *RelayBindJS) Close() error {
@@ -78,7 +78,7 @@ func (s *RelayBindJS) ReceiveFromEndpoint(ctx context.Context, ep *Endpoint, buf
 }
 
 // Send forwards packets through the relay connection for WASM.
-func (s *RelayBindJS) Send(bufs [][]byte, ep conn.Endpoint) error {
+func (s *RelayBindJS) Send(bufs [][]byte, ep wgbackend.Endpoint) error {
 	if ep == nil {
 		return nil
 	}

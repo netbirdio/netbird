@@ -15,12 +15,12 @@ export const SectionGroup = ({
         tabIndex={disabled ? -1 : 0}
         {...(disabled ? { inert: "" } : {})}
         className={cn(
-            "mb-8 rounded-md px-1 outline-none last:mb-1",
+            "mb-8 rounded-md px-1 outline-hidden last:mb-1",
             "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
             disabled && "pointer-events-none opacity-30",
         )}
     >
-        <h2 className={"mb-4 text-xs font-semibold uppercase tracking-wider text-nb-gray-400"}>
+        <h2 className={"mb-4 text-xs font-semibold tracking-wider text-nb-gray-400 uppercase"}>
             {title}
         </h2>
         <div className={"flex flex-col gap-5"}>{children}</div>
@@ -30,7 +30,7 @@ export const SectionGroup = ({
 export const SettingsBottomBar = ({ children }: { children: ReactNode }) => (
     <>
         <div className={"h-[3.2rem] shrink-0"} aria-hidden={"true"} />
-        <div className={"absolute bottom-0 left-0 w-full"}>
+        <div className={"absolute inset-s-0 bottom-0 w-full"}>
             <div
                 className={
                     "flex w-full justify-end gap-3 border-t border-nb-gray-800 bg-nb-gray-940 px-8 py-5 dark:border-nb-gray-920"

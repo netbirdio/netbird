@@ -56,10 +56,6 @@ const (
 	markManglePost = "mark-mangle-post"
 	matchSet       = "--match-set"
 
-	dnatSuffix firewall.RuleID = "_dnat"
-	snatSuffix firewall.RuleID = "_snat"
-	fwdSuffix  firewall.RuleID = "_fwd"
-
 	// ipv4TCPHeaderSize is the minimum IPv4 (20) + TCP (20) header size for MSS calculation.
 	ipv4TCPHeaderSize = 40
 	// ipv6TCPHeaderSize is the minimum IPv6 (40) + TCP (20) header size for MSS calculation.

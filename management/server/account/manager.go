@@ -62,8 +62,10 @@ type Manager interface {
 	GetUserByID(ctx context.Context, id string) (*types.User, error)
 	GetUserFromUserAuth(ctx context.Context, userAuth auth.UserAuth) (*types.User, error)
 	ListUsers(ctx context.Context, accountID string) ([]*types.User, error)
-	GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error)
+	GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, error)
 	MarkPeerConnected(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64, nmap *types.NetworkMap) error
+	TrackCertificateChallenges(ctx context.Context, accountID, peerID string, streamStart time.Time)
+	UntrackCertificateChallenges(accountID, peerID string, streamStart time.Time)
 	MarkPeerDisconnected(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64) error
 	DeletePeer(ctx context.Context, accountID, peerID, userID string) error
 	UpdatePeer(ctx context.Context, accountID, userID string, p *nbpeer.Peer) (*nbpeer.Peer, error)
@@ -122,15 +124,16 @@ type Manager interface {
 	UpdateIntegratedValidator(ctx context.Context, accountID, userID, validator string, groups []string) error
 	GroupValidation(ctx context.Context, accountId string, groups []string) (bool, error)
 	GetValidatedPeers(ctx context.Context, accountID string) (map[string]struct{}, map[string]string, error)
-	SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time) (*nbpeer.Peer, *types.NetworkMap, []*nmdata.PostureChecks, int64, error)
+	SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time, settings *types.Settings) (*nbpeer.Peer, *types.NetworkMap, []*nmdata.PostureChecks, int64, error)
 	OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string, streamStartTime time.Time) error
+	CheckPeerMaySync(ctx context.Context, accountID, peerPubKey string, settings *types.Settings) error
 	SyncPeerMeta(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) error
 	FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 	GetAccountIDForPeerKey(ctx context.Context, peerKey string) (string, error)
 	GetAccountSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error)
 	DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error
 	UpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason)
-	ExpandAndUpdateAffected(ctx context.Context, accountID string, snap *affectedpeers.Snapshot, change affectedpeers.Change)
+	ExpandAndUpdateAffected(ctx context.Context, accountID string, snap *affectedpeers.Snapshot, change affectedpeers.Change, reason types.UpdateReason)
 	BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason)
 	BuildUserInfosForAccount(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
 	SyncUserJWTGroups(ctx context.Context, userAuth auth.UserAuth) error

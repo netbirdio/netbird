@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+
+	"github.com/netbirdio/netbird/proxy/auth"
 )
 
 // PathPrefix is the unique URL prefix for serving the proxy's own web assets.
@@ -180,8 +182,8 @@ func ServeAccessDeniedPage(w http.ResponseWriter, r *http.Request, code int, tit
 // stripAuthParams returns the request URI with auth-related query parameters removed.
 func stripAuthParams(u *url.URL) string {
 	q := u.Query()
-	q.Del("session_token")
-	q.Del("session_code")
+	q.Del(auth.SessionTokenQueryParam)
+	q.Del(auth.SessionCodeQueryParam)
 	q.Del("error")
 	q.Del("error_description")
 	clean := *u

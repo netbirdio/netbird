@@ -9,10 +9,12 @@ import { TruncatedText } from "@/components/TruncatedText";
 import { useNetworks } from "@/contexts/NetworksContext";
 import { useStatus } from "@/contexts/StatusContext";
 import { useFocusVisible } from "@/hooks/useFocusVisible";
+import { useDirection } from "@/hooks/useDirection";
 
 const NONE_VALUE = "__none__";
 
 export const MainExitNodeSwitcher = () => {
+    const dir = useDirection();
     const { t } = useTranslation();
     const { status } = useStatus();
     const { exitNodes, toggleExitNode } = useNetworks();
@@ -79,8 +81,8 @@ export const MainExitNodeSwitcher = () => {
                     }}
                     style={{ width: "var(--radix-popover-trigger-width)" }}
                     className={cn(
-                        "wails-no-draggable z-50 select-none overflow-hidden rounded-lg border border-nb-gray-900 bg-nb-gray-935 p-1 text-nb-gray-200 shadow-lg",
-                        "data-[state=open]:animate-in data-[state=closed]:animate-out",
+                        "wails-no-draggable z-50 overflow-hidden rounded-lg border border-nb-gray-900 bg-nb-gray-935 p-1 text-nb-gray-200 shadow-lg select-none",
+                        "data-[state=closed]:animate-out data-[state=open]:animate-in",
                         "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
                         "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
                         "data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2",
@@ -91,17 +93,25 @@ export const MainExitNodeSwitcher = () => {
                         loop
                         shouldFilter={false}
                         onKeyDown={(e) => e.stopPropagation()}
-                        className={"outline-none focus:outline-none focus-visible:outline-none"}
+                        className={
+                            "outline-hidden focus:outline-hidden focus-visible:outline-hidden"
+                        }
                     >
                         <Command.List
                             ref={listRef}
                             aria-label={t("exitNodes.dropdown.trigger")}
-                            className={"outline-none focus:outline-none focus-visible:outline-none"}
+                            className={
+                                "outline-hidden focus:outline-hidden focus-visible:outline-hidden"
+                            }
                         >
                             <NoneRow isActive={!active} onSelect={() => handleSelect(NONE_VALUE)} />
                             {hasAny && <div className={"-mx-1 my-1 h-px bg-nb-gray-910"} />}
                             {hasAny && (
-                                <ScrollArea.Root type={"auto"} className={"-mx-1 overflow-hidden"}>
+                                <ScrollArea.Root
+                                    dir={dir}
+                                    type={"auto"}
+                                    className={"-mx-1 overflow-hidden"}
+                                >
                                     <ScrollArea.Viewport className={"max-h-72 px-1"}>
                                         {exitNodes.map((n) => (
                                             <ExitNodeRow
@@ -116,7 +126,7 @@ export const MainExitNodeSwitcher = () => {
                                     <ScrollArea.Scrollbar
                                         orientation={"vertical"}
                                         className={cn(
-                                            "flex touch-none select-none transition-colors",
+                                            "flex touch-none transition-colors select-none",
                                             "w-1.5 bg-transparent",
                                         )}
                                     >
@@ -155,7 +165,7 @@ const ExitNodeTriggerCard = forwardRef<HTMLButtonElement, TriggerProps>(
                 tabIndex={0}
                 disabled={disabled}
                 className={cn(
-                    "flex w-full items-center gap-3 rounded-xl p-2.5 pr-5 text-left outline-none",
+                    "flex w-full items-center gap-3 rounded-xl p-2.5 pe-5 text-start outline-hidden",
                     "border border-nb-gray-800 bg-nb-gray-940 dark:border-nb-gray-920",
                     "transition-colors duration-150",
                     "wails-no-draggable",
@@ -212,8 +222,8 @@ const NoneRow = ({ isActive, onSelect }: NoneRowProps) => {
             value={NONE_VALUE}
             onSelect={onSelect}
             className={cn(
-                "flex items-center gap-2 px-2 py-2 pr-3",
-                "cursor-default rounded-md text-sm outline-none",
+                "flex items-center gap-2 px-2 py-2 pe-3",
+                "cursor-default rounded-md text-sm outline-hidden",
                 "data-[selected=true]:bg-nb-gray-900",
             )}
         >
@@ -237,8 +247,8 @@ const ExitNodeRow = ({ id, label, isActive, onSelect }: ExitNodeRowProps) => (
         value={id}
         onSelect={onSelect}
         className={cn(
-            "flex items-center gap-2 px-2 py-2 pr-3",
-            "cursor-default rounded-md text-sm outline-none",
+            "flex items-center gap-2 px-2 py-2 pe-3",
+            "cursor-default rounded-md text-sm outline-hidden",
             "data-[selected=true]:bg-nb-gray-900",
         )}
     >

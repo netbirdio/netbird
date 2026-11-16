@@ -1,12 +1,12 @@
 import { type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
-type DialogAlign = "left" | "center" | "right";
+type DialogAlign = "start" | "center" | "end";
 
 const alignClass: Record<DialogAlign, string> = {
-    left: "text-left",
+    start: "text-start",
     center: "text-center",
-    right: "text-right",
+    end: "text-end",
 };
 
 type DialogHeadingProps = {
@@ -25,7 +25,7 @@ export const DialogHeading = ({
     <h2
         id={id}
         className={cn(
-            "w-full select-none text-base font-semibold text-nb-gray-50",
+            "w-full text-base font-semibold text-nb-gray-50 select-none",
             alignClass[align],
             className,
         )}

@@ -100,7 +100,9 @@ func (s *Server) detectUtilLinuxLogin(ctx context.Context) bool {
 	return isUtilLinux
 }
 
-// createSuCommand creates a command using su - for privilege switching.
+// createSuCommand creates a command using su - for privilege switching. An SFTP server
+// invocation is started without the login shell: profile output would end up in front of
+// the protocol stream on stdout, while su still applies the account's restrictions.
 func (s *Server) createSuCommand(logger *log.Entry, session ssh.Session, localUser *user.User, hasPty bool) (*exec.Cmd, error) {
 	if err := validateUsername(localUser.Username); err != nil {
 		return nil, fmt.Errorf("invalid username %q: %w", localUser.Username, err)
@@ -111,7 +113,10 @@ func (s *Server) createSuCommand(logger *log.Entry, session ssh.Session, localUs
 		return nil, fmt.Errorf("su command not available: %w", err)
 	}
 
-	args := []string{"-"}
+	var args []string
+	if _, isSftp := session.(sftpSession); !isSftp {
+		args = append(args, "-")
+	}
 	if hasPty && s.suSupportsPty {
 		args = append(args, "--pty")
 	}
@@ -159,7 +164,7 @@ func (s *Server) prepareCommandEnv(_ *log.Entry, localUser *user.User, session s
 // executeCommandWithPty executes a command with PTY allocation
 func (s *Server) executeCommandWithPty(logger *log.Entry, session ssh.Session, execCmd *exec.Cmd, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, winCh <-chan ssh.Window) bool {
 	termType := ptyReq.Term
-	if termType == "" {
+	if termType == "" || !acceptEnv("TERM="+termType) {
 		termType = "xterm-256color"
 	}
 	execCmd.Env = append(execCmd.Env, fmt.Sprintf("TERM=%s", termType))

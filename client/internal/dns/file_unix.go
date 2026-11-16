@@ -61,11 +61,11 @@ func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *st
 
 	f.repair.stopWatchFileChanges()
 
-	err = f.updateConfig(nbSearchDomains, f.nbNameserverIP, resolvConf, stateManager)
+	written, err := f.updateConfig(nbSearchDomains, f.nbNameserverIP, resolvConf, stateManager)
 	if err != nil {
 		return err
 	}
-	f.repair.watchFileChanges(nbSearchDomains, f.nbNameserverIP, stateManager)
+	f.repair.watchFileChanges(nbSearchDomains, f.nbNameserverIP, written, stateManager)
 	return nil
 }
 
@@ -74,7 +74,7 @@ func (f *fileConfigurator) getOriginalNameservers() []netip.Addr {
 	return f.originalNameservers
 }
 
-func (f *fileConfigurator) updateConfig(nbSearchDomains []string, nbNameserverIP netip.Addr, cfg *resolvConf, stateManager *statemanager.Manager) error {
+func (f *fileConfigurator) updateConfig(nbSearchDomains []string, nbNameserverIP netip.Addr, cfg *resolvConf, stateManager *statemanager.Manager) ([]byte, error) {
 	searchDomainList := mergeSearchDomains(nbSearchDomains, cfg.searchDomains)
 
 	buf := prepareResolvConfContent(
@@ -90,7 +90,7 @@ func (f *fileConfigurator) updateConfig(nbSearchDomains []string, nbNameserverIP
 		if restoreErr != nil {
 			log.Errorf("attempt to restore default file failed with error: %s", err)
 		}
-		return fmt.Errorf("creating resolver file %s. Error: %w", defaultResolvConfPath, err)
+		return nil, fmt.Errorf("creating resolver file %s. Error: %w", defaultResolvConfPath, err)
 	}
 
 	log.Infof("created a NetBird managed %s file with the DNS settings. Added %d search domains. Search list: %s", defaultResolvConfPath, len(searchDomainList), searchDomainList)
@@ -100,7 +100,7 @@ func (f *fileConfigurator) updateConfig(nbSearchDomains []string, nbNameserverIP
 		log.Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
 	}
 
-	return nil
+	return buf.Bytes(), nil
 }
 
 func (f *fileConfigurator) restoreHostDNS() error {

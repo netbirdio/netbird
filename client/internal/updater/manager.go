@@ -21,7 +21,15 @@ const (
 	latestVersion = "latest"
 )
 
+const (
+	modeUndecided updateMode = iota
+	modeDownloadOnly
+	modeManaged
+)
+
 var errNoUpdateState = errors.New("no update state found")
+
+type updateMode int
 
 type UpdateState struct {
 	PreUpdateVersion string
@@ -33,11 +41,14 @@ func (u UpdateState) Name() string {
 }
 
 type Manager struct {
+	// ctx is the daemon lifetime context a forced directive starts the loop with.
+	ctx            context.Context
 	statusRecorder *peer.Status
 	stateManager   *statemanager.Manager
 
-	downloadOnly bool // true when no enforcement from management; notifies UI to download latest
-	forceUpdate  bool // true when management sets AlwaysUpdate; skips UI interaction and installs directly
+	mode        updateMode
+	modeGen     uint64
+	forceUpdate bool // true when management sets AlwaysUpdate; skips UI interaction and installs directly
 
 	lastTrigger    time.Time
 	mgmUpdateChan  chan struct{}
@@ -54,7 +65,7 @@ type Manager struct {
 	pendingVersion *v.Version
 
 	// updateMutex protects update, expectedVersion, updateToLatestVersion,
-	// downloadOnly, forceUpdate, pendingVersion, and lastTrigger fields
+	// mode, modeGen, forceUpdate, pendingVersion, and lastTrigger fields
 	updateMutex sync.Mutex
 
 	// installMutex and installing guard against concurrent installation attempts
@@ -68,15 +79,15 @@ type Manager struct {
 }
 
 // NewManager creates a new update manager. The manager is single-use: once Stop() is called, it cannot be restarted.
-func NewManager(statusRecorder *peer.Status, stateManager *statemanager.Manager) *Manager {
+func NewManager(ctx context.Context, statusRecorder *peer.Status, stateManager *statemanager.Manager) *Manager {
 	manager := &Manager{
+		ctx:                 ctx,
 		statusRecorder:      statusRecorder,
 		stateManager:        stateManager,
 		mgmUpdateChan:       make(chan struct{}, 1),
 		updateChannel:       make(chan struct{}, 1),
 		currentVersion:      version.NetbirdVersion(),
 		update:              version.NewUpdate("nb/client"),
-		downloadOnly:        true,
 		autoUpdateSupported: isAutoUpdateSupported,
 	}
 
@@ -151,11 +162,7 @@ func (m *Manager) Start(ctx context.Context) {
 
 func (m *Manager) SetDownloadOnly() {
 	m.updateMutex.Lock()
-	m.downloadOnly = true
-	m.forceUpdate = false
-	m.expectedVersion = nil
-	m.updateToLatestVersion = false
-	m.lastTrigger = time.Time{}
+	m.setModeLocked(modeDownloadOnly)
 	m.updateMutex.Unlock()
 
 	select {
@@ -169,44 +176,65 @@ func (m *Manager) SetVersion(expectedVersion string, forceUpdate bool) {
 
 	if !m.autoUpdateSupported() {
 		log.Warnf("auto-update not supported on this platform")
+		m.SetDownloadOnly()
 		return
 	}
 
+	if m.applyDirective(expectedVersion, forceUpdate) && forceUpdate {
+		// A forced update installs without user interaction, so it must not wait
+		// for a UI to subscribe to daemon events, the only other caller of Start.
+		m.Start(m.ctx)
+	}
+}
+
+// applyDirective records a management directive and reports whether it put the
+// manager into a new managed state.
+func (m *Manager) applyDirective(expectedVersion string, forceUpdate bool) bool {
 	m.updateMutex.Lock()
 	defer m.updateMutex.Unlock()
 
 	if expectedVersion == "" {
 		log.Errorf("empty expected version provided")
-		m.expectedVersion = nil
-		m.updateToLatestVersion = false
-		m.downloadOnly = true
-		return
+		m.setModeLocked(modeDownloadOnly)
+		return false
 	}
 
-	if expectedVersion == latestVersion {
-		m.updateToLatestVersion = true
-		m.expectedVersion = nil
-	} else {
-		expectedSemVer, err := v.NewVersion(expectedVersion)
+	var expectedSemVer *v.Version
+	if expectedVersion != latestVersion {
+		parsed, err := v.NewVersion(expectedVersion)
 		if err != nil {
-			log.Errorf("error parsing version: %v", err)
-			return
+			log.Errorf("error parsing version, switching to download-only: %v", err)
+			m.setModeLocked(modeDownloadOnly)
+			select {
+			case m.mgmUpdateChan <- struct{}{}:
+			default:
+			}
+			return false
 		}
-		if m.expectedVersion != nil && m.expectedVersion.Equal(expectedSemVer) {
-			return
-		}
-		m.expectedVersion = expectedSemVer
-		m.updateToLatestVersion = false
+		expectedSemVer = parsed
 	}
 
-	m.lastTrigger = time.Time{}
-	m.downloadOnly = false
+	if m.sameDirectiveLocked(expectedSemVer, forceUpdate) {
+		return false
+	}
+
+	m.setModeLocked(modeManaged)
+	m.expectedVersion = expectedSemVer
+	m.updateToLatestVersion = expectedSemVer == nil
 	m.forceUpdate = forceUpdate
 
 	select {
 	case m.mgmUpdateChan <- struct{}{}:
 	default:
 	}
+	return true
+}
+
+func (m *Manager) ResetMode() {
+	m.updateMutex.Lock()
+	defer m.updateMutex.Unlock()
+
+	m.setModeLocked(modeUndecided)
 }
 
 // Install triggers the installation of the pending version. It is called when the user clicks the install button in the UI.
@@ -255,17 +283,25 @@ func (m *Manager) NotifyUI() {
 		m.updateMutex.Unlock()
 		return
 	}
-	downloadOnly := m.downloadOnly
+	mode := m.mode
+	gen := m.modeGen
 	pendingVersion := m.pendingVersion
 	latestVersion := m.update.LatestVersion()
 	m.updateMutex.Unlock()
 
-	if downloadOnly {
+	if mode == modeUndecided {
+		return
+	}
+
+	if mode == modeDownloadOnly {
 		if latestVersion == nil {
 			return
 		}
 		currentVersion, err := v.NewVersion(m.currentVersion)
 		if err != nil || currentVersion.GreaterThanOrEqual(latestVersion) {
+			return
+		}
+		if m.modeChanged(gen) {
 			return
 		}
 		m.statusRecorder.PublishEvent(
@@ -278,7 +314,7 @@ func (m *Manager) NotifyUI() {
 		return
 	}
 
-	if pendingVersion != nil {
+	if pendingVersion != nil && !m.modeChanged(gen) {
 		m.statusRecorder.PublishEvent(
 			cProto.SystemEvent_INFO,
 			cProto.SystemEvent_SYSTEM,
@@ -343,13 +379,18 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 		return
 	}
 
-	downloadOnly := m.downloadOnly
+	mode := m.mode
+	gen := m.modeGen
 	forceUpdate := m.forceUpdate
 	curLatestVersion := m.update.LatestVersion()
 
 	switch {
+	case mode == modeUndecided:
+		log.Tracef("auto-update mode not decided yet")
+		m.updateMutex.Unlock()
+		return
 	// Download-only mode or resolve "latest" to actual version
-	case downloadOnly, m.updateToLatestVersion:
+	case mode == modeDownloadOnly, m.updateToLatestVersion:
 		if curLatestVersion == nil {
 			log.Tracef("latest version not fetched yet")
 			m.updateMutex.Unlock()
@@ -374,12 +415,17 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 	m.lastTrigger = time.Now()
 	log.Infof("new version available: %s", updateVersion)
 
-	if !downloadOnly && !forceUpdate {
+	if mode == modeManaged && !forceUpdate {
 		m.pendingVersion = updateVersion
 	}
 	m.updateMutex.Unlock()
 
-	if downloadOnly {
+	if m.modeChanged(gen) {
+		log.Debugf("auto-update mode changed while checking %s, discarding", updateVersion)
+		return
+	}
+
+	if mode == modeDownloadOnly {
 		m.statusRecorder.PublishEvent(
 			cProto.SystemEvent_INFO,
 			cProto.SystemEvent_SYSTEM,
@@ -404,6 +450,33 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 		"",
 		map[string]string{"new_version_available": updateVersion.String(), "enforced": "true"},
 	)
+}
+
+func (m *Manager) modeChanged(gen uint64) bool {
+	m.updateMutex.Lock()
+	defer m.updateMutex.Unlock()
+
+	return m.modeGen != gen
+}
+
+func (m *Manager) sameDirectiveLocked(expectedVersion *v.Version, forceUpdate bool) bool {
+	if m.mode != modeManaged || m.forceUpdate != forceUpdate {
+		return false
+	}
+	if expectedVersion == nil {
+		return m.updateToLatestVersion
+	}
+	return m.expectedVersion != nil && m.expectedVersion.Equal(expectedVersion)
+}
+
+func (m *Manager) setModeLocked(mode updateMode) {
+	m.mode = mode
+	m.modeGen++
+	m.forceUpdate = false
+	m.expectedVersion = nil
+	m.updateToLatestVersion = false
+	m.pendingVersion = nil
+	m.lastTrigger = time.Time{}
 }
 
 func (m *Manager) install(ctx context.Context, pendingVersion *v.Version) error {

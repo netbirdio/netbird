@@ -125,9 +125,9 @@ func (h *AuthCallbackHandler) handleCallback(w http.ResponseWriter, r *http.Requ
 			http.Error(w, "Failed to create session", http.StatusInternalServerError)
 			return
 		}
-		query.Set("session_code", code)
+		query.Set(auth.SessionCodeQueryParam, code)
 	} else {
-		query.Set("session_token", sessionToken)
+		query.Set(auth.SessionTokenQueryParam, sessionToken)
 	}
 	redirectURL.RawQuery = query.Encode()
 

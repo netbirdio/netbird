@@ -3,21 +3,7 @@ package configurer
 import (
 	"net"
 	"net/netip"
-
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
-
-// buildPresharedKeyConfig creates a wgtypes.Config for setting a preshared key on a peer.
-// This is a shared helper used by both kernel and userspace configurers.
-func buildPresharedKeyConfig(peerKey wgtypes.Key, psk wgtypes.Key, updateOnly bool) wgtypes.Config {
-	return wgtypes.Config{
-		Peers: []wgtypes.PeerConfig{{
-			PublicKey:    peerKey,
-			PresharedKey: &psk,
-			UpdateOnly:   updateOnly,
-		}},
-	}
-}
 
 // prefixesToIPNets converts prefixes on their way to a device. It is the only place that
 // conversion happens, so it also normalizes: the device is then given the same form the
@@ -34,4 +20,31 @@ func prefixesToIPNets(prefixes []netip.Prefix) []net.IPNet {
 		}
 	}
 	return ipNets
+}
+
+// normalizePrefix puts a prefix into the form the store recognises it by. It clears the
+// host bits, which a device does on its own, so a caller passing 10.20.0.1/16 still matches
+// the 10.20.0.0/16 read back from the device; and it unmaps a v4-mapped prefix so that it
+// compares equal to, and marshals like, the plain v4 prefix for the same network.
+//
+// Masking comes first because it also decides the address family: only a prefix at least 96
+// bits long keeps the mapped marker through the mask, so a shorter prefix inside the mapped
+// range is a genuine v6 prefix and unmapping it would yield an invalid v4 prefix.
+func normalizePrefix(prefix netip.Prefix) netip.Prefix {
+	masked := prefix.Masked()
+
+	addr := masked.Addr()
+	if !addr.Is4In6() {
+		return masked
+	}
+	return netip.PrefixFrom(addr.Unmap(), masked.Bits()-96)
+}
+
+// normalizePrefixes returns a normalized copy without changing the caller's slice.
+func normalizePrefixes(prefixes []netip.Prefix) []netip.Prefix {
+	normalized := make([]netip.Prefix, len(prefixes))
+	for i, prefix := range prefixes {
+		normalized[i] = normalizePrefix(prefix)
+	}
+	return normalized
 }

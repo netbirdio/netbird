@@ -578,12 +578,13 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 		}
 
 		config := client.WatcherConfig{
-			Context:          m.ctx,
-			DNSRouteInterval: m.dnsRouteInterval,
-			WGInterface:      m.wgInterface,
-			StatusRecorder:   m.statusRecorder,
-			Route:            routes[0],
-			Handler:          handler,
+			Context:             m.ctx,
+			DNSRouteInterval:    m.dnsRouteInterval,
+			WGInterface:         m.wgInterface,
+			StatusRecorder:      m.statusRecorder,
+			Route:               routes[0],
+			Handler:             handler,
+			ReconcileAllowedIPs: m.ReconcilePeerAllowedIPs,
 		}
 		clientNetworkWatcher := client.NewWatcher(config)
 		m.clientNetworks[id] = clientNetworkWatcher
@@ -628,12 +629,13 @@ func (m *DefaultManager) updateClientNetworks(updateSerial uint64, networks rout
 			}
 
 			config := client.WatcherConfig{
-				Context:          m.ctx,
-				DNSRouteInterval: m.dnsRouteInterval,
-				WGInterface:      m.wgInterface,
-				StatusRecorder:   m.statusRecorder,
-				Route:            routes[0],
-				Handler:          handler,
+				Context:             m.ctx,
+				DNSRouteInterval:    m.dnsRouteInterval,
+				WGInterface:         m.wgInterface,
+				StatusRecorder:      m.statusRecorder,
+				Route:               routes[0],
+				Handler:             handler,
+				ReconcileAllowedIPs: m.ReconcilePeerAllowedIPs,
 			}
 			clientNetworkWatcher = client.NewWatcher(config)
 			m.clientNetworks[id] = clientNetworkWatcher

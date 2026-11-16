@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,7 +17,7 @@ import (
 )
 
 // On Linux, only Mode 1 (downloadOnly) is supported.
-// SetVersion is a no-op because auto-update installation is not supported.
+// SetVersion falls back to download-only because auto-update installation is not supported.
 
 func Test_LatestVersion_Linux(t *testing.T) {
 	testMatrix := []struct {
@@ -52,7 +53,7 @@ func Test_LatestVersion_Linux(t *testing.T) {
 		sub := recorder.SubscribeToEvents()
 		defer recorder.UnsubscribeFromEvents(sub)
 
-		m := NewManager(recorder, statemanager.New(tmpFile))
+		m := NewManager(context.Background(), recorder, statemanager.New(tmpFile))
 		m.update = mockUpdate
 		m.currentVersion = c.daemonVersion
 		m.Start(context.Background())
@@ -70,7 +71,7 @@ func Test_LatestVersion_Linux(t *testing.T) {
 			t.Errorf("%s: Initial version mismatch, expected %v, got %v", c.name, c.initialLatestVersion.String(), ver)
 		}
 
-		mockUpdate.latestVersion = c.latestVersion
+		mockUpdate.setLatestVersion(c.latestVersion)
 		mockUpdate.onUpdate()
 
 		ver, enforced = waitForUpdateEvent(sub, 500*time.Millisecond)
@@ -89,23 +90,55 @@ func Test_LatestVersion_Linux(t *testing.T) {
 	}
 }
 
-func Test_SetVersion_NoOp_Linux(t *testing.T) {
-	// On Linux, SetVersion should be a no-op — no events fired
-	tmpFile := path.Join(t.TempDir(), "update-test-noop.json")
+func Test_SetVersion_FallsBackToDownloadOnly_Linux(t *testing.T) {
+	tmpFile := path.Join(t.TempDir(), "update-test-fallback.json")
 	recorder := peer.NewRecorder("")
 	sub := recorder.SubscribeToEvents()
 	defer recorder.UnsubscribeFromEvents(sub)
 
-	m := NewManager(recorder, statemanager.New(tmpFile))
-	m.update = &versionUpdateMock{latestVersion: v.Must(v.NewSemver("1.0.1"))}
+	m := NewManager(context.Background(), recorder, statemanager.New(tmpFile))
+	m.update = &versionUpdateMock{latestVersion: v.Must(v.NewSemver("1.0.5"))}
 	m.currentVersion = "1.0.0"
 	m.Start(context.Background())
 	m.SetVersion("1.0.1", false)
 
-	ver, _ := waitForUpdateEvent(sub, 500*time.Millisecond)
-	if ver != "" {
-		t.Errorf("SetVersion should be a no-op on Linux, but got event with version %s", ver)
+	ver, enforced := waitForUpdateEvent(sub, 500*time.Millisecond)
+	if ver != "1.0.5" {
+		t.Fatalf("expected download-only event for fetched 1.0.5, got %q", ver)
+	}
+	if enforced {
+		t.Error("Linux fallback must never have enforced metadata")
 	}
 
 	m.Stop()
+}
+
+// The installer here is a stub that fails at once, so the forced install path
+// can run end to end in a test without installing anything.
+func Test_SetVersion_ForceInstallsWithoutSubscriber_Linux(t *testing.T) {
+	recorder := peer.NewRecorder("")
+	sub := recorder.SubscribeToEvents()
+	defer recorder.UnsubscribeFromEvents(sub)
+
+	m := NewManager(context.Background(), recorder, statemanager.New(path.Join(t.TempDir(), "update-test-force-install.json")))
+	m.update = &versionUpdateMock{}
+	m.currentVersion = "1.0.0"
+	m.autoUpdateSupported = func() bool { return true }
+	defer m.Stop()
+
+	// No UI has subscribed to daemon events, and the test never calls Start.
+	m.SetVersion("1.0.1", true)
+
+	event := waitForAnyEvent(sub, 2*time.Second)
+	if event == nil || event.GetMessage() != "Updating client" {
+		t.Fatalf("a forced directive newer than the current version must start an install without a UI subscriber, got %v", event)
+	}
+
+	// The stub installer's error proves RunInstallation itself was called.
+	for event != nil && event.GetMessage() != "Auto-update failed" {
+		event = waitForAnyEvent(sub, 2*time.Second)
+	}
+	if event == nil || !strings.Contains(event.GetUserMessage(), "unsupported platform") {
+		t.Fatalf("the forced install must reach the installer, got %v", event)
+	}
 }

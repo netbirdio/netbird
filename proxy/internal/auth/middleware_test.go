@@ -786,8 +786,14 @@ func TestWasCredentialSubmitted(t *testing.T) {
 		{
 			name:     "OIDC code in query",
 			method:   auth.MethodOIDC,
-			query:    url.Values{"session_code": {"abc123"}},
+			query:    url.Values{"nb_session_code": {"abc123"}},
 			expected: true,
+		},
+		{
+			name:     "OIDC backend session_code in query",
+			method:   auth.MethodOIDC,
+			query:    url.Values{"session_code": {"abc123"}},
+			expected: false,
 		},
 		{
 			name:     "OIDC token not in query",
@@ -1585,8 +1591,9 @@ func TestStripSessionTokenParam(t *testing.T) {
 		want string
 	}{
 		{"strips session_token", "https://ex.com/p?a=1&session_token=tok", "/p?a=1"},
-		{"strips session_code", "https://ex.com/p?a=1&session_code=code", "/p?a=1"},
-		{"strips both", "https://ex.com/p?session_token=tok&session_code=code&a=1", "/p?a=1"},
+		{"strips nb_session_code", "https://ex.com/p?a=1&nb_session_code=code", "/p?a=1"},
+		{"strips both", "https://ex.com/p?session_token=tok&nb_session_code=code&a=1", "/p?a=1"},
+		{"keeps backend session_code", "https://ex.com/p?a=1&session_code=backend", "/p?a=1&session_code=backend"},
 		{"no-op when absent", "https://ex.com/p?a=1", "/p?a=1"},
 	}
 	for _, tc := range cases {
@@ -1594,6 +1601,69 @@ func TestStripSessionTokenParam(t *testing.T) {
 			u, err := url.Parse(tc.in)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, stripSessionTokenParam(u))
+		})
+	}
+}
+
+func TestProtect_RequiresMatchingAccountIds(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+	kp := generateTestKeyPair(t)
+
+	hdr := newHeaderScheme(t, "Authorization", "Bearer token", "Bearer token")
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "test-account-1", "", nil, false, nil))
+
+	var backendCalled bool
+
+	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		backendCalled = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	tests := []struct {
+		description   string
+		backendCalled bool
+		httpStatus    int
+		requestFunc   func(*http.Request) *http.Request
+	}{
+		{
+			description:   "account id is present and matching",
+			backendCalled: true,
+			httpStatus:    http.StatusOK,
+			requestFunc: func(req *http.Request) *http.Request {
+				d := proxy.CapturedData{}
+				d.SetAccountID("test-account-1")
+				return req.WithContext(proxy.WithCapturedData(req.Context(), &d))
+			},
+		},
+		{
+			description:   "account id is present and not matching",
+			backendCalled: false,
+			httpStatus:    http.StatusForbidden,
+			requestFunc: func(req *http.Request) *http.Request {
+				d := proxy.CapturedData{}
+				d.SetAccountID("test-account-not-matching")
+				return req.WithContext(proxy.WithCapturedData(req.Context(), &d))
+			},
+		},
+		{
+			description:   "account id not present",
+			backendCalled: true,
+			httpStatus:    http.StatusOK,
+			requestFunc:   func(req *http.Request) *http.Request { return req },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.description, func(t *testing.T) {
+			backendCalled = false
+			req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+			req.Header.Set("Authorization", "Bearer token")
+
+			req = tt.requestFunc(req)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			assert.Equal(t, tt.httpStatus, rec.Code)
+			assert.Equal(t, tt.backendCalled, backendCalled)
 		})
 	}
 }

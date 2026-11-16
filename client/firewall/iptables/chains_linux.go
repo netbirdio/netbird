@@ -146,6 +146,19 @@ func (r *family) seedInitialEntries() {
 		"-m", "mark", "!", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected),
 		"-j", "DROP",
 	})
+
+	// Hairpin guard: routed traffic must not leave through the wg
+	// interface it arrived on. A default route rule also matches the
+	// overlay and the networks we're a client of, and masquerading would
+	// present the traffic there under our own overlay address. It follows
+	// the established accept: a dropped packet never creates an
+	// established flow, so established traffic skips the check.
+	r.appendToEntries(mangleForwardKey, []string{
+		"-i", r.wgIface.Name(),
+		"-o", r.wgIface.Name(),
+		"-m", "mark", "!", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected),
+		"-j", "DROP",
+	})
 }
 
 func (r *family) seedInitialOptionalEntries() {
@@ -189,10 +202,12 @@ func (r *family) createDefaultChains() error {
 	}
 	clear(r.optionalEntries)
 
-	// Insert mangle FORWARD guard rules to prevent external DNAT bypass.
+	// Insert mangle FORWARD guard rules to prevent external DNAT bypass and
+	// hairpin forwarding. They are access controls, so a guard that can't be
+	// installed fails the init instead of leaving the path open.
 	for _, rule := range r.entries[mangleForwardKey] {
 		if err := r.iptablesClient.AppendUnique(tableMangle, chainForward, rule...); err != nil {
-			log.Errorf("failed to add mangle FORWARD guard rule: %v", err)
+			return fmt.Errorf("add mangle FORWARD guard rule %v: %w", rule, err)
 		}
 	}
 

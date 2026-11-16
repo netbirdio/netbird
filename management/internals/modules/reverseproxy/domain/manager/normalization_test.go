@@ -52,7 +52,7 @@ func TestCreateDomain_NormalizedNameCanValidateLater(t *testing.T) {
 	require.False(t, created.Validated, "a missing CNAME must leave the normalized registration pending")
 
 	env.resolver.set("validation.apps.example.com", testCluster)
-	env.manager.ValidateDomain(ctx, accountA, accountAUser, created.ID)
+	require.NoError(t, env.manager.ValidateDomain(ctx, accountA, accountAUser, created.ID))
 	stored, err := env.store.GetCustomDomain(ctx, accountA, created.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "apps.example.com", stored.Domain, "retrying validation must retain the normalized name")

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/mock/gomock"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
@@ -218,9 +218,17 @@ func TestCleanupSchedulingBehaviorIsBatched(t *testing.T) {
 	t.Cleanup(func() {
 		timeNow = time.Now
 	})
+	var clockMu sync.Mutex
 	startTime := time.Now()
 	timeNow = func() time.Time {
+		clockMu.Lock()
+		defer clockMu.Unlock()
 		return startTime
+	}
+	advance := func(d time.Duration) {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		startTime = startTime.Add(d)
 	}
 
 	mockStore := &MockStore{}
@@ -262,11 +270,11 @@ func TestCleanupSchedulingBehaviorIsBatched(t *testing.T) {
 		p := &nbpeer.Peer{ID: fmt.Sprintf("peer-%d", i), AccountID: account.Id, Ephemeral: true}
 		mockStore.account.Peers[p.ID] = p
 		mgr.OnPeerDisconnected(context.Background(), p)
-		startTime = startTime.Add(testCleanupWindow / (ephemeralPeers * 2))
+		advance(testCleanupWindow / (ephemeralPeers * 2))
 	}
 
 	// Advance time past the lifetime to trigger cleanup
-	startTime = startTime.Add(testLifeTime + testCleanupWindow)
+	advance(testLifeTime + testCleanupWindow)
 
 	// Wait for all deletions to complete
 	wg.Wait()

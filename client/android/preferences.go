@@ -46,7 +46,7 @@ func (p *Preferences) GetManagementURL() (string, error) {
 		return p.configInput.ManagementURL, nil
 	}
 
-	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfigOrDefault(p.configInput.ConfigPath)
 	if err != nil {
 		return "", err
 	}
@@ -58,23 +58,17 @@ func (p *Preferences) SetManagementURL(url string) {
 	p.configInput.ManagementURL = url
 }
 
-// GetAdminURL reads URL from config file
+// GetAdminURL returns the default admin panel URL.
+//
+// Deprecated: the admin URL is no longer stored or used by the client.
 func (p *Preferences) GetAdminURL() (string, error) {
-	if p.configInput.AdminURL != "" {
-		return p.configInput.AdminURL, nil
-	}
-
-	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
-	if err != nil {
-		return "", err
-	}
-	return cfg.AdminURL.String(), err
+	return profilemanager.DefaultAdminURL, nil
 }
 
-// SetAdminURL stores the given URL and waits for commit
-func (p *Preferences) SetAdminURL(url string) {
-	p.configInput.AdminURL = url
-}
+// SetAdminURL is a no-op kept for API compatibility.
+//
+// Deprecated: the admin URL is no longer stored or used by the client.
+func (p *Preferences) SetAdminURL(_ string) {}
 
 // HasPreSharedKey reports whether a pre-shared key is staged, persisted, or
 // enforced by MDM; the key itself is never handed to the native layer.
@@ -86,7 +80,7 @@ func (p *Preferences) HasPreSharedKey() (bool, error) {
 		return *p.configInput.PreSharedKey != "", nil
 	}
 
-	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfigOrDefault(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -112,7 +106,7 @@ func (p *Preferences) GetRosenpassEnabled() (bool, error) {
 		return *p.configInput.RosenpassEnabled, nil
 	}
 
-	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfigOrDefault(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -133,7 +127,7 @@ func (p *Preferences) GetRosenpassPermissive() (bool, error) {
 		return *p.configInput.RosenpassPermissive, nil
 	}
 
-	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfigOrDefault(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -149,7 +143,7 @@ func (p *Preferences) GetDisableClientRoutes() (bool, error) {
 		return *p.configInput.DisableClientRoutes, nil
 	}
 
-	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfigOrDefault(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -170,7 +164,7 @@ func (p *Preferences) GetDisableServerRoutes() (bool, error) {
 		return *p.configInput.DisableServerRoutes, nil
 	}
 
-	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfigOrDefault(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -188,7 +182,7 @@ func (p *Preferences) GetDisableDNS() (bool, error) {
 		return *p.configInput.DisableDNS, nil
 	}
 
-	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfigOrDefault(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -206,7 +200,7 @@ func (p *Preferences) GetDisableFirewall() (bool, error) {
 		return *p.configInput.DisableFirewall, nil
 	}
 
-	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfigOrDefault(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -227,7 +221,7 @@ func (p *Preferences) GetServerSSHAllowed() (bool, error) {
 		return *p.configInput.ServerSSHAllowed, nil
 	}
 
-	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfigOrDefault(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -249,7 +243,7 @@ func (p *Preferences) GetEnableSSHRoot() (bool, error) {
 		return *p.configInput.EnableSSHRoot, nil
 	}
 
-	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfigOrDefault(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -271,7 +265,7 @@ func (p *Preferences) GetEnableSSHSFTP() (bool, error) {
 		return *p.configInput.EnableSSHSFTP, nil
 	}
 
-	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfigOrDefault(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -293,7 +287,7 @@ func (p *Preferences) GetEnableSSHLocalPortForwarding() (bool, error) {
 		return *p.configInput.EnableSSHLocalPortForwarding, nil
 	}
 
-	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfigOrDefault(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -315,7 +309,7 @@ func (p *Preferences) GetEnableSSHRemotePortForwarding() (bool, error) {
 		return *p.configInput.EnableSSHRemotePortForwarding, nil
 	}
 
-	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfigOrDefault(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -340,7 +334,7 @@ func (p *Preferences) GetBlockInbound() (bool, error) {
 		return *p.configInput.BlockInbound, nil
 	}
 
-	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfigOrDefault(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -358,7 +352,7 @@ func (p *Preferences) GetDisableIPv6() (bool, error) {
 		return *p.configInput.DisableIPv6, nil
 	}
 
-	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfigOrDefault(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -377,7 +371,7 @@ func (p *Preferences) GetRemoteJobsAllowed() (bool, error) {
 		return *p.configInput.RemoteJobsAllowed, nil
 	}
 
-	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfigOrDefault(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}

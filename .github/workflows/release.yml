@@ -10,21 +10,76 @@ on:
   pull_request:
 
 env:
-  SIGN_PIPE_VER: "v0.1.8"
+  SIGN_PIPE_VER: "v0.1.9"
   GORELEASER_VER: "v2.16.0"
   PRODUCT_NAME: "NetBird"
   COPYRIGHT: "NetBird GmbH"
   flags: ""
   SKIP_PUBLISH: "true"
+  SKIP_LATEST: "true"
   SKIP_DOCKER_PUSH: "false"
+  # GoReleaser otherwise picks its own tag among those on HEAD, so a release
+  # tag sharing a commit with an rc tag would be built and published as the rc.
+  GORELEASER_CURRENT_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
   cancel-in-progress: true
 
 jobs:
+  freebsd_port_trigger:
+    name: "FreeBSD Port / Trigger"
+    runs-on: ubuntu-22.04
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+      version: ${{ steps.decide.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Decide whether the port job runs
+        id: decide
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          run=false
+          case "$GITHUB_EVENT_NAME" in
+            push)
+              if [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
+                run=true
+              elif [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                # The port tracks stable releases only, so a canary or rc tag has nothing to submit,
+                # and neither does a patch on an older release line. ls-remote rather than a full
+                # tag fetch, which would pull the history behind every tag.
+                SKIP_LATEST_TAGS=$(git ls-remote --tags --refs origin 'v*' | sed 's#.*refs/tags/##')
+                export SKIP_LATEST_TAGS
+                # An assignment, so a refused tag list fails the step; set -e ignores a
+                # substitution inside [[ ]].
+                skip_latest=$(release_files/skip-latest.sh "$GITHUB_REF_NAME")
+                if [[ "$skip_latest" == "false" ]]; then
+                  run=true
+                  echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+                fi
+              fi
+              ;;
+            pull_request)
+              git fetch --depth=1 origin "$BASE_SHA"
+              if git diff --name-only "$BASE_SHA" HEAD | \
+                  grep -qE '^(release_files/freebsd-port-.*\.sh|\.github/workflows/release\.yml)$'; then
+                run=true
+              fi
+              ;;
+          esac
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "FreeBSD port job runs: $run"
+
   release_freebsd_port:
     name: "FreeBSD Port / Build & Test"
+    needs: freebsd_port_trigger
+    if: needs.freebsd_port_trigger.outputs.run == 'true'
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
@@ -33,18 +88,19 @@ jobs:
           persist-credentials: false
 
       - name: Generate FreeBSD port diff
-        run: bash -x release_files/freebsd-port-diff.sh
-
-      - name: Generate FreeBSD port issue body
-        run: bash -x release_files/freebsd-port-issue-body.sh
+        env:
+          TARGET_VERSION: ${{ needs.freebsd_port_trigger.outputs.version }}
+        run: bash -x release_files/freebsd-port-diff.sh "$TARGET_VERSION"
 
       - name: Check if diff was generated
         id: check_diff
         run: |
-          if ls netbird-*.diff 1> /dev/null 2>&1; then
-            echo "diff_exists=true" >> $GITHUB_OUTPUT
+          shopt -s nullglob
+          diffs=(netbird-*.diff)
+          if [[ ${#diffs[@]} -gt 0 ]]; then
+            echo "diff_exists=true" >> "$GITHUB_OUTPUT"
           else
-            echo "diff_exists=false" >> $GITHUB_OUTPUT
+            echo "diff_exists=false" >> "$GITHUB_OUTPUT"
             echo "No diff file generated (port may already be up to date)"
           fi
 
@@ -52,10 +108,18 @@ jobs:
         if: steps.check_diff.outputs.diff_exists == 'true'
         id: version
         run: |
-          VERSION=$(ls netbird-*.diff | sed 's/netbird-\(.*\)\.diff/\1/')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          diffs=(netbird-*.diff)
+          VERSION="${diffs[0]#netbird-}"
+          VERSION="${VERSION%.diff}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Generated files for version: $VERSION"
-          cat netbird-*.diff
+          cat "${diffs[0]}"
+
+      - name: Generate FreeBSD port issue body
+        if: steps.check_diff.outputs.diff_exists == 'true'
+        env:
+          TARGET_VERSION: ${{ steps.version.outputs.version }}
+        run: bash -x release_files/freebsd-port-issue-body.sh "" "$TARGET_VERSION"
 
       - name: Read Go version from go.mod
         id: goversion
@@ -69,7 +133,7 @@ jobs:
         with:
           usesh: true
           copyback: false
-          release: "15.0"
+          release: "15.1"
           envs: "GO_VERSION"
           prepare: |
             # Install required packages
@@ -166,6 +230,16 @@ jobs:
             echo "SKIP_DOCKER_PUSH=true" >> $GITHUB_ENV
           fi
 
+      # The Docker latest tags and the Homebrew formula are gated on
+      # SKIP_LATEST (default: skip). Only a published tag that sorts highest
+      # among all release tags moves them, so a patch on an older release line
+      # can't drag them backwards. See release_files/skip-latest.sh.
+      - name: Decide whether this release moves latest
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && env.SKIP_PUBLISH == 'false' }}
+        run: |
+          skip=$(release_files/skip-latest.sh "${GITHUB_REF_NAME}")
+          echo "SKIP_LATEST=$skip" >> "$GITHUB_ENV"
+
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
@@ -199,7 +273,7 @@ jobs:
         with:
           node-version: '22'
       - name: Install proxy web dependencies for license collection
-        # proxy/collect-licenses.sh reads the UI's license terms from node_modules.
+        # release_files/collect-licenses.sh -w reads the proxy UI's license terms from node_modules.
         working-directory: proxy/web
         run: npm ci --ignore-scripts
       - name: Set up QEMU
@@ -254,6 +328,7 @@ jobs:
           NFPM_NETBIRD_RPM_ARM_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
           NFPM_NETBIRD_RPM_386_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
           SKIP_PUBLISH: ${{ env.SKIP_PUBLISH }}
+          SKIP_LATEST: ${{ env.SKIP_LATEST }}
           SKIP_DOCKER_PUSH: ${{ env.SKIP_DOCKER_PUSH }}
       - name: Verify RPM signatures
         run: |
@@ -363,7 +438,11 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a #v7.0.1
         with:
           name: linux-packages
-          path: dist/netbird_linux**
+          path: |
+            dist/netbird_linux**
+            dist/netbird-pkcs11_linux**
+            dist/netbird-deb-32bit_linux**
+            dist/netbird-rpm-*_linux**
           retention-days: 7
       - name: upload windows packages
         id: upload_windows_packages
@@ -380,131 +459,23 @@ jobs:
           path: dist/netbird_darwin**
           retention-days: 7
 
-  # Certify and publish the rootless UBI client image in the Red Hat Ecosystem
-  # Catalog. Stable tags only: goreleaser pushes <version>-rootless-ubi to
-  # ghcr.io in the release job above, and preflight submits every architecture
-  # of that manifest list to Pyxis. Auto-publish on the component makes the new
-  # version public once certification passes.
+  # Certify the UBI images in the Red Hat Ecosystem Catalog on stable tags.
+  # See redhat-certify.yml, which can also be run by hand for any released version.
   redhat_certification:
-    name: "Red Hat / Certify rootless UBI image"
+    name: "Red Hat"
     needs: release
     if: |
       github.repository == 'netbirdio/netbird' &&
       startsWith(github.ref, 'refs/tags/v') &&
       !contains(github.ref_name, '-')
-    runs-on: ubuntu-24.04
     permissions:
       contents: read
-    env:
-      PREFLIGHT_VERSION: "1.21.0"
-      # sha256 of preflight-linux-amd64 from the 1.21.0 GitHub release.
-      # Red Hat publishes no checksum file, so the value is pinned here.
-      PREFLIGHT_SHA256: "5e653135503c72f8702bbe31d7643197d12937c68086879133dd6b9650a9a449"
-      IMAGE_REPOSITORY: "ghcr.io/netbirdio/netbird"
-      # Component "NetBird Client Container Image (rootless)" in Partner Connect.
-      # Override with the REDHAT_CERT_COMPONENT_ID repository variable if it changes.
-      DEFAULT_COMPONENT_ID: "6aa3ca4b4676aefdf07aaa97"
-    steps:
-      - name: Resolve image reference
-        id: image
-        env:
-          INPUT_VERSION: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          version="${INPUT_VERSION#v}"
-          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Only stable x.y.z versions are certified, got '${INPUT_VERSION}'"
-            exit 1
-          fi
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "ref=${IMAGE_REPOSITORY}:${version}-rootless-ubi" >> "$GITHUB_OUTPUT"
-
-      - name: Verify the multi-arch image is on ghcr.io
-        env:
-          IMAGE_REF: ${{ steps.image.outputs.ref }}
-        run: |
-          set -euo pipefail
-          docker buildx imagetools inspect "$IMAGE_REF" --raw > manifest.json
-          for arch in amd64 arm64; do
-            if ! jq -e --arg a "$arch" '.manifests[] | select(.platform.architecture == $a)' manifest.json > /dev/null; then
-              echo "::error::${IMAGE_REF} has no ${arch} manifest"
-              exit 1
-            fi
-          done
-          echo "Manifest list for ${IMAGE_REF}:"
-          jq -r '.manifests[] | "\(.platform.os)/\(.platform.architecture) \(.digest)"' manifest.json
-
-      - name: Install preflight
-        run: |
-          set -euo pipefail
-          curl -fsSL --proto '=https' --proto-redir '=https' -o preflight \
-            "https://github.com/redhat-openshift-ecosystem/openshift-preflight/releases/download/${PREFLIGHT_VERSION}/preflight-linux-amd64"
-          echo "${PREFLIGHT_SHA256}  preflight" | sha256sum -c -
-          chmod +x preflight
-          ./preflight --version
-
-      - name: Run preflight checks and submit to Red Hat
-        env:
-          IMAGE_REF: ${{ steps.image.outputs.ref }}
-          PFLT_PYXIS_API_TOKEN: ${{ secrets.PYXIS_API_TOKEN }}
-          PFLT_CERTIFICATION_COMPONENT_ID: ${{ vars.REDHAT_CERT_COMPONENT_ID || env.DEFAULT_COMPONENT_ID }}
-          PFLT_ARTIFACTS: artifacts
-          PFLT_LOGFILE: artifacts/preflight.log
-          PFLT_LOGLEVEL: info
-          PFLT_JUNIT: "true"
-        run: |
-          set -euo pipefail
-          # No --platform: preflight walks the manifest list and submits every
-          # architecture in one run, grouped under one manifest-list digest.
-          ./preflight check container "$IMAGE_REF" --submit
-
-      - name: Fail if any check did not pass
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          results=(artifacts/results.json artifacts/*/results.json)
-          if [[ ${#results[@]} -eq 0 ]]; then
-            echo "::error::preflight produced no results.json"
-            exit 1
-          fi
-          status=0
-          for f in "${results[@]}"; do
-            arch="$(basename "$(dirname "$f")")"
-            passed="$(jq -r '.passed' "$f")"
-            failed="$(jq -r '[.results.failed[]?.name] | join(", ")' "$f")"
-            echo "${arch}: passed=${passed} ${failed:+failed checks: ${failed}}"
-            [[ "$passed" == "true" ]] || status=1
-          done
-          exit $status
-
-      - name: Upload preflight artifacts
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: redhat-preflight-${{ steps.image.outputs.version }}
-          path: artifacts/
-          retention-days: 30
-
-      - name: Wait for Pyxis to mark both architectures certified
-        env:
-          VERSION: ${{ steps.image.outputs.version }}
-          PFLT_PYXIS_API_TOKEN: ${{ secrets.PYXIS_API_TOKEN }}
-          COMPONENT_ID: ${{ vars.REDHAT_CERT_COMPONENT_ID || env.DEFAULT_COMPONENT_ID }}
-        run: |
-          set -euo pipefail
-          tag="${VERSION}-rootless-ubi"
-          url="https://catalog.redhat.com/api/containers/v1/projects/certification/id/${COMPONENT_ID}/images?page_size=100"
-          for attempt in $(seq 1 20); do
-            certified="$(curl -fsS --proto '=https' --proto-redir '=https' -H "X-API-KEY: ${PFLT_PYXIS_API_TOKEN}" "$url" \
-              | jq -r --arg t "$tag" '[.data[] | select(.repositories[]?.tags[]?.name == $t) | select(.certified == true) | .architecture] | unique | join(",")')"
-            echo "attempt ${attempt}: certified architectures for ${tag}: ${certified:-none}"
-            if [[ "$certified" == "amd64,arm64" ]]; then
-              echo "Both architectures certified. Auto-publish is enabled on the component, so the catalog updates on its own."
-              exit 0
-            fi
-            sleep 30
-          done
-          echo "::warning::Pyxis has not marked both architectures certified after 10 minutes. Check https://connect.redhat.com/component/view/${COMPONENT_ID}/images"
+    uses: ./.github/workflows/redhat-certify.yml
+    with:
+      component: all
+      version: ${{ github.ref_name }}
+    secrets:
+      PYXIS_API_TOKEN: ${{ secrets.PYXIS_API_TOKEN }}
 
   release_ui:
     runs-on: ubuntu-latest
@@ -634,6 +605,130 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a #v7.0.1
         with:
           name: release-ui
+          path: dist/
+          retention-days: 3
+
+  release_ui_linux_arm64:
+    # The UI links GTK4 and WebKitGTK 6.0 through cgo, and release_ui has no
+    # arm64 C toolchain or libraries, so the Linux arm64 UI is built natively.
+    # Pinned to 24.04, the oldest Ubuntu shipping GTK 4.14, to link against
+    # the oldest glibc the GTK4 packages support.
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      release_ui_linux_arm64_artifact_url: ${{ steps.upload_release_ui_linux_arm64.outputs.artifact-url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0 # It is required for GoReleaser to work properly
+          persist-credentials: false
+
+      - name: Parse semver string
+        id: semver_parser
+        uses: netbirdio/shared-actions/actions/parse-semver@be5df6047383da2236e02243cceb857d8567c27e # v0.0.2
+
+      - name: Set snapshot flag
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          echo "flags=--snapshot" >> $GITHUB_ENV
+
+      - name: Set build vars
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          if [[ "x-${{ steps.semver_parser.outputs.prerelease }}" == "x-" && "x-${{ github.repository }}" == "x-netbirdio/netbird" ]]; then
+            echo "x-${{ github.repository }}"
+            echo "x-${{ steps.semver_parser.outputs.prerelease }}"
+            echo "SKIP_PUBLISH=false" >> $GITHUB_ENV
+          else
+            echo "x-${{ github.repository }}"
+            echo "x-${{ steps.semver_parser.outputs.prerelease }}"
+          fi
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: "go.mod"
+          cache: false
+      - name: Cache Go modules
+        # Restore-only from the release_ui cache written by trusted runs; the
+        # module cache is architecture-independent and the amd64 build-cache
+        # entries just miss.
+        uses: actions/cache/restore@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-ui-go-releaser-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-ui-go-releaser-
+
+      - name: Install modules
+        run: go mod tidy
+
+      - name: check git status
+        run: git --no-pager diff --exit-code
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 11
+
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y -q libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev
+
+      - name: Decode GPG signing key
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GPG_RPM_PRIVATE_KEY: ${{ secrets.GPG_RPM_PRIVATE_KEY }}
+        run: |
+          echo "$GPG_RPM_PRIVATE_KEY" | base64 -d > /tmp/gpg-rpm-signing-key.asc
+          echo "GPG_RPM_KEY_FILE=/tmp/gpg-rpm-signing-key.asc" >> $GITHUB_ENV
+
+      - name: Install wails3 CLI
+        # Version derived from go.mod so the binding generator always matches
+        # the wails runtime the binary links against.
+        run: |
+          WAILS_VERSION=$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)
+          go install github.com/wailsapp/wails/v3/cmd/wails3@$WAILS_VERSION
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
+        with:
+          version: ${{ env.GORELEASER_VER }}
+          args: release --config .goreleaser_ui_linux_arm64.yaml --clean ${{ env.flags }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPLOAD_DEBIAN_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
+          UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
+          GPG_RPM_KEY_FILE: ${{ env.GPG_RPM_KEY_FILE }}
+          NFPM_NETBIRD_UI_RPM_ARM64_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
+          SKIP_PUBLISH: ${{ env.SKIP_PUBLISH }}
+      - name: Verify RPM signatures
+        run: |
+          docker run --rm -v $(pwd)/dist:/dist fedora:41 bash -c '
+            dnf install -y -q rpm-sign curl >/dev/null 2>&1
+            curl -sSL https://pkgs.netbird.io/yum/repodata/repomd.xml.key -o /tmp/rpm-pub.key
+            rpm --import /tmp/rpm-pub.key
+            echo "=== Verifying RPM signatures ==="
+            for rpm_file in /dist/*.rpm; do
+              [ -f "$rpm_file" ] || continue
+              echo "--- $(basename $rpm_file) ---"
+              rpm -K "$rpm_file"
+            done
+          '
+      - name: Clean up GPG key
+        if: always()
+        run: rm -f /tmp/gpg-rpm-signing-key.asc
+      - name: upload non tags for debug purposes
+        id: upload_release_ui_linux_arm64
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a #v7.0.1
+        with:
+          name: release-ui-linux-arm64
           path: dist/
           retention-days: 3
 
@@ -976,7 +1071,7 @@ jobs:
   comment_release_artifacts:
     name: Comment release artifacts
     runs-on: ubuntu-latest
-    needs: [release, release_ui, release_ui_gtk3, release_ui_darwin]
+    needs: [release, release_ui, release_ui_linux_arm64, release_ui_gtk3, release_ui_darwin]
     if: ${{ always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
     permissions:
       contents: read
@@ -988,6 +1083,7 @@ jobs:
         env:
           RELEASE_RESULT: ${{ needs.release.result }}
           RELEASE_UI_RESULT: ${{ needs.release_ui.result }}
+          RELEASE_UI_LINUX_ARM64_RESULT: ${{ needs.release_ui_linux_arm64.result }}
           RELEASE_UI_GTK3_RESULT: ${{ needs.release_ui_gtk3.result }}
           RELEASE_UI_DARWIN_RESULT: ${{ needs.release_ui_darwin.result }}
           RELEASE_ARTIFACT_URL: ${{ needs.release.outputs.release_artifact_url }}
@@ -995,6 +1091,7 @@ jobs:
           WINDOWS_PACKAGES_ARTIFACT_URL: ${{ needs.release.outputs.windows_packages_artifact_url }}
           MACOS_PACKAGES_ARTIFACT_URL: ${{ needs.release.outputs.macos_packages_artifact_url }}
           RELEASE_UI_ARTIFACT_URL: ${{ needs.release_ui.outputs.release_ui_artifact_url }}
+          RELEASE_UI_LINUX_ARM64_ARTIFACT_URL: ${{ needs.release_ui_linux_arm64.outputs.release_ui_linux_arm64_artifact_url }}
           RELEASE_UI_GTK3_ARTIFACT_URL: ${{ needs.release_ui_gtk3.outputs.release_ui_gtk3_artifact_url }}
           RELEASE_UI_DARWIN_ARTIFACT_URL: ${{ needs.release_ui_darwin.outputs.release_ui_darwin_artifact_url }}
           GHCR_IMAGES_MARKDOWN: ${{ needs.release.outputs.ghcr_images }}
@@ -1018,6 +1115,7 @@ jobs:
               ['Windows packages', process.env.WINDOWS_PACKAGES_ARTIFACT_URL, process.env.RELEASE_RESULT],
               ['macOS packages', process.env.MACOS_PACKAGES_ARTIFACT_URL, process.env.RELEASE_RESULT],
               ['UI artifacts', process.env.RELEASE_UI_ARTIFACT_URL, process.env.RELEASE_UI_RESULT],
+              ['UI Linux arm64 artifacts', process.env.RELEASE_UI_LINUX_ARM64_ARTIFACT_URL, process.env.RELEASE_UI_LINUX_ARM64_RESULT],
               ['UI GTK3 artifacts', process.env.RELEASE_UI_GTK3_ARTIFACT_URL, process.env.RELEASE_UI_GTK3_RESULT],
               ['UI macOS artifacts', process.env.RELEASE_UI_DARWIN_ARTIFACT_URL, process.env.RELEASE_UI_DARWIN_RESULT],
             ];
@@ -1075,7 +1173,7 @@ jobs:
 
   trigger_signer:
     runs-on: ubuntu-latest
-    needs: [release, release_ui, release_ui_gtk3, release_ui_darwin, test_windows_installer]
+    needs: [release, release_ui, release_ui_linux_arm64, release_ui_gtk3, release_ui_darwin, test_windows_installer]
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Trigger binaries sign pipelines

@@ -8,11 +8,12 @@ import (
 	"time"
 
 	pb "github.com/golang/protobuf/proto" //nolint
-	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
-	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 func TestSendPeerUpdates_FirstUpdate(t *testing.T) {

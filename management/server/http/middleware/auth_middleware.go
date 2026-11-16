@@ -19,14 +19,13 @@ import (
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/shared/ratelimit"
+	"github.com/netbirdio/netbird/trustedproxy"
 )
 
 type EnsureAccountFunc func(ctx context.Context, userAuth auth.UserAuth) (string, string, error)
 type SyncUserJWTGroupsFunc func(ctx context.Context, userAuth auth.UserAuth) error
 
 type GetUserFromUserAuthFunc func(ctx context.Context, userAuth auth.UserAuth) (*types.User, error)
-
-type IsValidChildAccountFunc func(ctx context.Context, userID, accountID, childAccountID string) bool
 
 // AuthMiddleware middleware to verify personal access tokens (PAT) and JWT tokens
 type AuthMiddleware struct {
@@ -36,7 +35,7 @@ type AuthMiddleware struct {
 	syncUserJWTGroups   SyncUserJWTGroupsFunc
 	rateLimiter         *ratelimit.APIRateLimiter
 	patUsageTracker     *PATUsageTracker
-	isValidChildAccount IsValidChildAccountFunc
+	trustedProxies      *trustedproxy.List
 }
 
 // NewAuthMiddleware instance constructor
@@ -47,7 +46,7 @@ func NewAuthMiddleware(
 	getUserFromUserAuth GetUserFromUserAuthFunc,
 	rateLimiter *ratelimit.APIRateLimiter,
 	meter metric.Meter,
-	isValidChildAccount IsValidChildAccountFunc,
+	trustedProxies *trustedproxy.List,
 ) *AuthMiddleware {
 	var patUsageTracker *PATUsageTracker
 	if meter != nil {
@@ -65,7 +64,7 @@ func NewAuthMiddleware(
 		getUserFromUserAuth: getUserFromUserAuth,
 		rateLimiter:         rateLimiter,
 		patUsageTracker:     patUsageTracker,
-		isValidChildAccount: isValidChildAccount,
+		trustedProxies:      trustedProxies,
 	}
 }
 
@@ -121,17 +120,13 @@ func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, authHeaderParts []
 	}
 
 	ctx := r.Context()
+	if clientIP := m.trustedProxies.ResolveClientIP(r.RemoteAddr, r.Header.Get("X-Forwarded-For")); clientIP.IsValid() {
+		ctx = nbcontext.SetClientIP(ctx, clientIP)
+	}
 
 	userAuth, validatedToken, err := m.authManager.ValidateAndParseToken(ctx, token)
 	if err != nil {
 		return err
-	}
-
-	if impersonate, ok := r.URL.Query()["account"]; ok && len(impersonate) == 1 {
-		if m.isValidChildAccount(ctx, userAuth.UserId, userAuth.AccountId, impersonate[0]) {
-			userAuth.AccountId = impersonate[0]
-			userAuth.IsChild = true
-		}
 	}
 
 	// Email is now extracted in ToUserAuth (from claims or userinfo endpoint)
@@ -197,9 +192,10 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []
 		return fmt.Errorf("token expired")
 	}
 
-	err = m.authManager.MarkPATUsed(ctx, pat.ID)
-	if err != nil {
-		return err
+	if pat.LastUsed == nil || time.Since(*pat.LastUsed) >= types.PATLastUsedUpdateInterval {
+		if err := m.authManager.MarkPATUsed(ctx, pat.ID); err != nil {
+			return err
+		}
 	}
 
 	userAuth := auth.UserAuth{
@@ -208,13 +204,6 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []
 		Domain:         accDomain,
 		DomainCategory: accCategory,
 		IsPAT:          true,
-	}
-
-	if impersonate, ok := r.URL.Query()["account"]; ok && len(impersonate) == 1 {
-		if m.isValidChildAccount(r.Context(), userAuth.UserId, userAuth.AccountId, impersonate[0]) {
-			userAuth.AccountId = impersonate[0]
-			userAuth.IsChild = true
-		}
 	}
 
 	// propagates ctx change to upstream middleware

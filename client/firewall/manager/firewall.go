@@ -172,12 +172,6 @@ type Manager interface {
 
 	DisableRouting() error
 
-	// AddDNATRule adds outbound DNAT rule for forwarding external traffic to the NetBird network.
-	AddDNATRule(ForwardRule) (Rule, error)
-
-	// DeleteDNATRule deletes the outbound DNAT rule.
-	DeleteDNATRule(Rule) error
-
 	// UpdateSet updates the set with the given prefixes
 	UpdateSet(hash Set, prefixes []netip.Prefix) error
 

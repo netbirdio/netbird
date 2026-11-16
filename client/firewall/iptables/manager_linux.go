@@ -139,6 +139,10 @@ func (m *Manager) initChains(stateManager *statemanager.Manager) error {
 	var initialized []initStep
 	for _, s := range steps {
 		if err := s.r.init(stateManager); err != nil {
+			// The failing family may already have installed chains and jumps.
+			if rerr := s.r.Reset(); rerr != nil {
+				log.Warnf("rollback %s: %v", s.name, rerr)
+			}
 			for i := len(initialized) - 1; i >= 0; i-- {
 				if rerr := initialized[i].r.Reset(); rerr != nil {
 					log.Warnf("rollback %s: %v", initialized[i].name, rerr)
@@ -321,31 +325,6 @@ func (m *Manager) EnableRouting() error {
 
 func (m *Manager) DisableRouting() error {
 	return m.family4.ipFwdState.ReleaseRouting()
-}
-
-// AddDNATRule adds a DNAT rule
-func (m *Manager) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	if rule.TranslatedAddress.Is6() {
-		if !m.hasIPv6() {
-			return nil, fmt.Errorf("add DNAT rule: %w", firewall.ErrIPv6NotInitialized)
-		}
-		return m.family6.AddDNATRule(rule)
-	}
-	return m.family4.AddDNATRule(rule)
-}
-
-// DeleteDNATRule deletes a DNAT rule
-func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	if m.hasIPv6() && !m.family4.hasDNATRule(rule.ID()) {
-		return m.family6.DeleteDNATRule(rule)
-	}
-	return m.family4.DeleteDNATRule(rule)
 }
 
 // UpdateSet updates the set with the given prefixes

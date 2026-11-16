@@ -40,7 +40,7 @@ func startDebugTestDaemon(t *testing.T) string {
 	currUser, err := user.Current()
 	require.NoError(t, err)
 	sm := profilemanager.ServiceManager{}
-	created, err := sm.AddProfile("test1", currUser.Username)
+	created, err := sm.AddProfile("test1", nil)
 	require.NoError(t, err)
 	require.NoError(t, sm.SetActiveProfileState(&profilemanager.ActiveProfileState{
 		ID:       created.ID,

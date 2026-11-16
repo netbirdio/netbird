@@ -102,6 +102,7 @@ export function SettingsAdvanced() {
             <SectionGroup title={t("settings.advanced.section.interface")}>
                 <Input
                     label={t("settings.advanced.interfaceName.label")}
+                    dir={"ltr"}
                     value={values.interfaceName}
                     error={errors.interfaceName}
                     onChange={(e) => setValues((v) => ({ ...v, interfaceName: e.target.value }))}
@@ -151,6 +152,7 @@ export function SettingsAdvanced() {
                         <HelpText>{t("settings.advanced.psk.help")}</HelpText>
                         <Input
                             type={"password"}
+                            dir={"ltr"}
                             showPasswordToggle={pskInputValue !== PSK_MASK}
                             placeholder={"kQv0qF3oQpJYdgD5mC9hL7sB2xZ8nT4eU6wY1aR3jK0="}
                             value={pskInputValue}

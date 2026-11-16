@@ -89,6 +89,21 @@ func (mr *MockRepositoryMockRecorder) GetAccountPeers(ctx, accountID any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountPeers", reflect.TypeOf((*MockRepository)(nil).GetAccountPeers), ctx, accountID)
 }
 
+// GetAccountServices mocks base method.
+func (m *MockRepository) GetAccountServices(ctx context.Context, accountID string) ([]*service.Service, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAccountServices", ctx, accountID)
+	ret0, _ := ret[0].([]*service.Service)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAccountServices indicates an expected call of GetAccountServices.
+func (mr *MockRepositoryMockRecorder) GetAccountServices(ctx, accountID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountServices", reflect.TypeOf((*MockRepository)(nil).GetAccountServices), ctx, accountID)
+}
+
 // GetAccountZones mocks base method.
 func (m *MockRepository) GetAccountZones(ctx context.Context, accountID string) ([]*zones.Zone, error) {
 	m.ctrl.T.Helper()

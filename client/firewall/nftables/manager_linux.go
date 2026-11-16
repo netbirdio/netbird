@@ -252,7 +252,7 @@ func (m *Manager) DeleteFilterRule(rule firewall.Rule) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	fam, err := m.familyForRuleID(rule.ID(), (*family).hasRule, false)
+	fam, err := m.familyForRuleID(rule.ID(), (*family).hasRule)
 	if err != nil {
 		return err
 	}
@@ -260,11 +260,8 @@ func (m *Manager) DeleteFilterRule(rule firewall.Rule) error {
 }
 
 // familyForRuleID picks the family holding the rule with the given id, using
-// the supplied lookup. With refresh set, a miss in both cached maps reloads
-// the NAT/DNAT rule maps from the kernel once and re-checks before falling
-// back to the v4 family. Filter rules are tracked only in memory and have no
-// kernel-backed reload, so their callers pass refresh as false.
-func (m *Manager) familyForRuleID(id firewall.RuleID, has func(*family, firewall.RuleID) bool, refresh bool) (*family, error) {
+// the supplied lookup, and falls back to the v4 family on a miss.
+func (m *Manager) familyForRuleID(id firewall.RuleID, has func(*family, firewall.RuleID) bool) (*family, error) {
 	if has(m.family4, id) {
 		return m.family4, nil
 	}
@@ -272,18 +269,6 @@ func (m *Manager) familyForRuleID(id firewall.RuleID, has func(*family, firewall
 		return m.family4, nil
 	}
 	if has(m.family6, id) {
-		return m.family6, nil
-	}
-	if !refresh {
-		return m.family4, nil
-	}
-	if err := m.family4.refreshRulesMap(); err != nil {
-		return nil, fmt.Errorf("refresh v4 rules: %w", err)
-	}
-	if err := m.family6.refreshRulesMap(); err != nil {
-		return nil, fmt.Errorf("refresh v6 rules: %w", err)
-	}
-	if has(m.family6, id) && !has(m.family4, id) {
 		return m.family6, nil
 	}
 	return m.family4, nil
@@ -450,32 +435,6 @@ func (m *Manager) Flush() error {
 	return nil
 }
 
-// AddDNATRule adds a DNAT rule
-func (m *Manager) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	if rule.TranslatedAddress.Is6() {
-		if !m.hasIPv6() {
-			return nil, fmt.Errorf("add DNAT rule: %w", firewall.ErrIPv6NotInitialized)
-		}
-		return m.family6.AddDNATRule(rule)
-	}
-	return m.family4.AddDNATRule(rule)
-}
-
-// DeleteDNATRule deletes a DNAT rule
-func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	r, err := m.familyForRuleID(rule.ID(), (*family).hasDNATRule, true)
-	if err != nil {
-		return err
-	}
-	return r.DeleteDNATRule(rule)
-}
-
 // UpdateSet updates the set with the given prefixes
 func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 	m.mutex.Lock()
@@ -612,6 +571,29 @@ func getEstablishedExprs(register uint32) []expr.Any {
 		&expr.Counter{},
 		&expr.Verdict{
 			Kind: expr.VerdictAccept,
+		},
+	}
+}
+
+// getNotEstablishedExprs matches packets whose conntrack state is neither
+// established nor related.
+func getNotEstablishedExprs() []expr.Any {
+	return []expr.Any{
+		&expr.Ct{
+			Key:      expr.CtKeySTATE,
+			Register: 1,
+		},
+		&expr.Bitwise{
+			SourceRegister: 1,
+			DestRegister:   1,
+			Len:            4,
+			Mask:           binaryutil.NativeEndian.PutUint32(expr.CtStateBitESTABLISHED | expr.CtStateBitRELATED),
+			Xor:            binaryutil.NativeEndian.PutUint32(0),
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     []byte{0, 0, 0, 0},
 		},
 	}
 }

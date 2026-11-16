@@ -10,7 +10,6 @@ type (
 
 	DNSSettings       = types.DNSSettings
 	FirewallRule      = sharedtypes.FirewallRule
-	ForwardingRule    = sharedtypes.ForwardingRule
 	Group             = types.Group
 	Network           = types.Network
 	Policy            = types.Policy

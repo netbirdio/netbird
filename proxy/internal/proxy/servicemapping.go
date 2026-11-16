@@ -23,9 +23,22 @@ const (
 	PathRewritePreserve
 )
 
+// AccessAction controls how authentication handles requests for a target.
+type AccessAction string
+
+const (
+	// AccessActionInherit applies the service's configured authentication.
+	AccessActionInherit AccessAction = "inherit"
+	// AccessActionBypass skips the service's configured authentication.
+	AccessActionBypass AccessAction = "bypass"
+	// AccessActionBlock rejects the request before authentication.
+	AccessActionBlock AccessAction = "block"
+)
+
 // PathTarget holds a backend URL and per-target behavioral options.
 type PathTarget struct {
 	URL            *url.URL
+	AccessAction   AccessAction
 	SkipTLSVerify  bool
 	RequestTimeout time.Duration
 	PathRewrite    PathRewriteMode
@@ -61,18 +74,25 @@ type Mapping struct {
 	// StripAuthHeaders are header names used for header-based auth.
 	// These headers are stripped from requests before forwarding.
 	StripAuthHeaders []string
+	// MiddlewareRevision binds this routing snapshot to its middleware policies.
+	MiddlewareRevision middleware.Revision
 	// sortedPaths caches the paths sorted by length (longest first).
 	sortedPaths []string
+	// requirePinnedResolution prevents a mapping with target access actions
+	// from being forwarded outside the auth-owned resolver snapshot.
+	requirePinnedResolution bool
 }
 
 type targetResult struct {
-	target           *PathTarget
-	matchedPath      string
-	serviceID        types.ServiceID
-	accountID        types.AccountID
-	passHostHeader   bool
-	rewriteRedirects bool
-	stripAuthHeaders []string
+	target             *PathTarget
+	matchedPath        string
+	serviceID          types.ServiceID
+	accountID          types.AccountID
+	passHostHeader     bool
+	rewriteRedirects   bool
+	stripAuthHeaders   []string
+	middlewareRevision middleware.Revision
+	requirePinned      bool
 }
 
 func (p *ReverseProxy) findTargetForRequest(req *http.Request) (targetResult, bool) {
@@ -90,6 +110,7 @@ func (p *ReverseProxy) findTargetForRequest(req *http.Request) (targetResult, bo
 		p.logger.Debugf("no mapping found for host: %s", host)
 		return targetResult{}, false
 	}
+	baseResult := targetResult{requirePinned: m.requirePinnedResolution}
 
 	for _, path := range m.sortedPaths {
 		if strings.HasPrefix(req.URL.Path, path) {
@@ -100,18 +121,20 @@ func (p *ReverseProxy) findTargetForRequest(req *http.Request) (targetResult, bo
 			}
 			p.logger.Debugf("matched host: %s, path: %s -> %s", host, path, pt.URL)
 			return targetResult{
-				target:           pt,
-				matchedPath:      path,
-				serviceID:        m.ID,
-				accountID:        m.AccountID,
-				passHostHeader:   m.PassHostHeader,
-				rewriteRedirects: m.RewriteRedirects,
-				stripAuthHeaders: m.StripAuthHeaders,
+				target:             pt,
+				matchedPath:        path,
+				serviceID:          m.ID,
+				accountID:          m.AccountID,
+				passHostHeader:     m.PassHostHeader,
+				rewriteRedirects:   m.RewriteRedirects,
+				stripAuthHeaders:   m.StripAuthHeaders,
+				middlewareRevision: m.MiddlewareRevision,
+				requirePinned:      m.requirePinnedResolution,
 			}, true
 		}
 	}
 	p.logger.Debugf("no path match for host: %s, path: %s", host, req.URL.Path)
-	return targetResult{}, false
+	return baseResult, false
 }
 
 // AddMapping registers a host-to-backend mapping for the reverse proxy.
@@ -125,6 +148,7 @@ func (p *ReverseProxy) AddMapping(m Mapping) {
 		return len(paths[i]) > len(paths[j])
 	})
 	m.sortedPaths = paths
+	m.requirePinnedResolution = mappingHasNonDefaultAccessAction(m)
 
 	p.mappingsMux.Lock()
 	defer p.mappingsMux.Unlock()

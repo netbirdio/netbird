@@ -10,81 +10,29 @@
 #
 # If no versions are provided, the script will:
 #   - Fetch OLD version from the FreeBSD ports GitHub mirror (current version in ports tree)
-#   - Fetch NEW version from latest NetBird GitHub release tag
+#   - Fetch NEW version from the latest stable NetBird release tag on GitHub
+#
+# Prerelease versions (canary, rc, ...) are rejected: the port only tracks
+# stable releases.
 
 set -e
 
-GITHUB_REPO="netbirdio/netbird"
-PORTS_MAKEFILE_URL="https://raw.githubusercontent.com/freebsd/freebsd-ports/main/security/netbird/Makefile"
-
-fetch_current_ports_version() {
-    echo "Fetching current version from FreeBSD ports..." >&2
-    local makefile_content
-    makefile_content=$(curl -fsL --proto '=https' --proto-redir '=https' --retry 3 "$PORTS_MAKEFILE_URL" 2>/dev/null) || makefile_content=""
-    if [[ "$makefile_content" == \<* ]]; then
-        echo "Error: Received HTML instead of Makefile from ${PORTS_MAKEFILE_URL}" >&2
-        return 1
-    fi
-    if [[ -z "$makefile_content" ]]; then
-        echo "Error: Could not fetch Makefile from FreeBSD ports" >&2
-        return 1
-    fi
-    echo "$makefile_content" | grep -E "^DISTVERSION=" | sed 's/DISTVERSION=[[:space:]]*//' | tr -d '\t '
-    return 0
-}
-
-fetch_all_tags() {
-    # Fetch tags from GitHub tags page (no rate limiting, no auth needed)
-    curl -sL "https://github.com/${GITHUB_REPO}/tags" 2>/dev/null | \
-        grep -oE '/releases/tag/v[0-9]+\.[0-9]+\.[0-9]+([^"]+)?' | \
-        grep -iv 'rc' | \
-        sed 's/.*\/v//' | \
-        sort -u -V
-    return 0
-}
-
-fetch_latest_github_release() {
-    echo "Fetching latest release from GitHub..." >&2
-    local latest
-
-    # Fetch from GitHub tags page
-    latest=$(fetch_all_tags | tail -1)
-
-    if [[ -z "$latest" ]]; then
-        # Fallback to GitHub API
-        latest=$(curl -sL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null | \
-            grep '"tag_name"' | sed 's/.*"tag_name": *"v\([^"]*\)".*/\1/')
-    fi
-
-    if [[ -z "$latest" ]]; then
-        echo "Error: Could not fetch latest release from GitHub" >&2
-        return 1
-    fi
-    echo "$latest"
-    return 0
-}
+# shellcheck source=release_files/freebsd-port-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/freebsd-port-lib.sh"
 
 OLD_VERSION="${1:-}"
 NEW_VERSION="${2:-}"
 
 if [[ -z "$OLD_VERSION" ]]; then
     OLD_VERSION=$(fetch_current_ports_version)
-    if [[ -z "$OLD_VERSION" ]]; then
-        echo "Error: Could not determine old version. Please provide it manually." >&2
-        echo "Usage: $0 <old_version> <new_version>" >&2
-        exit 1
-    fi
     echo "Detected OLD version from FreeBSD ports: $OLD_VERSION" >&2
 fi
 
 if [[ -z "$NEW_VERSION" ]]; then
-    NEW_VERSION=$(fetch_latest_github_release)
-    if [[ -z "$NEW_VERSION" ]]; then
-        echo "Error: Could not determine new version. Please provide it manually." >&2
-        echo "Usage: $0 <old_version> <new_version>" >&2
-        exit 1
-    fi
+    NEW_VERSION=$(resolve_target_version "")
     echo "Detected NEW version from GitHub: $NEW_VERSION" >&2
+else
+    NEW_VERSION=$(resolve_target_version "$NEW_VERSION")
 fi
 
 if [[ "$OLD_VERSION" = "$NEW_VERSION" ]]; then
@@ -98,8 +46,11 @@ OUTPUT_DIR="${OUTPUT_DIR:-.}"
 fetch_releases_between_versions() {
     echo "Fetching release history from GitHub..." >&2
 
-    # Fetch all tags and filter to those between OLD and NEW versions
-    fetch_all_tags | \
+    local tags
+    tags=$(fetch_stable_tags) || return 1
+
+    # List the stable releases after OLD up to and including NEW
+    echo "$tags" | \
         while read -r ver; do
             if [[ "$(printf '%s\n' "$OLD_VERSION" "$ver" | sort -V | head -n1)" = "$OLD_VERSION" ]] && \
                [[ "$(printf '%s\n' "$ver" "$NEW_VERSION" | sort -V | head -n1)" = "$ver" ]] && \
@@ -112,7 +63,7 @@ fetch_releases_between_versions() {
 
 generate_changelog_section() {
     local releases
-    releases=$(fetch_releases_between_versions)
+    releases=$(fetch_releases_between_versions) || return 1
 
     echo "Changelogs:"
     if [[ -n "$releases" ]]; then
@@ -127,7 +78,10 @@ generate_changelog_section() {
 
 OUTPUT_FILE="${OUTPUT_DIR}/netbird-${NEW_VERSION}-issue.txt"
 
-cat << EOF > "$OUTPUT_FILE"
+# Built before the heredoc: a failing substitution inside it would not stop the script.
+CHANGELOG=$(generate_changelog_section)
+
+cat << EOT > "$OUTPUT_FILE"
 BUGZILLA ISSUE DETAILS
 ======================
 
@@ -139,11 +93,11 @@ Description:
 ------------
 security/netbird: Update ${OLD_VERSION} => ${NEW_VERSION}
 
-$(generate_changelog_section)
+${CHANGELOG}
 
 Commit log:
 https://github.com/${GITHUB_REPO}/compare/v${OLD_VERSION}...v${NEW_VERSION}
-EOF
+EOT
 
 echo "========================================="
 echo "Issue body saved to: ${OUTPUT_FILE}"

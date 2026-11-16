@@ -287,6 +287,21 @@ const (
 	// CustomDomainValidationExpired indicates that an unvalidated domain registration expired.
 	CustomDomainValidationExpired Activity = 143
 
+	// AccountPeerHostnameCollisionRejectionEnabled indicates that a user enabled rejecting peer hostname collisions for the account
+	AccountPeerHostnameCollisionRejectionEnabled Activity = 144
+	// AccountPeerHostnameCollisionRejectionDisabled indicates that a user disabled rejecting peer hostname collisions for the account
+	AccountPeerHostnameCollisionRejectionDisabled Activity = 145
+
+	// The MCP session events' client_name meta is chosen by the client, and their access meta is
+	// what the user approved at consent, still limited by the user's role.
+
+	// MCPClientSignedIn indicates that a user signed an MCP client in through the MCP OAuth broker
+	MCPClientSignedIn Activity = 146
+	// MCPClientSignedOut indicates that an MCP client ended its session at the revocation endpoint
+	MCPClientSignedOut Activity = 147
+	// MCPSessionRevokedOnTokenReuse indicates that an MCP session was revoked because a refresh token or an authorization code was used twice
+	MCPSessionRevokedOnTokenReuse Activity = 148
+
 	AccountDeleted Activity = 99999
 )
 
@@ -461,13 +476,19 @@ var activityMap = map[Activity]Code{
 	AgentNetworkSettingsUpdated: {"Agent Network settings updated", "agent_network.settings.update"},
 	AgentNetworkSettingsDeleted: {"Agent Network settings deleted", "agent_network.settings.delete"},
 
-	AccountMetricsPushEnabled:  {"Account metrics push enabled", "account.setting.metrics.push.enable"},
-	AccountMetricsPushDisabled: {"Account metrics push disabled", "account.setting.metrics.push.disable"},
+	AccountMetricsPushEnabled:                     {"Account metrics push enabled", "account.setting.metrics.push.enable"},
+	AccountMetricsPushDisabled:                    {"Account metrics push disabled", "account.setting.metrics.push.disable"},
+	AccountPeerHostnameCollisionRejectionEnabled:  {"Account peer hostname collision rejection enabled", "account.setting.peer.hostname.collision.rejection.enable"},
+	AccountPeerHostnameCollisionRejectionDisabled: {"Account peer hostname collision rejection disabled", "account.setting.peer.hostname.collision.rejection.disable"},
 
 	DomainAdded:                   {"Domain added", "domain.add"},
 	DomainDeleted:                 {"Domain deleted", "domain.delete"},
 	DomainValidated:               {"Domain validated", "domain.validate"},
 	CustomDomainValidationExpired: {"Unvalidated domain registration expired", "domain.validation.expire"},
+
+	MCPClientSignedIn:             {"MCP client signed in", "mcp.session.start"},
+	MCPClientSignedOut:            {"MCP client signed out", "mcp.session.revoke"},
+	MCPSessionRevokedOnTokenReuse: {"MCP session revoked after token reuse", "mcp.session.replay"},
 }
 
 // StringCode returns a string code of the activity
