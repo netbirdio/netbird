@@ -632,6 +632,11 @@ func (e *Engine) startPQKEMManager(publicKey wgtypes.Key) error {
 	// Shares the apply lock with the rotation push, so a reapply and a push are ordered.
 	e.pqPSKReapplier = &pqPSKReapplier{psks: e.pqkemManager, wg: e.wgInterface, applied: applied}
 	e.pqkemManager.Start(tr)
+	// Here rather than in initFirewall: the firewall comes up before the interface, and the
+	// transport can only bind once the interface is up.
+	if e.firewall != nil {
+		e.allowOverlayUDPPort("ML-KEM", uint16(e.pqkemManager.LocalPort()))
+	}
 	log.Infof("pqkem: enabled (udp port %d on overlay %s)", e.pqkemManager.LocalPort(), e.config.WgAddr.IP)
 	return nil
 }
