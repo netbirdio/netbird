@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -340,4 +341,67 @@ func TestSqlStore_SaveUsers_LargeBatch(t *testing.T) {
 	accountUsers, err = store.GetAccountUsers(context.Background(), LockingStrengthNone, accountID)
 	require.NoError(t, err)
 	require.Equal(t, 8002, len(accountUsers))
+}
+
+func TestSqlStore_GetAccountUsersPaginated(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+		// The seed holds two regular users. Add enough to span several pages, a few
+		// service users, and one non-deletable user that must never be listed.
+		var users []*types.User
+		for i := range 7 {
+			users = append(users, types.NewUser(fmt.Sprintf("paged-user-%02d", i), types.UserRoleUser, false, false, "", []string{}, types.UserIssuedAPI, "", ""))
+		}
+		for i := range 3 {
+			users = append(users, types.NewUser(fmt.Sprintf("paged-service-%02d", i), types.UserRoleUser, true, false, "svc", []string{}, types.UserIssuedAPI, "", ""))
+		}
+		nonDeletable := types.NewUser("paged-non-deletable", types.UserRoleAdmin, true, true, "integration", []string{}, types.UserIssuedIntegration, "", "")
+		users = append(users, nonDeletable)
+		for _, u := range users {
+			u.AccountID = accountID
+		}
+		require.NoError(t, store.SaveUsers(ctx, users))
+
+		const listedUsers = 12
+
+		t.Run("pages cover every listed user once, in id order", func(t *testing.T) {
+			var ids []string
+			for page, wantLen := range []int{5, 5, 2} {
+				got, count, err := store.GetAccountUsersPaginated(ctx, LockingStrengthNone, accountID,
+					PaginationState{Page: page + 1, PageSize: 5}, UserFilters{}, UserSorting{})
+				require.NoError(t, err)
+				assert.Equal(t, listedUsers, count, "total count on page %d", page+1)
+				assert.Len(t, got, wantLen, "users on page %d", page+1)
+				for _, u := range got {
+					ids = append(ids, u.Id)
+				}
+			}
+
+			assert.Len(t, ids, listedUsers, "users across all pages")
+			assert.True(t, slices.IsSorted(ids), "users should be ordered by id across pages, got %v", ids)
+			assert.Len(t, slices.Compact(slices.Clone(ids)), listedUsers, "no user should appear on two pages")
+			assert.NotContains(t, ids, nonDeletable.Id, "non-deletable users must not be listed")
+		})
+
+		t.Run("service_user filter", func(t *testing.T) {
+			for _, tc := range []struct {
+				serviceUser bool
+				want        int
+			}{
+				{serviceUser: true, want: 3},
+				{serviceUser: false, want: 9},
+			} {
+				got, count, err := store.GetAccountUsersPaginated(ctx, LockingStrengthNone, accountID,
+					PaginationState{Page: 1, PageSize: 100}, UserFilters{ServiceUser: &tc.serviceUser}, UserSorting{})
+				require.NoError(t, err)
+				assert.Equal(t, tc.want, count, "total count with service_user=%v", tc.serviceUser)
+				assert.Len(t, got, tc.want, "users with service_user=%v", tc.serviceUser)
+				for _, u := range got {
+					assert.Equal(t, tc.serviceUser, u.IsServiceUser, "user %s with service_user=%v", u.Id, tc.serviceUser)
+				}
+			}
+		})
+	})
 }
