@@ -131,33 +131,15 @@ func (h *Handler) getAllUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	serviceUser := r.URL.Query().Get("service_user")
-
 	users := make([]apiv1alpha1.User, 0, len(data))
 	for _, d := range data {
-		if d.NonDeletable {
-			continue
-		}
-		if serviceUser == "" {
-			users = append(users, toUserResponse(d, userID))
-			continue
-		}
-
-		includeServiceUser, err := strconv.ParseBool(serviceUser)
-		log.WithContext(r.Context()).Tracef("Should include service user: %v", includeServiceUser)
-		if err != nil {
-			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid service_user query parameter"), w)
-			return
-		}
-		if includeServiceUser == d.IsServiceUser {
-			users = append(users, toUserResponse(d, userID))
-		}
+		users = append(users, *toUserResponse(d, userID))
 	}
 
 	util.WriteJSONObject(r.Context(), w, apiv1alpha1.UserBatch{UserCount: userCount, Users: users, Page: pagination.Page, PageSize: pagination.PageSize})
 }
 
-func toUserResponse(user *types.UserInfo, currenUserID string) apiv1alpha1.User {
+func toUserResponse(user *types.UserInfo, currenUserID string) *apiv1alpha1.User {
 	autoGroups := user.AutoGroups
 	if autoGroups == nil {
 		autoGroups = []string{}
@@ -189,7 +171,7 @@ func toUserResponse(user *types.UserInfo, currenUserID string) apiv1alpha1.User 
 		idpID = &user.IdPID
 	}
 
-	return apiv1alpha1.User{
+	return &apiv1alpha1.User{
 		Id:              user.ID,
 		Name:            user.Name,
 		Email:           user.Email,

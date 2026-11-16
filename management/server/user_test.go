@@ -1484,6 +1484,14 @@ func TestUser_GetUsersFromAccountPaginated(t *testing.T) {
 		assert.Equal(t, []string{regularUserID}, ids(users), "users visible to a regular user")
 	})
 
+	t.Run("regular user is filtered out by service_user=true", func(t *testing.T) {
+		serviceOnly := true
+		users, count, err := am.GetUsersFromAccountPaginated(context.Background(), mockAccountID, regularUserID,
+			store.PaginationState{Page: 1, PageSize: 10}, store.UserFilters{ServiceUser: &serviceOnly}, store.UserSorting{})
+		require.NoError(t, err)
+		assert.Equal(t, 0, count, "total count for a regular user asking for service users")
+		assert.Empty(t, users, "a regular user is not a service user")
+	})
 }
 
 func TestDefaultAccountManager_SaveUser(t *testing.T) {

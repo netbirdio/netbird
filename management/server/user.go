@@ -1097,7 +1097,10 @@ func (am *DefaultAccountManager) GetUsersFromAccountPaginated(ctx context.Contex
 		}
 		log.WithContext(ctx).Tracef("Got %d users from account %s after %s", len(accountUsers), accountID, time.Since(start))
 	case user != nil && user.AccountID == accountID:
-		accountUsers = append(accountUsers, user)
+		// apply the same listing rules as the store query
+		if !user.NonDeletable && (filters.ServiceUser == nil || *filters.ServiceUser == user.IsServiceUser) {
+			accountUsers = append(accountUsers, user)
+		}
 		count = len(accountUsers)
 	default:
 		return []*types.UserInfo{}, 0, nil
