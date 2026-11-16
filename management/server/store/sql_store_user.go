@@ -290,7 +290,9 @@ func fuzzyNameSearchConditionSqlite(db *gorm.DB, pattern string) *gorm.DB {
 type UserSorting struct{}
 
 func (us *UserSorting) AsOrderBy(db *gorm.DB) *gorm.DB {
-	return db
+	// TODO: sort by role, status, last_login and created_at, ahead of the id tie-breaker
+	// always break ties by id so pages are stable
+	return db.Order(clause.OrderBy{Columns: []clause.OrderByColumn{{Column: clause.Column{Name: "users.id"}}}})
 }
 
 // use https://hur.st/bloomfilter/ to calculate filter params
