@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/util"
 	nbauth "github.com/netbirdio/netbird/shared/auth"
 	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
+	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/shared/ratelimit"
 )
 
@@ -850,6 +852,81 @@ func TestAuthMiddleware_MarkPATUsedThrottled(t *testing.T) {
 			} else {
 				assert.Equal(t, 0, marked, "MarkPATUsed must be skipped")
 			}
+		})
+	}
+}
+
+// TestAuthMiddleware_PATStoreErrorsAreUnauthorized feeds the middleware the errors the
+// real store returns when a PAT lookup fails. A revoked or unknown token used to come
+// back as a 404 whose body echoed the hashed token; every lookup failure must instead be
+// a plain 401 that stops the request before the next handler.
+func TestAuthMiddleware_PATStoreErrorsAreUnauthorized(t *testing.T) {
+	const hashedToken = "G6AdMaxPYLC7aXEDLeqkBDeGcKC5Xf2OyuKH8Gf5mc="
+
+	validPAT := &types.PersonalAccessToken{
+		ID:             tokenID,
+		ExpirationDate: util.ToPtr(time.Now().UTC().AddDate(0, 0, 7)),
+	}
+
+	tt := []struct {
+		name       string
+		patInfoErr error
+		markErr    error
+	}{
+		{name: "token not found", patInfoErr: status.NewPATNotFoundError(hashedToken)},
+		{name: "token owner not found", patInfoErr: status.NewPATNotFoundError(tokenID)},
+		{name: "account not found", patInfoErr: status.Errorf(status.NotFound, "account not found")},
+		{name: "store failure", patInfoErr: status.Errorf(status.Internal, "failed to get pat by hash from store")},
+		{name: "mark used fails", markErr: status.NewPATNotFoundError(tokenID)},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			mockAuth := &auth.MockManager{
+				GetPATInfoFunc: func(_ context.Context, _ string) (*types.User, *types.PersonalAccessToken, string, string, error) {
+					if tc.patInfoErr != nil {
+						return nil, nil, "", "", tc.patInfoErr
+					}
+					return testAccount.Users[userID], validPAT, testAccount.Domain, testAccount.DomainCategory, nil
+				},
+				MarkPATUsedFunc: func(_ context.Context, _ string) error {
+					return tc.markErr
+				},
+			}
+
+			disabledLimiter := ratelimit.NewAPIRateLimiter(nil)
+			disabledLimiter.SetEnabled(false)
+			authMiddleware := NewAuthMiddleware(
+				mockAuth,
+				func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
+					return userAuth.AccountId, userAuth.UserId, nil
+				},
+				func(ctx context.Context, userAuth nbauth.UserAuth) error {
+					return nil
+				},
+				func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
+					return &types.User{}, nil
+				},
+				disabledLimiter,
+				nil,
+				nil,
+			)
+
+			reached := false
+			handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				reached = true
+			}))
+			req := httptest.NewRequest("GET", "http://testing/api/policies", nil)
+			req.Header.Set("Authorization", "Token "+PAT)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusUnauthorized, rec.Code, "PAT lookup failure must be a 401")
+			assert.False(t, reached, "request must not reach the next handler")
+			body := rec.Body.String()
+			assert.Contains(t, body, "token invalid", "body should carry the generic message")
+			assert.NotContains(t, strings.ToLower(body), strings.ToLower(hashedToken), "body must not echo the hashed token")
+			assert.NotContains(t, strings.ToLower(body), "not found", "body must not reveal which lookup failed")
 		})
 	}
 }

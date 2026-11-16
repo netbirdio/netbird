@@ -95,11 +95,7 @@ func (m *AuthMiddleware) Handler(h http.Handler) http.Handler {
 		case "token":
 			if err := m.checkPATFromRequest(r, authHeader); err != nil {
 				log.WithContext(r.Context()).Debugf("Error when validating PAT: %s", err.Error())
-				// Check if it's a status error, otherwise default to Unauthorized
-				if _, ok := status.FromError(err); !ok {
-					err = status.Errorf(status.Unauthorized, "token invalid")
-				}
-				util.WriteError(r.Context(), err, w)
+				util.WriteError(r.Context(), patAuthError(err), w)
 				return
 			}
 			h.ServeHTTP(w, r)
@@ -209,6 +205,16 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []
 	// propagates ctx change to upstream middleware
 	*r = *nbcontext.SetUserAuthInRequest(r, userAuth)
 	return nil
+}
+
+// patAuthError maps a PAT validation failure to the error returned to the caller. Only
+// rate limiting passes through: store errors would turn an unknown token into a 404 and
+// echo its hash back.
+func patAuthError(err error) error {
+	if s, ok := status.FromError(err); ok && s.Type() == status.TooManyRequests {
+		return s
+	}
+	return status.Errorf(status.Unauthorized, "token invalid")
 }
 
 func isTerraformRequest(r *http.Request) bool {
