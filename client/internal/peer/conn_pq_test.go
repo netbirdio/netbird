@@ -82,6 +82,18 @@ func TestConn_presharedKey_PQ(t *testing.T) {
 		require.Equal(t, nbPSK, *got, "non-strict falls through to the NetBird PSK, not a sentinel")
 	})
 
+	t.Run("non-strict with no NetBird PSK programs the zero key", func(t *testing.T) {
+		// A nil key leaves WireGuard's current one in place, so after a downgrade the stale
+		// PQ PSK would stay programmed and the classical handshake would never complete.
+		c := newConn()
+		c.config.WgConfig.PreSharedKey = nil
+		c.config.PQ = fakePQ{ok: false}
+		pqPSK, _ := c.pqPSK()
+		got := c.presharedKey(nil, pqPSK)
+		require.NotNil(t, got, "a nil key would keep a dropped PQ PSK programmed")
+		assert.Equal(t, wgtypes.Key{}, *got, "non-strict without a NetBird PSK must program the zero key")
+	})
+
 	t.Run("strict blocks with the per-conn sentinel before a PSK exists", func(t *testing.T) {
 		sentinel, err := wgtypes.GenerateKey()
 		require.NoError(t, err)

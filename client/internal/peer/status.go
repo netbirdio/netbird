@@ -797,6 +797,25 @@ func (d *Status) MarkPeerQuantumResistant(peerPubKey string) error {
 	return nil
 }
 
+// UnmarkPeerQuantumResistant clears the post-quantum flag of a peer that stopped running
+// the KEM, so the status stops claiming a protection its tunnel no longer has.
+func (d *Status) UnmarkPeerQuantumResistant(peerPubKey string) error {
+	d.mux.Lock()
+	peerState, ok := d.peers[peerPubKey]
+	if !ok {
+		d.mux.Unlock()
+		return errors.New("peer doesn't exist")
+	}
+
+	delete(d.pqMarked, peerPubKey)
+	peerState.RosenpassEnabled = false
+	d.peers[peerPubKey] = peerState
+	d.mux.Unlock()
+
+	d.notifyStateChange()
+	return nil
+}
+
 // quantumResistantLocked merges a connection update's verdict with the PQ mark. The
 // connection path computes its verdict before configuring WireGuard, so it can write it
 // after the PSK was programmed; the mark keeps that stale false from clearing it.

@@ -2100,7 +2100,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 		NetMgr:    e.netMgr,
 	}
 	if e.pqkemManager != nil {
-		config.PQ = pqHandshaker{mgr: e.pqkemManager, reapplier: e.pqPSKReapplier}
+		config.PQ = pqHandshaker{mgr: e.pqkemManager, reapplier: e.pqPSKReapplier, status: e.statusRecorder}
 		config.PQStrict = pqkem.Strict()
 	}
 

@@ -72,9 +72,11 @@ func TestManager_MarkNonCapableCancelsInFlight(t *testing.T) {
 	assert.Empty(t, wg.failed, "cancelling an in-flight exchange must not raise a failure")
 }
 
-// TestManager_EstablishedPeerNotDowngraded: a stray zero-port observation must not tear
-// down a peer we already have a working PQ session with.
-func TestManager_EstablishedPeerNotDowngraded(t *testing.T) {
+// TestManager_EstablishedPeerDowngraded: every failure sends an error marker, so a missing
+// KEM from an established peer means it restarted without the KEM. Keeping the PSK would
+// program a key the peer no longer has and the tunnel would never come up, so it is dropped
+// and the peer is no longer offered.
+func TestManager_EstablishedPeerDowngraded(t *testing.T) {
 	dA, dB, _, wgB, _ := pair(t)
 	defer dA.Stop()
 	defer dB.Stop()
@@ -82,12 +84,31 @@ func TestManager_EstablishedPeerNotDowngraded(t *testing.T) {
 	bootstrap(t, dA, dB)
 	require.NotEqual(t, PSK{}, wgB.psk("aaaa"), "established a PSK")
 
-	dB.MarkNonCapable("aaaa") // stray zero after establishment
+	assert.True(t, dB.MarkNonCapable("aaaa"), "dropping an established PSK must be reported")
 
-	// The peer keeps its derived PSK (MarkNonCapable is a no-op once established).
-	psk, ok := dB.PSK("aaaa")
-	assert.True(t, ok, "an established peer must keep its PSK despite a stray zero")
-	assert.NotEqual(t, PSK{}, psk)
+	_, ok := dB.PSK("aaaa")
+	assert.False(t, ok, "a downgraded peer must not keep its PSK")
+	offer, err := dB.SignalOffer("aaaa")
+	require.NoError(t, err)
+	assert.Nil(t, offer, "a downgraded peer must not be offered")
+	assert.False(t, dB.MarkNonCapable("aaaa"), "a peer already downgraded has no PSK left to drop")
+}
+
+// TestManager_ClearNonCapableReoffers: a peer found non-capable is offered again once the
+// host learns it runs the KEM, and the exchange converges.
+func TestManager_ClearNonCapableReoffers(t *testing.T) {
+	dA, dB, wgA, wgB, _ := pair(t)
+	defer dA.Stop()
+	defer dB.Stop()
+
+	assert.False(t, dB.MarkNonCapable("aaaa"), "a peer never established is not a downgrade")
+	require.False(t, dB.ShouldSendBootstrapOffer("aaaa"), "precondition: not offered")
+
+	dB.ClearNonCapable("aaaa")
+
+	assert.True(t, dB.ShouldSendBootstrapOffer("aaaa"), "a cleared peer must be offered again")
+	bootstrap(t, dA, dB)
+	assert.Equal(t, wgB.psk("aaaa"), wgA.psk("bbbb"), "the renewed exchange must converge")
 }
 
 // TestManager_ErrorMarkerIsBenign verifies finding F's wire half: a responder failure is

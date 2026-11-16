@@ -2,6 +2,7 @@ package internal
 
 import (
 	"errors"
+	"net/netip"
 	"sync"
 	"testing"
 	"time"
@@ -251,4 +252,120 @@ func TestPQPSKReapplier_ReadsUnderApplyLock(t *testing.T) {
 	r.reapply(pqTestPeerKey, &wgtypes.Key{1})
 
 	assert.True(t, src.lockedRead, "the PSK must be read under the apply lock")
+}
+
+// pqInitiatorKey sorts above pqTestPeerKey, so its manager is the KEM initiator.
+const pqInitiatorKey = "kXQmZp9jhQGX7XdYpHGaFSpAouldr3Sbf7MZRcGTGGQ="
+
+var pqTestOverlay = netip.MustParseAddr("100.64.0.9")
+
+// pqStubTransport is a bound PQ data path that never delivers anything; signalling is all
+// these tests exercise.
+type pqStubTransport struct{}
+
+func (pqStubTransport) Send(netip.AddrPort, []byte) error { return nil }
+func (pqStubTransport) LocalPort() int                    { return DefaultPort }
+func (pqStubTransport) Run(func(netip.AddrPort, []byte))  {}
+func (pqStubTransport) Close() error                      { return nil }
+
+// newPQHandshakerPair builds the initiator and responder handshakers over real managers.
+// The tests play the host, carrying payloads between them as signalling would.
+func newPQHandshakerPair(t *testing.T) (initiator, responder pqHandshaker) {
+	t.Helper()
+	mI := pqkem.NewManager(pqkem.LocalID(pqInitiatorKey), pqCallbackHandler{wg: &fakePSKSetter{}}, nil)
+	mR := pqkem.NewManager(pqkem.LocalID(pqTestPeerKey), pqCallbackHandler{wg: &fakePSKSetter{}}, nil)
+	mI.Start(pqStubTransport{})
+	mR.Start(pqStubTransport{})
+	t.Cleanup(mI.Stop)
+	t.Cleanup(mR.Stop)
+	require.True(t, mI.IsInitiator(pqkem.RemoteID(pqTestPeerKey)), "precondition: roles")
+	return pqHandshaker{mgr: mI}, pqHandshaker{mgr: mR}
+}
+
+// pqSignalBootstrap runs one signalling offer/answer round that carries the KEM.
+func pqSignalBootstrap(t *testing.T, hI, hR pqHandshaker) {
+	t.Helper()
+	offer, _ := hI.OfferPayload(pqTestPeerKey)
+	require.NotEmpty(t, offer, "the initiator must offer the KEM")
+	answer, _ := hR.AnswerPayload(pqInitiatorKey, offer)
+	require.NotEmpty(t, answer, "the responder must answer the KEM")
+	hI.OnAnswer(pqTestPeerKey, answer)
+	_, okI := hI.PSK(pqTestPeerKey)
+	_, okR := hR.PSK(pqInitiatorKey)
+	require.True(t, okI && okR, "precondition: both sides hold a PQ PSK")
+}
+
+// TestPQHandshaker_InitiatorDowngrade: the initiator restarts without ML-KEM, so its next
+// offer carries no KEM. The responder must drop its PSK, or it keeps programming a key the
+// peer no longer has and the WireGuard handshake never completes.
+func TestPQHandshaker_InitiatorDowngrade(t *testing.T) {
+	hI, hR := newPQHandshakerPair(t)
+	pqSignalBootstrap(t, hI, hR)
+	status := peer.NewRecorder("https://mgm")
+	require.NoError(t, status.AddPeer(pqInitiatorKey, "initiator.netbird.cloud", "100.64.0.3", ""))
+	require.NoError(t, status.MarkPeerQuantumResistant(pqInitiatorKey))
+	hR.status = status
+
+	hR.AnswerPayload(pqInitiatorKey, nil)
+
+	_, ok := hR.PSK(pqInitiatorKey)
+	assert.False(t, ok, "a KEM-less offer from an established initiator must drop the PQ PSK")
+	st, err := status.GetPeer(pqInitiatorKey)
+	require.NoError(t, err)
+	assert.False(t, st.RosenpassEnabled, "a downgraded peer must not be reported quantum resistant")
+}
+
+// TestPQHandshaker_ResponderDowngrade: the responder restarts without ML-KEM and answers
+// our KEM offer with nothing. The initiator must drop its PSK.
+func TestPQHandshaker_ResponderDowngrade(t *testing.T) {
+	hI, hR := newPQHandshakerPair(t)
+	pqSignalBootstrap(t, hI, hR)
+	status := newPQTestStatus(t)
+	require.NoError(t, status.MarkPeerQuantumResistant(pqTestPeerKey))
+	hI.status = status
+
+	offer, _ := hI.OfferPayload(pqTestPeerKey)
+	require.NotEmpty(t, offer, "an established initiator still offers on a new signalling round")
+	hI.OnAnswer(pqTestPeerKey, nil)
+
+	_, ok := hI.PSK(pqTestPeerKey)
+	assert.False(t, ok, "a KEM-less answer to our KEM offer must drop the PQ PSK")
+	st, err := status.GetPeer(pqTestPeerKey)
+	require.NoError(t, err)
+	assert.False(t, st.RosenpassEnabled, "a downgraded peer must not be reported quantum resistant")
+}
+
+// TestPQHandshaker_NonCapablePeerUpgrades: the responder ran without ML-KEM, so the
+// initiator marked it non-capable. Once it restarts with ML-KEM it announces its PQ port,
+// and the initiator must offer the KEM again instead of staying classical until restart.
+func TestPQHandshaker_NonCapablePeerUpgrades(t *testing.T) {
+	hI, hR := newPQHandshakerPair(t)
+
+	offer, _ := hI.OfferPayload(pqTestPeerKey)
+	require.NotEmpty(t, offer)
+	hI.OnAnswer(pqTestPeerKey, nil)
+	require.False(t, hI.ShouldSendBootstrapOffer(pqTestPeerKey), "precondition: marked non-capable")
+
+	_, port := hR.AnswerPayload(pqInitiatorKey, nil)
+	require.NotZero(t, port, "a peer running ML-KEM must announce its PQ port")
+	hI.SetRemoteAddr(pqTestPeerKey, netip.AddrPortFrom(pqTestOverlay, port))
+
+	assert.True(t, hI.ShouldSendBootstrapOffer(pqTestPeerKey), "an announced PQ port must make the peer worth a KEM offer again")
+	pqSignalBootstrap(t, hI, hR)
+}
+
+// TestPQHandshaker_EmptyAnswerWithoutOfferKeepsHint: an empty answer is only a capability
+// signal when it answers our KEM offer. Answering an offer that carried no KEM, it says
+// nothing, and must not undo the PQ port the same answer announced.
+func TestPQHandshaker_EmptyAnswerWithoutOfferKeepsHint(t *testing.T) {
+	hI, _ := newPQHandshakerPair(t)
+
+	offer, _ := hI.OfferPayload(pqTestPeerKey)
+	require.NotEmpty(t, offer)
+	hI.OnAnswer(pqTestPeerKey, nil)
+
+	hI.SetRemoteAddr(pqTestPeerKey, netip.AddrPortFrom(pqTestOverlay, 1))
+	hI.OnAnswer(pqTestPeerKey, nil)
+
+	assert.True(t, hI.ShouldSendBootstrapOffer(pqTestPeerKey), "an empty answer with no KEM offer in flight must not mark the peer non-capable")
 }

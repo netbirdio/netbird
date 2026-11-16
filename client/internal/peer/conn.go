@@ -1204,6 +1204,12 @@ func (conn *Conn) presharedKey(remoteRosenpassKey []byte, pqPSK *wgtypes.Key) *w
 			conn.Log.Debugf("pqkem: strict mode — no PQ PSK yet, blocking peer traffic until the ML-KEM exchange converges")
 			return conn.pqStrictSentinelKey
 		}
+		// A nil key keeps the one WireGuard has, which after a downgrade is the dropped PQ
+		// PSK. Program the classical key explicitly; zero is WireGuard's "no PSK".
+		if conn.config.WgConfig.PreSharedKey != nil {
+			return conn.config.WgConfig.PreSharedKey
+		}
+		return &wgtypes.Key{}
 	}
 
 	if conn.config.RosenpassConfig.PubKey == nil {

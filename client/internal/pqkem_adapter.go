@@ -82,10 +82,12 @@ type pqPresharedKeySetter interface {
 	SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error
 }
 
-// pqStatusMarker is the subset of the status recorder the ML-KEM callback needs: flagging
-// a peer as post-quantum protected once its PSK is programmed. *peer.Status satisfies it.
+// pqStatusMarker is the subset of the status recorder ML-KEM needs: flagging a peer as
+// post-quantum protected once its PSK is programmed, and clearing the flag when the peer
+// downgrades. *peer.Status satisfies it.
 type pqStatusMarker interface {
 	MarkPeerQuantumResistant(peerPubKey string) error
+	UnmarkPeerQuantumResistant(peerPubKey string) error
 }
 
 // pqCallbackHandler programs the derived PQ PSK onto the WireGuard peer. It is the
@@ -158,16 +160,26 @@ type pqHandshaker struct {
 	mgr *pqkem.Manager
 	// reapplier restores the latest PSK after a stale WireGuard configure. Nil disables it.
 	reapplier *pqPSKReapplier
+	// status clears the peer's "Quantum resistance" flag when it downgrades. Nil disables it.
+	status pqStatusMarker
 }
 
-// announcedPort is the PQ data-path port to advertise to peers. It is omitted (0) when
-// the manager is on DefaultPort, since peers assume the default when no port is sent;
-// only a non-default (collision-forced) port is announced explicitly.
+// announcedPort is the PQ data-path port to advertise to peers. It is sent even on
+// DefaultPort: a non-zero port is how a peer that runs the KEM announces it, and a
+// responder's offer carries nothing else that could (see SetRemoteAddr).
 func (p pqHandshaker) announcedPort() uint16 {
-	if port := p.mgr.LocalPort(); port != DefaultPort {
-		return uint16(port)
+	return uint16(p.mgr.LocalPort())
+}
+
+// markNonCapable records that the peer sent no KEM where one was due, and clears its
+// status flag when that drops the PSK we held with it.
+func (p pqHandshaker) markNonCapable(remoteKey string) {
+	if !p.mgr.MarkNonCapable(pqkem.RemoteID(remoteKey)) || p.status == nil {
+		return
 	}
-	return 0
+	if err := p.status.UnmarkPeerQuantumResistant(remoteKey); err != nil {
+		log.Debugf("pqkem: unmark peer %s quantum resistant in status: %v", remoteKey, err)
+	}
 }
 
 // OfferPayload builds the KEM offer to attach to an outgoing signalling offer for the
@@ -204,7 +216,7 @@ func (p pqHandshaker) AnswerPayload(remoteKey string, recvOffer []byte) ([]byte,
 		// offer is normal — the peer is the responder and puts its material in the
 		// answer — so we must not flag it.
 		if !p.mgr.IsInitiator(pqkem.RemoteID(remoteKey)) {
-			p.mgr.MarkNonCapable(pqkem.RemoteID(remoteKey))
+			p.markNonCapable(remoteKey)
 		}
 		return nil, p.announcedPort()
 	}
@@ -219,13 +231,12 @@ func (p pqHandshaker) AnswerPayload(remoteKey string, recvOffer []byte) ([]byte,
 // answer to our offer is treated as a capability signal on the initiator side.
 func (p pqHandshaker) OnAnswer(remoteKey string, recvAnswer []byte) {
 	if len(recvAnswer) == 0 {
-		// Capability signal (initiator side): the KEM answer flows responder->initiator,
-		// so an empty answer to our offer means the peer does not run the KEM — mark it
-		// non-capable to stop offering (no failure/recovery storm). Only meaningful when
-		// we are the initiator: as the responder we also receive an (empty) answer to
-		// our own non-KEM offer from a perfectly capable peer, which must not be flagged.
-		if p.mgr.IsInitiator(pqkem.RemoteID(remoteKey)) {
-			p.mgr.MarkNonCapable(pqkem.RemoteID(remoteKey))
+		// Capability signal (initiator side): an empty answer to our KEM offer means the
+		// peer does not run the KEM, so mark it non-capable to stop offering (no
+		// failure/recovery storm). Answering an offer that carried no KEM, an empty answer
+		// says nothing, from either role.
+		if p.mgr.SignalOfferInFlight(pqkem.RemoteID(remoteKey)) {
+			p.markNonCapable(remoteKey)
 		}
 		return
 	}
@@ -251,11 +262,12 @@ func (p pqHandshaker) ReapplyPSK(remoteKey string, programmed *wgtypes.Key) {
 	}
 }
 
-// SetRemoteAddr registers the peer's data-path endpoint learned from signalling. A
-// zero port means the peer omitted it (it is on DefaultPort), so we resolve it here —
-// DefaultPort lives in this package, not in peer. Sends only ever fire once the tunnel
-// is up (clocked by OnDataPathRekeyed), so registering here is safe even before
-// connection-up.
+// SetRemoteAddr registers the peer's data-path endpoint learned from signalling. Sends
+// only ever fire once the tunnel is up (clocked by OnDataPathRekeyed), so registering here
+// is safe even before connection-up. A non-zero port means the peer runs the KEM, so one
+// found non-capable earlier is offered it again; this is how a peer that enabled ML-KEM
+// after we met it gets upgraded. A zero port comes from a peer that does not run the KEM
+// and is resolved to DefaultPort, harmlessly, since nothing is sent to such a peer.
 func (p pqHandshaker) SetRemoteAddr(remoteKey string, addr netip.AddrPort) {
 	if !addr.Addr().IsValid() {
 		return
@@ -263,6 +275,8 @@ func (p pqHandshaker) SetRemoteAddr(remoteKey string, addr netip.AddrPort) {
 	port := addr.Port()
 	if port == 0 {
 		port = DefaultPort
+	} else {
+		p.mgr.ClearNonCapable(pqkem.RemoteID(remoteKey))
 	}
 	p.mgr.AddPeer(pqkem.RemoteID(remoteKey), netip.AddrPortFrom(addr.Addr(), port))
 }

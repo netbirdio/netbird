@@ -263,34 +263,56 @@ func (m *Manager) AddPeer(remoteID RemoteID, endpoint netip.AddrPort) {
 	m.mu.Unlock()
 }
 
-// MarkNonCapable records that a peer does not run the KEM: it answered our offer with
-// no KEM material over signalling (the capability signal is the peer's payload, not its
-// optional data-path port). Any in-flight exchange is cancelled and further offers are
-// suppressed (see SignalOffer), so a non-PQ peer never drives the rekey-recovery storm.
-// An already-established peer is left untouched — a stray empty answer must not tear
-// down a working PQ session.
-func (m *Manager) MarkNonCapable(remoteID RemoteID) {
+// MarkNonCapable records that a peer does not run the KEM: its signalling message
+// carried no KEM where one was due. Any in-flight exchange is cancelled and further
+// offers are suppressed (see SignalOffer), so a non-PQ peer never drives the
+// rekey-recovery storm. Every failure path sends an error marker instead of an empty
+// payload, so for a peer we hold a PSK with this is a downgrade: it restarted without the
+// KEM and lost the PSK. Ours is dropped too, and downgraded reports it, so the host stops
+// programming a key the peer no longer has.
+func (m *Manager) MarkNonCapable(remoteID RemoteID) (downgraded bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.established[remoteID] {
-		return
+	_, downgraded = m.psks[remoteID]
+	if prev, ok := m.capable[remoteID]; ok && !prev && !downgraded {
+		return false // already known non-capable, nothing to do
 	}
-	if prev, ok := m.capable[remoteID]; ok && !prev {
-		return // already known non-capable, nothing to do
-	}
+	m.resetPeerLocked(remoteID)
 	m.capable[remoteID] = false
-	if ex := m.exchanges[remoteID]; ex != nil {
-		if ex.cancel != nil {
-			ex.cancel()
-		}
-		delete(m.exchanges, remoteID)
+	if downgraded {
+		m.debug("pqkem: peer stopped running the KEM, dropping its PSK", "peer", remoteID)
+		return true
 	}
 	m.trace("pqkem: peer advertises no PQ service — treating as non-capable, no KEM attempted", "peer", remoteID)
+	return false
+}
+
+// ClearNonCapable forgets that a peer was found non-capable, so the next signalling round
+// offers it the KEM again. The host calls it when the peer announces a PQ port: the peer
+// runs the KEM now, though only its next payload proves it.
+func (m *Manager) ClearNonCapable(remoteID RemoteID) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if capable, ok := m.capable[remoteID]; ok && !capable {
+		delete(m.capable, remoteID)
+	}
 }
 
 // RemovePeer stops any in-flight exchange for a peer and drops its state and routing.
 func (m *Manager) RemovePeer(remoteID RemoteID) {
 	m.mu.Lock()
+	m.resetPeerLocked(remoteID)
+	if ep, ok := m.peerAddrs[remoteID]; ok {
+		delete(m.peersByAddr, ep)
+		delete(m.peerAddrs, remoteID)
+	}
+	m.mu.Unlock()
+}
+
+// resetPeerLocked cancels the peer's in-flight exchange and drops its keys and
+// capability, leaving its routing in place. Generations keep counting, so the host never
+// takes a later key for a stale one. Assumes m.mu is held.
+func (m *Manager) resetPeerLocked(remoteID RemoteID) {
 	if ex, ok := m.exchanges[remoteID]; ok {
 		if ex.cancel != nil {
 			ex.cancel()
@@ -302,11 +324,6 @@ func (m *Manager) RemovePeer(remoteID RemoteID) {
 	delete(m.psks, remoteID)
 	delete(m.prevPSKs, remoteID)
 	delete(m.capable, remoteID)
-	if ep, ok := m.peerAddrs[remoteID]; ok {
-		delete(m.peersByAddr, ep)
-		delete(m.peerAddrs, remoteID)
-	}
-	m.mu.Unlock()
 }
 
 // Stop cancels all in-flight exchanges, closes the transport, and waits for the
@@ -355,13 +372,14 @@ func (m *Manager) Stop() {
 // PSK still survives idle in the manager (dropped only on account-level peer removal),
 // so a pure lazy wake with no re-negotiation reuses it via the conn's WG-config pull.
 func (m *Manager) SignalOffer(remoteID RemoteID) ([]byte, error) {
-	if !m.beginCall() {
-		return nil, fmt.Errorf("manager stopping")
-	}
-	defer m.wait.Done()
 	if !m.IsInitiator(remoteID) {
 		return nil, nil
 	}
+	if !m.beginCall() {
+		// A marker, not nil: an empty offer would read as a downgrade on the responder.
+		return (&ErrorMsg{}).Encode(), fmt.Errorf("manager stopping")
+	}
+	defer m.wait.Done()
 	m.mu.Lock()
 	if capable, ok := m.capable[remoteID]; ok && !capable {
 		m.mu.Unlock()
