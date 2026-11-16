@@ -158,14 +158,14 @@ func (s *SqlStore) GetAccountUsersPaginated(ctx context.Context,
 	accountID string,
 	pagination PaginationState,
 	filters UserFilters,
-	sorting UserSorting) ([]*types.User, int, error) {
+	sorting UserSorting,
+) ([]*types.User, int, error) {
 	if s.conn.Engine() == types.PostgresStoreEngine {
 		return s.getAccountUsersPaginated(ctx, lockStrength, accountID, pagination,
 			userFilters{UserFilters: filters, fuzzyNameSearchConditionFunc: fuzzyNameSearchConditionPostgres}, sorting)
 	}
 	return s.getAccountUsersPaginated(ctx, lockStrength, accountID, pagination,
 		userFilters{UserFilters: filters, fuzzyNameSearchConditionFunc: fuzzyNameSearchConditionSqlite}, sorting)
-
 }
 
 func (s *SqlStore) getAccountUsersPaginated(ctx context.Context,
@@ -173,41 +173,35 @@ func (s *SqlStore) getAccountUsersPaginated(ctx context.Context,
 	accountID string,
 	pagination PaginationState,
 	filters userFilters,
-	sorting UserSorting) ([]*types.User, int, error) {
-
-	tx := s.db
-	var users []*types.User
-	{
-		tx = filters.AsConditions(tx)
-		tx = pagination.AsScope(tx)
-		tx = sorting.AsOrderBy(tx)
-
+	sorting UserSorting,
+) ([]*types.User, int, error) {
+	// A fresh statement per query keeps the page's LIMIT/OFFSET out of the count.
+	listedUsers := func() *gorm.DB {
+		tx := s.db
 		if lockStrength != LockingStrengthNone {
 			tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 		}
+		tx = tx.Where(accountIDCondition, accountID)
+		return filters.AsConditions(tx)
+	}
 
-		// queryString := tx.ToSQL(func(tx *gorm.DB) *gorm.DB {
-		// 	return tx.Distinct().Find(&users, accountIDCondition, accountID)
-		// })
-		// fmt.Println("The query is ", queryString)
+	var users []*types.User
+	{
+		query := listedUsers()
+		query = pagination.AsScope(query)
+		query = sorting.AsOrderBy(query)
 
-		result := tx.Distinct().Find(&users, accountIDCondition, accountID)
-		if result.Error != nil {
-			if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-				return nil, 0, status.Errorf(status.NotFound, "accountID not found: index lookup failed")
-			}
-			log.WithContext(ctx).Errorf("error when getting users from the store: %s", result.Error)
-			return nil, 0, status.Errorf(status.Internal, "issue getting users from store")
+		if err := query.Distinct().Find(&users).Error; err != nil {
+			log.WithContext(ctx).Errorf("failed to get users from the store: %s", err)
+			return nil, 0, status.Errorf(status.Internal, "failed to get users from store")
 		}
 	}
 
 	var count int64
 	{
-		tx = filters.AsConditions(tx)
-		tx = tx.Where(accountIDCondition, accountID)
-		if err := tx.Table("users").Select("count(distinct(users.id))").Count(&count).Error; err != nil {
-			log.WithContext(ctx).Errorf("failed to get total number of peers from the store: %s", err)
-			return nil, 0, status.Errorf(status.Internal, "failed to get total number of peers from store")
+		if err := listedUsers().Table("users").Select("count(distinct(users.id))").Count(&count).Error; err != nil {
+			log.WithContext(ctx).Errorf("failed to get total number of users from the store: %s", err)
+			return nil, 0, status.Errorf(status.Internal, "failed to get total number of users from store")
 		}
 	}
 
