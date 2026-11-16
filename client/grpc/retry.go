@@ -3,9 +3,10 @@ package grpc
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/cenkalti/backoff/v4"
+
+	"github.com/netbirdio/netbird/client/hbwatch"
 )
 
 // ChangeWatcher exposes OS network availability transitions.
@@ -16,9 +17,10 @@ type ChangeWatcher interface {
 // Retry mirrors backoff.Retry, but the sleep between attempts also wakes on
 // OS network availability transitions: an operation cut down by a network
 // change retries the moment the network settles instead of sleeping through
-// the recovery. A nil watcher never fires, leaving plain backoff.Retry
-// behavior.
-func Retry(ctx context.Context, operation backoff.Operation, bo backoff.BackOff, watcher ChangeWatcher) error {
+// the recovery. A nil watcher never fires. The sleep runs on the wall clock
+// where the build has a heartbeat watcher (hbwatch.WaitRetryDelay), key names
+// it in the log; elsewhere it is a plain timer.
+func Retry(ctx context.Context, operation backoff.Operation, bo backoff.BackOff, watcher ChangeWatcher, key hbwatch.WaitKey) error {
 	bo.Reset()
 	for {
 		err := operation()
@@ -43,14 +45,8 @@ func Retry(ctx context.Context, operation backoff.Operation, bo backoff.BackOff,
 		if watcher != nil {
 			changed = watcher.Changed()
 		}
-		timer := time.NewTimer(next)
-		select {
-		case <-timer.C:
-		case <-changed:
-			timer.Stop()
-		case <-ctx.Done():
-			timer.Stop()
-			return ctx.Err()
+		if err := hbwatch.WaitRetryDelay(ctx, key, next, changed); err != nil {
+			return err
 		}
 	}
 }

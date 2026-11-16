@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	nbgrpc "github.com/netbirdio/netbird/client/grpc"
+	"github.com/netbirdio/netbird/client/hbwatch"
 	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/management/client"
@@ -133,7 +134,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 
 	var extraOpts []grpc.DialOption
 	if c.netMgr != nil {
-		extraOpts = append(extraOpts, nbgrpc.WithSweeper(c.netMgr))
+		extraOpts = append(extraOpts, nbgrpc.WithDialHooks(c.netMgr, nil, nil))
 	}
 
 	var conn *grpc.ClientConn
@@ -293,7 +294,7 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 		return nil
 	}
 
-	err := nbgrpc.Retry(ctx, operation, backOff, c.netMgr)
+	err := nbgrpc.Retry(ctx, operation, backOff, c.netMgr, hbwatch.WaitSignalReceive)
 	if err != nil {
 		log.Errorf("exiting the Signal service connection retry loop due to the unrecoverable error: %v", err)
 		return err

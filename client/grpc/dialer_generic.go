@@ -25,11 +25,30 @@ func WithCustomDialer(_ bool, _ string) grpc.DialOption {
 	return grpc.WithContextDialer(dialContext)
 }
 
-// WithSweeper dials like WithCustomDialer but registers connections and
-// dials with the sweeper. Append it after WithCustomDialer: gRPC applies
-// dial options in order, so the later context dialer wins.
-func WithSweeper(sweeper Sweeper) grpc.DialOption {
+// DialHold blocks a dial until it may go. It returns an error when ctx is done.
+type DialHold func(ctx context.Context) error
+
+// WithDialHooks dials like WithCustomDialer, waits on hold first when it is not
+// nil, registers connections and dials with sweeper when it is not nil, and
+// hands every new connection to ka when it is not nil. Append it after
+// WithCustomDialer: gRPC applies dial options in order, so the later context
+// dialer wins.
+func WithDialHooks(sweeper Sweeper, ka *TCPKeepAlive, hold DialHold) grpc.DialOption {
 	return grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
+		if hold != nil {
+			if err := hold(ctx); err != nil {
+				return nil, fmt.Errorf("dial held: %w", err)
+			}
+		}
+		if sweeper == nil {
+			conn, err := dialContext(ctx, addr)
+			if err != nil {
+				return nil, err
+			}
+			ka.track(conn)
+			return conn, nil
+		}
+
 		dial := sweeper.StartDial(ctx)
 		defer dial.Release()
 
@@ -37,7 +56,12 @@ func WithSweeper(sweeper Sweeper) grpc.DialOption {
 		if err != nil {
 			return nil, err
 		}
-		return dial.WrapConn(conn)
+		wrapped, err := dial.WrapConn(conn)
+		if err != nil {
+			return nil, err
+		}
+		ka.track(conn)
+		return wrapped, nil
 	})
 }
 

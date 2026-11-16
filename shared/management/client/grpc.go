@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc/connectivity"
 
 	nbgrpc "github.com/netbirdio/netbird/client/grpc"
+	"github.com/netbirdio/netbird/client/hbwatch"
 	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/encryption"
@@ -143,7 +144,7 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		log.Infof("management gRPC max receive message size set to %d bytes", maxSize)
 	}
 	if c.netMgr != nil {
-		extraOpts = append(extraOpts, nbgrpc.WithSweeper(c.netMgr))
+		extraOpts = append(extraOpts, nbgrpc.WithDialHooks(c.netMgr, nil, nil))
 	}
 
 	var conn *grpc.ClientConn
@@ -206,7 +207,7 @@ func (c *GrpcClient) ready() bool {
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
 func (c *GrpcClient) Sync(ctx context.Context, getInfo func(ctx context.Context) *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
-	return c.withMgmtStream(ctx, func(ctx context.Context, serverPubKey wgtypes.Key, backOff backoff.BackOff) error {
+	return c.withMgmtStream(ctx, hbwatch.RetrySync, func(ctx context.Context, serverPubKey wgtypes.Key, backOff backoff.BackOff) error {
 		return c.handleSyncStream(ctx, serverPubKey, getInfo, msgHandler, backOff)
 	})
 }
@@ -214,7 +215,7 @@ func (c *GrpcClient) Sync(ctx context.Context, getInfo func(ctx context.Context)
 // Job wraps the real client's Job endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
 func (c *GrpcClient) Job(ctx context.Context, msgHandler func(msg *proto.JobRequest) *proto.JobResponse) error {
-	return c.withMgmtStream(ctx, func(ctx context.Context, serverPubKey wgtypes.Key, backOff backoff.BackOff) error {
+	return c.withMgmtStream(ctx, hbwatch.RetryJob, func(ctx context.Context, serverPubKey wgtypes.Key, backOff backoff.BackOff) error {
 		return c.handleJobStream(ctx, serverPubKey, msgHandler, backOff)
 	})
 }
@@ -223,6 +224,7 @@ func (c *GrpcClient) Job(ctx context.Context, msgHandler func(msg *proto.JobRequ
 // It takes care of retries, connection readiness, and fetching server public key.
 func (c *GrpcClient) withMgmtStream(
 	ctx context.Context,
+	key hbwatch.RetryKey,
 	handler func(ctx context.Context, serverPubKey wgtypes.Key, backOff backoff.BackOff) error,
 ) error {
 	backOff := c.netMgr.QuickRetryBackoff(ctx, defaultBackoff(ctx))
@@ -266,7 +268,7 @@ func (c *GrpcClient) withMgmtStream(
 		return handler(ctx, *serverPubKey, backOff)
 	}
 
-	err := nbgrpc.Retry(ctx, operation, backOff, c.netMgr)
+	err := nbgrpc.Retry(ctx, operation, backOff, c.netMgr, hbwatch.WaitKey(key))
 	if err != nil {
 		log.Warnf("exiting the Management service connection retry loop due to the unrecoverable error: %s", err)
 	}
