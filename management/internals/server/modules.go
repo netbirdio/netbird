@@ -9,6 +9,8 @@ import (
 	"github.com/netbirdio/management-integrations/integrations"
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
+	"github.com/netbirdio/netbird/management/internals/modules/exitnodes"
+	exitnodesmanager "github.com/netbirdio/netbird/management/internals/modules/exitnodes/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
@@ -217,6 +219,12 @@ func (s *BaseServer) AgentNetworkManager() agentnetwork.Manager {
 func (s *BaseServer) ZonesManager() zones.Manager {
 	return Create(s, func() zones.Manager {
 		return zonesManager.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager(), s.DNSDomain())
+	})
+}
+
+func (s *BaseServer) ExitNodesManager() exitnodes.Manager {
+	return Create(s, func() exitnodes.Manager {
+		return exitnodesmanager.NewManager(exitnodesmanager.NewRepository(s.DBConn()), s.DBConn(), s.Store(), s.PermissionsManager(), s.AccountManager())
 	})
 }
 

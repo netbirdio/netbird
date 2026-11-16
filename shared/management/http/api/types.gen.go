@@ -3330,6 +3330,99 @@ type Event struct {
 // EventActivityCode The string code of the activity that occurred during the event
 type EventActivityCode string
 
+// ExitNode defines model for ExitNode.
+type ExitNode struct {
+	// AccessControlGroups Access control group IDs associated with the exit node
+	AccessControlGroups []string `json:"access_control_groups"`
+
+	// AutoApply Indicate if clients select the exit node automatically
+	AutoApply bool `json:"auto_apply"`
+
+	// Description Exit node description
+	Description string `json:"description"`
+
+	// Enabled Exit node status
+	Enabled bool `json:"enabled"`
+
+	// Groups Distribution group IDs. Peers in these groups can use the exit node
+	Groups []string `json:"groups"`
+
+	// Id Exit node ID
+	Id string `json:"id"`
+
+	// Masquerade Indicate if routing peers masquerade the exit node traffic
+	Masquerade bool `json:"masquerade"`
+
+	// Name Exit node name, unique per account
+	Name string `json:"name"`
+
+	// RoutingPeers Peers or peer groups that route the exit node traffic, each with its own metric
+	RoutingPeers []ExitNodeRoutingPeer `json:"routing_peers"`
+}
+
+// ExitNodeRequest defines model for ExitNodeRequest.
+type ExitNodeRequest struct {
+	// AccessControlGroups Access control group IDs associated with the exit node
+	AccessControlGroups *[]string `json:"access_control_groups,omitempty"`
+
+	// AutoApply Indicate if clients should select the exit node automatically
+	AutoApply bool `json:"auto_apply"`
+
+	// Description Exit node description
+	Description *string `json:"description,omitempty"`
+
+	// Enabled Exit node status
+	Enabled bool `json:"enabled"`
+
+	// Groups Distribution group IDs. Peers in these groups can use the exit node
+	Groups []string `json:"groups"`
+
+	// Masquerade Indicate if routing peers should masquerade the exit node traffic
+	Masquerade bool `json:"masquerade"`
+
+	// Name Exit node name, unique per account. Clients select the exit node by it, so it can not end with `-v6`
+	Name string `json:"name"`
+
+	// RoutingPeers Peers or peer groups that route the exit node traffic, each with its own metric
+	RoutingPeers []ExitNodeRoutingPeerRequest `json:"routing_peers"`
+}
+
+// ExitNodeRoutingPeer defines model for ExitNodeRoutingPeer.
+type ExitNodeRoutingPeer struct {
+	// Enabled Routing peer status
+	Enabled bool `json:"enabled"`
+
+	// Id Routing peer entry ID
+	Id string `json:"id"`
+
+	// Metric Routing peer metric number. Lowest number has higher priority
+	Metric int `json:"metric"`
+
+	// Peer Peer Identifier that routes the exit node traffic. Set when `peer_groups` is not
+	Peer *string `json:"peer,omitempty"`
+
+	// PeerGroups Peers Group Identifiers whose peers route the exit node traffic. Set when `peer` is not
+	PeerGroups *[]string `json:"peer_groups,omitempty"`
+}
+
+// ExitNodeRoutingPeerRequest defines model for ExitNodeRoutingPeerRequest.
+type ExitNodeRoutingPeerRequest struct {
+	// Enabled Routing peer status
+	Enabled bool `json:"enabled"`
+
+	// Id Routing peer entry ID. Set it on update to keep an existing entry, omit it to add a new entry. Ignored on create
+	Id *string `json:"id,omitempty"`
+
+	// Metric Routing peer metric number. Lowest number has higher priority
+	Metric int `json:"metric"`
+
+	// Peer Peer Identifier that routes the exit node traffic. This property can not be set together with `peer_groups`
+	Peer *string `json:"peer,omitempty"`
+
+	// PeerGroups Peers Group Identifiers whose peers route the exit node traffic. This property can not be set together with `peer`
+	PeerGroups *[]string `json:"peer_groups,omitempty"`
+}
+
 // FleetDMMatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open source version. Premium-only attributes are marked accordingly
 type FleetDMMatchAttributes struct {
 	// DiskEncryptionEnabled Whether disk encryption (FileVault/BitLocker) must be enabled on the host
@@ -6321,6 +6414,12 @@ type CreateIntegrationJSONRequestBody = CreateIntegrationRequest
 
 // UpdateIntegrationJSONRequestBody defines body for UpdateIntegration for application/json ContentType.
 type UpdateIntegrationJSONRequestBody = CreateIntegrationRequest
+
+// PostApiExitNodesJSONRequestBody defines body for PostApiExitNodes for application/json ContentType.
+type PostApiExitNodesJSONRequestBody = ExitNodeRequest
+
+// PutApiExitNodesExitNodeIdJSONRequestBody defines body for PutApiExitNodesExitNodeId for application/json ContentType.
+type PutApiExitNodesExitNodeIdJSONRequestBody = ExitNodeRequest
 
 // PostApiGroupsJSONRequestBody defines body for PostApiGroups for application/json ContentType.
 type PostApiGroupsJSONRequestBody = GroupRequest

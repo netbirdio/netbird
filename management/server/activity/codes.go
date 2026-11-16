@@ -302,6 +302,13 @@ const (
 	// MCPSessionRevokedOnTokenReuse indicates that an MCP session was revoked because a refresh token or an authorization code was used twice
 	MCPSessionRevokedOnTokenReuse Activity = 148
 
+	// ExitNodeCreated indicates that a user created an exit node
+	ExitNodeCreated Activity = 149
+	// ExitNodeUpdated indicates that a user updated an exit node
+	ExitNodeUpdated Activity = 150
+	// ExitNodeDeleted indicates that a user deleted an exit node
+	ExitNodeDeleted Activity = 151
+
 	AccountDeleted Activity = 99999
 )
 
@@ -489,6 +496,10 @@ var activityMap = map[Activity]Code{
 	MCPClientSignedIn:             {"MCP client signed in", "mcp.session.start"},
 	MCPClientSignedOut:            {"MCP client signed out", "mcp.session.revoke"},
 	MCPSessionRevokedOnTokenReuse: {"MCP session revoked after token reuse", "mcp.session.replay"},
+
+	ExitNodeCreated: {"Exit node created", "exit_node.add"},
+	ExitNodeUpdated: {"Exit node updated", "exit_node.update"},
+	ExitNodeDeleted: {"Exit node deleted", "exit_node.delete"},
 }
 
 // StringCode returns a string code of the activity

@@ -23,6 +23,8 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	agentnetworkhandlers "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/handlers"
+	"github.com/netbirdio/netbird/management/internals/modules/exitnodes"
+	exitnodesmanager "github.com/netbirdio/netbird/management/internals/modules/exitnodes/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	zonesManager "github.com/netbirdio/netbird/management/internals/modules/zones/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
@@ -59,7 +61,7 @@ import (
 func NewAPIHandler(ctx context.Context, router *mux.Router, accountManager account.Manager, networksManager nbnetworks.Manager,
 	resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation,
 	permissionsManager permissions.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager,
-	networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager,
+	exitNodesManager exitnodes.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager,
 	reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer,
 	trustedHTTPProxies []netip.Prefix, agentNetworkManager agentnetwork.Manager, proxyTokenRevocationGuard proxytoken.RevocationGuard) (http.Handler, error) {
 
@@ -103,6 +105,7 @@ func NewAPIHandler(ctx context.Context, router *mux.Router, accountManager accou
 	networks.AddEndpoints(networksManager, resourceManager, routerManager, groupsManager, accountManager, router)
 	zonesManager.RegisterEndpoints(router, zManager)
 	recordsManager.RegisterEndpoints(router, rManager)
+	exitnodesmanager.RegisterEndpoints(router, exitNodesManager)
 	idp.AddEndpoints(accountManager, router)
 	if agentNetworkManager != nil {
 		agentnetworkhandlers.RegisterEndpoints(agentNetworkManager, router)

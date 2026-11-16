@@ -23,6 +23,8 @@ tags:
     description: Interact with and view information about posture checks.
   - name: Routes
     description: Interact with and view information about routes.
+  - name: Exit Nodes
+    description: Interact with and view information about exit nodes.
   - name: DNS
     description: Interact with and view information about DNS configuration.
   - name: DNS Zones
@@ -1993,6 +1995,175 @@ components:
             - id
             - network_type
         - $ref: '#/components/schemas/RouteRequest'
+    ExitNodeRoutingPeerRequest:
+      type: object
+      properties:
+        id:
+          description: Routing peer entry ID. Set it on update to keep an existing entry, omit it to add a new entry. Ignored on create
+          type: string
+          example: chacdk86lnnboviihd7g
+        peer:
+          description: Peer Identifier that routes the exit node traffic. This property can not be set together with `peer_groups`
+          type: string
+          example: chacbco6lnnbn6cg5s91
+        peer_groups:
+          description: Peers Group Identifiers whose peers route the exit node traffic. This property can not be set together with `peer`
+          type: array
+          items:
+            type: string
+            example: chacbco6lnnbn6cg5s91
+        metric:
+          description: Routing peer metric number. Lowest number has higher priority
+          type: integer
+          maximum: 9999
+          minimum: 1
+          example: 9999
+        enabled:
+          description: Routing peer status
+          type: boolean
+          example: true
+      required:
+        # Only one property has to be set
+        #- peer
+        #- peer_groups
+        - metric
+        - enabled
+    ExitNodeRoutingPeer:
+      type: object
+      properties:
+        id:
+          description: Routing peer entry ID
+          type: string
+          example: chacdk86lnnboviihd7g
+        peer:
+          description: Peer Identifier that routes the exit node traffic. Set when `peer_groups` is not
+          type: string
+          example: chacbco6lnnbn6cg5s91
+        peer_groups:
+          description: Peers Group Identifiers whose peers route the exit node traffic. Set when `peer` is not
+          type: array
+          items:
+            type: string
+            example: chacbco6lnnbn6cg5s91
+        metric:
+          description: Routing peer metric number. Lowest number has higher priority
+          type: integer
+          maximum: 9999
+          minimum: 1
+          example: 9999
+        enabled:
+          description: Routing peer status
+          type: boolean
+          example: true
+      required:
+        - id
+        - metric
+        - enabled
+    ExitNodeRequest:
+      type: object
+      properties:
+        name:
+          description: Exit node name, unique per account. Clients select the exit node by it, so it can not end with `-v6`
+          type: string
+          maxLength: 40
+          minLength: 1
+          example: Office exit
+        description:
+          description: Exit node description
+          type: string
+          example: Routes internet traffic through the office uplink
+        enabled:
+          description: Exit node status
+          type: boolean
+          example: true
+        routing_peers:
+          description: Peers or peer groups that route the exit node traffic, each with its own metric
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ExitNodeRoutingPeerRequest'
+        masquerade:
+          description: Indicate if routing peers should masquerade the exit node traffic
+          type: boolean
+          example: true
+        groups:
+          description: Distribution group IDs. Peers in these groups can use the exit node
+          type: array
+          minItems: 1
+          items:
+            type: string
+            example: chacdk86lnnboviihd70
+        access_control_groups:
+          description: Access control group IDs associated with the exit node
+          type: array
+          items:
+            type: string
+            example: chacbco6lnnbn6cg5s91
+        auto_apply:
+          description: Indicate if clients should select the exit node automatically
+          type: boolean
+          example: false
+      required:
+        - name
+        - enabled
+        - routing_peers
+        - masquerade
+        - groups
+        - auto_apply
+    ExitNode:
+      type: object
+      properties:
+        id:
+          description: Exit node ID
+          type: string
+          example: chacdk86lnnboviihd7g
+        name:
+          description: Exit node name, unique per account
+          type: string
+          example: Office exit
+        description:
+          description: Exit node description
+          type: string
+          example: Routes internet traffic through the office uplink
+        enabled:
+          description: Exit node status
+          type: boolean
+          example: true
+        routing_peers:
+          description: Peers or peer groups that route the exit node traffic, each with its own metric
+          type: array
+          items:
+            $ref: '#/components/schemas/ExitNodeRoutingPeer'
+        masquerade:
+          description: Indicate if routing peers masquerade the exit node traffic
+          type: boolean
+          example: true
+        groups:
+          description: Distribution group IDs. Peers in these groups can use the exit node
+          type: array
+          items:
+            type: string
+            example: chacdk86lnnboviihd70
+        access_control_groups:
+          description: Access control group IDs associated with the exit node
+          type: array
+          items:
+            type: string
+            example: chacbco6lnnbn6cg5s91
+        auto_apply:
+          description: Indicate if clients select the exit node automatically
+          type: boolean
+          example: false
+      required:
+        - id
+        - name
+        - description
+        - enabled
+        - routing_peers
+        - masquerade
+        - groups
+        - access_control_groups
+        - auto_apply
     Resource:
       type: object
       properties:
@@ -8219,6 +8390,160 @@ paths:
           "$ref": "#/components/responses/requires_authentication"
         '403':
           "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/exit-nodes:
+    get:
+      summary: List all Exit Nodes
+      description: Returns a list of all exit nodes
+      tags: [ Exit Nodes ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of Exit Nodes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExitNode'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create an Exit Node
+      description: Creates an exit node
+      tags: [ Exit Nodes ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: New exit node request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExitNodeRequest'
+      responses:
+        '200':
+          description: An Exit Node object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExitNode'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '409':
+          "$ref": "#/components/responses/conflict"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/exit-nodes/{exitNodeId}:
+    get:
+      summary: Retrieve an Exit Node
+      description: Get information about an exit node
+      tags: [ Exit Nodes ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: exitNodeId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an exit node
+      responses:
+        '200':
+          description: An Exit Node object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExitNode'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update an Exit Node
+      description: Update/Replace an exit node
+      tags: [ Exit Nodes ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: exitNodeId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an exit node
+      requestBody:
+        description: Update exit node request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExitNodeRequest'
+      responses:
+        '200':
+          description: An Exit Node object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExitNode'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '409':
+          "$ref": "#/components/responses/conflict"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete an Exit Node
+      description: Delete an exit node
+      tags: [ Exit Nodes ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: exitNodeId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an exit node
+      responses:
+        '200':
+          description: Delete status code
+          content: { }
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/networks:

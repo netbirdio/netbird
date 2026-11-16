@@ -14,6 +14,8 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 
+	"github.com/netbirdio/netbird/management/internals/modules/exitnodes"
+	exitnodesmanager "github.com/netbirdio/netbird/management/internals/modules/exitnodes/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
@@ -137,11 +139,12 @@ func buildTestAPI(t testing_tools.TB, sqlFile string, peersUpdateManager network
 	networksManager := networks.NewManager(store, permissionsManager, resourcesManager, routersManager, am)
 	customZonesManager := zonesManager.NewManager(store, am, permissionsManager, "")
 	zoneRecordsManager := recordsManager.NewManager(store, am, permissionsManager)
+	exitNodesManager := newExitNodesManager(t, store, permissionsManager, am)
 
 	register := func(apiRouter *mux.Router) http.Handler {
 		apiHandler, err := http2.NewAPIHandler(ctx, apiRouter, am, networksManager, resourcesManager, routersManager,
 			groupsManager, geoMock, permissionsManager, settingsManager, customZonesManager, zoneRecordsManager,
-			networkMapController, nil, serviceManager, nil, nil, nil, nil, nil, nil)
+			exitNodesManager, networkMapController, nil, serviceManager, nil, nil, nil, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("Failed to create API handler: %v", err)
 		}
@@ -237,6 +240,16 @@ func newAccessLogsRepository(t testing_tools.TB) accesslogs.Repository {
 	}
 	t.Cleanup(func() { _ = conn.Close() })
 	return accesslogsmanager.NewRepository(conn)
+}
+
+func newExitNodesManager(t testing_tools.TB, s nbstore.Store, permissionsManager permissions.Manager, am account.Manager) exitnodes.Manager {
+	t.Helper()
+	sqlStore, ok := s.(*nbstore.SqlStore)
+	if !ok {
+		t.Fatalf("exit nodes need the SQL store connection, got %T", s)
+	}
+	conn := sqlStore.Conn()
+	return exitnodesmanager.NewManager(exitnodesmanager.NewRepository(conn), conn, s, permissionsManager, am)
 }
 
 func mockValidateAndParseToken(_ context.Context, token string) (auth.UserAuth, *jwt.Token, error) {
