@@ -4,10 +4,32 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// parseSSHCommandLine runs args through the flag parsing and argument
+// validation cobra applies to netbird ssh, starting from default flag values.
+func parseSSHCommandLine(t *testing.T, args []string) error {
+	t.Helper()
+
+	sshCmd.LocalFlags().VisitAll(func(f *pflag.Flag) {
+		if sv, ok := f.Value.(pflag.SliceValue); ok {
+			require.NoError(t, sv.Replace(nil))
+		} else {
+			require.NoError(t, f.Value.Set(f.DefValue))
+		}
+		f.Changed = false
+	})
+	host = ""
+	command = ""
+
+	if err := sshCmd.ParseFlags(args); err != nil {
+		return err
+	}
+	return sshCmd.ValidateArgs(sshCmd.Flags().Args())
+}
 
 func TestSSHCommand_FlagParsing(t *testing.T) {
 	tests := []struct {
@@ -63,17 +85,7 @@ func TestSSHCommand_FlagParsing(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Reset global variables
-			host = ""
-			username = ""
-			port = 22
-			command = ""
-
-			// Mock command for testing
-			cmd := sshCmd
-			cmd.SetArgs(tt.args)
-
-			err := validateSSHArgsWithoutFlagParsing(cmd, tt.args)
+			err := parseSSHCommandLine(t, tt.args)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -127,14 +139,7 @@ func TestSSHCommand_FlagConflictPrevention(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Reset global variables
-			host = ""
-			username = ""
-			port = 22
-			command = ""
-
-			cmd := sshCmd
-			err := validateSSHArgsWithoutFlagParsing(cmd, tt.args)
+			err := parseSSHCommandLine(t, tt.args)
 			require.NoError(t, err, "SSH args validation should succeed for valid input")
 
 			assert.Equal(t, tt.expectedCmd, command, tt.description)
@@ -191,14 +196,7 @@ func TestSSHCommand_NonInteractiveExecution(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Reset global variables
-			host = ""
-			username = ""
-			port = 22
-			command = ""
-
-			cmd := sshCmd
-			err := validateSSHArgsWithoutFlagParsing(cmd, tt.args)
+			err := parseSSHCommandLine(t, tt.args)
 			require.NoError(t, err, "SSH args validation should succeed for valid input")
 
 			assert.Equal(t, tt.expectedCmd, command, tt.description)
@@ -257,14 +255,7 @@ func TestSSHCommand_FlagHandling(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Reset global variables
-			host = ""
-			username = ""
-			port = 22
-			command = ""
-
-			cmd := sshCmd
-			err := validateSSHArgsWithoutFlagParsing(cmd, tt.args)
+			err := parseSSHCommandLine(t, tt.args)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -317,14 +308,7 @@ func TestSSHCommand_RegressionFlagParsing(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Reset global variables
-			host = ""
-			username = ""
-			port = 22
-			command = ""
-
-			cmd := sshCmd
-			err := validateSSHArgsWithoutFlagParsing(cmd, tt.args)
+			err := parseSSHCommandLine(t, tt.args)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -420,16 +404,7 @@ func TestSSHCommand_PortForwardingFlagParsing(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Reset global variables
-			host = ""
-			username = ""
-			port = 22
-			command = ""
-			localForwards = nil
-			remoteForwards = nil
-
-			cmd := sshCmd
-			err := validateSSHArgsWithoutFlagParsing(cmd, tt.args)
+			err := parseSSHCommandLine(t, tt.args)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -602,16 +577,7 @@ func TestSSHCommand_IntegrationPortForwarding(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Reset global variables
-			host = ""
-			username = ""
-			port = 22
-			command = ""
-			localForwards = nil
-			remoteForwards = nil
-
-			cmd := sshCmd
-			err := validateSSHArgsWithoutFlagParsing(cmd, tt.args)
+			err := parseSSHCommandLine(t, tt.args)
 			require.NoError(t, err, "SSH args validation should succeed for valid input")
 
 			assert.Equal(t, tt.expectedHost, host, "host mismatch")
@@ -656,12 +622,7 @@ func TestSSHCommand_ParameterIsolation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			host = ""
-			username = ""
-			port = 22
-			command = ""
-
-			err := validateSSHArgsWithoutFlagParsing(sshCmd, tt.args)
+			err := parseSSHCommandLine(t, tt.args)
 			require.NoError(t, err)
 
 			assert.Equal(t, "hostname", host)
@@ -701,13 +662,7 @@ func TestSSHCommand_InvalidFlagRejection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Reset global variables
-			host = ""
-			username = ""
-			port = 22
-			command = ""
-
-			err := validateSSHArgsWithoutFlagParsing(sshCmd, tt.args)
+			err := parseSSHCommandLine(t, tt.args)
 
 			// Should return an error for invalid flags
 			assert.Error(t, err, tt.description)
@@ -752,23 +707,62 @@ func TestSSHCommand_DeprecatedLoginFlag(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			username = ""
+			// Cobra prints flag deprecations through the command output.
+			var out bytes.Buffer
+			sshCmd.SetOut(&out)
+			t.Cleanup(func() { sshCmd.SetOut(nil) })
 
-			var stderr bytes.Buffer
-			cmd := &cobra.Command{Use: "ssh"}
-			cmd.SetErr(&stderr)
-
-			require.NoError(t, validateSSHArgsWithoutFlagParsing(cmd, tt.args))
+			require.NoError(t, parseSSHCommandLine(t, tt.args))
 
 			// An empty --login falls back to the invoking user, which differs per host.
 			if tt.expectedUser != "" {
 				assert.Equal(t, tt.expectedUser, username, "resolved username")
 			}
 			if tt.expectWarn {
-				assert.Equal(t, "Flag --login has been deprecated, use --user instead\n", stderr.String(), "deprecation notice")
+				assert.Contains(t, out.String(), "Flag --login has been deprecated, use --user instead\n", "deprecation notice")
 			} else {
-				assert.Empty(t, stderr.String(), "no deprecation notice")
+				assert.Empty(t, out.String(), "no deprecation notice")
 			}
 		})
+	}
+}
+
+func TestSSHCommand_RemoteCommandKeepsForwardingFlags(t *testing.T) {
+	// -L and -R after the host belong to the remote command, not to port forwarding.
+	require.NoError(t, parseSSHCommandLine(t, []string{"hostname", "grep", "-R", "pattern", "."}))
+
+	assert.Equal(t, "hostname", host, "host mismatch")
+	assert.Equal(t, "grep -R pattern .", command, "remote command should keep -R")
+	assert.Empty(t, remoteForwards, "remote forwards should be empty")
+	assert.Empty(t, localForwards, "local forwards should be empty")
+}
+
+func TestSSHCommand_ForwardValueAttachedToFlag(t *testing.T) {
+	require.NoError(t, parseSSHCommandLine(t, []string{"-L8080:localhost:80", "-R9090:localhost:443", "hostname"}))
+
+	assert.Equal(t, []string{"8080:localhost:80"}, localForwards, "local forwards")
+	assert.Equal(t, []string{"9090:localhost:443"}, remoteForwards, "remote forwards")
+}
+
+func TestSSHCommand_IdentityFlag(t *testing.T) {
+	for _, args := range [][]string{
+		{"-i", "/tmp/id_ed25519", "hostname"},
+		{"--identity", "/tmp/id_ed25519", "hostname"},
+	} {
+		require.NoError(t, parseSSHCommandLine(t, args))
+		assert.Equal(t, "/tmp/id_ed25519", identityFile, "identity file from %v", args)
+	}
+
+	f := sshCmd.Flags().Lookup("identity")
+	require.NotNil(t, f)
+	assert.Empty(t, f.Deprecated, "identity is in use and must not be deprecated")
+}
+
+func TestSSHCommand_FlagsNotInheritedBySubcommands(t *testing.T) {
+	for _, sub := range []string{"proxy", "detect", "sftp"} {
+		c, _, err := sshCmd.Find([]string{sub})
+		require.NoError(t, err)
+		require.NotEqual(t, sshCmd, c, "subcommand %s should exist", sub)
+		assert.Nil(t, c.InheritedFlags().Lookup("port"), "%s should not inherit --port", sub)
 	}
 }
