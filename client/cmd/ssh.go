@@ -99,7 +99,9 @@ var sshCmd = &cobra.Command{
 	Short: "Connect to a NetBird peer via SSH",
 	Long: `Connect to a NetBird peer using SSH with support for port forwarding.
 
-Flags go before the host. Everything after the host is the command to run on the peer.`,
+Flags go before the host. Everything after the host is the command to run on the peer.
+
+Unlike OpenSSH, -l sets the NetBird log level and -o sets the known_hosts file. Use -u or user@host to set the login name.`,
 	Example: `  netbird ssh peer-hostname
   netbird ssh root@peer-hostname
   netbird ssh --user root peer-hostname
