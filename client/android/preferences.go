@@ -178,6 +178,9 @@ func (p *Preferences) SetDisableServerRoutes(disable bool) {
 
 // GetDisableDNS reads disable DNS setting from config file
 func (p *Preferences) GetDisableDNS() (bool, error) {
+	if v, ok := p.policy().GetBool(mdm.KeyDisableDNS); ok {
+		return v, nil
+	}
 	if p.configInput.DisableDNS != nil {
 		return *p.configInput.DisableDNS, nil
 	}
@@ -196,6 +199,9 @@ func (p *Preferences) SetDisableDNS(disable bool) {
 
 // GetDisableFirewall reads disable firewall setting from config file
 func (p *Preferences) GetDisableFirewall() (bool, error) {
+	if v, ok := p.policy().GetBool(mdm.KeyDisableFirewall); ok {
+		return v, nil
+	}
 	if p.configInput.DisableFirewall != nil {
 		return *p.configInput.DisableFirewall, nil
 	}
@@ -348,6 +354,9 @@ func (p *Preferences) SetBlockInbound(block bool) {
 
 // GetDisableIPv6 reads disable IPv6 setting from config file
 func (p *Preferences) GetDisableIPv6() (bool, error) {
+	if v, ok := p.policy().GetBool(mdm.KeyDisableIPv6); ok {
+		return v, nil
+	}
 	if p.configInput.DisableIPv6 != nil {
 		return *p.configInput.DisableIPv6, nil
 	}

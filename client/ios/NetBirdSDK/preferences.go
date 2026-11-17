@@ -139,6 +139,9 @@ func (p *Preferences) GetRosenpassPermissive() (bool, error) {
 
 // GetDisableIPv6 reads disable IPv6 setting from config file
 func (p *Preferences) GetDisableIPv6() (bool, error) {
+	if v, ok := p.policy().GetBool(mdm.KeyDisableIPv6); ok {
+		return v, nil
+	}
 	if p.configInput.DisableIPv6 != nil {
 		return *p.configInput.DisableIPv6, nil
 	}

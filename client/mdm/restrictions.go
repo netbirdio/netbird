@@ -24,6 +24,14 @@ type Fields struct {
 	SplitTunnelApps          bool   `json:"splitTunnelApps"`
 	RemoteJobsAllowed        bool   `json:"allowRemoteJobs"`
 	DisableAdvancedView      *bool  `json:"disableAdvancedView"`
+	InterfaceName            bool   `json:"interfaceName"`
+	MTU                      bool   `json:"mtu"`
+	DisableDNS               bool   `json:"disableDNS"`
+	DisableIPv6              bool   `json:"disableIPv6"`
+	DisableFirewall          bool   `json:"disableFirewall"`
+	BlockLANAccess           bool   `json:"blockLANAccess"`
+	DisableNotifications     bool   `json:"disableNotifications"`
+	NetworkMonitor           bool   `json:"networkMonitor"`
 }
 
 // Features carries the feature gates a UI must honor.
@@ -65,6 +73,14 @@ func BuildRestrictions(policy *Policy) Restrictions {
 	r.MDM.SplitTunnelApps = policy.HasKey(KeySplitTunnelApps)
 	r.MDM.RemoteJobsAllowed = policy.HasKey(KeyRemoteJobsAllowed)
 	r.MDM.DisableVNCApproval = policy.HasKey(KeyDisableVNCApproval)
+	r.MDM.InterfaceName = policy.HasKey(KeyInterfaceName)
+	r.MDM.MTU = policy.HasKey(KeyMTU)
+	r.MDM.DisableDNS = policy.HasKey(KeyDisableDNS)
+	r.MDM.DisableIPv6 = policy.HasKey(KeyDisableIPv6)
+	r.MDM.DisableFirewall = policy.HasKey(KeyDisableFirewall)
+	r.MDM.BlockLANAccess = policy.HasKey(KeyBlockLANAccess)
+	r.MDM.DisableNotifications = policy.HasKey(KeyDisableNotifications)
+	r.MDM.NetworkMonitor = policy.HasKey(KeyNetworkMonitor)
 	if v, ok := policy.GetBool(KeyAllowServerSSH); ok {
 		r.MDM.AllowServerSSH = &v
 	}
