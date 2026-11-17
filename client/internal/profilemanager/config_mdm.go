@@ -24,6 +24,11 @@ func MDMConflicts(input ConfigInput, policy *mdm.Policy) []string {
 		v := int64(*input.WireguardPort)
 		port = &v
 	}
+	var mtu *int64
+	if input.MTU != nil {
+		v := int64(*input.MTU)
+		mtu = &v
+	}
 	return mdm.ResolveConflicts(policy, []mdm.ConflictCheck{
 		mdm.ConflictURL(mdm.KeyManagementURL, input.ManagementURL),
 		mdm.ConflictStringPtr(mdm.KeyPreSharedKey, pskGot),
@@ -44,6 +49,10 @@ func MDMConflicts(input ConfigInput, policy *mdm.Policy) []string {
 		mdm.ConflictBool(mdm.KeyBlockLANAccess, input.BlockLANAccess),
 		mdm.ConflictBool(mdm.KeyDisableNotifications, input.DisableNotifications),
 		mdm.ConflictBool(mdm.KeyNetworkMonitor, input.NetworkMonitor),
+		mdm.ConflictStringPtr(mdm.KeyInterfaceName, input.InterfaceName),
+		mdm.ConflictInt64(mdm.KeyMTU, mtu),
+		mdm.ConflictDuration(mdm.KeyDNSRouteInterval, input.DNSRouteInterval),
+		mdm.ConflictStringSlice(mdm.KeyNATExternalIPs, input.NATExternalIPs),
 	})
 }
 

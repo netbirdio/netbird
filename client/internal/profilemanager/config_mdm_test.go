@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -526,5 +527,137 @@ func TestMDMConflicts_NetworkBoolKeys(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, MDMConflicts(tc.input, policy), "conflicting keys")
 		})
+	}
+}
+
+func TestApply_MDMNetworkValueKeysOverrideOnDiskValue(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "config.json")
+	iface := "utun250"
+	mtu := uint16(1400)
+	interval := time.Minute
+	configWithMDM(t, ConfigInput{
+		ConfigPath:       tmp,
+		InterfaceName:    &iface,
+		MTU:              &mtu,
+		DNSRouteInterval: &interval,
+		NATExternalIPs:   []string{"198.51.100.1"},
+	}, mdm.NewPolicy(nil))
+	before, err := os.ReadFile(tmp)
+	require.NoError(t, err)
+
+	cfg := configWithMDM(t, ConfigInput{ConfigPath: tmp}, mdm.NewPolicy(map[string]any{
+		mdm.KeyInterfaceName:    "utun100",
+		mdm.KeyMTU:              int64(1280),
+		mdm.KeyDNSRouteInterval: "90s",
+		mdm.KeyNATExternalIPs:   " 203.0.113.7, 203.0.113.8/10.0.0.1,,203.0.113.7",
+	}))
+
+	assert.Equal(t, "utun100", cfg.WgIface, "interfaceName")
+	assert.Equal(t, uint16(1280), cfg.MTU, "mtu")
+	assert.Equal(t, 90*time.Second, cfg.DNSRouteInterval, "dnsRouteInterval")
+	assert.Equal(t, []string{"203.0.113.7", "203.0.113.8/10.0.0.1"}, cfg.NATExternalIPs,
+		"natExternalIPs is split, trimmed and deduplicated")
+
+	after, err := os.ReadFile(tmp)
+	require.NoError(t, err)
+	assert.Equal(t, string(before), string(after), "MDM values must not reach the profile file")
+}
+
+func TestApply_MDMNetworkValueKeys_InvalidValueKeepsProfileValue(t *testing.T) {
+	iface := "utun250"
+	mtu := uint16(1400)
+	interval := time.Minute
+	input := ConfigInput{
+		InterfaceName:    &iface,
+		MTU:              &mtu,
+		DNSRouteInterval: &interval,
+	}
+
+	tests := []struct {
+		name  string
+		key   string
+		value any
+		check func(t *testing.T, cfg *Config)
+	}{
+		{"mtu below minimum", mdm.KeyMTU, int64(100), func(t *testing.T, cfg *Config) {
+			assert.Equal(t, mtu, cfg.MTU, "mtu")
+		}},
+		{"mtu above maximum", mdm.KeyMTU, int64(70000), func(t *testing.T, cfg *Config) {
+			assert.Equal(t, mtu, cfg.MTU, "mtu")
+		}},
+		{"interval not a duration", mdm.KeyDNSRouteInterval, "90", func(t *testing.T, cfg *Config) {
+			assert.Equal(t, time.Minute, cfg.DNSRouteInterval, "dnsRouteInterval")
+		}},
+		{"interval negative", mdm.KeyDNSRouteInterval, "-1m", func(t *testing.T, cfg *Config) {
+			assert.Equal(t, time.Minute, cfg.DNSRouteInterval, "dnsRouteInterval")
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			in := input
+			in.ConfigPath = filepath.Join(t.TempDir(), "config.json")
+			cfg := configWithMDM(t, in, mdm.NewPolicy(map[string]any{tc.key: tc.value}))
+			tc.check(t, cfg)
+			assert.True(t, cfg.Policy().HasKey(tc.key), "the key stays managed so user writes are still rejected")
+		})
+	}
+}
+
+func TestMDMConflicts_NetworkValueKeys(t *testing.T) {
+	policy := mdm.NewPolicy(map[string]any{
+		mdm.KeyInterfaceName:    "utun100",
+		mdm.KeyMTU:              int64(1280),
+		mdm.KeyDNSRouteInterval: "90s",
+		mdm.KeyNATExternalIPs:   "203.0.113.7,203.0.113.8",
+	})
+	sameIface, otherIface := "utun100", "utun7"
+	sameMTU, otherMTU := uint16(1280), uint16(1400)
+	sameInterval, otherInterval := 90*time.Second, time.Minute
+
+	tests := []struct {
+		name  string
+		input ConfigInput
+		want  []string
+	}{
+		{name: "unset", input: ConfigInput{}, want: nil},
+		{name: "echo", input: ConfigInput{
+			InterfaceName:    &sameIface,
+			MTU:              &sameMTU,
+			DNSRouteInterval: &sameInterval,
+			NATExternalIPs:   []string{"203.0.113.7", "203.0.113.8"},
+		}, want: nil},
+		{name: "all divergent", input: ConfigInput{
+			InterfaceName:    &otherIface,
+			MTU:              &otherMTU,
+			DNSRouteInterval: &otherInterval,
+			NATExternalIPs:   []string{"203.0.113.9"},
+		}, want: []string{
+			mdm.KeyInterfaceName, mdm.KeyMTU,
+			mdm.KeyDNSRouteInterval, mdm.KeyNATExternalIPs,
+		}},
+		{name: "clearing a managed list", input: ConfigInput{
+			NATExternalIPs: []string{},
+		}, want: []string{mdm.KeyNATExternalIPs}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, MDMConflicts(tc.input, policy), "conflicting keys")
+		})
+	}
+}
+
+func TestIsUtunName(t *testing.T) {
+	// macOS only accepts utun followed by the unit number; anything else makes
+	// interface creation fail and would leave the device offline.
+	for name, want := range map[string]bool{
+		"utun100": true,
+		"utun0":   true,
+		"utun":    false,
+		"utunabc": false,
+		"utun1a":  false,
+		"nbmdm":   false,
+		"wt0":     false,
+	} {
+		assert.Equal(t, want, isUtunName(name), "isUtunName(%q)", name)
 	}
 }

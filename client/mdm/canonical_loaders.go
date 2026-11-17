@@ -45,6 +45,10 @@ var allKeys = []string{
 	KeyDisableNotifications,
 	KeyNetworkMonitor,
 	KeyDisableIPv6Discovery,
+	KeyInterfaceName,
+	KeyMTU,
+	KeyDNSRouteInterval,
+	KeyNATExternalIPs,
 }
 
 // canonicalKey maps the lowercase form of a managed-config value name to

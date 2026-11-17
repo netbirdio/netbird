@@ -5,11 +5,13 @@ import (
 	"os/user"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
@@ -447,4 +449,54 @@ func TestLoginRequestMDMConflicts_NetworkBoolKeys(t *testing.T) {
 	assert.Equal(t, []string{mdm.KeyDisableDNS, mdm.KeyNetworkMonitor},
 		loginRequestMDMConflicts(&proto.LoginRequest{DisableDns: &off, NetworkMonitor: &on}, policy),
 		"divergent values must be reported")
+}
+
+func TestSetConfigRequestMDMConflicts_NetworkValueKeys(t *testing.T) {
+	policy := mdm.NewPolicy(map[string]any{
+		mdm.KeyInterfaceName:    "utun100",
+		mdm.KeyMTU:              int64(1280),
+		mdm.KeyDNSRouteInterval: "90s",
+		mdm.KeyNATExternalIPs:   []string{"203.0.113.7"},
+	})
+	iface, mtu := "utun100", int64(1280)
+	otherIface, otherMTU := "utun7", int64(1400)
+
+	tests := []struct {
+		name string
+		msg  *proto.SetConfigRequest
+		want []string
+	}{
+		{name: "unset", msg: &proto.SetConfigRequest{}, want: nil},
+		{name: "echo", msg: &proto.SetConfigRequest{
+			InterfaceName:    &iface,
+			Mtu:              &mtu,
+			DnsRouteInterval: durationpb.New(90 * time.Second),
+			NatExternalIPs:   []string{"203.0.113.7"},
+		}, want: nil},
+		{name: "divergent", msg: &proto.SetConfigRequest{
+			InterfaceName:    &otherIface,
+			Mtu:              &otherMTU,
+			DnsRouteInterval: durationpb.New(time.Minute),
+			NatExternalIPs:   []string{"203.0.113.9"},
+		}, want: []string{
+			mdm.KeyInterfaceName, mdm.KeyMTU,
+			mdm.KeyDNSRouteInterval, mdm.KeyNATExternalIPs,
+		}},
+		{name: "clear marker", msg: &proto.SetConfigRequest{
+			CleanNATExternalIPs: true,
+		}, want: []string{mdm.KeyNATExternalIPs}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, mdmManagedFieldConflicts(tc.msg, policy), "SetConfig conflicts")
+			login := &proto.LoginRequest{
+				InterfaceName:       tc.msg.InterfaceName,
+				Mtu:                 tc.msg.Mtu,
+				DnsRouteInterval:    tc.msg.DnsRouteInterval,
+				NatExternalIPs:      tc.msg.NatExternalIPs,
+				CleanNATExternalIPs: tc.msg.CleanNATExternalIPs,
+			}
+			assert.Equal(t, tc.want, loginRequestMDMConflicts(login, policy), "Login conflicts")
+		})
+	}
 }

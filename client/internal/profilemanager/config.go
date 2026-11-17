@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -44,6 +45,9 @@ const (
 	// reported by the deprecated mobile admin URL getters.
 	DefaultAdminURL = "https://app.netbird.io:443"
 )
+
+// utunNameRe matches the only interface names macOS accepts: utun plus the unit number.
+var utunNameRe = regexp.MustCompile(`^utun\d+$`)
 
 // mgmProber is the subset of management client needed for URL migration probes.
 type mgmProber interface {
@@ -1021,6 +1025,79 @@ func (config *Config) applyMDMNetworkOverrides(policy *mdm.Policy) {
 	applyMDMBool(policy, mdm.KeyDisableNotifications, func(v bool) { config.DisableNotifications = &v })
 	applyMDMBool(policy, mdm.KeyNetworkMonitor, func(v bool) { config.NetworkMonitor = &v })
 	applyMDMBool(policy, mdm.KeyDisableIPv6Discovery, func(v bool) { config.DisableIPv6Discovery = v })
+
+	config.applyMDMInterfaceName(policy)
+	config.applyMDMMTU(policy)
+	config.applyMDMDNSRouteInterval(policy)
+	config.applyMDMNATExternalIPs(policy)
+}
+
+// applyMDMInterfaceName enforces the interface name. A value the platform
+// cannot use is skipped, so the interface keeps coming up under the old name.
+func (config *Config) applyMDMInterfaceName(policy *mdm.Policy) {
+	v, ok := policy.GetString(mdm.KeyInterfaceName)
+	if !ok {
+		return
+	}
+	if err := validateInterfaceName(v); err != nil {
+		log.Warnf("MDM %s %q invalid: %v; keeping previous value", mdm.KeyInterfaceName, v, err)
+		return
+	}
+	config.WgIface = v
+	logMDMApplied(mdm.KeyInterfaceName, v)
+}
+
+func (config *Config) applyMDMMTU(policy *mdm.Policy) {
+	v, ok := policy.GetInt(mdm.KeyMTU)
+	if !ok {
+		return
+	}
+	if v < iface.MinMTU || v > iface.MaxMTU {
+		log.Warnf("MDM %s %d out of range [%d,%d]; keeping previous value", mdm.KeyMTU, v, iface.MinMTU, iface.MaxMTU)
+		return
+	}
+	config.MTU = uint16(v)
+	logMDMApplied(mdm.KeyMTU, v)
+}
+
+func (config *Config) applyMDMDNSRouteInterval(policy *mdm.Policy) {
+	if !policy.HasKey(mdm.KeyDNSRouteInterval) {
+		return
+	}
+	v, ok := policy.GetDuration(mdm.KeyDNSRouteInterval)
+	if !ok || v <= 0 {
+		log.Warnf("MDM %s is not a positive duration such as \"1m30s\"; keeping previous value", mdm.KeyDNSRouteInterval)
+		return
+	}
+	config.DNSRouteInterval = v
+	logMDMApplied(mdm.KeyDNSRouteInterval, v)
+}
+
+// applyMDMNATExternalIPs replaces the mappings. Malformed entries are left to
+// the engine, which already skips and logs them when it parses the list.
+func (config *Config) applyMDMNATExternalIPs(policy *mdm.Policy) {
+	if !policy.HasKey(mdm.KeyNATExternalIPs) {
+		return
+	}
+	values, ok := policy.GetStringSlice(mdm.KeyNATExternalIPs)
+	if !ok {
+		log.Warnf("MDM %s is not a list of mappings; ignoring it", mdm.KeyNATExternalIPs)
+		return
+	}
+	config.NATExternalIPs = mdm.SplitList(values)
+	logMDMApplied(mdm.KeyNATExternalIPs, config.NATExternalIPs)
+}
+
+// validateInterfaceName mirrors the CLI rule: macOS only accepts utun names.
+func isUtunName(name string) bool {
+	return utunNameRe.MatchString(name)
+}
+
+func validateInterfaceName(name string) error {
+	if runtime.GOOS == "darwin" && !isUtunName(name) {
+		return fmt.Errorf("macOS needs the utun prefix followed by a number, e.g. utun100")
+	}
+	return nil
 }
 
 // logMDMApplied logs the application of a single MDM-managed key. Values for

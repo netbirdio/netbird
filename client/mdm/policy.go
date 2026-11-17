@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -110,6 +111,12 @@ const (
 	// KeyDisableIPv6Discovery has no RPC or CLI surface, so it is never
 	// rejected; it only overrides the value in the profile file.
 	KeyDisableIPv6Discovery = "disableIPv6Discovery"
+	KeyInterfaceName        = "interfaceName"
+	KeyMTU                  = "mtu"
+	// KeyDNSRouteInterval is read as a Go duration string such as "1m30s".
+	KeyDNSRouteInterval = "dnsRouteInterval"
+	// KeyNATExternalIPs is read as a list or a comma-separated string.
+	KeyNATExternalIPs = "natExternalIPs"
 )
 
 // Split-tunnel mode literals (KeySplitTunnelMode values).
@@ -358,6 +365,20 @@ func (p *Policy) GetStringSlice(key string) ([]string, bool) {
 		return []string{t}, true
 	}
 	return nil, false
+}
+
+// GetDuration returns the managed value for key parsed as a Go duration
+// string ("90s", "1m30s"), and whether the key was set to a valid one.
+func (p *Policy) GetDuration(key string) (time.Duration, bool) {
+	s, ok := p.GetString(key)
+	if !ok {
+		return 0, false
+	}
+	d, err := time.ParseDuration(strings.TrimSpace(s))
+	if err != nil {
+		return 0, false
+	}
+	return d, true
 }
 
 // SplitList flattens comma-separated values into trimmed, non-empty, unique

@@ -2,6 +2,8 @@ package mdm
 
 import (
 	"net/url"
+	"slices"
+	"time"
 
 	"github.com/netbirdio/netbird/util"
 )
@@ -73,6 +75,37 @@ func ConflictInt64(key string, p *int64) ConflictCheck {
 				return true
 			}
 			want, ok := pol.GetInt(key)
+			return ok && want == *p
+		},
+	}
+}
+
+// ConflictStringSlice builds a ConflictCheck for a list MDM key. A nil got
+// means "field not set"; an empty non-nil got is a request to clear the list.
+// Entries are compared as SplitList normalizes them, in order.
+func ConflictStringSlice(key string, got []string) ConflictCheck {
+	return ConflictCheck{
+		Key: key,
+		Check: func(pol *Policy) bool {
+			if got == nil {
+				return true
+			}
+			want, ok := pol.GetStringSlice(key)
+			return ok && slices.Equal(SplitList(want), SplitList(got))
+		},
+	}
+}
+
+// ConflictDuration builds a ConflictCheck for a duration MDM key, whose policy
+// value is a Go duration string such as "1m30s".
+func ConflictDuration(key string, p *time.Duration) ConflictCheck {
+	return ConflictCheck{
+		Key: key,
+		Check: func(pol *Policy) bool {
+			if p == nil {
+				return true
+			}
+			want, ok := pol.GetDuration(key)
 			return ok && want == *p
 		},
 	}
