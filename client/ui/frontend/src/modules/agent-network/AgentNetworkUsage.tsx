@@ -299,14 +299,6 @@ const LimitHalf = ({ unit, limit, now, className }: HalfProps) => {
             cap: formatAmount(unit, limit.cap, lang, false),
         },
     );
-    const source =
-        limit.source === "account_rule"
-            ? t("agentNetwork.limit.accountRule", { name: limit.sourceName || limit.sourceId })
-            : t("agentNetwork.limit.policy", { name: limit.sourceName || limit.sourceId });
-    const scope =
-        limit.scope === "group"
-            ? t("agentNetwork.limit.group", { name: limit.groupName || limit.groupId })
-            : t("agentNetwork.limit.you");
     const used = t("agentNetwork.limit.used", {
         used: formatAmount(unit, limit.used, lang, true),
     });
@@ -314,38 +306,26 @@ const LimitHalf = ({ unit, limit, now, className }: HalfProps) => {
 
     return (
         <div className={cn("min-w-0 text-xs", className)}>
-            <Tooltip
-                content={
-                    <span className={"block max-w-[260px] leading-snug"}>
-                        <span className={"block tabular-nums"}>{exact}</span>
-                        <span className={"block break-words"}>{source}</span>
-                        <span className={"block break-words"}>{scope}</span>
-                    </span>
-                }
+            <div className={"flex items-baseline gap-2"}>
+                <span className={"min-w-0 flex-1 truncate text-nb-gray-200"}>{label}</span>
+                <span className={"shrink-0 text-nb-gray-300 tabular-nums"}>
+                    {formatAmount(unit, limit.cap, lang, true)}
+                </span>
+            </div>
+            <div
+                role={"progressbar"}
+                aria-label={label}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={percent}
+                aria-valuetext={exact}
+                className={"mt-1.5 h-1.5 overflow-hidden rounded-full bg-nb-gray-900"}
             >
-                <div>
-                    <div className={"flex items-baseline gap-2"}>
-                        <span className={"min-w-0 flex-1 truncate text-nb-gray-200"}>{label}</span>
-                        <span className={"shrink-0 text-nb-gray-300 tabular-nums"}>
-                            {formatAmount(unit, limit.cap, lang, true)}
-                        </span>
-                    </div>
-                    <div
-                        role={"progressbar"}
-                        aria-label={label}
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                        aria-valuenow={percent}
-                        aria-valuetext={exact}
-                        className={"mt-1.5 h-1.5 overflow-hidden rounded-full bg-nb-gray-900"}
-                    >
-                        <div
-                            className={cn("h-full rounded-full transition-all", barColor(ratio))}
-                            style={{ width: `${percent}%` }}
-                        />
-                    </div>
-                </div>
-            </Tooltip>
+                <div
+                    className={cn("h-full rounded-full transition-all", barColor(ratio))}
+                    style={{ width: `${percent}%` }}
+                />
+            </div>
             <p className={"mt-1.5 truncate text-nb-gray-400 tabular-nums"}>
                 {used}
                 {resets && (

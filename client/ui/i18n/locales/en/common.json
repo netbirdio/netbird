@@ -1951,22 +1951,6 @@
         "message": "{used} used",
         "description": "How much of a limit is used so far. {used} is a formatted number or US dollar amount, possibly abbreviated like 8.4M; keep it."
     },
-    "agentNetwork.limit.policy": {
-        "message": "Policy · {name}",
-        "description": "Tooltip line naming the Agent Networks policy a limit comes from. {name} is the policy name; keep it."
-    },
-    "agentNetwork.limit.accountRule": {
-        "message": "Account rule · {name}",
-        "description": "Tooltip line naming the account-wide budget rule a limit comes from. {name} is the rule name; keep it."
-    },
-    "agentNetwork.limit.you": {
-        "message": "Applies to you",
-        "description": "Tooltip line saying who a limit applies to: the user alone."
-    },
-    "agentNetwork.limit.group": {
-        "message": "Applies to group {name}",
-        "description": "Tooltip line saying who a limit applies to: a shared group pool. {name} is the group name; keep it."
-    },
     "agentNetwork.limit.usedOfCapTokens": {
         "message": "{used} / {cap} tokens",
         "description": "Tooltip with the exact tokens used of a limit. {used} and {cap} are formatted numbers; keep both."
