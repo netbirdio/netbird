@@ -17,7 +17,7 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
         skip_ui_mode: [true, false]
         install_binary: [true, false]
     runs-on: ${{ matrix.os }}
@@ -40,5 +40,36 @@ jobs:
         run: command -v netbird
 
       - name: check ui binary
-        if: ${{ runner.os == 'Linux' && !matrix.skip_ui_mode }}
+        if: ${{ runner.os == 'Linux' && runner.arch != 'ARM64' && !matrix.skip_ui_mode }}
         run: command -v netbird-ui
+
+  test-install-script-arm64-ui-unavailable:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: run install script
+        shell: bash
+        env:
+          # Pinned to a release that ships no Linux arm64 UI archive, so the UI
+          # download keeps failing here after newer releases start shipping one.
+          NETBIRD_RELEASE: v0.83.1
+          USE_BIN_INSTALL: true
+          SKIP_UI_APP: false
+          XDG_CURRENT_DESKTOP: none
+          GITHUB_TOKEN: ${{ secrets.RO_API_CALLER_TOKEN }}
+        run: sh -x release_files/install.sh 2>&1 | tee install.log
+
+      - name: check cli binary
+        run: command -v netbird
+
+      - name: check ui install was skipped with a warning
+        run: |
+          grep -q "Continuing with the NetBird CLI only" install.log
+          if command -v netbird-ui; then
+            echo "netbird-ui must not be installed when its download fails"
+            exit 1
+          fi
