@@ -311,11 +311,7 @@ func (conn *Conn) Close(signalToRemote bool) {
 	conn.Log.Infof("close peer connection")
 	conn.ctxCancel()
 
-	if conn.wgWatcherCancel != nil {
-		conn.wgWatcherCancel()
-		conn.wgWatcher = nil
-		conn.wgWatcherCancel = nil
-	}
+	conn.dropWgWatcher()
 	conn.workerRelay.CloseConn()
 	if conn.workerICE != nil {
 		conn.workerICE.Close()
