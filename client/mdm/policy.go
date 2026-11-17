@@ -88,6 +88,13 @@ const (
 	// as a string; must be an https URL with a host. Absent = defer to the
 	// management-supplied URL (or the default upload server).
 	KeyBundleUploadURL = "debugBundleUploadURL"
+
+	// KeyDisableUpdateNotifications stops the daemon from announcing new
+	// client versions, so the UI shows no update indicator, tray icon or
+	// notification. Read as a bool; absent or false = announce as usual.
+	// Daemon-only: NOT stored on Config. Detection and management-driven
+	// installs are unaffected.
+	KeyDisableUpdateNotifications = "disableUpdateNotifications"
 )
 
 // Split-tunnel mode literals (KeySplitTunnelMode values).

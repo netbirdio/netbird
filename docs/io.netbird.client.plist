@@ -111,6 +111,8 @@
          disableUpdateSettings   : block every config change from UI and CLI
                                    on this device (Settings view stays
                                    readable but read-only).
+         disableUpdateNotifications: never announce new client versions (no
+                                   update indicator, tray icon or notification).
          disableProfiles         : hide the profile menu, reject profile CRUD.
          disableNetworks         : hide the Networks / Exit Node menus,
                                    reject the related RPCs.
@@ -121,6 +123,9 @@
          disableMetricsCollection: opt out of anonymous usage telemetry. -->
     <!--
     <key>disableUpdateSettings</key>
+    <true/>
+
+    <key>disableUpdateNotifications</key>
     <true/>
 
     <key>disableProfiles</key>

@@ -271,6 +271,7 @@ func (s *Server) Start() error {
 		stateMgr := statemanager.New(s.profileManager.GetStatePath())
 		s.updateManager = updater.NewManager(s.rootCtx, s.statusRecorder, stateMgr)
 		s.updateManager.CheckUpdateSuccess(s.rootCtx)
+		s.updateManager.SetNotificationsDisabled(s.checkUpdateNotificationsDisabled)
 	}
 
 	// MDM policy reload ticker: every minute the desktop daemon re-reads
@@ -2889,6 +2890,23 @@ func (s *Server) checkUpdateSettingsDisabled() bool {
 		}
 	}
 	return s.updateSettingsDisabled
+}
+
+// checkUpdateNotificationsDisabled reports whether the active MDM policy
+// suppresses new-version announcements. It reads the live policy on every call
+// so a policy reload takes effect without restarting the update manager. It is
+// called from the update manager's goroutine, so it takes s.mutex itself and
+// must not be called with s.mutex held.
+func (s *Server) checkUpdateNotificationsDisabled() bool {
+	s.mutex.Lock()
+	cfg := s.config
+	s.mutex.Unlock()
+
+	if cfg == nil {
+		return false
+	}
+	disabled, ok := cfg.Policy().GetBool(mdm.KeyDisableUpdateNotifications)
+	return ok && disabled
 }
 
 func (s *Server) startUpdateManagerForGUI() {
