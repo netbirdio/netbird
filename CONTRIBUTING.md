@@ -190,7 +190,7 @@ Follow the installation guide from https://docs.docker.com/get-docker/
 
 We utilize two tools in our Github actions workflows:
 - Goreleaser: Used for release packaging. You can follow the installation steps [here](https://goreleaser.com/install/); keep in mind to match the version defined in [release.yml](/.github/workflows/release.yml)
-- golangci-lint: Used for linting checks. You can follow the installation steps [here](https://golangci-lint.run/usage/install/); keep in mind to match the version defined in [golangci-lint.yml](/.github/workflows/golangci-lint.yml)
+- golangci-lint: Used for linting checks. You can follow the installation steps [here](https://golangci-lint.run/docs/welcome/install/); keep in mind to match the version defined in [golangci-lint.yml](/.github/workflows/golangci-lint.yml)
 
 They can be executed from the repository root before every push or PR:
 
