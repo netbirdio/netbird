@@ -12,7 +12,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
-	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
@@ -47,7 +46,7 @@ func (s *Server) CleanState(ctx context.Context, req *proto.CleanStateRequest) (
 
 	if req.All {
 		// Reuse existing cleanup logic for all states
-		if err := restoreResidualState(ctx, statePath); err != nil {
+		if err := RestoreResidualState(ctx, statePath); err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to clean all states: %v", err)
 		}
 
@@ -114,9 +113,9 @@ func (s *Server) DeleteState(ctx context.Context, req *proto.DeleteStateRequest)
 	}, nil
 }
 
-// restoreResidualState checks if the client was not shut down in a clean way and restores residual if required.
+// RestoreResidualState checks if the client was not shut down in a clean way and restores residual if required.
 // Otherwise, we might not be able to connect to the management server to retrieve new config.
-func restoreResidualState(ctx context.Context, statePath string) error {
+func RestoreResidualState(ctx context.Context, statePath string) error {
 	if statePath == "" {
 		return nil
 	}
@@ -138,10 +137,8 @@ func restoreResidualState(ctx context.Context, statePath string) error {
 	}
 
 	// clean up any remaining routes independently of the state file
-	if !nbnet.AdvancedRouting() {
-		if err := systemops.New(nil, nil).FlushMarkedRoutes(); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("flush marked routes: %w", err))
-		}
+	if err := systemops.New(nil, nil).FlushMarkedRoutes(); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("flush marked routes: %w", err))
 	}
 
 	return nberrors.FormatErrorOrNil(merr)

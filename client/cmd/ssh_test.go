@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"bytes"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -527,10 +529,10 @@ func TestParsePortForward(t *testing.T) {
 		{
 			name:           "wildcard bind all interfaces",
 			spec:           "*:8080:localhost:80",
-			expectedLocal:  "0.0.0.0:8080",
+			expectedLocal:  ":8080",
 			expectedRemote: "localhost:80",
 			expectError:    false,
-			description:    "Wildcard * should bind to all interfaces (0.0.0.0)",
+			description:    "Wildcard * should bind to all interfaces (dual-stack)",
 		},
 		{
 			name:           "wildcard for port only",
@@ -712,6 +714,61 @@ func TestSSHCommand_InvalidFlagRejection(t *testing.T) {
 
 			// Should not have set host to the invalid flag
 			assert.NotEqual(t, tt.args[0], host, "Invalid flag should not be interpreted as hostname")
+		})
+	}
+}
+
+func TestSSHCommand_DeprecatedLoginFlag(t *testing.T) {
+	tests := []struct {
+		name         string
+		args         []string
+		expectedUser string
+		expectWarn   bool
+	}{
+		{
+			name:         "login sets the username and warns",
+			args:         []string{"--login", "alice", "hostname"},
+			expectedUser: "alice",
+			expectWarn:   true,
+		},
+		{
+			name:         "user takes priority over login",
+			args:         []string{"--user", "bob", "--login", "alice", "hostname"},
+			expectedUser: "bob",
+			expectWarn:   true,
+		},
+		{
+			name:         "empty login still warns",
+			args:         []string{"--login=", "hostname"},
+			expectedUser: "",
+			expectWarn:   true,
+		},
+		{
+			name:         "user does not warn",
+			args:         []string{"--user", "bob", "hostname"},
+			expectedUser: "bob",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			username = ""
+
+			var stderr bytes.Buffer
+			cmd := &cobra.Command{Use: "ssh"}
+			cmd.SetErr(&stderr)
+
+			require.NoError(t, validateSSHArgsWithoutFlagParsing(cmd, tt.args))
+
+			// An empty --login falls back to the invoking user, which differs per host.
+			if tt.expectedUser != "" {
+				assert.Equal(t, tt.expectedUser, username, "resolved username")
+			}
+			if tt.expectWarn {
+				assert.Equal(t, "Flag --login has been deprecated, use --user instead\n", stderr.String(), "deprecation notice")
+			} else {
+				assert.Empty(t, stderr.String(), "no deprecation notice")
+			}
 		})
 	}
 }

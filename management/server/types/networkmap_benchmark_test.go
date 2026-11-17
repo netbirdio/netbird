@@ -86,6 +86,43 @@ func BenchmarkNetworkMapGeneration_AllPeers(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for range b.N {
+				account.PrecomputePostureValidation(ctx)
+				for _, peerID := range peerIDs {
+					_ = account.GetPeerNetworkMapFromComponents(ctx, peerID, nbdns.CustomZone{}, nil, validatedPeers, resourcePolicies, routers, nil, groupIDToUserIDs)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkNetworkMapGeneration_AllPeersPostureChecks benchmarks the UpdateAccountPeers
+// hot path with a posture check attached to the account-wide policy, so posture
+// validation runs for every source peer of every target peer's map.
+func BenchmarkNetworkMapGeneration_AllPeersPostureChecks(b *testing.B) {
+	skipCIBenchmark(b)
+	scales := []benchmarkScale{
+		{"500peers_20groups", 500, 20},
+		{"1000peers_50groups", 1000, 50},
+	}
+
+	for _, scale := range scales {
+		account, validatedPeers := scalableTestAccount(scale.peers, scale.groups)
+		account.Policies[0].SourcePostureChecks = []string{"posture-check-ver"}
+		ctx := context.Background()
+
+		peerIDs := make([]string, 0, len(account.Peers))
+		for peerID := range account.Peers {
+			peerIDs = append(peerIDs, peerID)
+		}
+
+		b.Run("components/"+scale.name, func(b *testing.B) {
+			resourcePolicies := account.GetResourcePoliciesMap()
+			routers := account.GetResourceRoutersMap()
+			groupIDToUserIDs := account.GetActiveGroupUsers()
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				account.PrecomputePostureValidation(ctx)
 				for _, peerID := range peerIDs {
 					_ = account.GetPeerNetworkMapFromComponents(ctx, peerID, nbdns.CustomZone{}, nil, validatedPeers, resourcePolicies, routers, nil, groupIDToUserIDs)
 				}

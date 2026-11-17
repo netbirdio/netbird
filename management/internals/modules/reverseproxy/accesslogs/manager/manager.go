@@ -7,7 +7,9 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	"github.com/netbirdio/netbird/management/internals/shared/db"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -17,22 +19,30 @@ import (
 )
 
 type managerImpl struct {
+	repo               accesslogs.Repository
 	store              store.Store
 	permissionsManager permissions.Manager
 	geo                geolocation.Geolocation
 	cleanupCancel      context.CancelFunc
 }
 
-func NewManager(store store.Store, permissionsManager permissions.Manager, geo geolocation.Geolocation) accesslogs.Manager {
+func NewManager(repo accesslogs.Repository, store store.Store, permissionsManager permissions.Manager, geo geolocation.Geolocation) accesslogs.Manager {
 	return &managerImpl{
+		repo:               repo,
 		store:              store,
 		permissionsManager: permissionsManager,
 		geo:                geo,
 	}
 }
 
-// SaveAccessLog saves an access log entry to the database after enriching it
+// SaveAccessLog saves an access log entry to the database after enriching it.
+// Agent-network entries are flattened into their own dedicated table (queryable
+// LLM columns + group child rows) instead of the shared reverse-proxy table.
 func (m *managerImpl) SaveAccessLog(ctx context.Context, logEntry *accesslogs.AccessLogEntry) error {
+	if logEntry.AgentNetwork {
+		return agentnetwork.IngestAccessLog(ctx, m.store, logEntry)
+	}
+
 	if m.geo != nil && logEntry.GeoLocation.ConnectionIP != nil {
 		location, err := m.geo.Lookup(logEntry.GeoLocation.ConnectionIP)
 		if err != nil {
@@ -47,7 +57,7 @@ func (m *managerImpl) SaveAccessLog(ctx context.Context, logEntry *accesslogs.Ac
 		}
 	}
 
-	if err := m.store.CreateAccessLog(ctx, logEntry); err != nil {
+	if err := m.repo.Create(ctx, logEntry); err != nil {
 		log.WithContext(ctx).WithFields(log.Fields{
 			"service_id": logEntry.ServiceID,
 			"method":     logEntry.Method,
@@ -63,7 +73,7 @@ func (m *managerImpl) SaveAccessLog(ctx context.Context, logEntry *accesslogs.Ac
 
 // GetAllAccessLogs retrieves access logs for an account with pagination and filtering
 func (m *managerImpl) GetAllAccessLogs(ctx context.Context, accountID, userID string, filter *accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
 	if err != nil {
 		return nil, 0, status.NewPermissionValidationError(err)
 	}
@@ -75,7 +85,7 @@ func (m *managerImpl) GetAllAccessLogs(ctx context.Context, accountID, userID st
 		log.WithContext(ctx).Warnf("failed to resolve user filters: %v", err)
 	}
 
-	logs, totalCount, err := m.store.GetAccountAccessLogs(ctx, store.LockingStrengthNone, accountID, *filter)
+	logs, totalCount, err := m.repo.ListByAccount(ctx, db.LockingStrengthNone, accountID, *filter)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -91,7 +101,7 @@ func (m *managerImpl) CleanupOldAccessLogs(ctx context.Context, retentionDays in
 	}
 
 	cutoffTime := time.Now().AddDate(0, 0, -retentionDays)
-	deletedCount, err := m.store.DeleteOldAccessLogs(ctx, cutoffTime)
+	deletedCount, err := m.repo.DeleteOlderThan(ctx, cutoffTime)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to cleanup old access logs: %v", err)
 		return 0, err

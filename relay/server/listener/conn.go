@@ -11,4 +11,8 @@ type Conn interface {
 	Write(ctx context.Context, b []byte) (n int, err error)
 	RemoteAddr() net.Addr
 	Close() error
+	// Protocol returns the transport name.
+	Protocol() string
+	// MaxMessageSize returns the largest message a single Write carries.
+	MaxMessageSize() int
 }

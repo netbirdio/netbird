@@ -35,7 +35,7 @@ func (Password) Type() auth.Method {
 // so that it can be injected into a request from the UI so that
 // authentication may be successful.
 func (p Password) Authenticate(r *http.Request) (string, string, error) {
-	password := r.FormValue(passwordFormId)
+	password := credentialFormValue(r, passwordFormId)
 
 	if password == "" {
 		// No password submitted; return the form ID so the UI can prompt the user.

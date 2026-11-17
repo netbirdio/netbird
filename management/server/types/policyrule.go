@@ -1,41 +1,14 @@
 package types
 
 import (
-	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/management/server/util"
 )
 
 // PolicyUpdateOperationType operation type
 type PolicyUpdateOperationType int
 
-// PolicyTrafficActionType action type for the firewall
-type PolicyTrafficActionType string
-
-// PolicyRuleProtocolType type of traffic
-type PolicyRuleProtocolType string
-
 // PolicyRuleDirection direction of traffic
 type PolicyRuleDirection string
-
-// RulePortRange represents a range of ports for a firewall rule.
-type RulePortRange struct {
-	Start uint16
-	End   uint16
-}
-
-func (r *RulePortRange) ToProto() *proto.PortInfo {
-	return &proto.PortInfo{
-		PortSelection: &proto.PortInfo_Range_{
-			Range: &proto.PortInfo_Range{
-				Start: uint32(r.Start),
-				End:   uint32(r.End),
-			},
-		},
-	}
-}
-
-func (r *RulePortRange) Equal(other *RulePortRange) bool {
-	return r.Start == other.Start && r.End == other.End
-}
 
 // PolicyRule is the metadata of the policy
 type PolicyRule struct {
@@ -117,4 +90,43 @@ func (pm *PolicyRule) Copy() *PolicyRule {
 		copy(rule.AuthorizedGroups[k], v)
 	}
 	return rule
+}
+
+func (pm *PolicyRule) Equal(other *PolicyRule) bool {
+	if pm == nil || other == nil {
+		return pm == other
+	}
+
+	if pm.ID != other.ID ||
+		pm.PolicyID != other.PolicyID ||
+		pm.Name != other.Name ||
+		pm.Description != other.Description ||
+		pm.Enabled != other.Enabled ||
+		pm.Action != other.Action ||
+		pm.Bidirectional != other.Bidirectional ||
+		pm.Protocol != other.Protocol ||
+		pm.SourceResource != other.SourceResource ||
+		pm.DestinationResource != other.DestinationResource ||
+		pm.AuthorizedUser != other.AuthorizedUser {
+		return false
+	}
+
+	return util.ElementsMatch(pm.Sources, other.Sources) &&
+		util.ElementsMatch(pm.Destinations, other.Destinations) &&
+		util.ElementsMatch(pm.Ports, other.Ports) &&
+		util.ElementsMatch(pm.PortRanges, other.PortRanges) &&
+		authorizedGroupsEqual(pm.AuthorizedGroups, other.AuthorizedGroups)
+}
+
+func authorizedGroupsEqual(a, b map[string][]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, va := range a {
+		vb, ok := b[k]
+		if !ok || !util.ElementsMatch(va, vb) {
+			return false
+		}
+	}
+	return true
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/shared/hash/argon2id"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -61,15 +62,243 @@ func TestValidate_InvalidTargetType(t *testing.T) {
 
 func TestValidate_ResourceTarget(t *testing.T) {
 	rp := validProxy()
+	resourcePath := "/resource"
 	rp.Targets = append(rp.Targets, &Target{
 		TargetId:   "resource-1",
 		TargetType: TargetTypeHost,
+		Path:       &resourcePath,
 		Host:       "example.org",
 		Port:       443,
 		Protocol:   "https",
 		Enabled:    true,
 	})
 	require.NoError(t, rp.Validate())
+}
+
+func TestValidateTargetAccessAction(t *testing.T) {
+	t.Run("valid actions", func(t *testing.T) {
+		for _, action := range []TargetAccessAction{
+			TargetAccessActionInherit,
+			TargetAccessActionBypass,
+			TargetAccessActionBlock,
+		} {
+			rp := validProxy()
+			rp.Targets[0].AccessAction = action
+			require.NoError(t, rp.Validate(), "action %q should be valid", action)
+		}
+	})
+
+	t.Run("unknown action", func(t *testing.T) {
+		rp := validProxy()
+		rp.Targets[0].AccessAction = "allow"
+		assert.ErrorContains(t, rp.Validate(), `unknown access_action "allow"`)
+	})
+
+	t.Run("explicit empty action", func(t *testing.T) {
+		rp := validProxy()
+		rp.Targets[0].AccessActionProvided = true
+		assert.ErrorContains(t, rp.Validate(), `unknown access_action ""`)
+	})
+
+	t.Run("private bypass", func(t *testing.T) {
+		rp := validProxy()
+		rp.Private = true
+		rp.AccessGroups = []string{"group-1"}
+		rp.Targets[0].AccessAction = TargetAccessActionBypass
+		assert.ErrorContains(t, rp.Validate(), "not supported for private services")
+	})
+
+	t.Run("Agent Network bypass", func(t *testing.T) {
+		rp := validProxy()
+		rp.Targets[0].AccessAction = TargetAccessActionBypass
+		rp.Targets[0].Options.AgentNetwork = true
+		assert.ErrorContains(t, rp.Validate(), "not supported for Agent Network targets")
+	})
+
+	t.Run("block remains available to private services", func(t *testing.T) {
+		rp := validProxy()
+		rp.Private = true
+		rp.AccessGroups = []string{"group-1"}
+		rp.Targets[0].AccessAction = TargetAccessActionBlock
+		require.NoError(t, rp.Validate())
+	})
+
+	t.Run("non HTTP service", func(t *testing.T) {
+		rp := validProxy()
+		rp.Mode = ModeTCP
+		rp.ListenPort = 8080
+		rp.Targets[0].Protocol = TargetProtoTCP
+		rp.Targets[0].AccessAction = TargetAccessActionBlock
+		assert.ErrorContains(t, rp.Validate(), "only supported for HTTP services")
+	})
+
+	t.Run("nil non HTTP target", func(t *testing.T) {
+		rp := validProxy()
+		rp.Mode = ModeTCP
+		rp.ListenPort = 8080
+		rp.Targets[0] = nil
+		assert.ErrorContains(t, rp.Validate(), "target 0 is nil")
+	})
+}
+
+func TestValidateTargetAccessActionPath(t *testing.T) {
+	for _, value := range []string{"api", "/api/../admin", "/api/./admin", "/api//admin", "/api%2Fadmin", `/api\admin`, "/api?x=1", "/api#fragment", "/api;admin", "/api/\x00"} {
+		t.Run(fmt.Sprintf("path_%q", value), func(t *testing.T) {
+			rp := validProxy()
+			rp.Targets[0].Path = &value
+			rp.Targets[0].AccessAction = TargetAccessActionBypass
+			assert.ErrorContains(t, rp.Validate(), "access_action path")
+		})
+	}
+
+	t.Run("nil path is canonical root", func(t *testing.T) {
+		rp := validProxy()
+		rp.Targets[0].AccessAction = TargetAccessActionBlock
+		require.NoError(t, rp.Validate())
+	})
+
+	t.Run("empty path is legacy root", func(t *testing.T) {
+		value := ""
+		rp := validProxy()
+		rp.Targets[0].Path = &value
+		rp.Targets[0].AccessAction = TargetAccessActionBlock
+		require.NoError(t, rp.Validate())
+	})
+
+	t.Run("trailing slash is a distinct valid prefix", func(t *testing.T) {
+		value := "/api/"
+		rp := validProxy()
+		rp.Targets[0].Path = &value
+		rp.Targets[0].AccessAction = TargetAccessActionBypass
+		require.NoError(t, rp.Validate())
+	})
+}
+
+func TestValidateDuplicateEnabledTargetPaths(t *testing.T) {
+	emptyPath := ""
+	rootPath := "/"
+	rootAliases := []struct {
+		name string
+		path *string
+	}{
+		{name: "nil", path: nil},
+		{name: "empty", path: &emptyPath},
+		{name: "slash", path: &rootPath},
+	}
+
+	for _, alias := range rootAliases {
+		t.Run("legacy all-inherit "+alias.name, func(t *testing.T) {
+			rp := validProxy()
+			rp.Targets = append(rp.Targets, &Target{
+				TargetId:   "peer-2",
+				TargetType: TargetTypePeer,
+				Path:       alias.path,
+				Host:       "10.0.0.2",
+				Port:       443,
+				Protocol:   TargetProtoHTTPS,
+				Enabled:    true,
+			})
+			require.NoError(t, rp.Validate(), "legacy all-inherit path and protocol twins must remain valid")
+		})
+
+		t.Run("access-controlled "+alias.name, func(t *testing.T) {
+			rp := validProxy()
+			rp.Targets = append(rp.Targets, &Target{
+				TargetId:     "peer-2",
+				TargetType:   TargetTypePeer,
+				Path:         alias.path,
+				Host:         "10.0.0.2",
+				Port:         80,
+				Protocol:     TargetProtoHTTP,
+				Enabled:      true,
+				AccessAction: TargetAccessActionBlock,
+			})
+			assert.ErrorContains(t, rp.Validate(), `duplicate path "/"`)
+		})
+	}
+
+	t.Run("access action elsewhere enables strict paths", func(t *testing.T) {
+		publicPath := "/public"
+		rp := validProxy()
+		rp.Targets = append(rp.Targets,
+			&Target{
+				TargetId:   "peer-2",
+				TargetType: TargetTypePeer,
+				Host:       "10.0.0.2",
+				Port:       80,
+				Protocol:   TargetProtoHTTP,
+				Enabled:    true,
+			},
+			&Target{
+				TargetId:     "peer-3",
+				TargetType:   TargetTypePeer,
+				Path:         &publicPath,
+				Host:         "10.0.0.3",
+				Port:         80,
+				Protocol:     TargetProtoHTTP,
+				Enabled:      true,
+				AccessAction: TargetAccessActionBypass,
+			},
+		)
+		assert.ErrorContains(t, rp.Validate(), `duplicate path "/"`)
+	})
+
+	t.Run("disabled action preserves legacy validation", func(t *testing.T) {
+		publicPath := "/public"
+		rp := validProxy()
+		rp.Targets = append(rp.Targets,
+			&Target{
+				TargetId:   "peer-2",
+				TargetType: TargetTypePeer,
+				Host:       "10.0.0.2",
+				Port:       80,
+				Protocol:   TargetProtoHTTP,
+				Enabled:    true,
+			},
+			&Target{
+				TargetId:     "peer-3",
+				TargetType:   TargetTypePeer,
+				Path:         &publicPath,
+				Host:         "10.0.0.3",
+				Port:         80,
+				Protocol:     TargetProtoHTTP,
+				Enabled:      false,
+				AccessAction: TargetAccessActionBlock,
+			},
+		)
+		require.NoError(t, rp.Validate())
+	})
+
+	t.Run("disabled target does not collide", func(t *testing.T) {
+		rp := validProxy()
+		rp.Targets = append(rp.Targets, &Target{
+			TargetId:   "peer-2",
+			TargetType: TargetTypePeer,
+			Host:       "10.0.0.2",
+			Port:       80,
+			Protocol:   TargetProtoHTTP,
+			Enabled:    false,
+		})
+		require.NoError(t, rp.Validate())
+	})
+
+	t.Run("trailing slash remains distinct", func(t *testing.T) {
+		apiPath := "/api"
+		apiSlashPath := "/api/"
+		rp := validProxy()
+		rp.Targets[0].Path = &apiPath
+		rp.Targets = append(rp.Targets, &Target{
+			TargetId:     "peer-2",
+			TargetType:   TargetTypePeer,
+			Path:         &apiSlashPath,
+			Host:         "10.0.0.2",
+			Port:         80,
+			Protocol:     TargetProtoHTTP,
+			Enabled:      true,
+			AccessAction: TargetAccessActionBlock,
+		})
+		require.NoError(t, rp.Validate())
+	})
 }
 
 func TestValidate_MultipleTargetsOneInvalid(t *testing.T) {
@@ -215,6 +444,64 @@ func TestValidateTargetOptions_CustomHeaders(t *testing.T) {
 	})
 }
 
+func TestValidate_DirectUpstreamHost(t *testing.T) {
+	target := Target{TargetId: "id-1", TargetType: TargetTypePeer, Host: "10.0.0.1", Port: 80, Protocol: "http", Enabled: true, Options: TargetOptions{DirectUpstream: true}}
+	assert.ErrorIs(t, validateDirectUpstreamHost(0, targetWithHost(&target, "127.0.0.2")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.NotNil(t, validateDirectUpstreamHost(0, targetWithHost(&target, "127.0.0.2:80")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateDirectUpstreamHost(0, targetWithHost(&target, "::1")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateDirectUpstreamHost(0, targetWithHost(&target, "::1%lo0")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateDirectUpstreamHost(0, targetWithHost(&target, "[::1]")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.NotNil(t, validateDirectUpstreamHost(0, targetWithHost(&target, "[::1]:80")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateDirectUpstreamHost(0, targetWithHost(&target, "[::1%lo0]")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.NotNil(t, validateDirectUpstreamHost(0, targetWithHost(&target, "[::1%lo0]:80")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateDirectUpstreamHost(0, targetWithHost(&target, "169.254.100.100")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateDirectUpstreamHost(0, targetWithHost(&target, "fe80::1")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateDirectUpstreamHost(0, targetWithHost(&target, "[fe80::1]")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateDirectUpstreamHost(0, targetWithHost(&target, "224.100.100.100")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateDirectUpstreamHost(0, targetWithHost(&target, "ff00::ffff")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateDirectUpstreamHost(0, targetWithHost(&target, "[ff00::ffff]")), ErrUnsupportedIPAddressUpstreamHost)
+
+	// empty host
+	assert.Nil(t, validateDirectUpstreamHost(0, &Target{Options: TargetOptions{DirectUpstream: true}, Host: "   "}))
+	// host with a space
+	assert.NotNil(t, validateDirectUpstreamHost(0, &Target{Options: TargetOptions{DirectUpstream: true}, Host: "with space"}))
+	// host with a tab
+	assert.NotNil(t, validateDirectUpstreamHost(0, &Target{Options: TargetOptions{DirectUpstream: true}, Host: "with\ttab"}))
+	// host with a slash
+	assert.NotNil(t, validateDirectUpstreamHost(0, &Target{Options: TargetOptions{DirectUpstream: true}, Host: "with/slash"}))
+}
+
+func TestValidate_ValidateSubnetTarget(t *testing.T) {
+	target := Target{TargetId: "id-1", TargetType: TargetTypeSubnet, Host: "10.0.0.1", Port: 80, Protocol: "http", Enabled: true, Options: TargetOptions{DirectUpstream: true}}
+	assert.ErrorIs(t, validateSubnetTarget(0, targetWithHost(&target, "127.0.0.2")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.NotNil(t, validateSubnetTarget(0, targetWithHost(&target, "127.0.0.2:80")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateSubnetTarget(0, targetWithHost(&target, "::1")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.NotNil(t, validateSubnetTarget(0, targetWithHost(&target, "[::1]:80")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateSubnetTarget(0, targetWithHost(&target, "::1%lo0")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateSubnetTarget(0, targetWithHost(&target, "[::1%lo0]")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.NotNil(t, validateSubnetTarget(0, targetWithHost(&target, "[::1%lo0]:80")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateSubnetTarget(0, targetWithHost(&target, "169.254.100.100")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateSubnetTarget(0, targetWithHost(&target, "fe80::1")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateSubnetTarget(0, targetWithHost(&target, "[fe80::1]")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateSubnetTarget(0, targetWithHost(&target, "224.100.100.100")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateSubnetTarget(0, targetWithHost(&target, "ff00::ffff")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateSubnetTarget(0, targetWithHost(&target, "[ff00::ffff]")), ErrUnsupportedIPAddressUpstreamHost)
+
+	// empty host
+	assert.NotNil(t, validateSubnetTarget(0, &Target{Options: TargetOptions{DirectUpstream: true}, Host: "   "}))
+	// host with a space
+	assert.NotNil(t, validateSubnetTarget(0, &Target{Options: TargetOptions{DirectUpstream: true}, Host: "with space"}))
+	// host with a tab
+	assert.NotNil(t, validateSubnetTarget(0, &Target{Options: TargetOptions{DirectUpstream: true}, Host: "with\ttab"}))
+	// host with a slash
+	assert.NotNil(t, validateSubnetTarget(0, &Target{Options: TargetOptions{DirectUpstream: true}, Host: "with/slash"}))
+}
+
+func targetWithHost(t *Target, host string) *Target {
+	t.Host = host
+	return t
+}
+
 func TestToProtoMapping_TargetOptions(t *testing.T) {
 	rp := &Service{
 		ID:        "svc-1",
@@ -247,6 +534,128 @@ func TestToProtoMapping_TargetOptions(t *testing.T) {
 	assert.Equal(t, map[string]string{"X-Custom": "val"}, opts.CustomHeaders)
 	require.NotNil(t, opts.RequestTimeout)
 	assert.Equal(t, int64(30), opts.RequestTimeout.Seconds)
+}
+
+func TestTargetAccessActionConversions(t *testing.T) {
+	t.Run("API presence", func(t *testing.T) {
+		bypass := api.ServiceTargetAccessActionBypass
+		empty := api.ServiceTargetAccessAction("")
+		apiTargets := []api.ServiceTarget{
+			{
+				TargetId:   "peer-1",
+				TargetType: api.ServiceTargetTargetTypePeer,
+				Protocol:   api.ServiceTargetProtocolHttp,
+				Port:       80,
+				Enabled:    true,
+			},
+			{
+				TargetId:     "peer-2",
+				TargetType:   api.ServiceTargetTargetTypePeer,
+				Protocol:     api.ServiceTargetProtocolHttp,
+				Port:         80,
+				Enabled:      true,
+				AccessAction: &bypass,
+			},
+			{
+				TargetId:     "peer-3",
+				TargetType:   api.ServiceTargetTargetTypePeer,
+				Protocol:     api.ServiceTargetProtocolHttp,
+				Port:         80,
+				Enabled:      true,
+				AccessAction: &empty,
+			},
+		}
+
+		targets, err := targetsFromAPI("account-1", &apiTargets)
+		require.NoError(t, err)
+		require.Len(t, targets, 3)
+		assert.Equal(t, TargetAccessActionInherit, targets[0].AccessAction)
+		assert.False(t, targets[0].AccessActionProvided)
+		assert.Equal(t, TargetAccessActionBypass, targets[1].AccessAction)
+		assert.True(t, targets[1].AccessActionProvided)
+		assert.Empty(t, targets[2].AccessAction)
+		assert.True(t, targets[2].AccessActionProvided)
+
+		rp := &Service{Name: "test", Domain: "example.com", Targets: []*Target{targets[2]}}
+		assert.ErrorContains(t, rp.Validate(), `unknown access_action ""`)
+	})
+
+	t.Run("API response", func(t *testing.T) {
+		rp := validProxy()
+		rp.Targets[0].AccessAction = TargetAccessActionBlock
+		response := rp.ToAPIResponse()
+		require.Len(t, response.Targets, 1)
+		require.NotNil(t, response.Targets[0].AccessAction)
+		assert.Equal(t, api.ServiceTargetAccessActionBlock, *response.Targets[0].AccessAction)
+	})
+
+	t.Run("proto mapping", func(t *testing.T) {
+		root := "/"
+		bypassPath := "/bypass"
+		blockPath := "/block"
+		rp := &Service{
+			ID:        "svc-1",
+			AccountID: "acc-1",
+			Domain:    "example.com",
+			Targets: []*Target{
+				{Path: &root, Host: "10.0.0.1", Port: 80, Protocol: TargetProtoHTTP, Enabled: true},
+				{Path: &bypassPath, Host: "10.0.0.1", Port: 80, Protocol: TargetProtoHTTP, Enabled: true, AccessAction: TargetAccessActionBypass},
+				{Path: &blockPath, Host: "10.0.0.1", Port: 80, Protocol: TargetProtoHTTP, Enabled: true, AccessAction: TargetAccessActionBlock},
+			},
+		}
+
+		mapping := rp.ToProtoMapping(Create, "token", proxy.OIDCValidationConfig{})
+		require.Len(t, mapping.Path, 3)
+		assert.Equal(t, proto.TargetAccessAction_TARGET_ACCESS_ACTION_INHERIT, mapping.Path[0].GetAccessAction())
+		assert.Equal(t, proto.TargetAccessAction_TARGET_ACCESS_ACTION_BYPASS, mapping.Path[1].GetAccessAction())
+		assert.Equal(t, proto.TargetAccessAction_TARGET_ACCESS_ACTION_BLOCK, mapping.Path[2].GetAccessAction())
+	})
+}
+
+func TestHasTargetAccessControl(t *testing.T) {
+	rp := validProxy()
+	assert.False(t, rp.HasTargetAccessControl())
+
+	rp.Targets[0].AccessAction = TargetAccessActionBypass
+	assert.True(t, rp.HasTargetAccessControl())
+}
+
+// TestToProtoMapping_AllowedGroupIds covers the list the proxy gates session
+// cookies on: without it the proxy can only check a cookie's signature, which
+// makes a token minted for a user outside the groups a bearer credential.
+func TestToProtoMapping_AllowedGroupIds(t *testing.T) {
+	t.Run("distribution groups reach the proxy", func(t *testing.T) {
+		rp := &Service{
+			ID:        "svc-1",
+			AccountID: "acc-1",
+			Domain:    "example.com",
+			Auth: AuthConfig{
+				BearerAuth: &BearerAuthConfig{
+					Enabled:            true,
+					DistributionGroups: []string{"grp-1", "grp-2"},
+				},
+			},
+		}
+		pm := rp.ToProtoMapping(Create, "token", proxy.OIDCValidationConfig{})
+
+		assert.True(t, pm.GetAuth().GetOidc())
+		assert.Equal(t, []string{"grp-1", "grp-2"}, pm.GetAuth().GetAllowedGroupIds())
+	})
+
+	t.Run("a service open to the account carries no groups", func(t *testing.T) {
+		rp := &Service{
+			ID:        "svc-1",
+			AccountID: "acc-1",
+			Domain:    "example.com",
+			Auth: AuthConfig{
+				BearerAuth: &BearerAuthConfig{Enabled: true},
+			},
+		}
+		pm := rp.ToProtoMapping(Create, "token", proxy.OIDCValidationConfig{})
+
+		assert.True(t, pm.GetAuth().GetOidc())
+		assert.Empty(t, pm.GetAuth().GetAllowedGroupIds(), "an empty list must not restrict access")
+	})
 }
 
 func TestToProtoMapping_NoOptionsWhenDefault(t *testing.T) {
@@ -350,6 +759,83 @@ func TestToProtoMapping_PortInTargetURL(t *testing.T) {
 			host:       "10.0.0.1",
 			port:       80,
 			wantTarget: "https://10.0.0.1:80/",
+		},
+		{
+			name:       "domain host without port is unchanged",
+			protocol:   "http",
+			host:       "example.com",
+			port:       0,
+			wantTarget: "http://example.com/",
+		},
+		{
+			name:       "domain host with non-default port is unchanged",
+			protocol:   "http",
+			host:       "example.com",
+			port:       8080,
+			wantTarget: "http://example.com:8080/",
+		},
+		{
+			name:       "ipv6 host without port is bracketed",
+			protocol:   "http",
+			host:       "fb00:cafe:1::3",
+			port:       0,
+			wantTarget: "http://[fb00:cafe:1::3]/",
+		},
+		{
+			name:       "ipv6 host with default port omits port and brackets host",
+			protocol:   "http",
+			host:       "fb00:cafe:1::3",
+			port:       80,
+			wantTarget: "http://[fb00:cafe:1::3]/",
+		},
+		{
+			name:       "ipv6 host with non-default port is bracketed",
+			protocol:   "http",
+			host:       "fb00:cafe:1::3",
+			port:       8080,
+			wantTarget: "http://[fb00:cafe:1::3]:8080/",
+		},
+		{
+			name:       "ipv6 loopback without port is bracketed",
+			protocol:   "http",
+			host:       "::1",
+			port:       0,
+			wantTarget: "http://[::1]/",
+		},
+		{
+			name:       "ipv6 host with 5-digit port is bracketed",
+			protocol:   "http",
+			host:       "fb00:cafe::1",
+			port:       18080,
+			wantTarget: "http://[fb00:cafe::1]:18080/",
+		},
+		{
+			name:       "pre-bracketed ipv6 without port stays single-bracketed",
+			protocol:   "http",
+			host:       "[fb00:cafe::1]",
+			port:       0,
+			wantTarget: "http://[fb00:cafe::1]/",
+		},
+		{
+			name:       "pre-bracketed ipv6 with port is not double-bracketed",
+			protocol:   "http",
+			host:       "[fb00:cafe::1]",
+			port:       8080,
+			wantTarget: "http://[fb00:cafe::1]:8080/",
+		},
+		{
+			name:       "v4-mapped ipv6 host without port is bracketed",
+			protocol:   "http",
+			host:       "::ffff:10.0.0.1",
+			port:       0,
+			wantTarget: "http://[::ffff:10.0.0.1]/",
+		},
+		{
+			name:       "full-form 8-group ipv6 without port is bracketed",
+			protocol:   "http",
+			host:       "fb00:cafe:1:0:0:0:0:3",
+			port:       0,
+			wantTarget: "http://[fb00:cafe:1:0:0:0:0:3]/",
 		},
 	}
 	for _, tt := range tests {
@@ -1038,4 +1524,202 @@ func TestValidate_HeaderAuths(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "exceeds maximum length")
 	})
+}
+
+func TestValidate_HTTPClusterTarget(t *testing.T) {
+	rp := validProxy()
+	rp.Targets = []*Target{{
+		TargetId:   "eu.proxy.netbird.io",
+		TargetType: TargetTypeCluster,
+		Protocol:   "http",
+		Host:       "backend.lan",
+		Options:    TargetOptions{DirectUpstream: true},
+		Enabled:    true,
+	}}
+	require.NoError(t, rp.Validate(), "HTTP cluster target with target_id, host, and direct_upstream must validate")
+}
+
+func TestValidate_HTTPClusterTarget_RequiresTargetId(t *testing.T) {
+	rp := validProxy()
+	rp.Targets = []*Target{{
+		TargetType: TargetTypeCluster,
+		Protocol:   "http",
+		Host:       "backend.lan",
+		Options:    TargetOptions{DirectUpstream: true},
+		Enabled:    true,
+	}}
+	assert.ErrorContains(t, rp.Validate(), "empty target_id", "cluster target must reject empty target_id")
+}
+
+// TestValidate_HTTPClusterTarget_RequiresHost pins the new cluster-target
+// rule that operator-supplied Host is mandatory: cluster targets dial the
+// upstream via the host network stack (direct_upstream is implied), so an
+// empty Host leaves the proxy with nothing to dial.
+func TestValidate_HTTPClusterTarget_RequiresHost(t *testing.T) {
+	rp := validProxy()
+	rp.Targets = []*Target{{
+		TargetId:   "eu.proxy.netbird.io",
+		TargetType: TargetTypeCluster,
+		Protocol:   "http",
+		Options:    TargetOptions{DirectUpstream: true},
+		Enabled:    true,
+	}}
+	assert.ErrorContains(t, rp.Validate(), "empty host", "cluster target must reject empty host")
+}
+
+// TestValidate_HTTPClusterTarget_RequiresDirectUpstream pins the second
+// half of the cluster-target rule: DirectUpstream must be true so the
+// stdlib transport branch in MultiTransport is taken. Without it the
+// embedded NetBird client would try to dial the cluster address through
+// the WG tunnel, which is the wrong network for a cluster upstream.
+func TestValidate_HTTPClusterTarget_RequiresDirectUpstream(t *testing.T) {
+	rp := validProxy()
+	rp.Targets = []*Target{{
+		TargetId:   "eu.proxy.netbird.io",
+		TargetType: TargetTypeCluster,
+		Protocol:   "http",
+		Host:       "backend.lan",
+		Enabled:    true,
+	}}
+	assert.ErrorContains(t, rp.Validate(), "direct upstream disabled", "cluster target must reject direct_upstream=false")
+}
+
+// TestValidate_L4ClusterTarget_RequiresPort confirms that an L4 cluster
+// target without an explicit port is rejected. buildPathMappings emits
+// net.JoinHostPort(target.Host, target.Port) for every L4 target — so
+// allowing port=0 would let the proxy ship ":0" upstreams. The port
+// requirement is the same as every other L4 target type.
+func TestValidate_L4ClusterTarget_RequiresPort(t *testing.T) {
+	rp := validProxy()
+	rp.Mode = ModeTCP
+	rp.ListenPort = 9000
+	rp.Targets = []*Target{{
+		TargetId:   "eu.proxy.netbird.io",
+		TargetType: TargetTypeCluster,
+		Protocol:   "tcp",
+		Enabled:    true,
+	}}
+	assert.ErrorContains(t, rp.Validate(), "port is required",
+		"L4 cluster target must require an explicit port like other L4 target types")
+
+	rp.Targets[0].Port = 5432
+	rp.Targets[0].Host = "db.lan"
+	require.NoError(t, rp.Validate(), "L4 cluster target with host:port must validate")
+}
+
+func TestService_Copy_RoundtripsPrivate(t *testing.T) {
+	svc := validProxy()
+	svc.Private = true
+	svc.AccessGroups = []string{"grp-admins", "grp-ops"}
+	cp := svc.Copy()
+	require.NotNil(t, cp)
+	assert.True(t, cp.Private)
+	assert.Equal(t, []string{"grp-admins", "grp-ops"}, cp.AccessGroups)
+
+	cp.Private = false
+	assert.True(t, svc.Private)
+
+	cp.AccessGroups[0] = "grp-other"
+	assert.Equal(t, []string{"grp-admins", "grp-ops"}, svc.AccessGroups)
+}
+
+func TestService_APIRoundtrip_Private(t *testing.T) {
+	enabled := true
+	private := true
+	accessGroups := []string{"grp-admins"}
+	targets := []api.ServiceTarget{{
+		TargetId:   "eu.proxy.netbird.io",
+		TargetType: api.ServiceTargetTargetType("cluster"),
+		Protocol:   "http",
+		Port:       80,
+		Enabled:    true,
+	}}
+	req := &api.ServiceRequest{
+		Name:         "svc-private",
+		Domain:       "myapp.eu.proxy.netbird.io",
+		Enabled:      enabled,
+		Private:      &private,
+		AccessGroups: &accessGroups,
+		Targets:      &targets,
+	}
+
+	svc := &Service{}
+	require.NoError(t, svc.FromAPIRequest(req, "acc-1"))
+	assert.True(t, svc.Private)
+	assert.Equal(t, []string{"grp-admins"}, svc.AccessGroups)
+
+	resp := svc.ToAPIResponse()
+	require.NotNil(t, resp.Private)
+	assert.True(t, *resp.Private)
+	require.NotNil(t, resp.AccessGroups)
+	assert.Equal(t, []string{"grp-admins"}, *resp.AccessGroups)
+}
+
+func TestValidate_Private_RequiresAccessGroups(t *testing.T) {
+	rp := validProxy()
+	rp.Private = true
+	rp.Targets = []*Target{{
+		TargetId:   "eu.proxy.netbird.io",
+		TargetType: TargetTypeCluster,
+		Protocol:   "http",
+		Host:       "backend.lan",
+		Options:    TargetOptions{DirectUpstream: true},
+		Enabled:    true,
+	}}
+	assert.ErrorContains(t, rp.Validate(), "access group")
+}
+
+func TestValidate_Private_RejectsBearerAuth(t *testing.T) {
+	rp := validProxy()
+	rp.Private = true
+	rp.AccessGroups = []string{"grp-admins"}
+	rp.Auth.BearerAuth = &BearerAuthConfig{
+		Enabled:            true,
+		DistributionGroups: []string{"grp-sso"},
+	}
+	rp.Targets = []*Target{{
+		TargetId:   "eu.proxy.netbird.io",
+		TargetType: TargetTypeCluster,
+		Protocol:   "http",
+		Host:       "backend.lan",
+		Options:    TargetOptions{DirectUpstream: true},
+		Enabled:    true,
+	}}
+	assert.ErrorContains(t, rp.Validate(), "mutually exclusive")
+}
+
+func TestValidate_Private_AcceptsNonClusterTargets(t *testing.T) {
+	rp := validProxy()
+	rp.Private = true
+	rp.AccessGroups = []string{"grp-admins"}
+	require.NoError(t, rp.Validate())
+}
+
+func TestValidate_Private_AcceptsClusterTargetWithAccessGroups(t *testing.T) {
+	rp := validProxy()
+	rp.Private = true
+	rp.AccessGroups = []string{"grp-admins"}
+	rp.Targets = []*Target{{
+		TargetId:   "eu.proxy.netbird.io",
+		TargetType: TargetTypeCluster,
+		Protocol:   "http",
+		Host:       "backend.lan",
+		Options:    TargetOptions{DirectUpstream: true},
+		Enabled:    true,
+	}}
+	require.NoError(t, rp.Validate())
+}
+
+func TestValidate_Private_RejectsNonHTTPMode(t *testing.T) {
+	rp := validProxy()
+	rp.Private = true
+	rp.AccessGroups = []string{"grp-admins"}
+	rp.Mode = ModeTCP
+	rp.Targets = []*Target{{
+		TargetId:   "eu.proxy.netbird.io",
+		TargetType: TargetTypeCluster,
+		Protocol:   "tcp",
+		Enabled:    true,
+	}}
+	assert.ErrorContains(t, rp.Validate(), "HTTP")
 }

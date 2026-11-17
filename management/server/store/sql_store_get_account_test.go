@@ -4,6 +4,8 @@ import (
 	"context"
 	"net"
 	"net/netip"
+	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -11,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/integration_reference"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -19,7 +20,69 @@ import (
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/integration_reference"
 )
+
+// TestGetAccount_LoadsCustomDomains verifies GetAccount populates account.Domains.
+// SynthesizePrivateServiceZones depends on this relation to anchor a custom-domain
+// private service's DNS zone; without the preload the relation is empty and the
+// service is silently skipped, so a custom domain never resolves on clients.
+func TestGetAccount_LoadsCustomDomains(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	require.NoError(t, err)
+	defer cleanup()
+
+	assertGetAccountLoadsCustomDomains(t, store)
+}
+
+func TestPostgresql_GetAccount_LoadsCustomDomains(t *testing.T) {
+	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
+		t.Skip("skip CI tests on darwin and windows")
+	}
+
+	t.Setenv("NETBIRD_STORE_ENGINE", string(types.PostgresStoreEngine))
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	assertGetAccountLoadsCustomDomains(t, store)
+}
+
+// assertGetAccountLoadsCustomDomains exercises both the gorm and pgx GetAccount
+// paths: it persists two custom domains and asserts the relation comes back
+// populated, which SynthesizePrivateServiceZones relies on.
+func assertGetAccountLoadsCustomDomains(t *testing.T, store Store) {
+	t.Helper()
+	ctx := context.Background()
+
+	accountID := "acct-custom-domains"
+	require.NoError(t, store.SaveAccount(ctx, newAccountWithId(ctx, accountID, "user-1", "")))
+
+	_, err := store.CreateCustomDomain(ctx, accountID, "example.com", "eu.proxy.netbird.io", true)
+	require.NoError(t, err, "creating the first custom domain must succeed")
+	pending, err := store.CreateCustomDomain(ctx, accountID, "apps.acme.io", "us.proxy.netbird.io", false)
+	require.NoError(t, err, "creating the second custom domain must succeed")
+
+	account, err := store.GetAccount(ctx, accountID)
+	require.NoError(t, err)
+	require.Len(t, account.Domains, 2, "GetAccount must preload the account's custom domains")
+
+	byDomain := map[string]string{}
+	for _, d := range account.Domains {
+		require.NotNil(t, d)
+		byDomain[d.Domain] = d.TargetCluster
+		if d.ID == pending.ID {
+			require.NotNil(t, d.ValidationExpiresAt)
+			assert.WithinDuration(t, *pending.ValidationExpiresAt, *d.ValidationExpiresAt, time.Millisecond, "both account loaders must preserve the validation deadline")
+		}
+	}
+	assert.Equal(t, "eu.proxy.netbird.io", byDomain["example.com"], "custom domain must carry its target cluster")
+	assert.Equal(t, "us.proxy.netbird.io", byDomain["apps.acme.io"], "custom domain must carry its target cluster")
+}
 
 // TestGetAccount_ComprehensiveFieldValidation validates that GetAccount properly loads
 // all fields and nested objects from the database, including deeply nested structures.
@@ -148,7 +211,8 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 		AccountID: accountID,
 		Key:       "peer-key-1-AAAA",
 		Name:      "Peer 1",
-		IP:        net.ParseIP("100.64.0.1"),
+		IP:        netip.MustParseAddr("100.64.0.1"),
+		IPv6:      netip.MustParseAddr("fd00::1"),
 		Meta: nbpeer.PeerSystemMeta{
 			Hostname:      "peer1.example.com",
 			GoOS:          "linux",
@@ -167,9 +231,10 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 			SystemSerialNumber: "ABC123",
 			SystemProductName:  "Server Model X",
 			SystemManufacturer: "Dell Inc.",
+			SystemHardwareUUID: "4C4C4544-0042-3510-8051-B4C04F4E3332",
 		},
 		Status: &nbpeer.PeerStatus{
-			LastSeen:         now.Add(-5 * time.Minute),
+			LastSeen:         now.Add(-1 * time.Minute),
 			Connected:        true,
 			LoginExpired:     false,
 			RequiresApproval: false,
@@ -195,7 +260,8 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 		AccountID: accountID,
 		Key:       "peer-key-2-BBBB",
 		Name:      "Peer 2",
-		IP:        net.ParseIP("100.64.0.2"),
+		IP:        netip.MustParseAddr("100.64.0.2"),
+		IPv6:      netip.MustParseAddr("fd00::2"),
 		Meta: nbpeer.PeerSystemMeta{
 			Hostname:  "peer2.example.com",
 			GoOS:      "darwin",
@@ -232,7 +298,8 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 		AccountID: accountID,
 		Key:       "peer-key-3-CCCC",
 		Name:      "Peer 3 (Ephemeral)",
-		IP:        net.ParseIP("100.64.0.3"),
+		IP:        netip.MustParseAddr("100.64.0.3"),
+		IPv6:      netip.MustParseAddr("fd00::3"),
 		Meta: nbpeer.PeerSystemMeta{
 			Hostname: "peer3.example.com",
 			GoOS:     "windows",
@@ -617,6 +684,13 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 	err = store.SaveAccount(ctx, account)
 	require.NoError(t, err, "Failed to save comprehensive test account")
 
+	require.NoError(t, store.RegisterInstance(ctx, "instance-1", "host"))
+	for _, id := range []string{peerID1, peerID3} {
+		applied, connectErr := store.ConnectPeer(ctx, accountID, id, "instance-1", 1)
+		require.NoError(t, connectErr)
+		require.True(t, applied)
+	}
+
 	// Retrieve the account from the database
 	retrievedAccount, err := store.GetAccount(ctx, accountID)
 	require.NoError(t, err, "Failed to retrieve account")
@@ -710,7 +784,7 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 		require.True(t, exists, "Peer 1 should exist")
 		assert.Equal(t, "Peer 1", p1.Name, "Peer 1 name mismatch")
 		assert.Equal(t, "peer-key-1-AAAA", p1.Key, "Peer 1 key mismatch")
-		assert.True(t, p1.IP.Equal(net.ParseIP("100.64.0.1")), "Peer 1 IP mismatch")
+		assert.Equal(t, netip.MustParseAddr("100.64.0.1"), p1.IP, "Peer 1 IP mismatch")
 		assert.Equal(t, userID1, p1.UserID, "Peer 1 user ID mismatch")
 		assert.True(t, p1.SSHEnabled, "Peer 1 SSH should be enabled")
 		assert.Equal(t, "ssh-rsa AAAAB3NzaC1...", p1.SSHKey, "Peer 1 SSH key mismatch")
@@ -729,6 +803,7 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 		assert.Equal(t, "ABC123", p1.Meta.SystemSerialNumber, "Peer 1 serial number mismatch")
 		assert.Equal(t, "Server Model X", p1.Meta.SystemProductName, "Peer 1 product name mismatch")
 		assert.Equal(t, "Dell Inc.", p1.Meta.SystemManufacturer, "Peer 1 manufacturer mismatch")
+		assert.Equal(t, "4C4C4544-0042-3510-8051-B4C04F4E3332", p1.Meta.SystemHardwareUUID, "Peer 1 hardware UUID mismatch")
 
 		// Validate Network Addresses
 		assert.Len(t, p1.Meta.NetworkAddresses, 2, "Peer 1 should have 2 network addresses")

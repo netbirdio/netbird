@@ -27,7 +27,7 @@ func TestLogin(t *testing.T) {
 	profilemanager.ActiveProfileStatePath = tempDir + "/active_profile.json"
 	sm := profilemanager.ServiceManager{}
 	err = sm.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		Name:     "default",
+		ID:       "default",
 		Username: currUser.Username,
 	})
 	if err != nil {

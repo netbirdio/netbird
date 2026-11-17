@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/util"
 	nbauth "github.com/netbirdio/netbird/shared/auth"
 	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
+	"github.com/netbirdio/netbird/shared/ratelimit"
 )
 
 const (
@@ -103,7 +104,7 @@ func mockMarkPATUsed(_ context.Context, token string) error {
 }
 
 func mockEnsureUserAccessByJWTGroups(_ context.Context, userAuth nbauth.UserAuth, token *jwt.Token) (nbauth.UserAuth, error) {
-	if userAuth.IsChild || userAuth.IsPAT {
+	if userAuth.IsPAT {
 		return userAuth, nil
 	}
 
@@ -196,6 +197,8 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 		GetPATInfoFunc:                  mockGetAccountInfoFromPAT,
 	}
 
+	disabledLimiter := ratelimit.NewAPIRateLimiter(nil)
+	disabledLimiter.SetEnabled(false)
 	authMiddleware := NewAuthMiddleware(
 		mockAuth,
 		func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
@@ -207,6 +210,7 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 		func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 			return &types.User{}, nil
 		},
+		disabledLimiter,
 		nil,
 		nil,
 	)
@@ -238,6 +242,66 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 	}
 }
 
+// TestAuthMiddleware_SyncUserJWTGroupsDetachedFromRequestCancellation ensures the
+// JWT group sync write is not bound to the request context. The dashboard SPA
+// routinely aborts in-flight requests on re-render/navigation; if the sync ran in
+// the request context, the cancellation would roll back the DB transaction and the
+// synced groups would silently never persist. The sync must receive a context that
+// is not cancelled even when the originating request is.
+func TestAuthMiddleware_SyncUserJWTGroupsDetachedFromRequestCancellation(t *testing.T) {
+	var (
+		syncCalled bool
+		syncCtxErr error
+	)
+
+	mockAuth := &auth.MockManager{
+		ValidateAndParseTokenFunc:       mockValidateAndParseToken,
+		EnsureUserAccessByJWTGroupsFunc: mockEnsureUserAccessByJWTGroups,
+		MarkPATUsedFunc:                 mockMarkPATUsed,
+		GetPATInfoFunc:                  mockGetAccountInfoFromPAT,
+	}
+
+	disabledLimiter := ratelimit.NewAPIRateLimiter(nil)
+	disabledLimiter.SetEnabled(false)
+
+	authMiddleware := NewAuthMiddleware(
+		mockAuth,
+		func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
+			return userAuth.AccountId, userAuth.UserId, nil
+		},
+		func(ctx context.Context, userAuth nbauth.UserAuth) error {
+			syncCalled = true
+			syncCtxErr = ctx.Err()
+			return nil
+		},
+		func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
+			return &types.User{}, nil
+		},
+		disabledLimiter,
+		nil,
+		nil,
+	)
+
+	handlerToTest := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+	// Simulate the dashboard aborting the request: it arrives already cancelled.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	req := httptest.NewRequest("GET", "http://testing/test", nil).WithContext(ctx)
+	req.Header.Set("Authorization", "Bearer "+JWT)
+	rec := httptest.NewRecorder()
+
+	handlerToTest.ServeHTTP(rec, req)
+
+	if !syncCalled {
+		t.Fatal("syncUserJWTGroups was not called")
+	}
+	if syncCtxErr != nil {
+		t.Fatalf("syncUserJWTGroups received a cancelled context (%v); the group-sync write must be detached from request cancellation", syncCtxErr)
+	}
+}
+
 func TestAuthMiddleware_RateLimiting(t *testing.T) {
 	mockAuth := &auth.MockManager{
 		ValidateAndParseTokenFunc:       mockValidateAndParseToken,
@@ -248,7 +312,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 
 	t.Run("PAT Token Rate Limiting - Burst Works", func(t *testing.T) {
 		// Configure rate limiter: 10 requests per minute with burst of 5
-		rateLimitConfig := &RateLimiterConfig{
+		rateLimitConfig := &ratelimit.RateLimiterConfig{
 			RequestsPerMinute: 10,
 			Burst:             5,
 			CleanupInterval:   5 * time.Minute,
@@ -266,7 +330,8 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			rateLimitConfig,
+			ratelimit.NewAPIRateLimiter(rateLimitConfig),
+			nil,
 			nil,
 		)
 
@@ -300,7 +365,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 
 	t.Run("PAT Token Rate Limiting - Rate Limit Enforced", func(t *testing.T) {
 		// Configure very low rate limit: 1 request per minute
-		rateLimitConfig := &RateLimiterConfig{
+		rateLimitConfig := &ratelimit.RateLimiterConfig{
 			RequestsPerMinute: 1,
 			Burst:             1,
 			CleanupInterval:   5 * time.Minute,
@@ -318,7 +383,8 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			rateLimitConfig,
+			ratelimit.NewAPIRateLimiter(rateLimitConfig),
+			nil,
 			nil,
 		)
 
@@ -343,7 +409,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 
 	t.Run("Bearer Token Not Rate Limited", func(t *testing.T) {
 		// Configure strict rate limit
-		rateLimitConfig := &RateLimiterConfig{
+		rateLimitConfig := &ratelimit.RateLimiterConfig{
 			RequestsPerMinute: 1,
 			Burst:             1,
 			CleanupInterval:   5 * time.Minute,
@@ -361,7 +427,8 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			rateLimitConfig,
+			ratelimit.NewAPIRateLimiter(rateLimitConfig),
+			nil,
 			nil,
 		)
 
@@ -387,7 +454,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 
 	t.Run("PAT Token Rate Limiting Per Token", func(t *testing.T) {
 		// Configure rate limiter
-		rateLimitConfig := &RateLimiterConfig{
+		rateLimitConfig := &ratelimit.RateLimiterConfig{
 			RequestsPerMinute: 1,
 			Burst:             1,
 			CleanupInterval:   5 * time.Minute,
@@ -405,7 +472,8 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			rateLimitConfig,
+			ratelimit.NewAPIRateLimiter(rateLimitConfig),
+			nil,
 			nil,
 		)
 
@@ -451,7 +519,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 
 	t.Run("Rate Limiter Cleanup", func(t *testing.T) {
 		// Configure rate limiter with short cleanup interval and TTL for testing
-		rateLimitConfig := &RateLimiterConfig{
+		rateLimitConfig := &ratelimit.RateLimiterConfig{
 			RequestsPerMinute: 60,
 			Burst:             1,
 			CleanupInterval:   100 * time.Millisecond,
@@ -469,7 +537,8 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			rateLimitConfig,
+			ratelimit.NewAPIRateLimiter(rateLimitConfig),
+			nil,
 			nil,
 		)
 
@@ -510,7 +579,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 	})
 
 	t.Run("Terraform User Agent Not Rate Limited", func(t *testing.T) {
-		rateLimitConfig := &RateLimiterConfig{
+		rateLimitConfig := &ratelimit.RateLimiterConfig{
 			RequestsPerMinute: 1,
 			Burst:             1,
 			CleanupInterval:   5 * time.Minute,
@@ -528,7 +597,8 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			rateLimitConfig,
+			ratelimit.NewAPIRateLimiter(rateLimitConfig),
+			nil,
 			nil,
 		)
 
@@ -565,7 +635,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 	})
 
 	t.Run("Non-Terraform User Agent With PAT Is Rate Limited", func(t *testing.T) {
-		rateLimitConfig := &RateLimiterConfig{
+		rateLimitConfig := &ratelimit.RateLimiterConfig{
 			RequestsPerMinute: 1,
 			Burst:             1,
 			CleanupInterval:   5 * time.Minute,
@@ -583,7 +653,8 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			rateLimitConfig,
+			ratelimit.NewAPIRateLimiter(rateLimitConfig),
+			nil,
 			nil,
 		)
 
@@ -670,6 +741,8 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 		GetPATInfoFunc:                  mockGetAccountInfoFromPAT,
 	}
 
+	disabledLimiter := ratelimit.NewAPIRateLimiter(nil)
+	disabledLimiter.SetEnabled(false)
 	authMiddleware := NewAuthMiddleware(
 		mockAuth,
 		func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
@@ -681,6 +754,7 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 		func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 			return &types.User{}, nil
 		},
+		disabledLimiter,
 		nil,
 		nil,
 	)
@@ -711,6 +785,70 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 				assert.Equal(t, 200, result.StatusCode)
 			} else {
 				assert.Equal(t, 401, result.StatusCode)
+			}
+		})
+	}
+}
+
+func TestAuthMiddleware_MarkPATUsedThrottled(t *testing.T) {
+	tt := []struct {
+		name       string
+		lastUsed   *time.Time
+		expectMark bool
+	}{
+		{name: "never used", lastUsed: nil, expectMark: true},
+		{name: "used just now", lastUsed: util.ToPtr(time.Now().UTC()), expectMark: false},
+		{name: "used before the update interval", lastUsed: util.ToPtr(time.Now().UTC().Add(-2 * types.PATLastUsedUpdateInterval)), expectMark: true},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			pat := &types.PersonalAccessToken{
+				ID:             tokenID,
+				ExpirationDate: util.ToPtr(time.Now().UTC().AddDate(0, 0, 7)),
+				LastUsed:       tc.lastUsed,
+			}
+
+			marked := 0
+			mockAuth := &auth.MockManager{
+				GetPATInfoFunc: func(_ context.Context, _ string) (*types.User, *types.PersonalAccessToken, string, string, error) {
+					return testAccount.Users[userID], pat, testAccount.Domain, testAccount.DomainCategory, nil
+				},
+				MarkPATUsedFunc: func(_ context.Context, _ string) error {
+					marked++
+					return nil
+				},
+			}
+
+			disabledLimiter := ratelimit.NewAPIRateLimiter(nil)
+			disabledLimiter.SetEnabled(false)
+			authMiddleware := NewAuthMiddleware(
+				mockAuth,
+				func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
+					return userAuth.AccountId, userAuth.UserId, nil
+				},
+				func(ctx context.Context, userAuth nbauth.UserAuth) error {
+					return nil
+				},
+				func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
+					return &types.User{}, nil
+				},
+				disabledLimiter,
+				nil,
+				nil,
+			)
+
+			handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+			req := httptest.NewRequest("GET", "http://testing/test", nil)
+			req.Header.Set("Authorization", "Token "+PAT)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+			if tc.expectMark {
+				assert.Equal(t, 1, marked, "MarkPATUsed must be called")
+			} else {
+				assert.Equal(t, 0, marked, "MarkPATUsed must be skipped")
 			}
 		})
 	}

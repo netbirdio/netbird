@@ -11,11 +11,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/server/migration"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/testutil"
@@ -31,17 +31,6 @@ func setupDatabase(t *testing.T) *gorm.DB {
 	var dsn string
 	var cleanup func()
 	switch os.Getenv("NETBIRD_STORE_ENGINE") {
-	case "mysql":
-		cleanup, dsn, err = testutil.CreateMysqlTestContainer()
-		if err != nil {
-			t.Fatalf("Failed to create MySQL test container: %v", err)
-		}
-
-		if dsn == "" {
-			t.Fatal("MySQL connection string is empty, ensure the test container is running")
-		}
-
-		db, err = gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), &gorm.Config{})
 	case "postgres":
 		cleanup, dsn, err = testutil.CreatePostgresTestContainer()
 		if err != nil {
@@ -198,7 +187,11 @@ func TestMigrateNetIPFieldFromBlobToJSON_WithJSONData(t *testing.T) {
 	require.NoError(t, err, "Failed to insert account")
 
 	account.PeersG = []nbpeer.Peer{
-		{AccountID: "1234", Location: nbpeer.Location{ConnectionIP: net.IP{10, 0, 0, 1}}},
+		{
+			AccountID: "1234",
+			Location:  nbpeer.Location{ConnectionIP: net.IP{10, 0, 0, 1}},
+			Status:    &nbpeer.PeerStatus{LastSeen: time.Now()},
+		},
 	}
 
 	err = db.Save(account).Error
@@ -592,9 +585,8 @@ func TestCleanupOrphanedResources_Idempotent(t *testing.T) {
 }
 
 func TestCleanupOrphanedResources_SkipsWhenForeignKeyExists(t *testing.T) {
-	engine := os.Getenv("NETBIRD_STORE_ENGINE")
-	if engine != "postgres" && engine != "mysql" {
-		t.Skip("FK constraint early-exit test requires postgres or mysql")
+	if os.Getenv("NETBIRD_STORE_ENGINE") != "postgres" {
+		t.Skip("FK constraint early-exit test requires postgres")
 	}
 
 	db := setupDatabase(t)
@@ -609,24 +601,12 @@ func TestCleanupOrphanedResources_SkipsWhenForeignKeyExists(t *testing.T) {
 	require.NoError(t, db.Create(&testChildWithFK{ID: "c1", ParentID: "p1"}).Error)
 	require.NoError(t, db.Create(&testChildWithFK{ID: "c2", ParentID: "p2"}).Error)
 
-	switch engine {
-	case "postgres":
-		require.NoError(t, db.Exec("ALTER TABLE test_children DROP CONSTRAINT fk_test_children_parent").Error)
-		require.NoError(t, db.Exec("DELETE FROM test_parents WHERE id = ?", "p2").Error)
-		require.NoError(t, db.Exec(
-			"ALTER TABLE test_children ADD CONSTRAINT fk_test_children_parent "+
-				"FOREIGN KEY (parent_id) REFERENCES test_parents(id) NOT VALID",
-		).Error)
-	case "mysql":
-		require.NoError(t, db.Exec("SET FOREIGN_KEY_CHECKS = 0").Error)
-		require.NoError(t, db.Exec("ALTER TABLE test_children DROP FOREIGN KEY fk_test_children_parent").Error)
-		require.NoError(t, db.Exec("DELETE FROM test_parents WHERE id = ?", "p2").Error)
-		require.NoError(t, db.Exec(
-			"ALTER TABLE test_children ADD CONSTRAINT fk_test_children_parent "+
-				"FOREIGN KEY (parent_id) REFERENCES test_parents(id)",
-		).Error)
-		require.NoError(t, db.Exec("SET FOREIGN_KEY_CHECKS = 1").Error)
-	}
+	require.NoError(t, db.Exec("ALTER TABLE test_children DROP CONSTRAINT fk_test_children_parent").Error)
+	require.NoError(t, db.Exec("DELETE FROM test_parents WHERE id = ?", "p2").Error)
+	require.NoError(t, db.Exec(
+		"ALTER TABLE test_children ADD CONSTRAINT fk_test_children_parent "+
+			"FOREIGN KEY (parent_id) REFERENCES test_parents(id) NOT VALID",
+	).Error)
 
 	err = migration.CleanupOrphanedResources[testChildWithFK, testParent](context.Background(), db, "parent_id")
 	require.NoError(t, err)
@@ -634,4 +614,287 @@ func TestCleanupOrphanedResources_SkipsWhenForeignKeyExists(t *testing.T) {
 	var count int64
 	db.Model(&testChildWithFK{}).Count(&count)
 	assert.Equal(t, int64(2), count, "Both rows should survive — migration must skip when FK constraint exists")
+}
+
+// legacyCostRow is the pre-breakdown shape of the usage table: cost was stored
+// as a total plus a cache portion, with no per-bucket columns. Used to build a
+// realistic pre-upgrade table for the fold migration to run against.
+type legacyCostRow struct {
+	ID           string `gorm:"primaryKey"`
+	AccountID    string
+	Model        string
+	CostUSD      float64
+	CacheCostUSD float64
+}
+
+func (legacyCostRow) TableName() string { return "agent_network_request_usage" }
+
+// TestFoldCostAggregatesIntoBuckets_PreservesHistoricalCost covers the upgrade
+// path: a table written under the old schema must come out with its per-row
+// total and cache cost unchanged, because dropping cost_usd without folding it
+// forward would silently zero every historical row's spend.
+func TestFoldCostAggregatesIntoBuckets_PreservesHistoricalCost(t *testing.T) {
+	ctx := context.Background()
+	db := setupDatabase(t)
+	// setupDatabase hands back a process-shared database, so start from a clean
+	// table rather than inheriting rows from another test.
+	require.NoError(t, db.Migrator().DropTable(&agentNetworkTypes.AgentNetworkUsage{}))
+
+	require.NoError(t, db.AutoMigrate(&legacyCostRow{}), "legacy table must be created")
+	require.NoError(t, db.Create(&legacyCostRow{
+		ID: "u1", AccountID: "acct-1", Model: "claude-sonnet-4-6", CostUSD: 0.0123, CacheCostUSD: 0.0029,
+	}).Error)
+	require.NoError(t, db.Create(&legacyCostRow{
+		ID: "u2", AccountID: "acct-1", Model: "gpt-4o", CostUSD: 0.5, CacheCostUSD: 0,
+	}).Error)
+	// A zero-cost row (denied / unpriced request) must stay zero, not be touched.
+	require.NoError(t, db.Create(&legacyCostRow{ID: "u3", AccountID: "acct-1", Model: "gw/unpriced"}).Error)
+
+	// AutoMigrate adds the per-bucket columns alongside the legacy ones, exactly
+	// as a real upgrade does before the post-auto migrations run.
+	require.NoError(t, db.AutoMigrate(&agentNetworkTypes.AgentNetworkUsage{}), "new columns must be added")
+
+	require.NoError(t, migration.FoldCostAggregatesIntoBuckets[agentNetworkTypes.AgentNetworkUsage](ctx, db))
+
+	assert.False(t, db.Migrator().HasColumn(&agentNetworkTypes.AgentNetworkUsage{}, "cost_usd"),
+		"legacy cost_usd column must be dropped once folded")
+	assert.False(t, db.Migrator().HasColumn(&agentNetworkTypes.AgentNetworkUsage{}, "cache_cost_usd"),
+		"legacy cache_cost_usd column must be dropped once folded")
+
+	var rows []*agentNetworkTypes.AgentNetworkUsage
+	require.NoError(t, db.Order("id").Find(&rows).Error)
+	require.Len(t, rows, 3)
+
+	// u1: total and cache portion both preserved; the read/write and
+	// input/output splits are unknowable for a legacy row, so the cache total
+	// lands on cached_input and the remainder on input.
+	assert.InDelta(t, 0.0123, rows[0].TotalCostUSD(), 1e-9, "historical total must survive the fold")
+	assert.InDelta(t, 0.0029, rows[0].CacheCostUSD(), 1e-9, "historical cache cost must survive the fold")
+	assert.InDelta(t, 0.0094, rows[0].InputCostUSD, 1e-9, "non-cache remainder lands on input")
+	assert.InDelta(t, 0.0029, rows[0].CachedInputCostUSD, 1e-9, "legacy cache total lands on cached input")
+	assert.Zero(t, rows[0].CacheCreationCostUSD, "legacy rows carry no read/write split to recover")
+	assert.Zero(t, rows[0].OutputCostUSD, "legacy rows carry no input/output split to recover")
+
+	// u2: no cache spend — the whole total is the non-cache remainder.
+	assert.InDelta(t, 0.5, rows[1].TotalCostUSD(), 1e-9, "cache-free historical total must survive")
+	assert.Zero(t, rows[1].CacheCostUSD(), "a cache-free row must stay cache-free")
+
+	// u3: zero stays zero rather than being rewritten.
+	assert.Zero(t, rows[2].TotalCostUSD(), "an unpriced row must remain unpriced")
+}
+
+// TestFoldCostAggregatesIntoBuckets_SkipsAlreadyMigrated proves the migration is
+// safe to re-run: with no legacy column present it is a no-op that leaves a
+// true four-way split untouched.
+func TestFoldCostAggregatesIntoBuckets_SkipsAlreadyMigrated(t *testing.T) {
+	ctx := context.Background()
+	db := setupDatabase(t)
+	require.NoError(t, db.Migrator().DropTable(&agentNetworkTypes.AgentNetworkUsage{}))
+
+	require.NoError(t, db.AutoMigrate(&agentNetworkTypes.AgentNetworkUsage{}))
+	require.NoError(t, db.Create(&agentNetworkTypes.AgentNetworkUsage{
+		ID: "u1", AccountID: "acct-1", Model: "claude-sonnet-4-6",
+		Timestamp:    time.Date(2026, 5, 5, 9, 0, 0, 0, time.UTC),
+		InputCostUSD: 0.001, CachedInputCostUSD: 0.002, CacheCreationCostUSD: 0.003, OutputCostUSD: 0.004,
+	}).Error)
+
+	require.NoError(t, migration.FoldCostAggregatesIntoBuckets[agentNetworkTypes.AgentNetworkUsage](ctx, db),
+		"running against an already-migrated table must be a no-op, not an error")
+
+	var row agentNetworkTypes.AgentNetworkUsage
+	require.NoError(t, db.First(&row, "id = ?", "u1").Error)
+	assert.InDelta(t, 0.001, row.InputCostUSD, 1e-9, "a true split must not be rewritten")
+	assert.InDelta(t, 0.002, row.CachedInputCostUSD, 1e-9)
+	assert.InDelta(t, 0.003, row.CacheCreationCostUSD, 1e-9)
+	assert.InDelta(t, 0.004, row.OutputCostUSD, 1e-9)
+	assert.InDelta(t, 0.01, row.TotalCostUSD(), 1e-9, "derived total sums the four buckets")
+}
+
+// legacyAgentNetworkSettings is the pre-reshape schema: identity carried as
+// (cluster, subdomain) instead of (domain, proxy_address).
+type legacyAgentNetworkSettings struct {
+	AccountID           string `gorm:"primaryKey"`
+	Cluster             string
+	Subdomain           string
+	EnableLogCollection bool
+}
+
+func (legacyAgentNetworkSettings) TableName() string { return "agent_network_settings" }
+
+// TestMigrateAgentNetworkSettingsToDomain_BackfillsAndDropsLegacyColumns pins
+// the reshape: domain becomes `<subdomain>.<cluster>`, proxy_address becomes
+// the cluster, the legacy columns are dropped, and non-identity fields ride
+// through untouched.
+func TestMigrateAgentNetworkSettingsToDomain_BackfillsAndDropsLegacyColumns(t *testing.T) {
+	ctx := context.Background()
+	db := setupDatabase(t)
+	require.NoError(t, db.Migrator().DropTable(&legacyAgentNetworkSettings{}))
+	require.NoError(t, db.AutoMigrate(&legacyAgentNetworkSettings{}))
+	require.NoError(t, db.Create(&legacyAgentNetworkSettings{
+		AccountID: "acct-1", Cluster: "eu.proxy.netbird.io", Subdomain: "violet", EnableLogCollection: true,
+	}).Error)
+	require.NoError(t, db.Create(&legacyAgentNetworkSettings{
+		AccountID: "acct-2", Cluster: "us.proxy.netbird.io", Subdomain: "violet",
+	}).Error)
+
+	require.NoError(t, migration.MigrateAgentNetworkSettingsToDomain(ctx, db))
+	require.NoError(t, db.AutoMigrate(&agentNetworkTypes.Settings{}),
+		"AutoMigrate must create the domain unique index over the backfilled values")
+
+	var one, two agentNetworkTypes.Settings
+	require.NoError(t, db.First(&one, "account_id = ?", "acct-1").Error)
+	assert.Equal(t, "violet.eu.proxy.netbird.io", one.Domain, "domain must combine subdomain and cluster")
+	assert.Equal(t, "eu.proxy.netbird.io", one.ProxyAddress, "proxy address must carry the cluster")
+	assert.True(t, one.EnableLogCollection, "non-identity fields must ride through")
+	require.NoError(t, db.First(&two, "account_id = ?", "acct-2").Error)
+	assert.Equal(t, "violet.us.proxy.netbird.io", two.Domain,
+		"duplicate labels on different clusters are distinct hostnames and must both survive")
+
+	migrator := db.Migrator()
+	assert.False(t, migrator.HasColumn(&legacyAgentNetworkSettings{}, "cluster"), "legacy cluster column must be dropped")
+	assert.False(t, migrator.HasColumn(&legacyAgentNetworkSettings{}, "subdomain"), "legacy subdomain column must be dropped")
+}
+
+// TestMigrateAgentNetworkSettingsToDomain_SkipsAlreadyMigrated proves the
+// migration is safe to re-run: with no legacy column present it is a no-op.
+func TestMigrateAgentNetworkSettingsToDomain_SkipsAlreadyMigrated(t *testing.T) {
+	ctx := context.Background()
+	db := setupDatabase(t)
+	require.NoError(t, db.Migrator().DropTable(&agentNetworkTypes.Settings{}))
+	require.NoError(t, db.AutoMigrate(&agentNetworkTypes.Settings{}))
+	require.NoError(t, db.Create(&agentNetworkTypes.Settings{
+		AccountID: "acct-1", Domain: "gw.example.com", ProxyAddress: "gw.example.com",
+	}).Error)
+
+	require.NoError(t, migration.MigrateAgentNetworkSettingsToDomain(ctx, db),
+		"running against an already-migrated table must be a no-op, not an error")
+
+	var row agentNetworkTypes.Settings
+	require.NoError(t, db.First(&row, "account_id = ?", "acct-1").Error)
+	assert.Equal(t, "gw.example.com", row.Domain, "migrated rows must be untouched")
+}
+
+// TestMigrateAgentNetworkSettingsToDomain_FailsOnUnmigratableRow pins the
+// loud-failure contract: a legacy row missing its identity halves cannot be
+// given an endpoint, and silently leaving an empty domain would collide with
+// the unique index confusingly later.
+func TestMigrateAgentNetworkSettingsToDomain_FailsOnUnmigratableRow(t *testing.T) {
+	ctx := context.Background()
+	db := setupDatabase(t)
+	require.NoError(t, db.Migrator().DropTable(&legacyAgentNetworkSettings{}))
+	require.NoError(t, db.AutoMigrate(&legacyAgentNetworkSettings{}))
+	require.NoError(t, db.Create(&legacyAgentNetworkSettings{
+		AccountID: "acct-broken", Cluster: "", Subdomain: "",
+	}).Error)
+
+	err := migration.MigrateAgentNetworkSettingsToDomain(ctx, db)
+	require.Error(t, err, "a row with no identity to derive an endpoint from must fail the migration")
+	assert.Contains(t, err.Error(), "resolve them manually", "the error must tell the operator what to do")
+}
+
+// partialAgentNetworkSettings models a schema left between the two legacy
+// column drops: subdomain is still present while cluster is gone and the
+// backfill has already completed.
+type partialAgentNetworkSettings struct {
+	AccountID    string `gorm:"primaryKey"`
+	Subdomain    string
+	Domain       string `gorm:"type:varchar(255)"`
+	ProxyAddress string `gorm:"type:varchar(255)"`
+}
+
+func (partialAgentNetworkSettings) TableName() string { return "agent_network_settings" }
+
+// TestMigrateAgentNetworkSettingsToDomain_ResumesAfterPartialDrop pins
+// resumability: a rerun over the partial state must remove the leftover
+// subdomain column without re-running the backfill (the cluster column that
+// feeds it is gone) and without touching the migrated values.
+func TestMigrateAgentNetworkSettingsToDomain_ResumesAfterPartialDrop(t *testing.T) {
+	ctx := context.Background()
+	db := setupDatabase(t)
+	require.NoError(t, db.Migrator().DropTable(&partialAgentNetworkSettings{}))
+	require.NoError(t, db.AutoMigrate(&partialAgentNetworkSettings{}))
+	require.NoError(t, db.Create(&partialAgentNetworkSettings{
+		AccountID: "acct-1", Subdomain: "violet",
+		Domain: "violet.eu.proxy.netbird.io", ProxyAddress: "eu.proxy.netbird.io",
+	}).Error)
+
+	require.NoError(t, migration.MigrateAgentNetworkSettingsToDomain(ctx, db),
+		"a rerun over a partially-dropped schema must resume, not error")
+
+	migrator := db.Migrator()
+	assert.False(t, migrator.HasColumn(&partialAgentNetworkSettings{}, "subdomain"),
+		"the leftover legacy column must be dropped on resume")
+
+	var row agentNetworkTypes.Settings
+	require.NoError(t, db.First(&row, "account_id = ?", "acct-1").Error)
+	assert.Equal(t, "violet.eu.proxy.netbird.io", row.Domain, "migrated values must be untouched")
+	assert.Equal(t, "eu.proxy.netbird.io", row.ProxyAddress, "migrated values must be untouched")
+}
+
+type legacyLivenessPeer struct {
+	ID                 string `gorm:"primaryKey"`
+	AccountID          string
+	PeerStatusLastSeen *time.Time
+}
+
+func (legacyLivenessPeer) TableName() string {
+	return "peers"
+}
+
+func setupPeerConnectionsTestDB(t *testing.T, peers any) *gorm.DB {
+	t.Helper()
+	db := setupDatabase(t)
+	require.NoError(t, db.Migrator().DropTable(&nbpeer.Connection{}))
+	require.NoError(t, db.Migrator().DropTable("peers"))
+	require.NoError(t, db.AutoMigrate(peers))
+	return db
+}
+
+func TestBackfillPeerConnections(t *testing.T) {
+	ctx := context.Background()
+	db := setupPeerConnectionsTestDB(t, &legacyLivenessPeer{})
+
+	seen := time.Now().UTC().Add(-3 * time.Hour).Truncate(time.Second)
+	require.NoError(t, db.Create([]legacyLivenessPeer{
+		{ID: "peer1", AccountID: "acc1", PeerStatusLastSeen: &seen},
+		{ID: "peer2", AccountID: "acc2"},
+	}).Error)
+
+	require.NoError(t, migration.BackfillPeerConnections[nbpeer.Connection](ctx, db))
+
+	require.True(t, db.Migrator().HasTable(&nbpeer.Connection{}), "the backfill creates the table")
+	var rows []nbpeer.Connection
+	require.NoError(t, db.Order("peer_id").Find(&rows).Error)
+	require.Len(t, rows, 2)
+	assert.Equal(t, "peer1", rows[0].PeerID)
+	assert.Equal(t, "acc1", rows[0].AccountID)
+	assert.Nil(t, rows[0].InstanceID, "no instance holds a backfilled peer")
+	assert.Zero(t, rows[0].SessionStartedAt)
+	require.NotNil(t, rows[0].LastSeen)
+	assert.True(t, seen.Equal(rows[0].LastSeen.UTC()), "last seen is carried over: %v", rows[0].LastSeen)
+	assert.Equal(t, "peer2", rows[1].PeerID)
+	assert.Equal(t, "acc2", rows[1].AccountID)
+	assert.Nil(t, rows[1].LastSeen, "a peer that was never seen stays so")
+
+	later := seen.Add(time.Hour)
+	require.NoError(t, db.Model(&nbpeer.Connection{}).Where("peer_id = ?", "peer1").Update("last_seen", later).Error)
+	require.NoError(t, db.Create(&legacyLivenessPeer{ID: "peer3", AccountID: "acc1", PeerStatusLastSeen: &seen}).Error)
+
+	require.NoError(t, migration.BackfillPeerConnections[nbpeer.Connection](ctx, db))
+
+	var count int64
+	require.NoError(t, db.Model(&nbpeer.Connection{}).Count(&count).Error)
+	assert.Equal(t, int64(2), count, "once the table exists the peers table is not read again")
+	var peer1 nbpeer.Connection
+	require.NoError(t, db.Where("peer_id = ?", "peer1").Take(&peer1).Error)
+	assert.True(t, later.Equal(peer1.LastSeen.UTC()), "an existing row is not overwritten")
+}
+
+func TestBackfillPeerConnections_NoLegacyColumn(t *testing.T) {
+	db := setupPeerConnectionsTestDB(t, &nbpeer.Peer{})
+	require.False(t, db.Migrator().HasColumn("peers", "peer_status_last_seen"))
+
+	require.NoError(t, migration.BackfillPeerConnections[nbpeer.Connection](context.Background(), db))
+
+	assert.False(t, db.Migrator().HasTable(&nbpeer.Connection{}), "without the legacy column the table is left to AutoMigrate")
 }

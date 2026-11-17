@@ -1,15 +1,16 @@
 package util
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 
+	"github.com/DeRuina/timberjack"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/grpclog"
-	"gopkg.in/natefinch/lumberjack.v2"
 
 	"github.com/netbirdio/netbird/formatter"
 )
@@ -37,9 +38,47 @@ func InitLog(logLevel string, logs ...string) error {
 func InitLogger(logger *log.Logger, logLevel string, logs ...string) error {
 	level, err := log.ParseLevel(logLevel)
 	if err != nil {
-		logger.Errorf("Failed parsing log-level %s: %s", logLevel, err)
+		return fmt.Errorf("failed parsing log-level %s: %w", logLevel, err)
+	}
+
+	logFmt, err := buildWriters(logger, logs...)
+	if err != nil {
 		return err
 	}
+
+	switch logFmt {
+	case "json":
+		formatter.SetJSONFormatter(logger)
+	case "syslog":
+		formatter.SetSyslogFormatter(logger)
+	default:
+		formatter.SetTextFormatter(logger)
+	}
+	logger.SetLevel(level)
+
+	setGRPCLibLogger(logger)
+
+	return nil
+}
+
+// SetLogOutputs re-points an already-initialized logger to the given targets
+// (console/syslog/file), with the same target semantics as InitLogger, but
+// without re-parsing the level or resetting the formatter. The desktop GUI uses
+// it to attach the rotated gui-client.log alongside the console when the daemon
+// enters debug, and drop back to console-only when it leaves.
+func SetLogOutputs(logger *log.Logger, logs ...string) error {
+	if _, err := buildWriters(logger, logs...); err != nil {
+		return err
+	}
+	setGRPCLibLogger(logger)
+	return nil
+}
+
+// buildWriters resolves the given log targets to writers and points the logger
+// at them (single writer or MultiWriter). It returns the log format implied by
+// the targets (syslog forces "syslog"; otherwise the NB_LOG_FORMAT env value).
+// Shared by InitLogger and SetLogOutputs.
+func buildWriters(logger *log.Logger, logs ...string) (string, error) {
 	var writers []io.Writer
 	logFmt := os.Getenv("NB_LOG_FORMAT")
 
@@ -59,7 +98,11 @@ func InitLogger(logger *log.Logger, logLevel string, logs ...string) error {
 		case "":
 			logger.Warnf("empty log path received: %#v", logPath)
 		default:
-			writers = append(writers, newRotatedOutput(logPath))
+			writer, err := setupLogFile(logPath, isRotationDisabled(logger))
+			if err != nil {
+				return "", fmt.Errorf("failed setting up log file: %s, %w", logPath, err)
+			}
+			writers = append(writers, writer)
 		}
 	}
 
@@ -69,19 +112,7 @@ func InitLogger(logger *log.Logger, logLevel string, logs ...string) error {
 		logger.SetOutput(writers[0])
 	}
 
-	switch logFmt {
-	case "json":
-		formatter.SetJSONFormatter(logger)
-	case "syslog":
-		formatter.SetSyslogFormatter(logger)
-	default:
-		formatter.SetTextFormatter(logger)
-	}
-	logger.SetLevel(level)
-
-	setGRPCLibLogger(logger)
-
-	return nil
+	return logFmt, nil
 }
 
 // FindFirstLogPath returns the first logs entry that could be a log path, that is neither empty, nor a special value
@@ -94,17 +125,43 @@ func FindFirstLogPath(logs []string) string {
 	return ""
 }
 
+func isRotationDisabled(logger *log.Logger) bool {
+	v, _ := os.LookupEnv("NB_LOG_DISABLE_ROTATION")
+	disabled, _ := strconv.ParseBool(v)
+	if disabled {
+		logger.Warnf("log rotation is disabled by env flag")
+		return true
+	}
+	conflict, configPath := FindFirstLogrotateConflict()
+	if conflict {
+		logger.Warnf("log rotation conflict detected in: %#v, rotation is disabled", configPath)
+		return true
+	}
+	return false
+}
+
+func setupLogFile(logPath string, disableRotation bool) (io.Writer, error) {
+	if disableRotation {
+		file, err := os.OpenFile(logPath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0600)
+		if err != nil {
+			return nil, err
+		}
+		return file, nil
+	}
+	return newRotatedOutput(logPath), nil
+}
+
 func newRotatedOutput(logPath string) io.Writer {
 	maxLogSize := getLogMaxSize()
-	lumberjackLogger := &lumberjack.Logger{
+	timberjackLogger := &timberjack.Logger{
 		// Log file absolute path, os agnostic
-		Filename:   filepath.ToSlash(logPath),
-		MaxSize:    maxLogSize, // MB
-		MaxBackups: 10,
-		MaxAge:     30, // days
-		Compress:   true,
+		Filename:    filepath.ToSlash(logPath),
+		MaxSize:     maxLogSize, // MB
+		MaxBackups:  10,
+		MaxAge:      30, // days
+		Compression: "gzip",
 	}
-	return lumberjackLogger
+	return timberjackLogger
 }
 
 func setGRPCLibLogger(logger *log.Logger) {
@@ -127,7 +184,7 @@ func getLogMaxSize() int {
 	if sizeVar, ok := os.LookupEnv("NB_LOG_MAX_SIZE_MB"); ok {
 		size, err := strconv.ParseInt(sizeVar, 10, 64)
 		if err != nil {
-			log.Errorf("Failed parsing log-size %s: %s. Should be just an integer", sizeVar, err)
+			log.Errorf("failed parsing log-size %s: %s. Should be just an integer", sizeVar, err)
 			return defaultLogSize
 		}
 

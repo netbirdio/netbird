@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -13,6 +14,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nbssh "github.com/netbirdio/netbird/client/ssh"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 const (
@@ -91,7 +93,8 @@ type Manager struct {
 // PeerSSHInfo represents a peer's SSH configuration information
 type PeerSSHInfo struct {
 	Hostname string
-	IP       string
+	IP       netip.Addr
+	IPv6     netip.Addr
 	FQDN     string
 }
 
@@ -187,38 +190,49 @@ func (m *Manager) buildPeerConfig(allHostPatterns []string) (string, error) {
 		return "", fmt.Errorf("get NetBird executable path: %w", err)
 	}
 
-	hostLine := strings.Join(deduplicatedPatterns, " ")
-	config := fmt.Sprintf("Host %s\n", hostLine)
-	config += fmt.Sprintf("    Match exec \"%s ssh detect %%h %%p\"\n", execPath)
-	config += "        PreferredAuthentications password,publickey,keyboard-interactive\n"
-	config += "        PasswordAuthentication yes\n"
-	config += "        PubkeyAuthentication yes\n"
-	config += "        BatchMode no\n"
-	config += fmt.Sprintf("        ProxyCommand %s ssh proxy %%h %%p\n", execPath)
-	config += "        StrictHostKeyChecking no\n"
+	hostList := strings.Join(deduplicatedPatterns, ",")
+	config := fmt.Sprintf("Match host \"%s\" exec \"%s ssh detect %%h %%p\"\n", hostList, execPath)
+	config += "    PreferredAuthentications password,publickey,keyboard-interactive\n"
+	config += "    PasswordAuthentication yes\n"
+	config += "    PubkeyAuthentication yes\n"
+	config += "    BatchMode no\n"
+	config += fmt.Sprintf("    ProxyCommand %s ssh proxy %%h %%p\n", execPath)
+	config += "    StrictHostKeyChecking no\n"
 
 	if runtime.GOOS == "windows" {
-		config += "        UserKnownHostsFile NUL\n"
+		config += "    UserKnownHostsFile NUL\n"
 	} else {
-		config += "        UserKnownHostsFile /dev/null\n"
+		config += "    UserKnownHostsFile /dev/null\n"
 	}
 
-	config += "        CheckHostIP no\n"
-	config += "        LogLevel ERROR\n\n"
+	config += "    CheckHostIP no\n"
+	config += "    LogLevel ERROR\n\n"
 
 	return config, nil
 }
 
 func (m *Manager) buildHostPatterns(peer PeerSSHInfo) []string {
 	var hostPatterns []string
-	if peer.IP != "" {
-		hostPatterns = append(hostPatterns, peer.IP)
+	if peer.IP.IsValid() {
+		hostPatterns = append(hostPatterns, peer.IP.String())
 	}
-	if peer.FQDN != "" {
+	if peer.IPv6.IsValid() {
+		hostPatterns = append(hostPatterns, peer.IPv6.String())
+	}
+	// Peer FQDNs and hostnames originate from remote peers, so they must be
+	// validated as plain DNS names before being embedded in the ssh_config
+	// "Match host" pattern list. This prevents injection of arbitrary
+	// ssh_config directives via embedded quotes, whitespace, newlines, the
+	// comma pattern separator, or the "*"/"?" pattern metacharacters.
+	if domain.IsValidDomainNoWildcard(peer.FQDN) {
 		hostPatterns = append(hostPatterns, peer.FQDN)
+	} else if peer.FQDN != "" {
+		log.Warnf("skipping peer FQDN with invalid characters in SSH config: %q", peer.FQDN)
 	}
-	if peer.Hostname != "" && peer.Hostname != peer.FQDN {
+	if peer.Hostname != peer.FQDN && domain.IsValidDomainNoWildcard(peer.Hostname) {
 		hostPatterns = append(hostPatterns, peer.Hostname)
+	} else if peer.Hostname != "" && peer.Hostname != peer.FQDN {
+		log.Warnf("skipping peer hostname with invalid characters in SSH config: %q", peer.Hostname)
 	}
 	return hostPatterns
 }
@@ -230,8 +244,30 @@ func (m *Manager) writeSSHConfig(sshConfig string) error {
 		return fmt.Errorf("create SSH config directory %s: %w", m.sshConfigDir, err)
 	}
 
-	if err := writeFileWithTimeout(sshConfigPath, []byte(sshConfig), 0644); err != nil {
-		return fmt.Errorf("write SSH config file %s: %w", sshConfigPath, err)
+	tmp, err := os.CreateTemp(m.sshConfigDir, m.sshConfigFile+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp SSH config: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		if err := os.Remove(tmpPath); err != nil && !os.IsNotExist(err) {
+			log.Debugf("remove temp SSH config %s: %v", tmpPath, err)
+		}
+	}()
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp SSH config %s: %w", tmpPath, err)
+	}
+
+	if err := writeFileWithTimeout(tmpPath, []byte(sshConfig), 0644); err != nil {
+		return fmt.Errorf("write SSH config file %s: %w", tmpPath, err)
+	}
+
+	if err := os.Chmod(tmpPath, 0644); err != nil {
+		return fmt.Errorf("chmod SSH config file %s: %w", tmpPath, err)
+	}
+
+	if err := os.Rename(tmpPath, sshConfigPath); err != nil {
+		return fmt.Errorf("rename SSH config %s -> %s: %w", tmpPath, sshConfigPath, err)
 	}
 
 	log.Infof("Created NetBird SSH client config: %s", sshConfigPath)

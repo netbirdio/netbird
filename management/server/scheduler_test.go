@@ -6,10 +6,12 @@ import (
 	"math/rand"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestScheduler_Performance(t *testing.T) {
@@ -149,4 +151,91 @@ func TestScheduler_Schedule(t *testing.T) {
 	}
 	scheduler.cancel(context.Background(), jobID)
 
+}
+
+func TestScheduler_Schedule_ResetsTickerAfterReturningInitialInterval(t *testing.T) {
+	jobID := "test-scheduler-job-2"
+	scheduler := NewDefaultScheduler()
+	defer scheduler.Cancel(context.Background(), []string{jobID})
+
+	initial := 30 * time.Millisecond
+	stretched := 400 * time.Millisecond
+	runs := make(chan time.Time, 3)
+	count := 0
+	// The first run stretches the period; the second returns the initial interval again,
+	// which must shrink the period back instead of keeping the stretched one.
+	job := func() (nextRunIn time.Duration, reschedule bool) {
+		count++
+		runs <- time.Now()
+		switch count {
+		case 1:
+			return stretched, true
+		case 2:
+			return initial, true
+		default:
+			return 0, false
+		}
+	}
+	scheduler.Schedule(context.Background(), initial, jobID, job)
+
+	var stamps []time.Time
+	for len(stamps) < 3 {
+		select {
+		case ts := <-runs:
+			stamps = append(stamps, ts)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out after %d runs", len(stamps))
+		}
+	}
+	assert.Less(t, stamps[2].Sub(stamps[1]), stretched/2, "returning the initial interval must reset the stretched ticker")
+}
+
+func TestScheduler_Schedule_StaleCompletionKeepsReplacement(t *testing.T) {
+	jobID := "test-scheduler-job-3"
+	scheduler := NewDefaultScheduler()
+	defer scheduler.Cancel(context.Background(), []string{jobID})
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	staleJob := func() (nextRunIn time.Duration, reschedule bool) {
+		close(started)
+		<-release
+		return 0, false
+	}
+	scheduler.Schedule(context.Background(), 10*time.Millisecond, jobID, staleJob)
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for the first job to start")
+	}
+
+	// Cancel the job while it is still executing and register a replacement under the
+	// same ID, as the expiration paths do on a settings change.
+	scheduler.Cancel(context.Background(), []string{jobID})
+	var replacementRuns atomic.Int32
+	scheduler.Schedule(context.Background(), 20*time.Millisecond, jobID, func() (nextRunIn time.Duration, reschedule bool) {
+		replacementRuns.Add(1)
+		return 20 * time.Millisecond, true
+	})
+	require.True(t, scheduler.IsSchedulerRunning(jobID), "replacement must be registered")
+
+	// The stale job now completes without rescheduling; its cleanup must leave the
+	// replacement's entry in place.
+	close(release)
+	assert.Never(t, func() bool { return !scheduler.IsSchedulerRunning(jobID) }, 200*time.Millisecond, 10*time.Millisecond,
+		"stale completion must not drop the replacement job")
+
+	var duplicateRuns atomic.Int32
+	scheduler.Schedule(context.Background(), 10*time.Millisecond, jobID, func() (nextRunIn time.Duration, reschedule bool) {
+		duplicateRuns.Add(1)
+		return 10 * time.Millisecond, true
+	})
+	assert.Never(t, func() bool { return duplicateRuns.Load() > 0 }, 100*time.Millisecond, 10*time.Millisecond,
+		"a duplicate schedule must be refused while the replacement is registered")
+
+	scheduler.Cancel(context.Background(), []string{jobID})
+	assert.False(t, scheduler.IsSchedulerRunning(jobID), "cancel must find and remove the replacement")
+	runsAfterCancel := replacementRuns.Load()
+	assert.Never(t, func() bool { return replacementRuns.Load() > runsAfterCancel+1 }, 150*time.Millisecond, 10*time.Millisecond,
+		"the replacement must stop after cancel")
 }

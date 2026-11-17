@@ -30,26 +30,30 @@ const (
 // bytes transparently. If the data is not a valid TLS ClientHello or
 // contains no SNI extension, sni is empty and err is nil.
 //
+// isTLS reports whether the first byte indicated a TLS handshake record.
+// Callers can use this to distinguish plain (non-TLS) traffic from a TLS
+// stream that simply lacked an SNI extension or used ECH.
+//
 // ECH/ESNI: When the client uses Encrypted Client Hello (TLS 1.3), the
 // real server name is encrypted inside the encrypted_client_hello
 // extension. This parser only reads the cleartext server_name extension
 // (type 0x0000), so ECH connections return sni="" and are routed through
 // the fallback path (or HTTP channel), which is the correct behavior
 // for a transparent proxy that does not terminate TLS.
-func PeekClientHello(conn net.Conn) (sni string, wrapped net.Conn, err error) {
+func PeekClientHello(conn net.Conn) (sni string, wrapped net.Conn, isTLS bool, err error) {
 	// Read the 5-byte TLS record header into a small stack-friendly buffer.
 	var header [tlsRecordHeaderLen]byte
 	if _, err := io.ReadFull(conn, header[:]); err != nil {
-		return "", nil, fmt.Errorf("read TLS record header: %w", err)
+		return "", nil, false, fmt.Errorf("read TLS record header: %w", err)
 	}
 
 	if header[0] != contentTypeHandshake {
-		return "", newPeekedConn(conn, header[:]), nil
+		return "", newPeekedConn(conn, header[:]), false, nil
 	}
 
 	recordLen := int(binary.BigEndian.Uint16(header[3:5]))
 	if recordLen == 0 || recordLen > maxClientHelloLen {
-		return "", newPeekedConn(conn, header[:]), nil
+		return "", newPeekedConn(conn, header[:]), true, nil
 	}
 
 	// Single allocation for header + payload. The peekedConn takes
@@ -59,11 +63,11 @@ func PeekClientHello(conn net.Conn) (sni string, wrapped net.Conn, err error) {
 
 	n, err := io.ReadFull(conn, buf[tlsRecordHeaderLen:])
 	if err != nil {
-		return "", newPeekedConn(conn, buf[:tlsRecordHeaderLen+n]), fmt.Errorf("read TLS handshake payload: %w", err)
+		return "", newPeekedConn(conn, buf[:tlsRecordHeaderLen+n]), true, fmt.Errorf("read TLS handshake payload: %w", err)
 	}
 
 	sni = extractSNI(buf[tlsRecordHeaderLen:])
-	return sni, newPeekedConn(conn, buf), nil
+	return sni, newPeekedConn(conn, buf), true, nil
 }
 
 // extractSNI parses a TLS handshake payload to find the SNI extension.

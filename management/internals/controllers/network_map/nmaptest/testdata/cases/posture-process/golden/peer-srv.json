@@ -1,0 +1,89 @@
+{
+  "Serial": "34",
+  "peerConfig": {
+    "address": "100.64.0.10/10",
+    "sshConfig": {},
+    "fqdn": "peer-srv.netbird.test",
+    "autoUpdate": {}
+  },
+  "remotePeers": [
+    {
+      "wgPubKey": "d9LCTf7vwqctprOKyF95j17uPWpRjEeirHfB75RIGlk=",
+      "allowedIps": [
+        "100.64.0.1/32"
+      ],
+      "sshConfig": {},
+      "fqdn": "peer-lin-running.netbird.test",
+      "agentVersion": "0.60.0"
+    },
+    {
+      "wgPubKey": "rgP4xt50GcHp7fFgBoSt8yz5bp5AnOAVHMmOd+rTbR4=",
+      "allowedIps": [
+        "100.64.0.3/32"
+      ],
+      "sshConfig": {},
+      "fqdn": "peer-mac-running.netbird.test",
+      "agentVersion": "0.60.0"
+    }
+  ],
+  "DNSConfig": {
+    "ServiceEnable": true,
+    "CustomZones": [
+      {
+        "Domain": "netbird.test.",
+        "Records": [
+          {
+            "Name": "peer-lin-running.netbird.test",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "100.64.0.1"
+          },
+          {
+            "Name": "peer-mac-running.netbird.test",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "100.64.0.3"
+          },
+          {
+            "Name": "peer-srv.netbird.test",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "100.64.0.10"
+          }
+        ]
+      }
+    ],
+    "ForwarderPort": "22054"
+  },
+  "FirewallRules": [
+    {
+      "PeerIP": "100.64.0.1",
+      "Protocol": "ALL",
+      "PolicyID": "cG9sLXByb2M="
+    },
+    {
+      "PeerIP": "100.64.0.1",
+      "Direction": "OUT",
+      "Protocol": "ALL",
+      "PolicyID": "cG9sLXByb2M="
+    },
+    {
+      "PeerIP": "100.64.0.3",
+      "Protocol": "ALL",
+      "PolicyID": "cG9sLXByb2M="
+    },
+    {
+      "PeerIP": "100.64.0.3",
+      "Direction": "OUT",
+      "Protocol": "ALL",
+      "PolicyID": "cG9sLXByb2M="
+    }
+  ],
+  "routesFirewallRulesIsEmpty": true,
+  "sshAuth": {
+    "UserIDClaim": "sub"
+  }
+}

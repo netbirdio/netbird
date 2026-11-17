@@ -19,9 +19,14 @@ const (
 	defaultListenAddr  = ":8087"
 	defaultInfluxDBURL = "http://influxdb:8086/api/v2/write?org=netbird&bucket=metrics&precision=ns"
 	maxBodySize        = 50 * 1024 * 1024 // 50 MB max request body
-	maxDurationSeconds = 300.0            // reject any duration field > 5 minutes
+	maxDurationSeconds = 86400.0          // reject any duration field > 24 hours
 	peerIDLength       = 16               // truncated SHA-256: 8 bytes = 16 hex chars
 	maxTagValueLength  = 64               // reject tag values longer than this
+	readTimeout        = 30 * time.Second // must fit reading a compressed body up to maxBodySize
+	writeTimeout       = 60 * time.Second // must exceed the upstream client timeout below
+	idleTimeout        = 120 * time.Second
+	readHeaderTimeout  = 10 * time.Second
+	maxHeaderBytes     = 1 << 20 // 1 MB
 )
 
 type measurementSpec struct {
@@ -57,6 +62,19 @@ var allowedMeasurements = map[string]measurementSpec{
 			"os":              true,
 			"arch":            true,
 			"peer_id":         true,
+		},
+	},
+	"netbird_sync_phase": {
+		allowedFields: map[string]bool{
+			"duration_seconds": true,
+		},
+		allowedTags: map[string]bool{
+			"deployment_type": true,
+			"version":         true,
+			"os":              true,
+			"arch":            true,
+			"peer_id":         true,
+			"phase":           true,
 		},
 	},
 	"netbird_login": {
@@ -111,8 +129,17 @@ func main() {
 		fmt.Fprint(w, "ok") //nolint:errcheck
 	})
 
+	srv := &http.Server{
+		Addr:              listenAddr,
+		ReadTimeout:       readTimeout,
+		ReadHeaderTimeout: readHeaderTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
+		MaxHeaderBytes:    maxHeaderBytes,
+	}
+
 	log.Printf("ingest server listening on %s, forwarding to %s", listenAddr, influxURL)
-	if err := http.ListenAndServe(listenAddr, nil); err != nil { //nolint:gosec
+	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -124,8 +151,8 @@ func handleIngest(client *http.Client, influxURL, influxToken string) http.Handl
 			return
 		}
 
-		if err := validateAuth(r); err != nil {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
+		if err := validatePeerIDFormat(r); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -174,8 +201,13 @@ func forwardToInflux(w http.ResponseWriter, r *http.Request, client *http.Client
 	io.Copy(w, resp.Body) //nolint:errcheck
 }
 
-// validateAuth checks that the X-Peer-ID header contains a valid hashed peer ID.
-func validateAuth(r *http.Request) error {
+// validatePeerIDFormat checks the shape of the X-Peer-ID header. The header is a
+// correlation tag, not a credential: this endpoint is intentionally
+// unauthenticated so that peers of self-hosted deployments, for which no shared
+// trust anchor exists, can report obfuscated telemetry. The header is not forwarded
+// to InfluxDB, so this check does not bound the stored peer_id tag; it only rejects
+// a malformed header as a bad request rather than an auth failure.
+func validatePeerIDFormat(r *http.Request) error {
 	peerID := r.Header.Get("X-Peer-ID")
 	if peerID == "" {
 		return fmt.Errorf("missing X-Peer-ID header")

@@ -48,10 +48,16 @@ func (l *Logger) Middleware(next http.Handler) http.Handler {
 		// Create a mutable struct to capture data from downstream handlers.
 		// We pass a pointer in the context - the pointer itself flows down immutably,
 		// but the struct it points to can be mutated by inner handlers.
-		capturedData := proxy.NewCapturedData(requestID)
-		capturedData.SetClientIP(sourceIp)
 
-		ctx := proxy.WithCapturedData(r.Context(), capturedData)
+		ctx := r.Context()
+
+		capturedData := proxy.CapturedDataFromContext(r.Context())
+		if capturedData == nil {
+			capturedData = &proxy.CapturedData{}
+			ctx = proxy.WithCapturedData(ctx, capturedData)
+		}
+		capturedData.SetRequestID(requestID)
+		capturedData.SetClientIP(sourceIp)
 
 		start := time.Now()
 		next.ServeHTTP(sw, r.WithContext(ctx))
@@ -65,6 +71,10 @@ func (l *Logger) Middleware(next http.Handler) http.Handler {
 
 		bytesUpload := bytesRead
 		bytesDownload := sw.bytesWritten
+
+		if capturedData.GetAgentNetwork() && sw.status >= http.StatusBadRequest {
+			capturedData.SetMetadata(proxy.MetaKeyErrorSource, capturedData.GetOrigin().ErrorSource())
+		}
 
 		entry := logEntry{
 			ID:            requestID,
@@ -83,11 +93,23 @@ func (l *Logger) Middleware(next http.Handler) http.Handler {
 			BytesDownload: bytesDownload,
 			Protocol:      ProtocolHTTP,
 			Metadata:      capturedData.GetMetadata(),
+			AgentNetwork:  capturedData.GetAgentNetwork(),
 		}
 		l.logger.Debugf("response: request_id=%s method=%s host=%s path=%s status=%d duration=%dms source=%s origin=%s service=%s account=%s",
 			requestID, r.Method, host, r.URL.Path, sw.status, duration.Milliseconds(), sourceIp, capturedData.GetOrigin(), capturedData.GetServiceID(), capturedData.GetAccountID())
 
-		l.log(entry)
+		// Emit the access log unless the matched target opted out
+		// (agent-network synth targets do this when the account's
+		// EnableLogCollection toggle is off). For agent-network entries we
+		// still ship a stripped, usage-only record even when suppressed, so
+		// usage/cost is collected regardless of the log-collection toggle;
+		// request detail and prompt capture are dropped before sending.
+		switch {
+		case !capturedData.GetSuppressAccessLog():
+			l.log(entry)
+		case entry.AgentNetwork:
+			l.log(stripAgentNetworkEntryForUsage(entry))
+		}
 
 		// Track usage for cost monitoring (upload + download) by domain
 		l.trackUsage(host, bytesUpload+bytesDownload)

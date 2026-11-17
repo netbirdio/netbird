@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - "release-*"
   pull_request:
 
 concurrency:
@@ -14,54 +15,50 @@ jobs:
   android_build:
     name: "Android / Build"
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goarch: [arm64, arm, amd64, "386"]
+    env:
+      CGO_ENABLED: 0
+      GOOS: android
+      GOARCH: ${{ matrix.goarch }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: "go.mod"
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          cmdline-tools-version: 8512546
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          java-version: "11"
-          distribution: "adopt"
-      - name: NDK Cache
-        id: ndk-cache
-        uses: actions/cache@v4
-        with:
-          path: /usr/local/lib/android/sdk/ndk
-          key: ndk-cache-23.1.7779620
-      - name: Setup NDK
-        run: /usr/local/lib/android/sdk/cmdline-tools/7.0/bin/sdkmanager --install "ndk;23.1.7779620"
-      - name: install gomobile
-        run: go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20251113184115-a159579294ab
-      - name: gomobile init
-        run: gomobile init
-      - name: build android netbird lib
-        run: PATH=$PATH:$(go env GOPATH) gomobile bind -o $GITHUB_WORKSPACE/netbird.aar -javapkg=io.netbird.gomobile -ldflags="-checklinkname=0 -X golang.zx2c4.com/wireguard/ipc.socketDirectory=/data/data/io.netbird.client/cache/wireguard -X github.com/netbirdio/netbird/version.version=buildtest"  $GITHUB_WORKSPACE/client/android
-        env:
-          CGO_ENABLED: 0
-          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/23.1.7779620
+      - name: Build Android bridge
+        run: go build ./client/android/...
+      - name: Vet Android bridge
+        if: matrix.goarch == 'arm64'
+        run: go vet ./client/android/...
+
   ios_build:
     name: "iOS / Build"
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goarch: [arm64, amd64]
+    env:
+      CGO_ENABLED: 0
+      GOOS: ios
+      GOARCH: ${{ matrix.goarch }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: "go.mod"
-      - name: install gomobile
-        run: go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20251113184115-a159579294ab
-      - name: gomobile init
-        run: gomobile init
-      - name: build iOS netbird lib
-        run: PATH=$PATH:$(go env GOPATH) gomobile bind -target=ios -bundleid=io.netbird.framework -ldflags="-X github.com/netbirdio/netbird/version.version=buildtest" -o ./NetBirdSDK.xcframework ./client/ios/NetBirdSDK
-        env:
-          CGO_ENABLED: 0
+      # No `go vet` counterpart: every ios target requires external (cgo)
+      # linking, which needs an Xcode toolchain the runner does not have.
+      - name: Build iOS SDK
+        run: go build ./client/ios/...

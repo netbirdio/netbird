@@ -4,6 +4,7 @@ import (
 	"net/http"
 	// nolint:gosec
 	_ "net/http/pprof"
+	"os"
 	"runtime"
 
 	log "github.com/sirupsen/logrus"
@@ -26,9 +27,13 @@ var (
 )
 
 func main() {
-	go func() {
-		log.Println(http.ListenAndServe("localhost:6060", nil))
-	}()
+	if pprofAddr := os.Getenv("NB_PPROF_ADDR"); pprofAddr != "" {
+		log.Infof("pprof enabled, listening on: %s", pprofAddr)
+		go func() {
+			log.Println(http.ListenAndServe(pprofAddr, nil))
+		}()
+	}
+
 	cmd.SetVersionInfo(Version, Commit, BuildDate, GoVersion)
 	cmd.Execute()
 }

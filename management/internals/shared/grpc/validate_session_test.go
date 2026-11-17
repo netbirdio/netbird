@@ -1,5 +1,3 @@
-//go:build integration
-
 package grpc
 
 import (
@@ -7,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"testing"
 	"time"
 
@@ -40,12 +39,13 @@ func setupValidateSessionTest(t *testing.T) *validateSessionTestSetup {
 	proxyManager := &testValidateSessionProxyManager{}
 
 	tokenStore := NewOneTimeTokenStore(ctx, testCacheStore(t))
-	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
+	singleUseStore := NewSingleUseStore(ctx, testCacheStore(t))
 
-	proxyService := NewProxyServiceServer(nil, tokenStore, pkceStore, ProxyOIDCConfig{}, nil, usersManager, proxyManager)
+	proxyService := NewProxyServiceServer(nil, tokenStore, singleUseStore, ProxyOIDCConfig{}, nil, usersManager, nil, proxyManager, nil)
 	proxyService.SetServiceManager(serviceManager)
 
 	createTestProxies(t, ctx, testStore)
+	createStatusTestUsers(t, ctx, testStore)
 
 	return &validateSessionTestSetup{
 		proxyService: proxyService,
@@ -91,6 +91,82 @@ func createTestProxies(t *testing.T, ctx context.Context, testStore store.Store)
 		},
 	}
 	require.NoError(t, testStore.CreateService(ctx, restrictedProxy))
+
+	// Distributed to the account's "All" group, the configuration that hands a
+	// service to every user in the account.
+	allUsersProxy := &service.Service{
+		ID:                "allUsersProxyId",
+		AccountID:         "testAccountId",
+		Name:              "All Users Proxy",
+		Domain:            "all-users-proxy.example.com",
+		Enabled:           true,
+		SessionPrivateKey: privKey,
+		SessionPublicKey:  pubKey,
+		Auth: service.AuthConfig{
+			BearerAuth: &service.BearerAuthConfig{
+				Enabled:            true,
+				DistributionGroups: []string{allUsersGroupID},
+			},
+		},
+	}
+	require.NoError(t, testStore.CreateService(ctx, allUsersProxy))
+}
+
+const (
+	allUsersGroupID   = "allUsersGroupId"
+	pendingUserID     = "pendingUserId"
+	blockedUserID     = "blockedUserId"
+	pendingAllUsersID = "pendingAllUsersUserId"
+)
+
+// createStatusTestUsers adds the users whose account status must keep them out
+// of a proxy session. A user awaiting approval is persisted as both blocked and
+// pending approval, the way the approval flow stores one.
+func createStatusTestUsers(t *testing.T, ctx context.Context, testStore store.Store) {
+	t.Helper()
+
+	require.NoError(t, testStore.CreateGroup(ctx, &types.Group{
+		ID:        allUsersGroupID,
+		AccountID: "testAccountId",
+		Name:      "All",
+		Issued:    types.GroupIssuedAPI,
+	}))
+
+	users := []*types.User{
+		{
+			Id:              pendingUserID,
+			AccountID:       "testAccountId",
+			Role:            types.UserRoleUser,
+			AutoGroups:      []string{"allowedGroupId"},
+			Blocked:         true,
+			PendingApproval: true,
+			Issued:          "api",
+			CreatedAt:       time.Now(),
+		},
+		{
+			Id:              pendingAllUsersID,
+			AccountID:       "testAccountId",
+			Role:            types.UserRoleUser,
+			AutoGroups:      []string{allUsersGroupID},
+			Blocked:         true,
+			PendingApproval: true,
+			Issued:          "api",
+			CreatedAt:       time.Now(),
+		},
+		{
+			Id:              blockedUserID,
+			AccountID:       "testAccountId",
+			Role:            types.UserRoleUser,
+			AutoGroups:      []string{"allowedGroupId"},
+			Blocked:         true,
+			PendingApproval: false,
+			Issued:          "api",
+			CreatedAt:       time.Now(),
+		},
+	}
+	for _, user := range users {
+		require.NoError(t, testStore.SaveUser(ctx, user))
+	}
 }
 
 func generateSessionKeyPair(t *testing.T) (string, string) {
@@ -102,7 +178,12 @@ func generateSessionKeyPair(t *testing.T) (string, string) {
 
 func createSessionToken(t *testing.T, privKeyB64, userID, domain string) string {
 	t.Helper()
-	token, err := sessionkey.SignToken(privKeyB64, userID, domain, auth.MethodOIDC, time.Hour)
+	return createSessionTokenWithEmail(t, privKeyB64, userID, "", domain)
+}
+
+func createSessionTokenWithEmail(t *testing.T, privKeyB64, userID, email, domain string) string {
+	t.Helper()
+	token, err := sessionkey.SignToken(privKeyB64, userID, email, domain, auth.MethodOIDC, nil, nil, time.Hour)
 	require.NoError(t, err)
 	return token
 }
@@ -118,13 +199,14 @@ func TestValidateSession_UserAllowed(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "test-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck
 	})
 
 	require.NoError(t, err)
 	assert.True(t, resp.Valid, "User should be allowed access")
 	assert.Equal(t, "allowedUserId", resp.UserId)
 	assert.Empty(t, resp.DeniedReason)
+	assert.Equal(t, []string{"allowedGroupId"}, resp.GetPeerGroupIds(), "PeerGroupIds must mirror the resolved user's group memberships")
 }
 
 func TestValidateSession_UserNotInAllowedGroup(t *testing.T) {
@@ -138,13 +220,122 @@ func TestValidateSession_UserNotInAllowedGroup(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "restricted-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck
 	})
 
 	require.NoError(t, err)
 	assert.False(t, resp.Valid, "User not in group should be denied")
 	assert.Equal(t, "not_in_group", resp.DeniedReason)
 	assert.Equal(t, "nonGroupUserId", resp.UserId)
+	assert.Empty(t, resp.GetPeerGroupIds(), "PeerGroupIds must mirror the resolved user's actual (empty) memberships on denial")
+}
+
+// TestValidateSession_PendingApprovalUserDenied covers a user who is a member of
+// the service's distribution group but is still waiting for an administrator to
+// approve the account. Group membership alone must not open the service.
+func TestValidateSession_PendingApprovalUserDenied(t *testing.T) {
+	setup := setupValidateSessionTest(t)
+	defer setup.cleanup()
+
+	proxy, err := setup.store.GetServiceByID(context.Background(), store.LockingStrengthNone, "testAccountId", "restrictedProxyId")
+	require.NoError(t, err)
+
+	token := createSessionToken(t, proxy.SessionPrivateKey, pendingUserID, "restricted-proxy.example.com")
+
+	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
+		Domain:       "restricted-proxy.example.com",
+		SessionToken: token, //nolint:staticcheck
+	})
+
+	require.NoError(t, err)
+	assert.False(t, resp.Valid, "User pending approval should be denied")
+	assert.Equal(t, deniedReasonPendingApproval, resp.DeniedReason, "Denied reason should name the pending approval state")
+	assert.Equal(t, pendingUserID, resp.UserId, "Denial should identify the user it applies to")
+	assert.Equal(t, []string{"allowedGroupId"}, resp.GetPeerGroupIds(), "PeerGroupIds must mirror the resolved user's group memberships on denial")
+	assert.Equal(t, []string{"Allowed Group"}, resp.GetPeerGroupNames(), "PeerGroupNames must pair with PeerGroupIds on denial")
+}
+
+// TestValidateSession_PendingApprovalUserInAllUsersGroupDenied covers the same
+// user against a service distributed to the account's "All" group, where every
+// user of the account is a member by default.
+func TestValidateSession_PendingApprovalUserInAllUsersGroupDenied(t *testing.T) {
+	setup := setupValidateSessionTest(t)
+	defer setup.cleanup()
+
+	proxy, err := setup.store.GetServiceByID(context.Background(), store.LockingStrengthNone, "testAccountId", "allUsersProxyId")
+	require.NoError(t, err)
+
+	token := createSessionToken(t, proxy.SessionPrivateKey, pendingAllUsersID, "all-users-proxy.example.com")
+
+	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
+		Domain:       "all-users-proxy.example.com",
+		SessionToken: token, //nolint:staticcheck
+	})
+
+	require.NoError(t, err)
+	assert.False(t, resp.Valid, "User pending approval should be denied even in the All Users group")
+	assert.Equal(t, deniedReasonPendingApproval, resp.DeniedReason, "Denied reason should name the pending approval state")
+	assert.Equal(t, pendingAllUsersID, resp.UserId, "Denial should identify the user it applies to")
+	assert.Equal(t, []string{allUsersGroupID}, resp.GetPeerGroupIds(), "PeerGroupIds must mirror the resolved user's group memberships on denial")
+}
+
+// TestValidateSession_BlockedUserDenied covers a user blocked after having been
+// approved, so PendingApproval is false and only the blocked flag is set.
+func TestValidateSession_BlockedUserDenied(t *testing.T) {
+	setup := setupValidateSessionTest(t)
+	defer setup.cleanup()
+
+	proxy, err := setup.store.GetServiceByID(context.Background(), store.LockingStrengthNone, "testAccountId", "restrictedProxyId")
+	require.NoError(t, err)
+
+	token := createSessionToken(t, proxy.SessionPrivateKey, blockedUserID, "restricted-proxy.example.com")
+
+	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
+		Domain:       "restricted-proxy.example.com",
+		SessionToken: token, //nolint:staticcheck
+	})
+
+	require.NoError(t, err)
+	assert.False(t, resp.Valid, "Blocked user should be denied")
+	assert.Equal(t, deniedReasonUserBlocked, resp.DeniedReason, "Denied reason should name the blocked state")
+	assert.Equal(t, blockedUserID, resp.UserId, "Denial should identify the user it applies to")
+}
+
+// TestValidateSession_UserAllowedAfterApproval walks the same session token
+// through the approval transition: denied while pending, allowed once an
+// administrator clears both flags.
+func TestValidateSession_UserAllowedAfterApproval(t *testing.T) {
+	setup := setupValidateSessionTest(t)
+	defer setup.cleanup()
+
+	ctx := context.Background()
+
+	proxy, err := setup.store.GetServiceByID(ctx, store.LockingStrengthNone, "testAccountId", "restrictedProxyId")
+	require.NoError(t, err)
+
+	token := createSessionToken(t, proxy.SessionPrivateKey, pendingUserID, "restricted-proxy.example.com")
+	req := &proto.ValidateSessionRequest{
+		Domain:       "restricted-proxy.example.com",
+		SessionToken: token, //nolint:staticcheck,
+	}
+
+	resp, err := setup.proxyService.ValidateSession(ctx, req)
+	require.NoError(t, err)
+	require.False(t, resp.Valid, "User pending approval should be denied before approval")
+	assert.Equal(t, deniedReasonPendingApproval, resp.DeniedReason, "Denied reason should name the pending approval state")
+
+	user, err := setup.store.GetUserByUserID(ctx, store.LockingStrengthNone, pendingUserID)
+	require.NoError(t, err)
+	user.PendingApproval = false
+	user.Blocked = false
+	require.NoError(t, setup.store.SaveUser(ctx, user))
+
+	resp, err = setup.proxyService.ValidateSession(ctx, req)
+	require.NoError(t, err)
+	assert.True(t, resp.Valid, "Approved user should be allowed access")
+	assert.Empty(t, resp.DeniedReason)
+	assert.Equal(t, pendingUserID, resp.UserId, "Approved user should be identified in the response")
+	assert.Equal(t, []string{"allowedGroupId"}, resp.GetPeerGroupIds(), "PeerGroupIds must mirror the approved user's group memberships")
 }
 
 func TestValidateSession_UserInDifferentAccount(t *testing.T) {
@@ -158,7 +349,7 @@ func TestValidateSession_UserInDifferentAccount(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "test-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck,
 	})
 
 	require.NoError(t, err)
@@ -177,7 +368,7 @@ func TestValidateSession_UserNotFound(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "test-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck,
 	})
 
 	require.NoError(t, err)
@@ -196,7 +387,7 @@ func TestValidateSession_ProxyNotFound(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "unknown-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck,
 	})
 
 	require.NoError(t, err)
@@ -210,7 +401,7 @@ func TestValidateSession_InvalidToken(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "test-proxy.example.com",
-		SessionToken: "invalid-token",
+		SessionToken: "invalid-token", //nolint:staticcheck,
 	})
 
 	require.NoError(t, err)
@@ -223,7 +414,7 @@ func TestValidateSession_MissingDomain(t *testing.T) {
 	defer setup.cleanup()
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
-		SessionToken: "some-token",
+		SessionToken: "some-token", //nolint:staticcheck,
 	})
 
 	require.NoError(t, err)
@@ -244,6 +435,57 @@ func TestValidateSession_MissingToken(t *testing.T) {
 	assert.Contains(t, resp.DeniedReason, "missing")
 }
 
+// TestGenerateSessionToken_UserNotInAllowedGroupGetsNoToken is the regression
+// guard for the group-authorisation bypass: the callback used to hand a signed
+// token to a user the service denies, and the proxy honoured that token as soon
+// as the user moved it into the nb_session cookie themselves. Authorisation has
+// to run before the token is signed.
+func TestGenerateSessionToken_UserNotInAllowedGroupGetsNoToken(t *testing.T) {
+	setup := setupValidateSessionTest(t)
+	defer setup.cleanup()
+
+	token, err := setup.proxyService.GenerateSessionToken(context.Background(), "restricted-proxy.example.com", "nonGroupUserId", auth.MethodOIDC)
+
+	require.Error(t, err, "a user outside the distribution groups must not receive a token")
+	assert.ErrorIs(t, err, ErrUserNotInGroup, "the callback maps this sentinel onto the access denied page")
+	assert.Empty(t, token, "no token may reach the browser")
+}
+
+func TestGenerateSessionToken_UserInAllowedGroupGetsTokenWithGroups(t *testing.T) {
+	setup := setupValidateSessionTest(t)
+	defer setup.cleanup()
+
+	ctx := context.Background()
+	svc, err := setup.store.GetServiceByID(ctx, store.LockingStrengthNone, "testAccountId", "restrictedProxyId")
+	require.NoError(t, err)
+
+	token, err := setup.proxyService.GenerateSessionToken(ctx, "restricted-proxy.example.com", "allowedUserId", auth.MethodOIDC)
+	require.NoError(t, err)
+	require.NotEmpty(t, token)
+
+	pubKey, err := base64.StdEncoding.DecodeString(svc.SessionPublicKey)
+	require.NoError(t, err)
+
+	userID, _, method, groups, _, err := auth.ValidateSessionJWT(token, "restricted-proxy.example.com", pubKey)
+	require.NoError(t, err)
+	assert.Equal(t, "allowedUserId", userID)
+	assert.Equal(t, auth.MethodOIDC.String(), method)
+	assert.Equal(t, []string{"allowedGroupId"}, groups, "the proxy gates the cookie on this claim, so it must carry the matched group")
+}
+
+// TestGenerateSessionToken_UnrestrictedServiceAllowsAnyAccountUser keeps the new
+// gate scoped: a service without distribution groups is open to every user of
+// its account, as before.
+func TestGenerateSessionToken_UnrestrictedServiceAllowsAnyAccountUser(t *testing.T) {
+	setup := setupValidateSessionTest(t)
+	defer setup.cleanup()
+
+	token, err := setup.proxyService.GenerateSessionToken(context.Background(), "test-proxy.example.com", "nonGroupUserId", auth.MethodOIDC)
+
+	require.NoError(t, err, "an unrestricted service must keep working for any user of the account")
+	assert.NotEmpty(t, token)
+}
+
 type testValidateSessionServiceManager struct {
 	store store.Store
 }
@@ -253,15 +495,15 @@ func (m *testValidateSessionServiceManager) GetAllServices(_ context.Context, _,
 }
 
 func (m *testValidateSessionServiceManager) GetService(_ context.Context, _, _, _ string) (*service.Service, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func (m *testValidateSessionServiceManager) CreateService(_ context.Context, _, _ string, _ *service.Service) (*service.Service, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func (m *testValidateSessionServiceManager) UpdateService(_ context.Context, _, _ string, _ *service.Service) (*service.Service, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func (m *testValidateSessionServiceManager) DeleteService(_ context.Context, _, _, _ string) error {
@@ -305,7 +547,7 @@ func (m *testValidateSessionServiceManager) GetServiceIDByTargetID(_ context.Con
 }
 
 func (m *testValidateSessionServiceManager) CreateServiceFromPeer(_ context.Context, _, _ string, _ *service.ExposeServiceRequest) (*service.ExposeServiceResponse, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func (m *testValidateSessionServiceManager) RenewServiceFromPeer(_ context.Context, _, _, _ string) error {
@@ -318,25 +560,41 @@ func (m *testValidateSessionServiceManager) StopServiceFromPeer(_ context.Contex
 
 func (m *testValidateSessionServiceManager) StartExposeReaper(_ context.Context) {}
 
-func (m *testValidateSessionServiceManager) GetActiveClusters(_ context.Context, _, _ string) ([]proxy.Cluster, error) {
+func (m *testValidateSessionServiceManager) GetServiceByDomain(ctx context.Context, domain string) (*service.Service, error) {
+	return m.store.GetServiceByDomain(ctx, domain)
+}
+
+func (m *testValidateSessionServiceManager) GetClusters(_ context.Context, _, _ string) ([]proxy.Cluster, error) {
 	return nil, nil
+}
+
+func (m *testValidateSessionServiceManager) DeleteAccountCluster(_ context.Context, _, _, _ string) error {
+	return nil
 }
 
 type testValidateSessionProxyManager struct{}
 
-func (m *testValidateSessionProxyManager) Connect(_ context.Context, _, _, _ string, _ *proxy.Capabilities) error {
+func (m *testValidateSessionProxyManager) Connect(_ context.Context, _, _, _, _, _ string, _ *string, _ *proxy.Capabilities) (*proxy.Proxy, error) {
+	return nil, nil //nolint:nilnil
+}
+
+func (m *testValidateSessionProxyManager) Disconnect(_ context.Context, _, _ string) error {
 	return nil
 }
 
-func (m *testValidateSessionProxyManager) Disconnect(_ context.Context, _ string) error {
+func (m *testValidateSessionProxyManager) Heartbeat(_ context.Context, _ *proxy.Proxy) error {
 	return nil
 }
 
-func (m *testValidateSessionProxyManager) Heartbeat(_ context.Context, _, _, _ string) error {
+func (m *testValidateSessionProxyManager) DeleteAccountCluster(_ context.Context, _, _ string) error {
 	return nil
 }
 
 func (m *testValidateSessionProxyManager) GetActiveClusterAddresses(_ context.Context) ([]string, error) {
+	return nil, nil
+}
+
+func (m *testValidateSessionProxyManager) GetActiveClusterAddressesForAccount(_ context.Context, _ string) ([]string, error) {
 	return nil, nil
 }
 
@@ -345,6 +603,22 @@ func (m *testValidateSessionProxyManager) GetActiveClusters(_ context.Context) (
 }
 
 func (m *testValidateSessionProxyManager) CleanupStale(_ context.Context, _ time.Duration) error {
+	return nil
+}
+
+func (m *testValidateSessionProxyManager) GetAccountProxy(_ context.Context, _ string) (*proxy.Proxy, error) {
+	return nil, nil //nolint:nilnil
+}
+
+func (m *testValidateSessionProxyManager) CountAccountProxies(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (m *testValidateSessionProxyManager) IsClusterAddressAvailable(_ context.Context, _, _ string) (bool, error) {
+	return true, nil
+}
+
+func (m *testValidateSessionProxyManager) DeleteProxy(_ context.Context, _ string) error {
 	return nil
 }
 
@@ -360,10 +634,209 @@ func (m *testValidateSessionProxyManager) ClusterSupportsCrowdSec(_ context.Cont
 	return nil
 }
 
+func (m *testValidateSessionProxyManager) ClusterSupportsPrivate(_ context.Context, _ string) *bool {
+	return nil
+}
+
+func (m *testValidateSessionProxyManager) ClusterAllProxiesPrivate(_ context.Context, _ string) *bool {
+	return nil
+}
+
+func (m *testValidateSessionProxyManager) ClusterSupportsSessionCode(_ context.Context, _ string) bool {
+	return false
+}
+
 type testValidateSessionUsersManager struct {
 	store store.Store
 }
 
 func (m *testValidateSessionUsersManager) GetUser(ctx context.Context, userID string) (*types.User, error) {
 	return m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
+}
+
+func (m *testValidateSessionUsersManager) GetUserWithGroups(ctx context.Context, userID string) (*types.User, []*types.Group, error) {
+	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(user.AutoGroups) == 0 {
+		return user, nil, nil
+	}
+	groupsMap, err := m.store.GetGroupsByIDs(ctx, store.LockingStrengthNone, user.AccountID, user.AutoGroups)
+	if err != nil {
+		return nil, nil, err
+	}
+	groups := make([]*types.Group, 0, len(user.AutoGroups))
+	for _, id := range user.AutoGroups {
+		if g, ok := groupsMap[id]; ok && g != nil {
+			groups = append(groups, g)
+		}
+	}
+	return user, groups, nil
+}
+
+func TestValidateSession_RedeemsSessionCode(t *testing.T) {
+	setup := setupValidateSessionTest(t)
+	defer setup.cleanup()
+
+	proxy, err := setup.store.GetServiceByID(context.Background(), store.LockingStrengthNone, "testAccountId", "testProxyId")
+	require.NoError(t, err)
+
+	token := createSessionToken(t, proxy.SessionPrivateKey, "allowedUserId", "test-proxy.example.com")
+	code, ok := setup.proxyService.GenerateSessionCode(token)
+	require.True(t, ok)
+	require.NotEqual(t, token, code, "code must not be the token itself")
+
+	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
+		Domain:      "test-proxy.example.com",
+		SessionCode: code,
+	})
+	require.NoError(t, err)
+	assert.True(t, resp.Valid, "redeemed code should authorize the user")
+	assert.Equal(t, "allowedUserId", resp.UserId)
+	assert.Equal(t, token, resp.GetSessionToken(), "response must carry the durable token for the cookie")
+
+	// Single-use: the same code must not redeem again.
+	resp2, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
+		Domain:      "test-proxy.example.com",
+		SessionCode: code,
+	})
+	require.NoError(t, err)
+	assert.False(t, resp2.Valid, "a consumed code must be rejected")
+	assert.Empty(t, resp2.GetSessionToken())
+}
+
+func TestValidateSession_InvalidSessionCode(t *testing.T) {
+	setup := setupValidateSessionTest(t)
+	defer setup.cleanup()
+
+	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
+		Domain:      "test-proxy.example.com",
+		SessionCode: "does-not-exist",
+	})
+	require.NoError(t, err)
+	assert.False(t, resp.Valid)
+	assert.Empty(t, resp.GetSessionToken())
+}
+
+// TestGenerateSessionToken_EmailFallsBackToIdP covers users whose stored email
+// column is empty: the token's email claim comes from the IdP so the proxy can
+// still stamp X-NetBird-User.
+func TestGenerateSessionToken_EmailFallsBackToIdP(t *testing.T) {
+	setup := setupValidateSessionTest(t)
+	defer setup.cleanup()
+
+	ctx := context.Background()
+	svc, err := setup.store.GetServiceByID(ctx, store.LockingStrengthNone, "testAccountId", "restrictedProxyId")
+	require.NoError(t, err)
+
+	idpMock := &mockTunnelIdpManager{email: "idp@example.com", hasData: true}
+	setup.proxyService.idpManager = idpMock
+
+	token, err := setup.proxyService.GenerateSessionToken(ctx, "restricted-proxy.example.com", "allowedUserId", auth.MethodOIDC)
+	require.NoError(t, err)
+
+	pubKey, err := base64.StdEncoding.DecodeString(svc.SessionPublicKey)
+	require.NoError(t, err)
+
+	_, email, _, _, _, err := auth.ValidateSessionJWT(token, "restricted-proxy.example.com", pubKey)
+	require.NoError(t, err)
+	assert.Equal(t, "idp@example.com", email)
+	require.Len(t, idpMock.gotMeta, 1)
+	assert.Equal(t, "testAccountId", idpMock.gotMeta[0].WTAccountID, "IdP lookup must be scoped to the service's account")
+}
+
+// TestGenerateSessionToken_IdPFailureStillIssuesToken pins the fail-soft
+// behaviour: an unreachable IdP costs the email claim, not the login.
+func TestGenerateSessionToken_IdPFailureStillIssuesToken(t *testing.T) {
+	setup := setupValidateSessionTest(t)
+	defer setup.cleanup()
+
+	ctx := context.Background()
+	svc, err := setup.store.GetServiceByID(ctx, store.LockingStrengthNone, "testAccountId", "restrictedProxyId")
+	require.NoError(t, err)
+
+	setup.proxyService.idpManager = &mockTunnelIdpManager{err: errors.New("idp down")}
+
+	token, err := setup.proxyService.GenerateSessionToken(ctx, "restricted-proxy.example.com", "allowedUserId", auth.MethodOIDC)
+	require.NoError(t, err)
+
+	pubKey, err := base64.StdEncoding.DecodeString(svc.SessionPublicKey)
+	require.NoError(t, err)
+
+	userID, email, _, _, _, err := auth.ValidateSessionJWT(token, "restricted-proxy.example.com", pubKey)
+	require.NoError(t, err)
+	assert.Equal(t, "allowedUserId", userID)
+	assert.Empty(t, email)
+}
+
+func TestValidateSession_EmailResolution(t *testing.T) {
+	tests := []struct {
+		name        string
+		storedEmail string
+		tokenEmail  string
+		idp         *mockTunnelIdpManager
+		expectEmail string
+		expectCalls int
+	}{
+		{
+			name:        "stored email wins without IdP call",
+			storedEmail: "stored@example.com",
+			tokenEmail:  "claim@example.com",
+			idp:         &mockTunnelIdpManager{email: "idp@example.com", hasData: true},
+			expectEmail: "stored@example.com",
+		},
+		{
+			name:        "token email claim is reused without IdP call",
+			tokenEmail:  "claim@example.com",
+			idp:         &mockTunnelIdpManager{email: "idp@example.com", hasData: true},
+			expectEmail: "claim@example.com",
+		},
+		{
+			name:        "empty stored email and claim fall back to IdP",
+			idp:         &mockTunnelIdpManager{email: "idp@example.com", hasData: true},
+			expectEmail: "idp@example.com",
+			expectCalls: 1,
+		},
+		{
+			name:        "IdP error leaves email empty but session valid",
+			idp:         &mockTunnelIdpManager{err: errors.New("idp down")},
+			expectCalls: 1,
+		},
+		{
+			name:        "IdP without data leaves email empty",
+			idp:         &mockTunnelIdpManager{},
+			expectCalls: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setup := setupValidateSessionTest(t)
+			defer setup.cleanup()
+
+			ctx := context.Background()
+			user, err := setup.store.GetUserByUserID(ctx, store.LockingStrengthNone, "allowedUserId")
+			require.NoError(t, err)
+			user.Email = tt.storedEmail
+			require.NoError(t, setup.store.SaveUser(ctx, user))
+
+			setup.proxyService.idpManager = tt.idp
+
+			svc, err := setup.store.GetServiceByID(ctx, store.LockingStrengthNone, "testAccountId", "testProxyId")
+			require.NoError(t, err)
+			token := createSessionTokenWithEmail(t, svc.SessionPrivateKey, "allowedUserId", tt.tokenEmail, "test-proxy.example.com")
+			code, ok := setup.proxyService.GenerateSessionCode(token)
+			require.True(t, ok)
+
+			resp, err := setup.proxyService.ValidateSession(ctx, &proto.ValidateSessionRequest{
+				Domain:      "test-proxy.example.com",
+				SessionCode: code,
+			})
+			require.NoError(t, err)
+			assert.True(t, resp.GetValid())
+			assert.Equal(t, tt.expectEmail, resp.GetUserEmail())
+			assert.Equal(t, tt.expectCalls, tt.idp.gotCalls)
+		})
+	}
 }

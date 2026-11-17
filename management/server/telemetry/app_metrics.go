@@ -29,6 +29,7 @@ type MockAppMetrics struct {
 	StoreMetricsFunc             func() *StoreMetrics
 	UpdateChannelMetricsFunc     func() *UpdateChannelMetrics
 	AddAccountManagerMetricsFunc func() *AccountManagerMetrics
+	EphemeralPeersMetricsFunc    func() *EphemeralPeersMetrics
 }
 
 // GetMeter mocks the GetMeter function of the AppMetrics interface
@@ -103,6 +104,14 @@ func (mock *MockAppMetrics) AccountManagerMetrics() *AccountManagerMetrics {
 	return nil
 }
 
+// EphemeralPeersMetrics mocks the MockAppMetrics function of the EphemeralPeersMetrics interface
+func (mock *MockAppMetrics) EphemeralPeersMetrics() *EphemeralPeersMetrics {
+	if mock.EphemeralPeersMetricsFunc != nil {
+		return mock.EphemeralPeersMetricsFunc()
+	}
+	return nil
+}
+
 // AppMetrics is metrics interface
 type AppMetrics interface {
 	GetMeter() metric2.Meter
@@ -114,6 +123,7 @@ type AppMetrics interface {
 	StoreMetrics() *StoreMetrics
 	UpdateChannelMetrics() *UpdateChannelMetrics
 	AccountManagerMetrics() *AccountManagerMetrics
+	EphemeralPeersMetrics() *EphemeralPeersMetrics
 }
 
 // defaultAppMetrics are core application metrics based on OpenTelemetry https://opentelemetry.io/
@@ -129,6 +139,7 @@ type defaultAppMetrics struct {
 	storeMetrics          *StoreMetrics
 	updateChannelMetrics  *UpdateChannelMetrics
 	accountManagerMetrics *AccountManagerMetrics
+	ephemeralMetrics      *EphemeralPeersMetrics
 }
 
 // IDPMetrics returns metrics for the idp package
@@ -159,6 +170,11 @@ func (appMetrics *defaultAppMetrics) UpdateChannelMetrics() *UpdateChannelMetric
 // AccountManagerMetrics returns metrics for the account manager
 func (appMetrics *defaultAppMetrics) AccountManagerMetrics() *AccountManagerMetrics {
 	return appMetrics.accountManagerMetrics
+}
+
+// EphemeralPeersMetrics returns metrics for the ephemeral peer cleanup loop
+func (appMetrics *defaultAppMetrics) EphemeralPeersMetrics() *EphemeralPeersMetrics {
+	return appMetrics.ephemeralMetrics
 }
 
 // Close stop application metrics HTTP handler and closes listener.
@@ -245,6 +261,11 @@ func NewDefaultAppMetrics(ctx context.Context) (AppMetrics, error) {
 		return nil, fmt.Errorf("failed to initialize account manager metrics: %w", err)
 	}
 
+	ephemeralMetrics, err := NewEphemeralPeersMetrics(ctx, meter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize ephemeral peers metrics: %w", err)
+	}
+
 	return &defaultAppMetrics{
 		Meter:                 meter,
 		ctx:                   ctx,
@@ -254,6 +275,7 @@ func NewDefaultAppMetrics(ctx context.Context) (AppMetrics, error) {
 		storeMetrics:          storeMetrics,
 		updateChannelMetrics:  updateChannelMetrics,
 		accountManagerMetrics: accountManagerMetrics,
+		ephemeralMetrics:      ephemeralMetrics,
 	}, nil
 }
 
@@ -290,6 +312,11 @@ func NewAppMetricsWithMeter(ctx context.Context, meter metric2.Meter) (AppMetric
 		return nil, fmt.Errorf("failed to initialize account manager metrics: %w", err)
 	}
 
+	ephemeralMetrics, err := NewEphemeralPeersMetrics(ctx, meter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize ephemeral peers metrics: %w", err)
+	}
+
 	return &defaultAppMetrics{
 		Meter:                 meter,
 		ctx:                   ctx,
@@ -300,5 +327,6 @@ func NewAppMetricsWithMeter(ctx context.Context, meter metric2.Meter) (AppMetric
 		storeMetrics:          storeMetrics,
 		updateChannelMetrics:  updateChannelMetrics,
 		accountManagerMetrics: accountManagerMetrics,
+		ephemeralMetrics:      ephemeralMetrics,
 	}, nil
 }

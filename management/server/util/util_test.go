@@ -6,36 +6,23 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-type testObject struct {
-	value int
-}
-
-func (t testObject) Equal(other testObject) bool {
-	return t.value == other.value
-}
-
-func Test_MergeUniqueArraysWithoutDuplicates(t *testing.T) {
-	arr1 := []testObject{{value: 1}, {value: 2}}
-	arr2 := []testObject{{value: 2}, {value: 3}}
-	result := MergeUnique(arr1, arr2)
-	assert.Len(t, result, 3)
-	assert.Contains(t, result, testObject{value: 1})
-	assert.Contains(t, result, testObject{value: 2})
-	assert.Contains(t, result, testObject{value: 3})
-}
-
-func Test_MergeUniqueHandlesEmptyArrays(t *testing.T) {
-	arr1 := []testObject{}
-	arr2 := []testObject{}
-	result := MergeUnique(arr1, arr2)
-	assert.Empty(t, result)
-}
-
-func Test_MergeUniqueHandlesOneEmptyArray(t *testing.T) {
-	arr1 := []testObject{{value: 1}, {value: 2}}
-	arr2 := []testObject{}
-	result := MergeUnique(arr1, arr2)
-	assert.Len(t, result, 2)
-	assert.Contains(t, result, testObject{value: 1})
-	assert.Contains(t, result, testObject{value: 2})
+func TestElementsMatch(t *testing.T) {
+	tests := []struct {
+		name string
+		a, b []string
+		want bool
+	}{
+		{"both nil", nil, nil, true},
+		{"nil and empty", nil, []string{}, true},
+		{"same order", []string{"a", "b"}, []string{"a", "b"}, true},
+		{"different order", []string{"a", "b", "c"}, []string{"c", "a", "b"}, true},
+		{"different length", []string{"a"}, []string{"a", "b"}, false},
+		{"different element", []string{"a", "b"}, []string{"a", "c"}, false},
+		{"different multiplicity", []string{"a", "a", "b"}, []string{"a", "b", "b"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, ElementsMatch(tt.a, tt.b), "ElementsMatch(%v, %v)", tt.a, tt.b)
+		})
+	}
 }

@@ -7,6 +7,8 @@ import (
 	"sync"
 
 	"github.com/quic-go/quic-go"
+
+	nbRelay "github.com/netbirdio/netbird/shared/relay"
 )
 
 type Conn struct {
@@ -40,6 +42,16 @@ func (c *Conn) Write(_ context.Context, b []byte) (int, error) {
 
 func (c *Conn) RemoteAddr() net.Addr {
 	return c.session.RemoteAddr()
+}
+
+// Protocol returns the transport name for this connection.
+func (c *Conn) Protocol() string {
+	return "quic"
+}
+
+// MaxMessageSize returns the largest message a single Write carries.
+func (c *Conn) MaxMessageSize() int {
+	return nbRelay.QUICMaxDatagramSize
 }
 
 func (c *Conn) Close() error {

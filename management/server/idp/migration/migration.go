@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 
@@ -25,8 +27,10 @@ type Server interface {
 	EventStore() EventStore // may return nil
 }
 
-const idpSeedInfoKey = "IDP_SEED_INFO"
-const dryRunEnvKey = "NB_IDP_MIGRATION_DRY_RUN"
+const (
+	idpSeedInfoKey = "IDP_SEED_INFO"
+	dryRunEnvKey   = "NB_IDP_MIGRATION_DRY_RUN"
+)
 
 func isDryRun() bool {
 	return os.Getenv(dryRunEnvKey) == "true"
@@ -232,4 +236,164 @@ func PopulateUserInfo(s Server, idpManager idp.Manager, dryRun bool) error {
 	}
 
 	return nil
+}
+
+const DefaultSingleAccountDomain = "netbird.selfhosted"
+
+var (
+	ErrMultipleAccounts = errors.New("the embedded IdP supports a single account only")
+	ErrUnusableDomain   = errors.New("domain cannot be resolved in single account mode")
+	ErrDomainConflict   = errors.New("requested domain conflicts with the account domain")
+)
+
+var resolvableDomainRegexp = regexp.MustCompile(`^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$`)
+
+// RequireSingleAccount refuses to migrate an instance that holds more than one account.
+func RequireSingleAccount(s Server) error {
+	accountsCounter, err := s.Store().GetAccountsCounter(context.Background())
+	if err != nil {
+		return fmt.Errorf("failed to count accounts: %w", err)
+	}
+
+	if accountsCounter > 1 {
+		return errMultipleAccounts(accountsCounter)
+	}
+
+	return nil
+}
+
+func errMultipleAccounts(accountsCounter int64) error {
+	return fmt.Errorf("%w: this instance has %d accounts. Identity provider connectors are stored without "+
+		"an account scope, so every account would share and be able to manage the same connectors. "+
+		"Consolidate this instance to a single account, or keep using an external IdP, before migrating",
+		ErrMultipleAccounts, accountsCounter)
+}
+
+func NormalizeSingleAccountDomain(singleAccountDomain string) (string, error) {
+	if singleAccountDomain == "" {
+		singleAccountDomain = DefaultSingleAccountDomain
+	}
+
+	singleAccountDomain = strings.ToLower(singleAccountDomain)
+	if !resolvableDomainRegexp.MatchString(singleAccountDomain) {
+		return "", fmt.Errorf("%w: %q must contain at least one dot and only lowercase letters, digits and "+
+			"hyphens, otherwise users cannot join the existing account", ErrUnusableDomain, singleAccountDomain)
+	}
+
+	return singleAccountDomain, nil
+}
+
+// resolveAccountDomain picks the domain the account should end up with. The account keeps a usable
+// domain of its own, the configured one only fills a blank. Anything else is a conflict to report.
+func resolveAccountDomain(accountID, accountDomain, singleAccountDomain string, requested bool) (string, error) {
+	accountDomain = strings.ToLower(accountDomain)
+
+	if accountDomain == "" {
+		return singleAccountDomain, nil
+	}
+
+	if !resolvableDomainRegexp.MatchString(accountDomain) {
+		return "", fmt.Errorf("%w: account %s has domain %q, which must contain at least one dot and only "+
+			"lowercase letters, digits and hyphens. Correct the account domain before migrating",
+			ErrUnusableDomain, accountID, accountDomain)
+	}
+
+	if requested && accountDomain != singleAccountDomain {
+		return "", fmt.Errorf("%w: account %s already uses domain %q but %q was requested. Re-run without "+
+			"--single-account-mode-domain to keep %q, or correct the account domain first",
+			ErrDomainConflict, accountID, accountDomain, singleAccountDomain, accountDomain)
+	}
+
+	return accountDomain, nil
+}
+
+// EnsureSingleAccountDomain gives the remaining account the domain attributes single account mode
+// resolves against, so users can still join it after the migration.
+func EnsureSingleAccountDomain(s Server, singleAccountDomain string) error {
+	plan, err := planSingleAccountDomain(s, singleAccountDomain)
+	if err != nil {
+		return err
+	}
+	if plan.skip {
+		return nil
+	}
+
+	if isDryRun() {
+		log.Infof("[DRY RUN] would set account %s domain to %q, category to %q and mark it as the primary domain account "+
+			"(currently domain=%q primary=%v)", plan.accountID, plan.domain, types.PrivateCategory,
+			plan.currentDomain, plan.isPrimary)
+		return nil
+	}
+
+	if err := s.Store().UpdateAccountDomainAttributes(context.Background(), plan.accountID, plan.domain,
+		types.PrivateCategory, true); err != nil {
+		return fmt.Errorf("failed to update domain attributes of account %s: %w", plan.accountID, err)
+	}
+
+	log.Infof("account %s now resolves in single account mode with domain %q", plan.accountID, plan.domain)
+	return nil
+}
+
+// CheckSingleAccountDomain reports whether EnsureSingleAccountDomain would succeed, without writing.
+func CheckSingleAccountDomain(s Server, singleAccountDomain string) error {
+	_, err := planSingleAccountDomain(s, singleAccountDomain)
+	return err
+}
+
+type singleAccountDomainPlan struct {
+	accountID     string
+	domain        string
+	currentDomain string
+	isPrimary     bool
+	skip          bool
+}
+
+// planSingleAccountDomain decides what the account's domain attributes should become. It reads
+// only, so it can run both as a preflight and as the first half of the update.
+func planSingleAccountDomain(s Server, singleAccountDomain string) (singleAccountDomainPlan, error) {
+	ctx := context.Background()
+
+	// An empty value means the operator did not pick a domain, so the default is only a fallback.
+	requested := singleAccountDomain != ""
+
+	singleAccountDomain, err := NormalizeSingleAccountDomain(singleAccountDomain)
+	if err != nil {
+		return singleAccountDomainPlan{}, err
+	}
+
+	accountsCounter, err := s.Store().GetAccountsCounter(ctx)
+	if err != nil {
+		return singleAccountDomainPlan{}, fmt.Errorf("failed to count accounts: %w", err)
+	}
+	// The count is checked again here: it is read long after RequireSingleAccount, and marking an
+	// arbitrary account as the primary one for the domain would be wrong.
+	switch {
+	case accountsCounter == 0:
+		log.Info("no accounts yet, nothing to prepare for single account mode")
+		return singleAccountDomainPlan{skip: true}, nil
+	case accountsCounter > 1:
+		return singleAccountDomainPlan{}, errMultipleAccounts(accountsCounter)
+	}
+
+	accountID, err := s.Store().GetAnyAccountID(ctx)
+	if err != nil {
+		return singleAccountDomainPlan{}, fmt.Errorf("failed to get the existing account: %w", err)
+	}
+
+	isPrimary, accountDomain, err := s.Store().IsPrimaryAccount(ctx, accountID)
+	if err != nil {
+		return singleAccountDomainPlan{}, fmt.Errorf("failed to read domain attributes of account %s: %w", accountID, err)
+	}
+
+	domain, err := resolveAccountDomain(accountID, accountDomain, singleAccountDomain, requested)
+	if err != nil {
+		return singleAccountDomainPlan{}, err
+	}
+
+	return singleAccountDomainPlan{
+		accountID:     accountID,
+		domain:        domain,
+		currentDomain: accountDomain,
+		isPrimary:     isPrimary,
+	}, nil
 }

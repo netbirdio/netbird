@@ -1,0 +1,26 @@
+{
+  "Network": {"Serial": 15},
+  "Peers": {
+    "peer-a": {"IP": "100.64.0.1", "Meta": {"WtVersion": "0.60.0"}},
+    "peer-b": {"IP": "100.64.0.2", "Meta": {"WtVersion": "0.60.0"}},
+    "peer-c": {"IP": "100.64.0.3", "Meta": {"WtVersion": "0.60.0"}}
+  },
+  "Policies": [
+    {
+      "ID": "pol-direct",
+      "PublicID": "pol-direct-pub",
+      "Enabled": true,
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "tcp",
+          "Ports": ["443"],
+          "Bidirectional": true,
+          "SourceResource": {"ID": "peer-a", "Type": "peer"},
+          "DestinationResource": {"ID": "peer-b", "Type": "peer"}
+        }
+      ]
+    }
+  ]
+}

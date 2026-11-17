@@ -16,6 +16,10 @@ type hostManager interface {
 	restoreHostDNS() error
 	supportCustomPort() bool
 	string() string
+	// getOriginalNameservers returns the OS-side resolvers used as PriorityFallback
+	// upstreams: pre-takeover snapshots on desktop, the OS-pushed list on Android,
+	// hardcoded Quad9 on iOS, nil for noop / mock.
+	getOriginalNameservers() []netip.Addr
 }
 
 type SystemDNSSettings struct {
@@ -130,4 +134,12 @@ func (n noopHostConfigurator) supportCustomPort() bool {
 
 func (n noopHostConfigurator) string() string {
 	return "noop"
+}
+
+func (n noopHostConfigurator) getOriginalNameservers() []netip.Addr {
+	return nil
+}
+
+func (m *mockHostConfigurator) getOriginalNameservers() []netip.Addr {
+	return nil
 }

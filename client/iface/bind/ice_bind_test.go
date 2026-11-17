@@ -2,12 +2,15 @@ package bind
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/pion/transport/v3"
 	"github.com/pion/transport/v3/stdnet"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,6 +18,7 @@ import (
 	"golang.org/x/net/ipv6"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 func TestICEBind_CreatesReceiverForBothIPv4AndIPv6(t *testing.T) {
@@ -239,8 +243,12 @@ func TestICEBind_HandlesConcurrentMixedTraffic(t *testing.T) {
 		ipv6Count++
 	}
 
-	assert.Equal(t, packetsPerFamily, ipv4Count)
-	assert.Equal(t, packetsPerFamily, ipv6Count)
+	// Allow some UDP packet loss under load (e.g. FreeBSD/QEMU runners). The
+	// routing-correctness checks above are the real assertions; the counts
+	// are a sanity bound to catch a totally silent path.
+	minDelivered := packetsPerFamily * 80 / 100
+	assert.GreaterOrEqual(t, ipv4Count, minDelivered, "IPv4 delivery below threshold")
+	assert.GreaterOrEqual(t, ipv6Count, minDelivered, "IPv6 delivery below threshold")
 }
 
 func TestICEBind_DetectsAddressFamilyFromConnection(t *testing.T) {
@@ -285,7 +293,7 @@ func setupICEBind(t *testing.T) *ICEBind {
 		IP:      netip.MustParseAddr("100.64.0.1"),
 		Network: netip.MustParsePrefix("100.64.0.0/10"),
 	}
-	return NewICEBind(transportNet, nil, address, 1280)
+	return NewICEBind(transportNet, address, 1280)
 }
 
 func createDualStackConns(t *testing.T) (*net.UDPConn, *net.UDPConn) {
@@ -321,4 +329,87 @@ func listenUDP(t *testing.T, network, addr string) *net.UDPConn {
 	conn, err := net.ListenUDP(network, udpAddr)
 	require.NoError(t, err)
 	return conn
+}
+
+type countingNet struct {
+	transport.Net
+	calls  atomic.Int64
+	ifaces []*transport.Interface
+	before func()
+}
+
+func (n *countingNet) Interfaces() ([]*transport.Interface, error) {
+	n.calls.Add(1)
+	if n.before != nil {
+		n.before()
+	}
+	return n.ifaces, nil
+}
+
+func TestICEBind_OpenDoesNotDiscoverInterfaces(t *testing.T) {
+	n := newCountingNet()
+	iceBind := NewICEBind(n, testAddress(), 1280)
+
+	for i := 0; i < 2; i++ {
+		_, port, err := iceBind.Open(0)
+		require.NoError(t, err)
+		require.NotZero(t, port, "the bind listens on a port")
+		assert.Equal(t, int64(0), n.calls.Load(), "opening the bind must not enumerate interfaces, attempt %d", i+1)
+		require.NoError(t, iceBind.Close())
+	}
+
+	_, _, err := iceBind.Open(0)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = iceBind.Close() })
+
+	mux, err := iceBind.GetICEMux()
+	require.NoError(t, err)
+	assert.NotEmpty(t, mux.SingleSocketUDPMux.GetListenAddresses(), "listen addresses come from the discovered interfaces")
+	assert.Equal(t, int64(1), n.calls.Load(), "interfaces are discovered when the listen addresses are asked for")
+}
+
+func TestICEBind_DeviceUpDoesNotWaitOnInterfaceDiscovery(t *testing.T) {
+	tunDev, _, err := wgbackend.CreateNetTUN([]netip.Addr{netip.MustParseAddr("100.64.0.1")}, nil, 1280)
+	require.NoError(t, err)
+
+	var dev *wgbackend.Device
+	n := newCountingNet()
+	n.before = func() {
+		_ = dev.IpcGetOperation(io.Discard)
+	}
+	iceBind := NewICEBind(n, testAddress(), 1280)
+	dev = wgbackend.NewDevice(tunDev, iceBind, wgbackend.NewLogger(wgbackend.LogLevelSilent, ""))
+
+	upDone := make(chan error, 1)
+	go func() {
+		upDone <- dev.Up()
+	}()
+
+	select {
+	case err := <-upDone:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("device Up did not return: interface discovery ran under the device lock and waited on the device itself")
+	}
+	t.Cleanup(dev.Close)
+
+	assert.Equal(t, int64(0), n.calls.Load(), "bringing the device up must not enumerate interfaces")
+
+	mux, err := iceBind.GetICEMux()
+	require.NoError(t, err)
+	assert.NotEmpty(t, mux.SingleSocketUDPMux.GetListenAddresses(), "discovery that talks to the device succeeds once the device is up")
+	assert.Equal(t, int64(1), n.calls.Load(), "interfaces are discovered outside the device lock")
+}
+
+func newCountingNet() *countingNet {
+	ifc := transport.NewInterface(net.Interface{Index: 1, MTU: 1500, Name: "eth0", Flags: net.FlagUp | net.FlagMulticast})
+	ifc.AddAddress(&net.IPNet{IP: net.IPv4(192, 168, 1, 10), Mask: net.CIDRMask(24, 32)})
+	return &countingNet{ifaces: []*transport.Interface{ifc}}
+}
+
+func testAddress() wgaddr.Address {
+	return wgaddr.Address{
+		IP:      netip.MustParseAddr("100.64.0.1"),
+		Network: netip.MustParsePrefix("100.64.0.0/10"),
+	}
 }

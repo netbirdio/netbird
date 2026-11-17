@@ -6,17 +6,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
 
-	"github.com/netbirdio/management-integrations/integrations"
+	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator/validator"
 
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness/peerlivenesstest"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
@@ -28,7 +29,6 @@ import (
 	mgmt "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/groups"
-	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -97,7 +97,8 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 	t.Cleanup(ctrl.Finish)
 
 	permissionsManagerMock := permissions.NewMockManager(ctrl)
-	peersmanager := peers.NewManager(store, permissionsManagerMock)
+	peerLiveness := peerlivenesstest.NewStarted(t, store)
+	peersmanager := peers.NewManager(store, permissionsManagerMock, peerLiveness)
 	settingsManagerMock := settings.NewMockManager(ctrl)
 
 	jobManager := job.NewJobManager(nil, store, peersmanager)
@@ -109,7 +110,7 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 		t.Fatal(err)
 	}
 
-	iv, _ := integrations.NewIntegratedValidator(ctx, peersmanager, settingsManagerMock, eventStore, cacheStore)
+	iv, _ := validator.NewIntegratedValidator(ctx, peersmanager, settingsManagerMock, eventStore, cacheStore)
 
 	metrics, err := telemetry.NewDefaultAppMetrics(ctx)
 	require.NoError(t, err)
@@ -124,9 +125,9 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := mgmt.NewAccountRequestBuffer(ctx, store)
-	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, mgmt.MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), manager.NewEphemeralManager(store, peersmanager), config)
+	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, mgmt.MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", manager.NewEphemeralManager(store, peersmanager), config, nil)
 
-	accountManager, err := mgmt.BuildManager(ctx, config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, iv, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock, false, cacheStore)
+	accountManager, err := mgmt.BuildManager(ctx, config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, iv, metrics, settingsMockManager, permissionsManagerMock, false, cacheStore, peerLiveness)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +136,7 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 	if err != nil {
 		t.Fatal(err)
 	}
-	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, jobManager, secretsManager, nil, nil, &mgmt.MockIntegratedValidator{}, networkMapController, nil)
+	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, jobManager, secretsManager, nil, nil, &mgmt.MockIntegratedValidator{}, networkMapController, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +161,7 @@ func startClientDaemon(
 	s := grpc.NewServer()
 
 	server := client.New(ctx,
-		"", "", false, false, false)
+		"", "", false, false, false, false)
 	if err := server.Start(); err != nil {
 		t.Fatal(err)
 	}

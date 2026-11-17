@@ -5,14 +5,13 @@ import (
 	"net/netip"
 	"time"
 
-	wgdevice "golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/monotime"
 )
@@ -26,9 +25,8 @@ type wgIfaceBase interface {
 	Address() wgaddr.Address
 	ToInterface() *net.Interface
 	Up() (*udpmux.UniversalUDPMuxDefault, error)
-	UpdateAddr(newAddr string) error
+	UpdateAddr(newAddr wgaddr.Address) error
 	GetProxy() wgproxy.Proxy
-	GetProxyPort() uint16
 	UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
 	RemoveEndpointAddress(key string) error
 	RemovePeer(peerKey string) error
@@ -38,10 +36,11 @@ type wgIfaceBase interface {
 	SetFilter(filter device.PacketFilter) error
 	GetFilter() device.PacketFilter
 	GetDevice() *device.FilteredDevice
-	GetWGDevice() *wgdevice.Device
+	GetWGDevice() *wgbackend.Device
 	GetStats() (map[string]configurer.WGStats, error)
-	GetNet() *netstack.Net
+	GetNet() *wgbackend.NetstackNet
 	FullStats() (*configurer.Stats, error)
 	LastActivities() map[string]monotime.Time
 	SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error
+	MTU() uint16
 }

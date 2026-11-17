@@ -36,7 +36,7 @@ func NewGRPCController(proxyGRPCServer *nbgrpc.ProxyServiceServer, meter metric.
 // SendServiceUpdateToCluster sends a service update to a specific proxy cluster.
 func (c *GRPCController) SendServiceUpdateToCluster(ctx context.Context, accountID string, update *proto.ProxyMapping, clusterAddr string) {
 	c.proxyGRPCServer.SendServiceUpdateToCluster(ctx, update, clusterAddr)
-	c.metrics.IncrementServiceUpdateSendCount(clusterAddr)
+	c.metrics.IncrementServiceUpdateSendCount()
 }
 
 // GetOIDCValidationConfig returns the OIDC validation configuration from the gRPC server.
@@ -53,7 +53,7 @@ func (c *GRPCController) RegisterProxyToCluster(ctx context.Context, clusterAddr
 	proxySet.(*sync.Map).Store(proxyID, struct{}{})
 	log.WithContext(ctx).Debugf("Registered proxy %s to cluster %s", proxyID, clusterAddr)
 
-	c.metrics.IncrementProxyConnectionCount(clusterAddr)
+	c.metrics.IncrementProxyConnectionCount()
 
 	return nil
 }
@@ -67,7 +67,7 @@ func (c *GRPCController) UnregisterProxyFromCluster(ctx context.Context, cluster
 		proxySet.(*sync.Map).Delete(proxyID)
 		log.WithContext(ctx).Debugf("Unregistered proxy %s from cluster %s", proxyID, clusterAddr)
 
-		c.metrics.DecrementProxyConnectionCount(clusterAddr)
+		c.metrics.DecrementProxyConnectionCount()
 	}
 	return nil
 }

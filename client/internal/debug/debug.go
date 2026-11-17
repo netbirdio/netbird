@@ -16,12 +16,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/pprof"
-	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/netbirdio/netbird/client/anonymize"
@@ -31,12 +31,11 @@ import (
 	"github.com/netbirdio/netbird/client/internal/updater/installer"
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
-	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/shared/netiputil"
 )
 
-const readmeContent = `Netbird debug bundle
-This debug bundle contains the following files.
-If the --anonymize flag is set, the files are anonymized to protect sensitive information.
+const readmeContent = `This debug bundle contains the following files.
+If anonymization is enabled (--anonymize / --anonymize-level), the files are anonymized to protect sensitive information.
 
 status.txt: Anonymized status information of the NetBird client.
 client.log: Most recent, anonymized client log file of the NetBird client.
@@ -45,12 +44,18 @@ netbird.out: Most recent, anonymized stdout log file of the NetBird client.
 routes.txt: Detailed system routing table in tabular format including destination, gateway, interface, metrics, and protocol information, if --system-info flag was provided.
 interfaces.txt: Anonymized network interface information, if --system-info flag was provided.
 ip_rules.txt: Detailed IP routing rules in tabular format including priority, source, destination, interfaces, table, and action information (Linux only), if --system-info flag was provided.
-iptables.txt: Anonymized iptables rules with packet counters, if --system-info flag was provided.
-nftables.txt: Anonymized nftables rules with packet counters, if --system-info flag was provided.
+iptables.txt: Anonymized iptables (IPv4) rules with packet counters, if --system-info flag was provided.
+ip6tables.txt: Anonymized ip6tables (IPv6) rules with packet counters, if --system-info flag was provided.
+ipset.txt: Anonymized ipset list output, if --system-info flag was provided.
+nftables.txt: Anonymized nftables rules with packet counters across all families (ip, ip6, inet, etc.), if --system-info flag was provided.
+sysctls.txt: Forwarding, reverse-path filter, source-validation, and conntrack accounting sysctl values that the NetBird client may read or modify, if --system-info flag was provided (Linux only).
 resolv.conf: DNS resolver configuration from /etc/resolv.conf (Unix systems only), if --system-info flag was provided.
 scutil_dns.txt: DNS configuration from scutil --dns (macOS only), if --system-info flag was provided.
+dns_windows.txt: Anonymized NRPT rules and policy table in effect, DNS client policy, and per-interface and per-adapter DNS configuration (Windows only), if --system-info flag was provided.
 resolved_domains.txt: Anonymized resolved domain IP addresses from the status recorder.
 config.txt: Anonymized configuration information of the NetBird client.
+profiles.txt: Inventory of the profiles stored on this device, one block per profile: profile ID (the config filename stem), display name, path, whether it was the active profile when the bundle was created, and the owners recorded in the profile JSON. Profile names and paths are not anonymized.
+active_profile.json: Verbatim copy of the daemon's active profile state file, naming the profile ID that was active and the user it was activated for.
 network_map.json: Anonymized sync response containing peer configurations, routes, DNS settings, and firewall rules.
 state.json: Anonymized client state dump containing netbird states for the active profile.
 service_params.json: Sanitized service install parameters (service.json). Sensitive environment variable values are masked. Only present when service.json exists.
@@ -63,24 +68,38 @@ allocs.prof: Allocations profiling information.
 threadcreate.prof: Thread creation profiling information.
 cpu.prof: CPU profiling information.
 stack_trace.txt: Complete stack traces of all goroutines at the time of bundle creation.
+capture.pcap: Packet capture in pcap format. Only present when capture was running during bundle collection. Omitted from anonymized bundles because it contains raw decrypted packet data.
 
 
 Anonymization Process
-The files in this bundle have been anonymized to protect sensitive information. Here's how the anonymization was applied:
+The files in this bundle have been anonymized to protect sensitive information. The level applied to this bundle is recorded at the top of this file. Here's how the anonymization was applied:
 
 IP Addresses
 
-IPv4 addresses are replaced with addresses starting from 198.51.100.0
-IPv6 addresses are replaced with addresses starting from 100::
+Default level:
+- Public IPv4 addresses are replaced with addresses starting from 198.51.100.0
+- Public IPv6 addresses are replaced with addresses starting from 2001:db8:ffff::
+- IPv6 unique local addresses (fc00::/7) are anonymized as well: their random global ID uniquely identifies the network.
+- IP addresses from internal IPv4 ranges and well-known addresses are not anonymized (e.g. 8.8.8.8, 100.64.0.0/10, addresses starting with 192.168., 172.16., 10., 169.254., fe80::).
 
-IP addresses from non public ranges and well known addresses are not anonymized (e.g. 8.8.8.8, 100.64.0.0/10, addresses starting with 192.168., 172.16., 10., etc.).
+Strict level (--anonymize-level strict), in addition to the default level:
+- Private (RFC 1918), CGNAT (100.64.0.0/10), and link-local (169.254.0.0/16, fe80::/10) addresses are anonymized too.
+- Internal IPv4 addresses are replaced with addresses starting from 198.18.0.0 and internal IPv6 addresses with addresses starting from 2001:db8:1::, so internal addresses remain distinguishable from public ones.
+- Addresses are mapped in order of first appearance: subnet structure, allocation scheme, and gateway conventions are not preserved. Prefix lengths of networks are preserved.
+- Peer names in front of NetBird domains are replaced with numbered placeholders (e.g. peer-1.netbird.cloud), and subdomain labels of other domains with host-N placeholders.
+- WireGuard public keys are replaced with consistent placeholder keys.
+
 Reoccuring IP addresses are replaced with the same anonymized address.
 
 Note: The anonymized IP addresses in the status file do not match those in the log and routes files. However, the anonymized IP addresses are consistent within the status file and across the routes and log files.
 
+MAC Addresses
+MAC addresses are replaced at every anonymization level with consistent placeholders counting up from 02:00:00:00:00:01. Broadcast, multicast, and all-zero addresses are kept. At the default level a preserved IPv6 link-local address may still embed a MAC address (EUI-64); the strict level anonymizes those addresses.
+
 Domains
 All domain names (except for the netbird domains) are replaced with randomly generated strings ending in ".domain". Anonymized domains are consistent across all files in the bundle.
 Reoccuring domain names are replaced with the same anonymized domain.
+At the strict level, the peer name labels in front of netbird domains are anonymized as well.
 
 Sync Response
 The network_map.json file contains the following anonymized information:
@@ -154,32 +173,45 @@ The interfaces.txt file contains information about network interfaces, including
 
 The IP addresses in the interfaces file are anonymized using the same process as described above. Interface names, indexes, MTUs, and flags are not anonymized.
 
+Profiles
+The profiles.txt file lists every profile JSON on disk, including profiles the running client does not load. Owners are recorded as principals, "uid:<id>" on Unix and "sid:<sid>" on Windows. The whole owners list is reported, while the client currently honors only the first entry. An empty list means the profile predates ownership or was never claimed.
+
 Configuration
 The config.txt file contains anonymized configuration information of the NetBird client. Sensitive information such as private keys and SSH keys are excluded. The following fields are anonymized:
 - ManagementURL
-- AdminURL
 - NATExternalIPs
 - CustomDNSAddress
 
 Other non-sensitive configuration options are included without anonymization.
 
 Firewall Rules (Linux only)
-The bundle includes two separate firewall rule files:
+The bundle includes the following firewall-related files:
 
 iptables.txt:
-- Complete iptables ruleset with packet counters using 'iptables -v -n -L'
+- IPv4 iptables ruleset with packet counters using 'iptables-save' and 'iptables -v -n -L'
 - Includes all tables (filter, nat, mangle, raw, security)
 - Shows packet and byte counters for each rule
 - All IP addresses are anonymized
 - Chain names, table names, and other non-sensitive information remain unchanged
 
+ip6tables.txt:
+- IPv6 ip6tables ruleset with packet counters using 'ip6tables-save' and 'ip6tables -v -n -L'
+- Same table coverage and anonymization as iptables.txt
+- Omitted when ip6tables is not installed or no IPv6 rules are present
+
+ipset.txt:
+- Output of 'ipset list' (family-agnostic)
+- IP addresses are anonymized; set names and types remain unchanged
+
 nftables.txt:
-- Complete nftables ruleset obtained via 'nft -a list ruleset'
+- Complete nftables ruleset across all families (ip, ip6, inet, arp, bridge, netdev) via 'nft -a list ruleset'
 - Includes rule handle numbers and packet counters
-- All tables, chains, and rules are included
-- Shows packet and byte counters for each rule
-- All IP addresses are anonymized
-- Chain names, table names, and other non-sensitive information remain unchanged
+- All IP addresses are anonymized; chain/table names remain unchanged
+
+sysctls.txt:
+- Forwarding (IPv4 + IPv6, global and per-interface), reverse-path filter, source-validation, conntrack accounting, and TCP-related sysctls that netbird may read or modify
+- Per-interface keys are enumerated from /proc/sys/net/ipv{4,6}/conf
+- Interface names anonymized when --anonymize is set
 
 IP Rules (Linux only)
 The ip_rules.txt file contains detailed IP routing rule information:
@@ -210,12 +242,25 @@ scutil_dns.txt (macOS only):
 - Shows DNS configuration for all network interfaces
 - Includes search domains, nameservers, and DNS resolver settings
 - All IP addresses and domain names are anonymized
+
+dns_windows.txt (Windows only):
+- Lists the NRPT rules of both policy stores, the local one and the group policy one, marking the rules the client created
+- Follows them with the policy table the resolver has loaded, which differs from the rules while a change has not been picked up yet
+- Includes the DNS client group policy, the global TCP/IP and Dnscache parameters, and the DNS values of every interface that has any
+- Ends with the resolver configuration in effect per adapter, from GetAdaptersAddresses
+- All IP addresses and domain names are anonymized
 `
 
 const (
 	clientLogFile = "client.log"
 	errorLogFile  = "netbird.err"
 	stdoutLogFile = "netbird.out"
+
+	// Rotated-log glob prefixes (base log name without extension) passed to
+	// addRotatedLogFiles. The daemon's own log and the GUI log live in the same
+	// dir, so the prefixes must be disjoint to keep their rotated siblings apart.
+	clientLogPrefix = "client"
+	uiLogPrefix     = "gui-client"
 
 	darwinErrorLogPath  = "/var/log/netbird.out.log"
 	darwinStdoutLogPath = "/var/log/netbird.err.log"
@@ -226,6 +271,20 @@ type MetricsExporter interface {
 	Export(w io.Writer) error
 }
 
+// LogOpener opens a log file for inclusion in the bundle. It exists so that log
+// files whose path was supplied by an IPC caller can be opened under a check
+// the daemon defines, instead of being opened with the daemon's privileges
+// unconditionally.
+type LogOpener func(path string) (*os.File, error)
+
+func openLogFile(path string) (*os.File, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	return f, nil
+}
+
 type BundleGenerator struct {
 	anonymizer *anonymize.Anonymizer
 
@@ -234,11 +293,19 @@ type BundleGenerator struct {
 	statusRecorder *peer.Status
 	syncResponse   *mgmProto.SyncResponse
 	logPath        string
+	uiLogPath      string
+	uiLogOpener    LogOpener
+	tempDir        string
+	statePath      string
 	cpuProfile     []byte
+	capturePath    string
 	refreshStatus  func() // Optional callback to refresh status before bundle generation
 	clientMetrics  MetricsExporter
+	daemonVersion  string
+	cliVersion     string
 
 	anonymize         bool
+	anonymizeLevel    anonymize.Level
 	includeSystemInfo bool
 	logFileCount      uint32
 
@@ -246,7 +313,10 @@ type BundleGenerator struct {
 }
 
 type BundleConfig struct {
-	Anonymize         bool
+	Anonymize bool
+	// AnonymizeLevel selects how much the anonymizer redacts.
+	// anonymize.LevelStrict implies Anonymize.
+	AnonymizeLevel    anonymize.Level
 	IncludeSystemInfo bool
 	LogFileCount      uint32
 }
@@ -256,9 +326,21 @@ type GeneratorDependencies struct {
 	StatusRecorder *peer.Status
 	SyncResponse   *mgmProto.SyncResponse
 	LogPath        string
-	CPUProfile     []byte
-	RefreshStatus  func() // Optional callback to refresh status before bundle generation
-	ClientMetrics  MetricsExporter
+	UILogPath      string // Absolute path to the desktop UI's gui-client.log, reported via RegisterUILog. Empty if no UI registered one.
+	// UILogOpener opens the UI log and its rotated siblings. The path comes from
+	// a local IPC caller, so the daemon must not open it with plain os.Open: the
+	// opener is where the caller's right to that file is enforced. Defaults to
+	// os.Open, which is only correct where the path is not caller-supplied
+	// (mobile).
+	UILogOpener   LogOpener
+	TempDir       string // Directory for temporary bundle zip files. If empty, os.TempDir() is used.
+	StatePath     string // Path to the state file. If empty, the ServiceManager default path is used.
+	CPUProfile    []byte
+	CapturePath   string
+	RefreshStatus func()
+	ClientMetrics MetricsExporter
+	DaemonVersion string
+	CliVersion    string
 }
 
 func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGenerator {
@@ -268,26 +350,71 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		logFileCount = 1
 	}
 
+	uiLogOpener := deps.UILogOpener
+	if uiLogOpener == nil {
+		uiLogOpener = openLogFile
+	}
+
+	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+	anonymizer.SetLevel(cfg.AnonymizeLevel)
+
 	return &BundleGenerator{
-		anonymizer: anonymize.NewAnonymizer(anonymize.DefaultAddresses()),
+		anonymizer: anonymizer,
 
 		internalConfig: deps.InternalConfig,
 		statusRecorder: deps.StatusRecorder,
 		syncResponse:   deps.SyncResponse,
 		logPath:        deps.LogPath,
+		uiLogPath:      deps.UILogPath,
+		uiLogOpener:    uiLogOpener,
+		tempDir:        deps.TempDir,
+		statePath:      deps.StatePath,
 		cpuProfile:     deps.CPUProfile,
+		capturePath:    deps.CapturePath,
 		refreshStatus:  deps.RefreshStatus,
 		clientMetrics:  deps.ClientMetrics,
+		daemonVersion:  deps.DaemonVersion,
+		cliVersion:     deps.CliVersion,
 
-		anonymize:         cfg.Anonymize,
+		anonymize:         cfg.Anonymize || cfg.AnonymizeLevel >= anonymize.LevelStrict,
+		anonymizeLevel:    cfg.AnonymizeLevel,
 		includeSystemInfo: cfg.IncludeSystemInfo,
 		logFileCount:      logFileCount,
 	}
 }
 
+// bundleFilePattern names the bundle zips Generate creates in tempDir; the
+// asterisk is filled in by os.CreateTemp.
+const bundleFilePattern = "netbird.debug.*.zip"
+
+const exportedBundlePrefix = "netbird.debug-file."
+
+const exportedBundleMaxAge = 24 * time.Hour
+
+// RemoveStaleBundles deletes bundle zips that an interrupted generation or
+// upload left behind in dir. Only files older than maxAge go, so a bundle that
+// another caller is still writing or uploading in the same directory survives.
+// Exported bundles are kept for exportedBundleMaxAge instead.
+func RemoveStaleBundles(dir string, maxAge time.Duration) {
+	removeStaleFiles(dir, bundleFilePattern, maxAge)
+	removeStaleFiles(dir, exportedBundlePrefix+"*.zip", exportedBundleMaxAge)
+}
+
+// ExportBundle renames a generated bundle out of the RemoveStaleBundles pattern
+// and returns the new path. The caller owns the file from then on; an export
+// abandoned for longer than exportedBundleMaxAge is removed by RemoveStaleBundles.
+func ExportBundle(path string) (string, error) {
+	base := strings.TrimPrefix(filepath.Base(path), strings.SplitN(bundleFilePattern, "*", 2)[0])
+	exported := filepath.Join(filepath.Dir(path), exportedBundlePrefix+base)
+	if err := os.Rename(path, exported); err != nil {
+		return "", fmt.Errorf("export debug bundle: %w", err)
+	}
+	return exported, nil
+}
+
 // Generate creates a debug bundle and returns the location.
 func (g *BundleGenerator) Generate() (resp string, err error) {
-	bundlePath, err := os.CreateTemp("", "netbird.debug.*.zip")
+	bundlePath, err := os.CreateTemp(g.tempDir, bundleFilePattern)
 	if err != nil {
 		return "", fmt.Errorf("create zip file: %w", err)
 	}
@@ -329,6 +456,10 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("failed to add config to debug bundle: %v", err)
 	}
 
+	if err := g.addProfiles(); err != nil {
+		log.Errorf("failed to add profiles to debug bundle: %v", err)
+	}
+
 	if err := g.addResolvedDomains(); err != nil {
 		log.Errorf("failed to add resolved domains to debug bundle: %v", err)
 	}
@@ -338,11 +469,15 @@ func (g *BundleGenerator) createArchive() error {
 	}
 
 	if err := g.addProf(); err != nil {
-		log.Errorf("failed to add profiles to debug bundle: %v", err)
+		log.Errorf("failed to add pprof profiles to debug bundle: %v", err)
 	}
 
 	if err := g.addCPUProfile(); err != nil {
 		log.Errorf("failed to add CPU profile to debug bundle: %v", err)
+	}
+
+	if err := g.addCaptureFile(); err != nil {
+		log.Errorf("failed to add capture file to debug bundle: %v", err)
 	}
 
 	if err := g.addStackTrace(); err != nil {
@@ -373,15 +508,12 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("failed to add wg show output: %v", err)
 	}
 
-	if g.logPath != "" && !slices.Contains(util.SpecialLogs, g.logPath) {
-		if err := g.addLogfile(); err != nil {
-			log.Errorf("failed to add log file to debug bundle: %v", err)
-			if err := g.trySystemdLogFallback(); err != nil {
-				log.Errorf("failed to add systemd logs as fallback: %v", err)
-			}
-		}
-	} else if err := g.trySystemdLogFallback(); err != nil {
-		log.Errorf("failed to add systemd logs: %v", err)
+	if err := g.addPlatformLog(); err != nil {
+		log.Errorf("failed to add logs to debug bundle: %v", err)
+	}
+
+	if err := g.addUILog(); err != nil {
+		log.Errorf("failed to add UI log to debug bundle: %v", err)
 	}
 
 	if err := g.addUpdateLogs(); err != nil {
@@ -408,13 +540,23 @@ func (g *BundleGenerator) addSystemInfo() {
 		log.Errorf("failed to add firewall rules to debug bundle: %v", err)
 	}
 
+	if err := g.addSysctls(); err != nil {
+		log.Errorf("failed to add sysctls to debug bundle: %v", err)
+	}
+
 	if err := g.addDNSInfo(); err != nil {
 		log.Errorf("failed to add DNS info to debug bundle: %v", err)
 	}
 }
 
 func (g *BundleGenerator) addReadme() error {
-	readmeReader := strings.NewReader(readmeContent)
+	level := "none (anonymization disabled)"
+	if g.anonymize {
+		level = g.anonymizeLevel.String()
+	}
+	header := fmt.Sprintf("Netbird debug bundle\nAnonymization level applied to this bundle: %s\n", level)
+
+	readmeReader := strings.NewReader(header + readmeContent)
 	if err := g.addFileToZip(readmeReader, "README.txt"); err != nil {
 		return fmt.Errorf("add README file to zip: %w", err)
 	}
@@ -435,11 +577,13 @@ func (g *BundleGenerator) addStatus() error {
 
 		fullStatus := g.statusRecorder.GetFullStatus()
 		protoFullStatus := nbstatus.ToProtoFullStatus(fullStatus)
-		protoFullStatus.Events = g.statusRecorder.GetEventHistory()
 		overview := nbstatus.ConvertToStatusOutputOverview(protoFullStatus, nbstatus.ConvertOptions{
-			Anonymize:   g.anonymize,
-			ProfileName: profName,
+			Anonymize:      g.anonymize,
+			AnonymizeLevel: g.anonymizeLevel,
+			ProfileName:    profName,
+			DaemonVersion:  g.daemonVersion,
 		})
+		overview.CliVersion = g.cliVersion
 		statusOutput := overview.FullDetailSummary()
 
 		statusReader := strings.NewReader(statusOutput)
@@ -466,9 +610,6 @@ func (g *BundleGenerator) addConfig() error {
 		if g.internalConfig.ManagementURL != nil {
 			configContent.WriteString(fmt.Sprintf("ManagementURL: %s\n", g.anonymizer.AnonymizeURI(g.internalConfig.ManagementURL.String())))
 		}
-		if g.internalConfig.AdminURL != nil {
-			configContent.WriteString(fmt.Sprintf("AdminURL: %s\n", g.anonymizer.AnonymizeURI(g.internalConfig.AdminURL.String())))
-		}
 		configContent.WriteString(fmt.Sprintf("NATExternalIPs: %v\n", anonymizeNATExternalIPs(g.internalConfig.NATExternalIPs, g.anonymizer)))
 		if g.internalConfig.CustomDNSAddress != "" {
 			configContent.WriteString(fmt.Sprintf("CustomDNSAddress: %s\n", g.anonymizer.AnonymizeString(g.internalConfig.CustomDNSAddress)))
@@ -477,13 +618,18 @@ func (g *BundleGenerator) addConfig() error {
 		if g.internalConfig.ManagementURL != nil {
 			configContent.WriteString(fmt.Sprintf("ManagementURL: %s\n", g.internalConfig.ManagementURL.String()))
 		}
-		if g.internalConfig.AdminURL != nil {
-			configContent.WriteString(fmt.Sprintf("AdminURL: %s\n", g.internalConfig.AdminURL.String()))
-		}
 		configContent.WriteString(fmt.Sprintf("NATExternalIPs: %v\n", g.internalConfig.NATExternalIPs))
 		if g.internalConfig.CustomDNSAddress != "" {
 			configContent.WriteString(fmt.Sprintf("CustomDNSAddress: %s\n", g.internalConfig.CustomDNSAddress))
 		}
+	}
+
+	// Surface the set of MDM-enforced keys so a support engineer reading
+	// the bundle can tell which field values are user-set vs MDM-overridden.
+	// Same semantics as the mDMManagedFields list returned by the
+	// GetConfig RPC consumed by `netbird debug config`.
+	if managed := g.internalConfig.Policy().ManagedKeys(); len(managed) > 0 {
+		configContent.WriteString(fmt.Sprintf("MDMManagedFields: %v\n", managed))
 	}
 
 	configReader := strings.NewReader(configContent.String())
@@ -503,7 +649,7 @@ const (
 	jsonKeyServiceEnv    = "service_env_vars"
 )
 
-var sensitiveEnvSubstrings = []string{"key", "token", "secret", "password", "credential"}
+var sensitiveEnvSubstrings = []string{"key", "token", "secret", "password", "credential", "pin", "pkcs11"}
 
 // addServiceParams reads the service.json file and adds a sanitized version to the bundle.
 // Non-NB_ env vars and vars with sensitive names are masked. Other NB_ values are anonymized.
@@ -578,9 +724,234 @@ func isSensitiveEnvVar(key string) bool {
 	return false
 }
 
+const (
+	profilesBundleFile      = "profiles.txt"
+	activeProfileBundleFile = "active_profile.json"
+
+	profileJSONSuffix      = ".json"
+	profileStateJSONSuffix = ".state.json"
+
+	noneValue = "(none)"
+)
+
+// profileMeta is the slice of a profile JSON the bundle reports on. The owners
+// list is read whole, unlike the client, which honors only the first entry.
+type profileMeta struct {
+	Name   string
+	Owners []string
+}
+
+// profileEntry is one profile JSON found on disk.
+type profileEntry struct {
+	id       string
+	name     string
+	path     string
+	owners   []string
+	isActive bool
+	// loadErr is kept instead of returned so one unreadable profile does not
+	// hide the rest.
+	loadErr error
+}
+
+// addProfiles inventories every profile JSON on disk with its ID, name and
+// owners, and dumps the active profile state file verbatim.
+func (g *BundleGenerator) addProfiles() error {
+	activeState, activeRaw, activeErr := readActiveProfileState()
+	if activeErr != nil {
+		log.Warnf("failed to read active profile state for debug bundle: %v", activeErr)
+	}
+
+	entries := collectProfileEntries(activeState)
+	content := renderProfiles(entries, activeState, activeErr)
+
+	if err := g.addFileToZip(strings.NewReader(content), profilesBundleFile); err != nil {
+		return fmt.Errorf("add profiles file to zip: %w", err)
+	}
+
+	// A file that is present but empty still says something: the state was
+	// truncated rather than never written.
+	if activeRaw == nil {
+		return nil
+	}
+	if err := g.addFileToZip(bytes.NewReader(activeRaw), activeProfileBundleFile); err != nil {
+		return fmt.Errorf("add active profile state to zip: %w", err)
+	}
+
+	return nil
+}
+
+// readActiveProfileState reads the state file directly rather than through
+// ServiceManager, whose getters seed a default one when it is missing. Bundle
+// collection must not write the state it reports on. The raw bytes come back
+// even when parsing fails, so a corrupted file still reaches the bundle, and
+// they are nil only when nothing was read at all.
+func readActiveProfileState() (*profilemanager.ActiveProfileState, []byte, error) {
+	data, err := os.ReadFile(profilemanager.ActiveProfileStatePath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil, nil
+		}
+		return nil, nil, fmt.Errorf("read active profile state: %w", err)
+	}
+
+	var state profilemanager.ActiveProfileState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil, data, fmt.Errorf("parse active profile state: %w", err)
+	}
+
+	return &state, data, nil
+}
+
+// collectProfileEntries walks the state directory. The default profile sits at
+// the top level and every subdirectory holds profiles of its own.
+func collectProfileEntries(active *profilemanager.ActiveProfileState) []profileEntry {
+	root := profilemanager.DefaultConfigPathDir
+
+	var entries []profileEntry
+	if _, err := os.Stat(profilemanager.DefaultConfigPath); err == nil {
+		entries = append(entries, newProfileEntry(profilemanager.DefaultProfileName, profilemanager.DefaultConfigPath, active))
+	}
+
+	dirs, err := os.ReadDir(root)
+	if err != nil {
+		log.Warnf("failed to read profiles directory %s: %v", root, err)
+		return entries
+	}
+
+	var nested []profileEntry
+	for _, dir := range dirs {
+		if !dir.IsDir() {
+			continue
+		}
+		nested = append(nested, collectProfilesInDir(filepath.Join(root, dir.Name()), active)...)
+	}
+
+	sort.Slice(nested, func(i, j int) bool { return nested[i].path < nested[j].path })
+
+	return append(entries, nested...)
+}
+
+func collectProfilesInDir(dir string, active *profilemanager.ActiveProfileState) []profileEntry {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		log.Warnf("failed to read profiles directory %s: %v", dir, err)
+		return nil
+	}
+
+	var entries []profileEntry
+	for _, file := range files {
+		if file.IsDir() || !isProfileJSON(file.Name()) {
+			continue
+		}
+		path := filepath.Join(dir, file.Name())
+		id := strings.TrimSuffix(file.Name(), profileJSONSuffix)
+		entries = append(entries, newProfileEntry(id, path, active))
+	}
+
+	return entries
+}
+
+func isProfileJSON(name string) bool {
+	return strings.HasSuffix(name, profileJSONSuffix) && !strings.HasSuffix(name, profileStateJSONSuffix) && !strings.HasSuffix(name, ".prefs.json")
+}
+
+func newProfileEntry(id, path string, active *profilemanager.ActiveProfileState) profileEntry {
+	entry := profileEntry{
+		id:       id,
+		name:     id,
+		path:     path,
+		isActive: active != nil && active.ID.String() == id,
+	}
+
+	meta, err := readProfileMeta(path)
+	if err != nil {
+		entry.loadErr = err
+		return entry
+	}
+
+	// The profile loader falls back to the ID when the name field is unset.
+	if name := profilemanager.StripCtrlChars(meta.Name); name != "" {
+		entry.name = name
+	}
+	for _, owner := range meta.Owners {
+		entry.owners = append(entry.owners, profilemanager.StripCtrlChars(owner))
+	}
+
+	return entry
+}
+
+func readProfileMeta(path string) (profileMeta, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return profileMeta{}, fmt.Errorf("read profile: %w", err)
+	}
+
+	var meta profileMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return profileMeta{}, fmt.Errorf("parse profile: %w", err)
+	}
+
+	return meta, nil
+}
+
+func renderProfiles(entries []profileEntry, active *profilemanager.ActiveProfileState, activeErr error) string {
+	var content strings.Builder
+
+	content.WriteString("NetBird profiles\n\n")
+	content.WriteString(fmt.Sprintf("Profiles directory: %s\n", profilemanager.DefaultConfigPathDir))
+	content.WriteString(fmt.Sprintf("Active profile state file: %s\n", profilemanager.ActiveProfileStatePath))
+
+	switch {
+	case activeErr != nil:
+		content.WriteString(fmt.Sprintf("Active profile: unknown (%v)\n", activeErr))
+	case active == nil:
+		content.WriteString("Active profile: none recorded\n")
+	default:
+		content.WriteString(fmt.Sprintf("Active profile: %s\n", active.ID))
+	}
+
+	content.WriteString(fmt.Sprintf("Profiles found: %d\n", len(entries)))
+
+	for _, entry := range entries {
+		content.WriteString("\n")
+		entry.render(&content)
+	}
+
+	return content.String()
+}
+
+func (e profileEntry) render(content *strings.Builder) {
+	content.WriteString(fmt.Sprintf("[%s]\n", e.id))
+	content.WriteString(fmt.Sprintf("  Name:   %s\n", e.name))
+	content.WriteString(fmt.Sprintf("  Path:   %s\n", e.path))
+	content.WriteString(fmt.Sprintf("  Active: %s\n", yesNo(e.isActive)))
+	content.WriteString(fmt.Sprintf("  Owners: %s\n", valueOrNone(strings.Join(e.owners, ", "))))
+
+	if e.loadErr != nil {
+		content.WriteString(fmt.Sprintf("  Error:  %v\n", e.loadErr))
+	}
+}
+
+func valueOrNone(value string) string {
+	if value == "" {
+		return noneValue
+	}
+	return value
+}
+
+func yesNo(value bool) string {
+	if value {
+		return "yes"
+	}
+	return "no"
+}
+
 func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) {
 	configContent.WriteString("NetBird Client Configuration:\n\n")
 
+	if key, err := wgtypes.ParseKey(g.internalConfig.PrivateKey); err == nil {
+		configContent.WriteString(fmt.Sprintf("PublicKey: %s\n", g.anonymizer.AnonymizeWGKey(key.PublicKey().String())))
+	}
 	configContent.WriteString(fmt.Sprintf("WgIface: %s\n", g.internalConfig.WgIface))
 	configContent.WriteString(fmt.Sprintf("WgPort: %d\n", g.internalConfig.WgPort))
 	if g.internalConfig.NetworkMonitor != nil {
@@ -592,6 +963,9 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 	configContent.WriteString(fmt.Sprintf("RosenpassPermissive: %v\n", g.internalConfig.RosenpassPermissive))
 	if g.internalConfig.ServerSSHAllowed != nil {
 		configContent.WriteString(fmt.Sprintf("ServerSSHAllowed: %v\n", *g.internalConfig.ServerSSHAllowed))
+	}
+	if g.internalConfig.RemoteJobsAllowed != nil {
+		configContent.WriteString(fmt.Sprintf("RemoteJobsAllowed: %v\n", *g.internalConfig.RemoteJobsAllowed))
 	}
 	if g.internalConfig.EnableSSHRoot != nil {
 		configContent.WriteString(fmt.Sprintf("EnableSSHRoot: %v\n", *g.internalConfig.EnableSSHRoot))
@@ -605,6 +979,12 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 	if g.internalConfig.EnableSSHRemotePortForwarding != nil {
 		configContent.WriteString(fmt.Sprintf("EnableSSHRemotePortForwarding: %v\n", *g.internalConfig.EnableSSHRemotePortForwarding))
 	}
+	if g.internalConfig.DisableSSHAuth != nil {
+		configContent.WriteString(fmt.Sprintf("DisableSSHAuth: %v\n", *g.internalConfig.DisableSSHAuth))
+	}
+	if g.internalConfig.SSHJWTCacheTTL != nil {
+		configContent.WriteString(fmt.Sprintf("SSHJWTCacheTTL: %d\n", *g.internalConfig.SSHJWTCacheTTL))
+	}
 
 	configContent.WriteString(fmt.Sprintf("DisableClientRoutes: %v\n", g.internalConfig.DisableClientRoutes))
 	configContent.WriteString(fmt.Sprintf("DisableServerRoutes: %v\n", g.internalConfig.DisableServerRoutes))
@@ -612,6 +992,10 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 	configContent.WriteString(fmt.Sprintf("DisableFirewall: %v\n", g.internalConfig.DisableFirewall))
 	configContent.WriteString(fmt.Sprintf("BlockLANAccess: %v\n", g.internalConfig.BlockLANAccess))
 	configContent.WriteString(fmt.Sprintf("BlockInbound: %v\n", g.internalConfig.BlockInbound))
+	configContent.WriteString(fmt.Sprintf("DisableIPv6: %v\n", g.internalConfig.DisableIPv6))
+	configContent.WriteString(fmt.Sprintf("LocalMetricsEnabled: %v\n", g.internalConfig.LocalMetricsEnabled))
+	configContent.WriteString(fmt.Sprintf("LocalMetricsAddress: %s\n", g.internalConfig.LocalMetricsAddress))
+	configContent.WriteString(fmt.Sprintf("SyncMessageVersion: %v\n", g.internalConfig.SyncMessageVersion))
 
 	if g.internalConfig.DisableNotifications != nil {
 		configContent.WriteString(fmt.Sprintf("DisableNotifications: %v\n", *g.internalConfig.DisableNotifications))
@@ -630,7 +1014,8 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 		configContent.WriteString(fmt.Sprintf("ClientCertKeyPath: %s\n", g.internalConfig.ClientCertKeyPath))
 	}
 
-	configContent.WriteString(fmt.Sprintf("LazyConnectionEnabled: %v\n", g.internalConfig.LazyConnectionEnabled))
+	configContent.WriteString(fmt.Sprintf("LazyConnection: %q\n", g.internalConfig.LazyConnection))
+	configContent.WriteString(fmt.Sprintf("MTU: %d\n", g.internalConfig.MTU))
 }
 
 func (g *BundleGenerator) addProf() (err error) {
@@ -670,6 +1055,29 @@ func (g *BundleGenerator) addCPUProfile() error {
 	reader := bytes.NewReader(g.cpuProfile)
 	if err := g.addFileToZip(reader, "cpu.prof"); err != nil {
 		return fmt.Errorf("add CPU profile to zip: %w", err)
+	}
+
+	return nil
+}
+
+func (g *BundleGenerator) addCaptureFile() error {
+	if g.capturePath == "" {
+		return nil
+	}
+
+	if g.anonymize {
+		log.Info("skipping capture file in anonymized bundle (contains raw packet data)")
+		return nil
+	}
+
+	f, err := os.Open(g.capturePath)
+	if err != nil {
+		return fmt.Errorf("open capture file: %w", err)
+	}
+	defer f.Close()
+
+	if err := g.addFileToZip(f, "capture.pcap"); err != nil {
+		return fmt.Errorf("add capture file to zip: %w", err)
 	}
 
 	return nil
@@ -742,6 +1150,8 @@ func (g *BundleGenerator) addSyncResponse() error {
 		AllowPartial:    true,
 	}
 
+	g.maskSecrets()
+
 	jsonBytes, err := options.Marshal(g.syncResponse)
 	if err != nil {
 		return fmt.Errorf("generate json: %w", err)
@@ -754,9 +1164,33 @@ func (g *BundleGenerator) addSyncResponse() error {
 	return nil
 }
 
+func (g *BundleGenerator) maskSecrets() {
+	if g.syncResponse == nil || g.syncResponse.NetbirdConfig == nil {
+		return
+	}
+
+	if g.syncResponse.NetbirdConfig.Flow != nil {
+		g.syncResponse.NetbirdConfig.Flow.TokenPayload = maskedValue
+
+	}
+
+	if g.syncResponse.NetbirdConfig.Relay != nil {
+		g.syncResponse.NetbirdConfig.Relay.TokenPayload = maskedValue
+	}
+
+	for i := range g.syncResponse.NetbirdConfig.Turns {
+		if g.syncResponse.NetbirdConfig.Turns[i] != nil {
+			g.syncResponse.NetbirdConfig.Turns[i].Password = maskedValue
+		}
+	}
+}
+
 func (g *BundleGenerator) addStateFile() error {
-	sm := profilemanager.NewServiceManager("")
-	path := sm.GetStatePath()
+	path := g.statePath
+	if path == "" {
+		sm := profilemanager.NewServiceManager("")
+		path = sm.GetStatePath()
+	}
 	if path == "" {
 		return nil
 	}
@@ -811,6 +1245,11 @@ func (g *BundleGenerator) addUpdateLogs() error {
 		}
 
 		baseName := filepath.Base(logFile)
+		data, err = g.anonymizeBytes(data)
+		if err != nil {
+			log.Warnf("skipping update log file %s: %v", baseName, err)
+			continue
+		}
 		if err := g.addFileToZip(bytes.NewReader(data), filepath.Join("update-logs", baseName)); err != nil {
 			return fmt.Errorf("add update log file %s to zip: %w", baseName, err)
 		}
@@ -838,6 +1277,13 @@ func (g *BundleGenerator) addCorruptedStateFiles() error {
 		}
 
 		fileName := filepath.Base(match)
+		// Corrupted state files usually fail structured JSON anonymization,
+		// so run them through the string anonymizer instead.
+		data, err = g.anonymizeBytes(data)
+		if err != nil {
+			log.Warnf("skipping corrupted state file %s: %v", fileName, err)
+			continue
+		}
 		if err := g.addFileToZip(bytes.NewReader(data), "corrupted_states/"+fileName); err != nil {
 			log.Warnf("Failed to add corrupted state file %s to zip: %v", fileName, err)
 			continue
@@ -847,6 +1293,27 @@ func (g *BundleGenerator) addCorruptedStateFiles() error {
 	}
 
 	return nil
+}
+
+// anonymizeBytes runs raw file content through the string anonymizer line by
+// line when anonymization is enabled. It errors instead of returning partial
+// content, so a caller never adds an unanonymized fallback to the bundle.
+func (g *BundleGenerator) anonymizeBytes(data []byte) ([]byte, error) {
+	if !g.anonymize {
+		return data, nil
+	}
+
+	var buf bytes.Buffer
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	for scanner.Scan() {
+		buf.WriteString(g.anonymizer.AnonymizeString(scanner.Text()))
+		buf.WriteByte('\n')
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("anonymize content: %w", err)
+	}
+	return buf.Bytes(), nil
 }
 
 func (g *BundleGenerator) addMetrics() error {
@@ -881,11 +1348,11 @@ func (g *BundleGenerator) addLogfile() error {
 
 	logDir := filepath.Dir(g.logPath)
 
-	if err := g.addSingleLogfile(g.logPath, clientLogFile); err != nil {
+	if err := g.addSingleLogfile(openLogFile, g.logPath, clientLogFile); err != nil {
 		return fmt.Errorf("add client log file to zip: %w", err)
 	}
 
-	g.addRotatedLogFiles(logDir)
+	g.addRotatedLogFiles(openLogFile, logDir, clientLogPrefix)
 
 	stdErrLogPath := filepath.Join(logDir, errorLogFile)
 	stdoutLogPath := filepath.Join(logDir, stdoutLogFile)
@@ -894,20 +1361,39 @@ func (g *BundleGenerator) addLogfile() error {
 		stdoutLogPath = darwinStdoutLogPath
 	}
 
-	if err := g.addSingleLogfile(stdErrLogPath, errorLogFile); err != nil {
+	if err := g.addSingleLogfile(openLogFile, stdErrLogPath, errorLogFile); err != nil {
 		log.Warnf("Failed to add %s to zip: %v", errorLogFile, err)
 	}
 
-	if err := g.addSingleLogfile(stdoutLogPath, stdoutLogFile); err != nil {
+	if err := g.addSingleLogfile(openLogFile, stdoutLogPath, stdoutLogFile); err != nil {
 		log.Warnf("Failed to add %s to zip: %v", stdoutLogFile, err)
 	}
 
 	return nil
 }
 
+// addUILog adds the desktop UI's gui-client.log (and its rotated siblings) to
+// the bundle. The path is reported by the UI via RegisterUILog; empty when no
+// UI registered one (e.g. headless / server). Missing file is non-fatal — the
+// UI only writes it while the daemon is in debug, so it's often absent.
+func (g *BundleGenerator) addUILog() error {
+	if g.uiLogPath == "" {
+		log.Debugf("no UI log path registered, skipping in debug bundle")
+		return nil
+	}
+
+	if err := g.addSingleLogfile(g.uiLogOpener, g.uiLogPath, configs.UILogFile); err != nil {
+		return fmt.Errorf("add UI log file to zip: %w", err)
+	}
+
+	g.addRotatedLogFiles(g.uiLogOpener, filepath.Dir(g.uiLogPath), uiLogPrefix)
+
+	return nil
+}
+
 // addSingleLogfile adds a single log file to the archive
-func (g *BundleGenerator) addSingleLogfile(logPath, targetName string) error {
-	logFile, err := os.Open(logPath)
+func (g *BundleGenerator) addSingleLogfile(open LogOpener, logPath, targetName string) error {
+	logFile, err := open(logPath)
 	if err != nil {
 		return fmt.Errorf("open log file %s: %w", targetName, err)
 	}
@@ -932,8 +1418,8 @@ func (g *BundleGenerator) addSingleLogfile(logPath, targetName string) error {
 }
 
 // addSingleLogFileGz adds a single gzipped log file to the archive
-func (g *BundleGenerator) addSingleLogFileGz(logPath, targetName string) error {
-	f, err := os.Open(logPath)
+func (g *BundleGenerator) addSingleLogFileGz(open LogOpener, logPath, targetName string) error {
+	f, err := open(logPath)
 	if err != nil {
 		return fmt.Errorf("open gz log file %s: %w", targetName, err)
 	}
@@ -977,13 +1463,16 @@ func (g *BundleGenerator) addSingleLogFileGz(logPath, targetName string) error {
 	return nil
 }
 
-// addRotatedLogFiles adds rotated log files to the bundle based on logFileCount
-func (g *BundleGenerator) addRotatedLogFiles(logDir string) {
+// addRotatedLogFiles adds rotated log files to the bundle based on logFileCount.
+// prefix is the base log name without extension (e.g. "client", "gui-client");
+// the glob matches both files rotated by us and by logrotate on linux.
+func (g *BundleGenerator) addRotatedLogFiles(open LogOpener, logDir, prefix string) {
 	if g.logFileCount == 0 {
 		return
 	}
 
-	pattern := filepath.Join(logDir, "client-*.log.gz")
+	// This pattern matches both logs rotated by us and logrotate on linux
+	pattern := filepath.Join(logDir, prefix+"*.log.*")
 	files, err := filepath.Glob(pattern)
 	if err != nil {
 		log.Warnf("failed to glob rotated logs: %v", err)
@@ -1016,7 +1505,12 @@ func (g *BundleGenerator) addRotatedLogFiles(logDir string) {
 
 	for i := 0; i < maxFiles; i++ {
 		name := filepath.Base(files[i])
-		if err := g.addSingleLogFileGz(files[i], name); err != nil {
+		if strings.HasSuffix(name, ".gz") {
+			err = g.addSingleLogFileGz(open, files[i], name)
+		} else {
+			err = g.addSingleLogfile(open, files[i], name)
+		}
+		if err != nil {
 			log.Warnf("failed to add rotated log %s: %v", name, err)
 		}
 	}
@@ -1258,6 +1752,21 @@ func anonymizePeerConfig(config *mgmProto.PeerConfig, anonymizer *anonymize.Anon
 		config.Address = anonymizer.AnonymizeIP(addr).String()
 	}
 
+	if len(config.GetAddressV6()) > 0 {
+		v6Prefix, err := netiputil.DecodePrefix(config.GetAddressV6())
+		if err != nil {
+			config.AddressV6 = nil
+		} else {
+			anonV6 := anonymizer.AnonymizeIP(v6Prefix.Addr())
+			b, err := netiputil.EncodePrefix(netip.PrefixFrom(anonV6, v6Prefix.Bits()))
+			if err != nil {
+				config.AddressV6 = nil
+			} else {
+				config.AddressV6 = b
+			}
+		}
+	}
+
 	anonymizeSSHConfig(config.SshConfig)
 
 	config.Dns = anonymizer.AnonymizeString(config.Dns)
@@ -1279,6 +1788,7 @@ func anonymizeRemotePeer(peer *mgmProto.RemotePeerConfig, anonymizer *anonymize.
 	}
 
 	peer.Fqdn = anonymizer.AnonymizeDomain(peer.Fqdn)
+	peer.WgPubKey = anonymizer.AnonymizeWGKey(peer.WgPubKey)
 
 	anonymizeSSHConfig(peer.SshConfig)
 }
@@ -1360,8 +1870,20 @@ func anonymizeFirewallRule(rule *mgmProto.FirewallRule, anonymizer *anonymize.An
 		return
 	}
 
+	//nolint:staticcheck // PeerIP used for backward compatibility
 	if addr, err := netip.ParseAddr(rule.PeerIP); err == nil {
-		rule.PeerIP = anonymizer.AnonymizeIP(addr).String()
+		rule.PeerIP = anonymizer.AnonymizeIP(addr).String() //nolint:staticcheck
+	}
+
+	for i, raw := range rule.GetSourcePrefixes() {
+		p, err := netiputil.DecodePrefix(raw)
+		if err != nil {
+			continue
+		}
+		anonAddr := anonymizer.AnonymizeIP(p.Addr())
+		if b, err := netiputil.EncodePrefix(netip.PrefixFrom(anonAddr, p.Bits())); err == nil {
+			rule.SourcePrefixes[i] = b
+		}
 	}
 }
 
@@ -1455,4 +1977,27 @@ func anonymizeSlice(v []any, anonymizer *anonymize.Anonymizer) []any {
 		v[i] = anonymizeValue(val, anonymizer)
 	}
 	return v
+}
+
+func removeStaleFiles(dir, pattern string, maxAge time.Duration) {
+	matches, err := filepath.Glob(filepath.Join(dir, pattern))
+	if err != nil {
+		log.Debugf("glob stale debug bundles in %s: %v", dir, err)
+		return
+	}
+
+	cutoff := time.Now().Add(-maxAge)
+	for _, path := range matches {
+		info, err := os.Stat(path)
+		if err != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := os.Remove(path); err != nil {
+			if !errors.Is(err, fs.ErrNotExist) {
+				log.Warnf("remove stale debug bundle %s: %v", path, err)
+			}
+			continue
+		}
+		log.Infof("removed stale debug bundle %s", path)
+	}
 }

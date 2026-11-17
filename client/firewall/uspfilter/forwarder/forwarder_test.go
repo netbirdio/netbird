@@ -1,0 +1,301 @@
+package forwarder
+
+import (
+	"context"
+	"net/netip"
+	"runtime"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gvisor.dev/gvisor/pkg/tcpip"
+	"gvisor.dev/gvisor/pkg/tcpip/header"
+	"gvisor.dev/gvisor/pkg/tcpip/stack"
+	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
+
+	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
+)
+
+type recordingFlowLogger struct {
+	nftypes.FlowLogger
+	events []nftypes.EventFields
+}
+
+func (r *recordingFlowLogger) StoreEvent(e nftypes.EventFields) { r.events = append(r.events, e) }
+
+// Refusing an ICMP packet that would leave through the overlay ends its own flow once. The rule ID of a
+// separate flow registered in the opposite direction must survive.
+func TestRefuseOverlayEgress_KeepsReverseRuleID(t *testing.T) {
+	loopback := netip.MustParseAddr("127.0.0.1")
+	remote := netip.MustParseAddr("10.0.0.2")
+
+	logger := nblog.NewFromLogrus(logrus.StandardLogger())
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		assert.NoError(t, logger.Stop(ctx))
+	})
+
+	flows := &recordingFlowLogger{}
+	f := &Forwarder{
+		logger:     logger,
+		ctx:        context.Background(),
+		ip:         addrFromNetipAddr(loopback),
+		flowLogger: flows,
+	}
+
+	forward := buildKey(remote, loopback, 0, 0)
+	reverse := buildKey(loopback, remote, 0, 0)
+	f.ruleIdMap.Store(forward, []byte("forward"))
+	f.ruleIdMap.Store(reverse, []byte("reverse"))
+
+	id := stack.TransportEndpointID{
+		RemoteAddress: addrFromNetipAddr(remote),
+		LocalAddress:  addrFromNetipAddr(loopback),
+	}
+	require.True(t, f.refuseOverlayEgress(uuid.New(), id, 8, 0), "packet routed back into the overlay is refused")
+
+	require.Len(t, flows.events, 1)
+	assert.Equal(t, nftypes.TypeDrop, flows.events[0].Type)
+
+	_, forwardLeft := f.ruleIdMap.Load(forward)
+	assert.False(t, forwardLeft, "the refused flow's rule ID is removed")
+	_, reverseLeft := f.ruleIdMap.Load(reverse)
+	assert.True(t, reverseLeft, "a separate reverse registration is not removed")
+}
+
+const echoRequestSize = 8
+
+func makeIPv6(t *testing.T, src, dst netip.Addr, nextHdr uint8, payload []byte) []byte {
+	t.Helper()
+	buf := make([]byte, header.IPv6MinimumSize+len(payload))
+	ip := header.IPv6(buf)
+	ip.Encode(&header.IPv6Fields{
+		PayloadLength:     uint16(len(payload)),
+		TransportProtocol: 0, // overwritten below to allow any value
+		HopLimit:          64,
+		SrcAddr:           tcpipAddrFromNetip(src),
+		DstAddr:           tcpipAddrFromNetip(dst),
+	})
+	buf[6] = nextHdr
+	copy(buf[header.IPv6MinimumSize:], payload)
+	return buf
+}
+
+func tcpipAddrFromNetip(a netip.Addr) tcpip.Address {
+	b := a.As16()
+	return tcpip.AddrFrom16(b)
+}
+
+func echoRequest() []byte {
+	icmp := make([]byte, echoRequestSize)
+	icmp[0] = uint8(header.ICMPv6EchoRequest)
+	return icmp
+}
+
+// extHdr builds a generic IPv6 extension header (HBH/Routing/DestOpts) of the
+// given total octet length (must be multiple of 8, >= 8) with the given next
+// header.
+func extHdr(t *testing.T, next uint8, totalLen int) []byte {
+	t.Helper()
+	require.GreaterOrEqual(t, totalLen, 8)
+	require.Equal(t, 0, totalLen%8)
+	buf := make([]byte, totalLen)
+	buf[0] = next
+	buf[1] = uint8(totalLen/8 - 1)
+	return buf
+}
+
+func TestParseICMPv6_NoExtensions(t *testing.T) {
+	src := netip.MustParseAddr("fd00::1")
+	dst := netip.MustParseAddr("fd00::2")
+	pkt := makeIPv6(t, src, dst, uint8(header.ICMPv6ProtocolNumber), echoRequest())
+
+	off, icmpLen, _, _, ok := parseICMPv6(pkt)
+	require.True(t, ok)
+	assert.Equal(t, header.IPv6MinimumSize, off)
+	assert.Equal(t, echoRequestSize, icmpLen)
+}
+
+func TestParseICMPv6_SingleExtension(t *testing.T) {
+	src := netip.MustParseAddr("fd00::1")
+	dst := netip.MustParseAddr("fd00::2")
+	hbh := extHdr(t, uint8(header.ICMPv6ProtocolNumber), 8)
+	payload := append([]byte{}, hbh...)
+	payload = append(payload, echoRequest()...)
+	pkt := makeIPv6(t, src, dst, uint8(header.IPv6HopByHopOptionsExtHdrIdentifier), payload)
+
+	off, icmpLen, _, _, ok := parseICMPv6(pkt)
+	require.True(t, ok)
+	assert.Equal(t, header.IPv6MinimumSize+8, off)
+	assert.Equal(t, echoRequestSize, icmpLen)
+}
+
+func TestParseICMPv6_ChainedExtensions(t *testing.T) {
+	src := netip.MustParseAddr("fd00::1")
+	dst := netip.MustParseAddr("fd00::2")
+	dest := extHdr(t, uint8(header.ICMPv6ProtocolNumber), 16)
+	rt := extHdr(t, uint8(header.IPv6DestinationOptionsExtHdrIdentifier), 8)
+	hbh := extHdr(t, uint8(header.IPv6RoutingExtHdrIdentifier), 8)
+	payload := append(append(append([]byte{}, hbh...), rt...), dest...)
+	payload = append(payload, echoRequest()...)
+	pkt := makeIPv6(t, src, dst, uint8(header.IPv6HopByHopOptionsExtHdrIdentifier), payload)
+
+	off, icmpLen, _, _, ok := parseICMPv6(pkt)
+	require.True(t, ok)
+	assert.Equal(t, header.IPv6MinimumSize+8+8+16, off)
+	assert.Equal(t, echoRequestSize, icmpLen)
+}
+
+func TestParseICMPv6_FragmentDefersToGVisor(t *testing.T) {
+	src := netip.MustParseAddr("fd00::1")
+	dst := netip.MustParseAddr("fd00::2")
+	pkt := makeIPv6(t, src, dst, uint8(header.IPv6FragmentExtHdrIdentifier), make([]byte, 8))
+
+	_, _, _, _, ok := parseICMPv6(pkt)
+	assert.False(t, ok)
+}
+
+func TestParseICMPv6_TruncatedExtension(t *testing.T) {
+	src := netip.MustParseAddr("fd00::1")
+	dst := netip.MustParseAddr("fd00::2")
+	// Extension claims 16 bytes but only 8 remain after the IP header.
+	hbh := []byte{uint8(header.ICMPv6ProtocolNumber), 1, 0, 0, 0, 0, 0, 0}
+	pkt := makeIPv6(t, src, dst, uint8(header.IPv6HopByHopOptionsExtHdrIdentifier), hbh)
+
+	_, _, _, _, ok := parseICMPv6(pkt)
+	assert.False(t, ok)
+}
+
+func TestParseICMPv6_TruncatedICMPPayload(t *testing.T) {
+	src := netip.MustParseAddr("fd00::1")
+	dst := netip.MustParseAddr("fd00::2")
+	// PayloadLength claims 8 bytes of ICMPv6 but the buffer only holds 4.
+	pkt := makeIPv6(t, src, dst, uint8(header.ICMPv6ProtocolNumber), make([]byte, 8))
+	pkt = pkt[:header.IPv6MinimumSize+4]
+
+	_, _, _, _, ok := parseICMPv6(pkt)
+	assert.False(t, ok)
+}
+
+func TestParseICMPv4_RejectsShortIHL(t *testing.T) {
+	pkt := make([]byte, 28)
+	pkt[0] = 0x44 // version 4, IHL 4 (16 bytes - below minimum)
+	pkt[9] = uint8(header.ICMPv4ProtocolNumber)
+	header.IPv4(pkt).SetTotalLength(28)
+
+	_, _, _, _, ok := parseICMPv4(pkt)
+	assert.False(t, ok)
+}
+
+func TestParseICMPv4_RejectsTotalLenOverBuffer(t *testing.T) {
+	pkt := make([]byte, header.IPv4MinimumSize+header.ICMPv4MinimumSize)
+	ip := header.IPv4(pkt)
+	ip.Encode(&header.IPv4Fields{
+		TotalLength: uint16(len(pkt) + 16),
+		Protocol:    uint8(header.ICMPv4ProtocolNumber),
+		TTL:         64,
+	})
+
+	_, _, _, _, ok := parseICMPv4(pkt)
+	assert.False(t, ok)
+}
+
+func TestParseICMPv4_RejectsFragment(t *testing.T) {
+	pkt := make([]byte, header.IPv4MinimumSize+header.ICMPv4MinimumSize)
+	ip := header.IPv4(pkt)
+	ip.Encode(&header.IPv4Fields{
+		TotalLength: uint16(len(pkt)),
+		Protocol:    uint8(header.ICMPv4ProtocolNumber),
+		TTL:         64,
+		Flags:       header.IPv4FlagMoreFragments,
+	})
+
+	_, _, _, _, ok := parseICMPv4(pkt)
+	assert.False(t, ok)
+}
+
+func TestEgressesOverlay(t *testing.T) {
+	loopback := netip.MustParseAddr("127.0.0.1")
+
+	logger := nblog.NewFromLogrus(logrus.StandardLogger())
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		assert.NoError(t, logger.Stop(ctx))
+	})
+
+	newForwarder := func(ip netip.Addr, netstack bool) *Forwarder {
+		return &Forwarder{
+			logger:   logger,
+			ctx:      context.Background(),
+			ip:       addrFromNetipAddr(ip),
+			netstack: netstack,
+		}
+	}
+
+	// The host picks 127.0.0.1 as source for this destination, so it stands in for the overlay address.
+	assert.True(t, newForwarder(loopback, false).egressesOverlay(loopback))
+	assert.True(t, newForwarder(loopback, false).egressesOverlay(netip.AddrFrom16(loopback.As16())), "v4-mapped destination")
+	assert.False(t, newForwarder(netip.MustParseAddr("100.10.0.1"), false).egressesOverlay(loopback))
+	assert.False(t, newForwarder(loopback, true).egressesOverlay(loopback), "netstack mode has no kernel interface")
+}
+
+// A UDP flow whose destination the host cannot connect to is reported as dropped when the host routes
+// the flow, and as an ordinary end in netstack mode where there is no host route lookup to blame.
+func TestHandleUDP_DialError(t *testing.T) {
+	// A link-local destination without a zone cannot be connected to. Windows falls back to a default
+	// zone instead, but refuses the reserved 240.0.0.0/4 range.
+	unreachable := netip.MustParseAddr("fe80::1")
+	if runtime.GOOS == "windows" {
+		unreachable = netip.MustParseAddr("240.0.0.1")
+	}
+	remote := netip.MustParseAddr("10.0.0.2")
+
+	tests := []struct {
+		name     string
+		netstack bool
+		want     []nftypes.Type
+	}{
+		{"host routed", false, []nftypes.Type{nftypes.TypeStart, nftypes.TypeDrop}},
+		{"netstack", true, []nftypes.Type{nftypes.TypeStart, nftypes.TypeEnd}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger := nblog.NewFromLogrus(logrus.StandardLogger())
+			t.Cleanup(func() {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+				assert.NoError(t, logger.Stop(ctx))
+			})
+
+			flows := &recordingFlowLogger{}
+			f := &Forwarder{
+				logger:     logger,
+				ctx:        context.Background(),
+				netstack:   tc.netstack,
+				flowLogger: flows,
+			}
+			f.udpForwarder = newUDPForwarder(1500, logger, flows)
+			t.Cleanup(f.udpForwarder.cancel)
+
+			id := stack.TransportEndpointID{
+				RemoteAddress: addrFromNetipAddr(remote),
+				RemotePort:    40000,
+				LocalAddress:  addrFromNetipAddr(unreachable),
+				LocalPort:     53,
+			}
+			require.False(t, f.handleUDP(udp.NewForwarderRequest(nil, id, nil)), "a failed dial is not handled")
+
+			var got []nftypes.Type
+			for _, e := range flows.events {
+				got = append(got, e.Type)
+			}
+			assert.Equal(t, tc.want, got, "exactly one closing event is sent")
+		})
+	}
+}

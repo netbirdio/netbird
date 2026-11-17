@@ -27,6 +27,20 @@ const (
 	OriginProxyError
 	// OriginAuth means the proxy intercepted the request for authentication.
 	OriginAuth
+	// OriginMiddleware means a middleware (policy, guardrail, router) denied
+	// the request before it reached the backend.
+	OriginMiddleware
+)
+
+// Metadata keys the proxy stamps itself (not via a middleware) so the
+// admin's access log can tell who failed a request.
+const (
+	// MetaKeyErrorSource names who produced a failed response; see
+	// ResponseOrigin.ErrorSource.
+	MetaKeyErrorSource = "error.source"
+	// MetaKeyProxyError is the classified transport error when the proxy
+	// could not reach the backend.
+	MetaKeyProxyError = "proxy.error"
 )
 
 func (o ResponseOrigin) String() string {
@@ -37,8 +51,28 @@ func (o ResponseOrigin) String() string {
 		return "proxy_error"
 	case OriginAuth:
 		return "auth"
+	case OriginMiddleware:
+		return "middleware"
 	default:
 		return "backend"
+	}
+}
+
+// ErrorSource maps the origin of a failed response to the admin-facing
+// error source: "provider" when the backend (the LLM API, for agent
+// networks) answered with the error, "proxy" when the proxy failed to
+// route or reach it, "policy" for a middleware denial, "auth" for a
+// proxy authentication rejection.
+func (o ResponseOrigin) ErrorSource() string {
+	switch o {
+	case OriginNoRoute, OriginProxyError:
+		return "proxy"
+	case OriginAuth:
+		return "auth"
+	case OriginMiddleware:
+		return "policy"
+	default:
+		return "provider"
 	}
 }
 
@@ -52,13 +86,28 @@ type CapturedData struct {
 	origin     ResponseOrigin
 	clientIP   netip.Addr
 	userID     string
-	authMethod string
-	metadata   map[string]string
+	userEmail  string
+	userGroups []string
+	// userGroupNames pairs positionally with userGroups; populated from
+	// the JWT's group_names claim or from ValidateSession/Tunnel
+	// responses. Slice may be shorter than userGroups for tokens minted
+	// before names were resolvable.
+	userGroupNames    []string
+	authMethod        string
+	metadata          map[string]string
+	agentNetwork      bool
+	suppressAccessLog bool
 }
 
 // NewCapturedData creates a CapturedData with the given request ID.
 func NewCapturedData(requestID string) *CapturedData {
 	return &CapturedData{requestID: requestID}
+}
+
+func (c *CapturedData) SetRequestID(requestID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.requestID = requestID
 }
 
 // GetRequestID returns the request ID.
@@ -136,6 +185,116 @@ func (c *CapturedData) GetUserID() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.userID
+}
+
+// SetUserEmail records the authenticated user's email address. Used by
+// policy-aware middlewares to stamp identity onto upstream requests
+// (e.g. x-litellm-end-user-id) without a management round-trip.
+func (c *CapturedData) SetUserEmail(email string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.userEmail = email
+}
+
+// GetUserEmail returns the authenticated user's email address. Returns
+// the empty string when the auth path didn't carry an email (e.g.
+// non-OIDC schemes or legacy JWTs minted before the email claim).
+func (c *CapturedData) GetUserEmail() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.userEmail
+}
+
+// SetUserGroups records the authenticated user's group memberships so
+// downstream policy-aware middlewares can authorise the request without
+// an additional management round-trip. The auth middleware populates this
+// from ValidateSessionResponse / ValidateTunnelPeerResponse and from the
+// session JWT's groups claim on cookie-bearing requests.
+func (c *CapturedData) SetUserGroups(groups []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(groups) == 0 {
+		c.userGroups = nil
+		return
+	}
+	c.userGroups = append(c.userGroups[:0], groups...)
+}
+
+// SetAgentNetwork records whether the request hit a synthesised
+// agent-network target. The terminal access-log middleware stamps the
+// flag onto the proto so management can distinguish synthetic traffic.
+func (c *CapturedData) SetAgentNetwork(b bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.agentNetwork = b
+}
+
+// GetAgentNetwork reports whether the request matched a synthesised
+// agent-network target.
+func (c *CapturedData) GetAgentNetwork() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.agentNetwork
+}
+
+// SetSuppressAccessLog records whether the per-request access-log emission
+// must be skipped for this request. Stamped from the matched target's
+// DisableAccessLog flag so the access-log middleware can short-circuit
+// log delivery for opted-out agent-network targets.
+func (c *CapturedData) SetSuppressAccessLog(b bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.suppressAccessLog = b
+}
+
+// GetSuppressAccessLog reports whether access-log emission has been
+// suppressed for this request.
+func (c *CapturedData) GetSuppressAccessLog() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.suppressAccessLog
+}
+
+// GetUserGroups returns a copy of the authenticated user's group
+// memberships.
+func (c *CapturedData) GetUserGroups() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if len(c.userGroups) == 0 {
+		return nil
+	}
+	out := make([]string, len(c.userGroups))
+	copy(out, c.userGroups)
+	return out
+}
+
+// SetUserGroupNames records the human-readable display names for the
+// user's groups, ordered identically to UserGroups (positional
+// pairing). Stamped onto upstream requests as X-NetBird-Groups so
+// downstream services can read names rather than opaque ids.
+func (c *CapturedData) SetUserGroupNames(names []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(names) == 0 {
+		c.userGroupNames = nil
+		return
+	}
+	c.userGroupNames = append(c.userGroupNames[:0], names...)
+}
+
+// GetUserGroupNames returns a copy of the authenticated user's group
+// display names. Position i pairs with UserGroups[i]. May be shorter
+// than UserGroups for tokens minted before names were resolvable; the
+// consumer should fall back to ids for missing positions.
+func (c *CapturedData) GetUserGroupNames() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if len(c.userGroupNames) == 0 {
+		return nil
+	}
+	out := make([]string, len(c.userGroupNames))
+	copy(out, c.userGroupNames)
+	return out
 }
 
 // SetAuthMethod sets the authentication method used.

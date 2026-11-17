@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"slices"
+	"strings"
 	"testing"
 
 	"github.com/miekg/dns"
@@ -13,14 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/internals/modules/zones"
-	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 func setupTestAccount() *Account {
@@ -85,9 +84,9 @@ func setupTestAccount() *Account {
 		},
 		Groups: map[string]*Group{
 			"groupAll": {
-				ID:    "groupAll",
-				Name:  "All",
-				Peers: []string{"peer1", "peer2", "peer3", "peer11", "peer12", "peer21", "peer31", "peer32", "peer41", "peer51", "peer61"},
+				ID:     "groupAll",
+				Name:   "All",
+				Peers:  []string{"peer1", "peer2", "peer3", "peer11", "peer12", "peer21", "peer31", "peer32", "peer41", "peer51", "peer61"},
 				Issued: GroupIssuedAPI,
 			},
 			"group1": {
@@ -451,402 +450,6 @@ func Test_AddNetworksRoutingPeersHandlesNoMissingPeers(t *testing.T) {
 	require.Len(t, result, 0)
 }
 
-const (
-	accID                                = "accountID"
-	network1ID                           = "network1ID"
-	group1ID                             = "group1"
-	accNetResourcePeer1ID                = "peer1"
-	accNetResourcePeer2ID                = "peer2"
-	accNetResourceRouter1ID              = "router1"
-	accNetResource1ID                    = "resource1ID"
-	accNetResourceRestrictPostureCheckID = "restrictPostureCheck"
-	accNetResourceRelaxedPostureCheckID  = "relaxedPostureCheck"
-	accNetResourceLockedPostureCheckID   = "lockedPostureCheck"
-	accNetResourceLinuxPostureCheckID    = "linuxPostureCheck"
-)
-
-var (
-	accNetResourcePeer1IP    = net.IP{192, 168, 1, 1}
-	accNetResourcePeer2IP    = net.IP{192, 168, 1, 2}
-	accNetResourceRouter1IP  = net.IP{192, 168, 1, 3}
-	accNetResourceValidPeers = map[string]struct{}{accNetResourcePeer1ID: {}, accNetResourcePeer2ID: {}}
-)
-
-func getBasicAccountsWithResource() *Account {
-	return &Account{
-		Id: accID,
-		Peers: map[string]*nbpeer.Peer{
-			accNetResourcePeer1ID: {
-				ID:        accNetResourcePeer1ID,
-				AccountID: accID,
-				Key:       "peer1Key",
-				IP:        accNetResourcePeer1IP,
-				Meta: nbpeer.PeerSystemMeta{
-					GoOS:          "linux",
-					WtVersion:     "0.35.1",
-					KernelVersion: "4.4.0",
-				},
-			},
-			accNetResourcePeer2ID: {
-				ID:        accNetResourcePeer2ID,
-				AccountID: accID,
-				Key:       "peer2Key",
-				IP:        accNetResourcePeer2IP,
-				Meta: nbpeer.PeerSystemMeta{
-					GoOS:          "windows",
-					WtVersion:     "0.34.1",
-					KernelVersion: "4.4.0",
-				},
-			},
-			accNetResourceRouter1ID: {
-				ID:        accNetResourceRouter1ID,
-				AccountID: accID,
-				Key:       "router1Key",
-				IP:        accNetResourceRouter1IP,
-				Meta: nbpeer.PeerSystemMeta{
-					GoOS:          "linux",
-					WtVersion:     "0.35.1",
-					KernelVersion: "4.4.0",
-				},
-			},
-		},
-		Groups: map[string]*Group{
-			group1ID: {
-				ID:    group1ID,
-				Peers: []string{accNetResourcePeer1ID, accNetResourcePeer2ID},
-			},
-		},
-		Networks: []*networkTypes.Network{
-			{
-				ID:        network1ID,
-				AccountID: accID,
-				Name:      "network1",
-			},
-		},
-		NetworkRouters: []*routerTypes.NetworkRouter{
-			{
-				ID:         accNetResourceRouter1ID,
-				NetworkID:  network1ID,
-				AccountID:  accID,
-				Peer:       accNetResourceRouter1ID,
-				PeerGroups: []string{},
-				Masquerade: false,
-				Metric:     100,
-				Enabled:    true,
-			},
-		},
-		NetworkResources: []*resourceTypes.NetworkResource{
-			{
-				ID:        accNetResource1ID,
-				AccountID: accID,
-				NetworkID: network1ID,
-				Address:   "10.10.10.0/24",
-				Prefix:    netip.MustParsePrefix("10.10.10.0/24"),
-				Type:      resourceTypes.NetworkResourceType("subnet"),
-				Enabled:   true,
-			},
-		},
-		Policies: []*Policy{
-			{
-				ID:        "policy1ID",
-				AccountID: accID,
-				Enabled:   true,
-				Rules: []*PolicyRule{
-					{
-						ID:      "rule1ID",
-						Enabled: true,
-						Sources: []string{group1ID},
-						DestinationResource: Resource{
-							ID:   accNetResource1ID,
-							Type: "Host",
-						},
-						Protocol: PolicyRuleProtocolTCP,
-						Ports:    []string{"80"},
-						Action:   PolicyTrafficActionAccept,
-					},
-				},
-				SourcePostureChecks: nil,
-			},
-		},
-		PostureChecks: []*posture.Checks{
-			{
-				ID:   accNetResourceRestrictPostureCheckID,
-				Name: accNetResourceRestrictPostureCheckID,
-				Checks: posture.ChecksDefinition{
-					NBVersionCheck: &posture.NBVersionCheck{
-						MinVersion: "0.35.0",
-					},
-				},
-			},
-			{
-				ID:   accNetResourceRelaxedPostureCheckID,
-				Name: accNetResourceRelaxedPostureCheckID,
-				Checks: posture.ChecksDefinition{
-					NBVersionCheck: &posture.NBVersionCheck{
-						MinVersion: "0.0.1",
-					},
-				},
-			},
-			{
-				ID:   accNetResourceLockedPostureCheckID,
-				Name: accNetResourceLockedPostureCheckID,
-				Checks: posture.ChecksDefinition{
-					NBVersionCheck: &posture.NBVersionCheck{
-						MinVersion: "7.7.7",
-					},
-				},
-			},
-			{
-				ID:   accNetResourceLinuxPostureCheckID,
-				Name: accNetResourceLinuxPostureCheckID,
-				Checks: posture.ChecksDefinition{
-					OSVersionCheck: &posture.OSVersionCheck{
-						Linux: &posture.MinKernelVersionCheck{
-							MinKernelVersion: "0.0.0"},
-					},
-				},
-			},
-		},
-	}
-}
-
-func Test_NetworksNetMapGenWithNoPostureChecks(t *testing.T) {
-	account := getBasicAccountsWithResource()
-
-	// all peers should match the policy
-
-	// validate for peer1
-	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	assert.False(t, isRouter, "expected router status")
-	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
-	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
-
-	// validate for peer2
-	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer2ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	assert.False(t, isRouter, "expected router status")
-	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
-	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
-
-	// validate routes for router1
-	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourceRouter1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	assert.True(t, isRouter, "should be router")
-	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
-	assert.Len(t, sourcePeers, 2, "expected source peers don't match")
-	assert.NotNil(t, sourcePeers[accNetResourcePeer1ID], "expected source peers don't match")
-	assert.NotNil(t, sourcePeers[accNetResourcePeer2ID], "expected source peers don't match")
-
-	// validate rules for router1
-	rules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers[accNetResourceRouter1ID], accNetResourceValidPeers, networkResourcesRoutes, account.GetResourcePoliciesMap())
-	assert.Len(t, rules, 1, "expected rules count don't match")
-	assert.Equal(t, uint16(80), rules[0].Port, "should have port 80")
-	assert.Equal(t, "tcp", rules[0].Protocol, "should have protocol tcp")
-	if !slices.Contains(rules[0].SourceRanges, accNetResourcePeer1IP.String()+"/32") {
-		t.Errorf("%s should have source range of peer1 %s", rules[0].SourceRanges, accNetResourcePeer1IP.String())
-	}
-	if !slices.Contains(rules[0].SourceRanges, accNetResourcePeer2IP.String()+"/32") {
-		t.Errorf("%s should have source range of peer2 %s", rules[0].SourceRanges, accNetResourcePeer2IP.String())
-	}
-}
-
-func Test_NetworksNetMapGenWithPostureChecks(t *testing.T) {
-	account := getBasicAccountsWithResource()
-
-	// should allow peer1 to match the policy
-	policy := account.Policies[0]
-	policy.SourcePostureChecks = []string{accNetResourceRestrictPostureCheckID}
-
-	// validate for peer1
-	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	assert.False(t, isRouter, "expected router status")
-	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
-	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
-
-	// validate for peer2
-	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer2ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	assert.False(t, isRouter, "expected router status")
-	assert.Len(t, networkResourcesRoutes, 0, "expected network resource route don't match")
-	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
-
-	// validate routes for router1
-	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourceRouter1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	assert.True(t, isRouter, "should be router")
-	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
-	assert.Len(t, sourcePeers, 1, "expected source peers don't match")
-	assert.NotNil(t, sourcePeers[accNetResourcePeer1ID], "expected source peers don't match")
-
-	// validate rules for router1
-	rules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers[accNetResourceRouter1ID], accNetResourceValidPeers, networkResourcesRoutes, account.GetResourcePoliciesMap())
-	assert.Len(t, rules, 1, "expected rules count don't match")
-	assert.Equal(t, uint16(80), rules[0].Port, "should have port 80")
-	assert.Equal(t, "tcp", rules[0].Protocol, "should have protocol tcp")
-	if !slices.Contains(rules[0].SourceRanges, accNetResourcePeer1IP.String()+"/32") {
-		t.Errorf("%s should have source range of peer1 %s", rules[0].SourceRanges, accNetResourcePeer1IP.String())
-	}
-	if slices.Contains(rules[0].SourceRanges, accNetResourcePeer2IP.String()+"/32") {
-		t.Errorf("%s should not have source range of peer2 %s", rules[0].SourceRanges, accNetResourcePeer2IP.String())
-	}
-}
-
-func Test_NetworksNetMapGenWithNoMatchedPostureChecks(t *testing.T) {
-	account := getBasicAccountsWithResource()
-
-	// should not match any peer
-	policy := account.Policies[0]
-	policy.SourcePostureChecks = []string{accNetResourceLockedPostureCheckID}
-
-	// validate for peer1
-	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	assert.False(t, isRouter, "expected router status")
-	assert.Len(t, networkResourcesRoutes, 0, "expected network resource route don't match")
-	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
-
-	// validate for peer2
-	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer2ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	assert.False(t, isRouter, "expected router status")
-	assert.Len(t, networkResourcesRoutes, 0, "expected network resource route don't match")
-	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
-
-	// validate routes for router1
-	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourceRouter1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	assert.True(t, isRouter, "should be router")
-	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
-	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
-
-	// validate rules for router1
-	rules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers[accNetResourceRouter1ID], accNetResourceValidPeers, networkResourcesRoutes, account.GetResourcePoliciesMap())
-	assert.Len(t, rules, 0, "expected rules count don't match")
-}
-
-func Test_NetworksNetMapGenWithTwoPoliciesAndPostureChecks(t *testing.T) {
-	account := getBasicAccountsWithResource()
-
-	// should allow peer1 to match the policy
-	policy := account.Policies[0]
-	policy.SourcePostureChecks = []string{accNetResourceRestrictPostureCheckID}
-
-	// should allow peer1 and peer2 to match the policy
-	newPolicy := &Policy{
-		ID:        "policy2ID",
-		AccountID: accID,
-		Enabled:   true,
-		Rules: []*PolicyRule{
-			{
-				ID:      "policy2ID",
-				Enabled: true,
-				Sources: []string{group1ID},
-				DestinationResource: Resource{
-					ID:   accNetResource1ID,
-					Type: "Host",
-				},
-				Protocol: PolicyRuleProtocolTCP,
-				Ports:    []string{"22"},
-				Action:   PolicyTrafficActionAccept,
-			},
-		},
-		SourcePostureChecks: []string{accNetResourceRelaxedPostureCheckID},
-	}
-
-	account.Policies = append(account.Policies, newPolicy)
-
-	// validate for peer1
-	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	assert.False(t, isRouter, "expected router status")
-	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
-	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
-
-	// validate for peer2
-	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer2ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	assert.False(t, isRouter, "expected router status")
-	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
-	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
-
-	// validate routes for router1
-	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourceRouter1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	assert.True(t, isRouter, "should be router")
-	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
-	assert.Len(t, sourcePeers, 2, "expected source peers don't match")
-	assert.NotNil(t, sourcePeers[accNetResourcePeer1ID], "expected source peers don't match")
-	assert.NotNil(t, sourcePeers[accNetResourcePeer2ID], "expected source peers don't match")
-
-	// validate rules for router1
-	rules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers[accNetResourceRouter1ID], accNetResourceValidPeers, networkResourcesRoutes, account.GetResourcePoliciesMap())
-	assert.Len(t, rules, 2, "expected rules count don't match")
-	assert.Equal(t, uint16(80), rules[0].Port, "should have port 80")
-	assert.Equal(t, "tcp", rules[0].Protocol, "should have protocol tcp")
-	if !slices.Contains(rules[0].SourceRanges, accNetResourcePeer1IP.String()+"/32") {
-		t.Errorf("%s should have source range of peer1 %s", rules[0].SourceRanges, accNetResourcePeer1IP.String())
-	}
-	if slices.Contains(rules[0].SourceRanges, accNetResourcePeer2IP.String()+"/32") {
-		t.Errorf("%s should not have source range of peer2 %s", rules[0].SourceRanges, accNetResourcePeer2IP.String())
-	}
-
-	assert.Equal(t, uint16(22), rules[1].Port, "should have port 22")
-	assert.Equal(t, "tcp", rules[1].Protocol, "should have protocol tcp")
-	if !slices.Contains(rules[1].SourceRanges, accNetResourcePeer1IP.String()+"/32") {
-		t.Errorf("%s should have source range of peer1 %s", rules[1].SourceRanges, accNetResourcePeer1IP.String())
-	}
-	if !slices.Contains(rules[1].SourceRanges, accNetResourcePeer2IP.String()+"/32") {
-		t.Errorf("%s should have source range of peer2 %s", rules[1].SourceRanges, accNetResourcePeer2IP.String())
-	}
-}
-
-func Test_NetworksNetMapGenWithTwoPostureChecks(t *testing.T) {
-	account := getBasicAccountsWithResource()
-
-	// two posture checks should match only the peers that match both checks
-	policy := account.Policies[0]
-	policy.SourcePostureChecks = []string{accNetResourceRelaxedPostureCheckID, accNetResourceLinuxPostureCheckID}
-
-	// validate for peer1
-	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	assert.False(t, isRouter, "expected router status")
-	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
-	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
-
-	// validate for peer2
-	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer2ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	assert.False(t, isRouter, "expected router status")
-	assert.Len(t, networkResourcesRoutes, 0, "expected network resource route don't match")
-	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
-
-	// validate routes for router1
-	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourceRouter1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	assert.True(t, isRouter, "should be router")
-	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
-	assert.Len(t, sourcePeers, 1, "expected source peers don't match")
-	assert.NotNil(t, sourcePeers[accNetResourcePeer1ID], "expected source peers don't match")
-
-	// validate rules for router1
-	rules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers[accNetResourceRouter1ID], accNetResourceValidPeers, networkResourcesRoutes, account.GetResourcePoliciesMap())
-	assert.Len(t, rules, 1, "expected rules count don't match")
-	assert.Equal(t, uint16(80), rules[0].Port, "should have port 80")
-	assert.Equal(t, "tcp", rules[0].Protocol, "should have protocol tcp")
-	if !slices.Contains(rules[0].SourceRanges, accNetResourcePeer1IP.String()+"/32") {
-		t.Errorf("%s should have source range of peer1 %s", rules[0].SourceRanges, accNetResourcePeer1IP.String())
-	}
-	if slices.Contains(rules[0].SourceRanges, accNetResourcePeer2IP.String()+"/32") {
-		t.Errorf("%s should not have source range of peer2 %s", rules[0].SourceRanges, accNetResourcePeer2IP.String())
-	}
-}
-
-func Test_NetworksNetMapGenShouldExcludeOtherRouters(t *testing.T) {
-	account := getBasicAccountsWithResource()
-
-	account.Peers["router2Id"] = &nbpeer.Peer{Key: "router2Key", ID: "router2Id", AccountID: accID, IP: net.IP{192, 168, 1, 4}}
-	account.NetworkRouters = append(account.NetworkRouters, &routerTypes.NetworkRouter{
-		ID:        "router2Id",
-		NetworkID: network1ID,
-		AccountID: accID,
-		Peer:      "router2Id",
-	})
-
-	// validate routes for router1
-	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourceRouter1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	assert.True(t, isRouter, "should be router")
-	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
-	assert.Len(t, sourcePeers, 2, "expected source peers don't match")
-}
-
 func Test_ExpandPortsAndRanges_SSHRuleExpansion(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -1043,41 +646,7 @@ func Test_ExpandPortsAndRanges_SSHRuleExpansion(t *testing.T) {
 			expectedPorts: []string{"20-25", "10-100", "22022"},
 		},
 		{
-			name: "dev suffix version supports all features",
-			peer: &nbpeer.Peer{
-				ID:         "peer1",
-				SSHEnabled: true,
-				Meta: nbpeer.PeerSystemMeta{
-					WtVersion: "0.50.0-dev",
-					Flags:     nbpeer.Flags{ServerSSHAllowed: true},
-				},
-			},
-			rule: &PolicyRule{
-				Protocol: PolicyRuleProtocolTCP,
-				Ports:    []string{"22"},
-			},
-			base:          FirewallRule{PeerIP: "10.0.0.1", Direction: 0, Action: "accept", Protocol: "tcp"},
-			expectedPorts: []string{"22", "22022"},
-		},
-		{
-			name: "dev suffix version supports all features",
-			peer: &nbpeer.Peer{
-				ID:         "peer1",
-				SSHEnabled: true,
-				Meta: nbpeer.PeerSystemMeta{
-					WtVersion: "dev",
-					Flags:     nbpeer.Flags{ServerSSHAllowed: true},
-				},
-			},
-			rule: &PolicyRule{
-				Protocol: PolicyRuleProtocolTCP,
-				Ports:    []string{"22"},
-			},
-			base:          FirewallRule{PeerIP: "10.0.0.1", Direction: 0, Action: "accept", Protocol: "tcp"},
-			expectedPorts: []string{"22", "22022"},
-		},
-		{
-			name: "development suffix version supports all features",
+			name: "development version supports all features",
 			peer: &nbpeer.Peer{
 				ID:         "peer1",
 				SSHEnabled: true,
@@ -1097,7 +666,7 @@ func Test_ExpandPortsAndRanges_SSHRuleExpansion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := expandPortsAndRanges(tt.base, tt.rule, tt.peer)
+			result := ExpandPortsAndRanges(tt.base, tt.rule, tt.peer)
 
 			var ports []string
 			for _, fr := range result {
@@ -1320,7 +889,11 @@ func Test_FilterZoneRecordsForPeers(t *testing.T) {
 			},
 			peersToConnect: []*nbpeer.Peer{},
 			expiredPeers:   []*nbpeer.Peer{},
-			peer:           &nbpeer.Peer{ID: "router", IP: net.ParseIP("10.0.0.100")},
+			peer: &nbpeer.Peer{
+				ID:   "router",
+				IP:   netip.MustParseAddr("10.0.0.100"),
+				IPv6: netip.MustParseAddr("fd00::a00:64"),
+			},
 			expectedRecords: []nbdns.SimpleRecord{
 				{Name: "router.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.100"},
 			},
@@ -1347,14 +920,19 @@ func Test_FilterZoneRecordsForPeers(t *testing.T) {
 				var peers []*nbpeer.Peer
 				for _, i := range []int{1, 5, 10, 25, 50, 75, 100} {
 					peers = append(peers, &nbpeer.Peer{
-						ID: fmt.Sprintf("peer%d", i),
-						IP: net.ParseIP(fmt.Sprintf("10.0.%d.%d", i/256, i%256)),
+						ID:   fmt.Sprintf("peer%d", i),
+						IP:   netip.MustParseAddr(fmt.Sprintf("10.0.%d.%d", i/256, i%256)),
+						IPv6: netip.MustParseAddr(fmt.Sprintf("fd00::%d", i)),
 					})
 				}
 				return peers
 			}(),
 			expiredPeers: []*nbpeer.Peer{},
-			peer:         &nbpeer.Peer{ID: "router", IP: net.ParseIP("10.0.0.100")},
+			peer: &nbpeer.Peer{
+				ID:   "router",
+				IP:   netip.MustParseAddr("10.0.0.100"),
+				IPv6: netip.MustParseAddr("fd00::a00:64"),
+			},
 			expectedRecords: func() []nbdns.SimpleRecord {
 				var records []nbdns.SimpleRecord
 				for _, i := range []int{1, 5, 10, 25, 50, 75, 100} {
@@ -1385,11 +963,27 @@ func Test_FilterZoneRecordsForPeers(t *testing.T) {
 				},
 			},
 			peersToConnect: []*nbpeer.Peer{
-				{ID: "peer1", IP: net.ParseIP("10.0.0.1"), DNSLabel: "peer1", ExtraDNSLabels: []string{"peer1-alt", "peer1-backup"}},
-				{ID: "peer2", IP: net.ParseIP("10.0.0.2"), DNSLabel: "peer2", ExtraDNSLabels: []string{"peer2-service"}},
+				{
+					ID:             "peer1",
+					IP:             netip.MustParseAddr("10.0.0.1"),
+					IPv6:           netip.MustParseAddr("fd00::a00:1"),
+					DNSLabel:       "peer1",
+					ExtraDNSLabels: []string{"peer1-alt", "peer1-backup"},
+				},
+				{
+					ID:             "peer2",
+					IP:             netip.MustParseAddr("10.0.0.2"),
+					IPv6:           netip.MustParseAddr("fd00::a00:2"),
+					DNSLabel:       "peer2",
+					ExtraDNSLabels: []string{"peer2-service"},
+				},
 			},
 			expiredPeers: []*nbpeer.Peer{},
-			peer:         &nbpeer.Peer{ID: "router", IP: net.ParseIP("10.0.0.100")},
+			peer: &nbpeer.Peer{
+				ID:   "router",
+				IP:   netip.MustParseAddr("10.0.0.100"),
+				IPv6: netip.MustParseAddr("fd00::a00:64"),
+			},
 			expectedRecords: []nbdns.SimpleRecord{
 				{Name: "peer1.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
 				{Name: "peer1-alt.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
@@ -1411,12 +1005,24 @@ func Test_FilterZoneRecordsForPeers(t *testing.T) {
 				},
 			},
 			peersToConnect: []*nbpeer.Peer{
-				{ID: "peer1", IP: net.ParseIP("10.0.0.1")},
+				{
+					ID:   "peer1",
+					IP:   netip.MustParseAddr("10.0.0.1"),
+					IPv6: netip.MustParseAddr("fd00::a00:1"),
+				},
 			},
 			expiredPeers: []*nbpeer.Peer{
-				{ID: "expired-peer", IP: net.ParseIP("10.0.0.99")},
+				{
+					ID:   "expired-peer",
+					IP:   netip.MustParseAddr("10.0.0.99"),
+					IPv6: netip.MustParseAddr("fd00::a00:63"),
+				},
 			},
-			peer: &nbpeer.Peer{ID: "router", IP: net.ParseIP("10.0.0.100")},
+			peer: &nbpeer.Peer{
+				ID:   "router",
+				IP:   netip.MustParseAddr("10.0.0.100"),
+				IPv6: netip.MustParseAddr("fd00::a00:64"),
+			},
 			expectedRecords: []nbdns.SimpleRecord{
 				{Name: "peer1.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
 				{Name: "expired-peer.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.99"},
@@ -1434,514 +1040,270 @@ func Test_FilterZoneRecordsForPeers(t *testing.T) {
 	}
 }
 
-func Test_filterPeerAppliedZones(t *testing.T) {
+func TestInjectPrivateServicePolicies_ProxyPeerGetsInboundRule(t *testing.T) {
 	ctx := context.Background()
 
-	tests := []struct {
-		name         string
-		accountZones []*zones.Zone
-		peerGroups   LookupMap
-		expected     []nbdns.CustomZone
-	}{
-		{
-			name:         "empty peer groups returns empty custom zones",
-			accountZones: []*zones.Zone{},
-			peerGroups:   LookupMap{},
-			expected:     []nbdns.CustomZone{},
+	userPeerIP := netip.MustParseAddr("100.64.0.10")
+	proxyPeerIP := netip.MustParseAddr("100.64.0.99")
+
+	account := &Account{
+		Id: "acct-1",
+		Network: &Network{
+			Identifier: "net-1",
+			Net:        net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.CIDRMask(10, 32)},
 		},
-		{
-			name: "peer has access to zone with A record",
-			accountZones: []*zones.Zone{
-				{
-					ID:                 "zone1",
-					Domain:             "example.com",
-					Enabled:            true,
-					EnableSearchDomain: false,
-					DistributionGroups: []string{"group1"},
-					Records: []*records.Record{
-						{
-							ID:      "record1",
-							Name:    "www.example.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.1",
-							TTL:     300,
-						},
-					},
-				},
+		Settings: &Settings{},
+		Peers: map[string]*nbpeer.Peer{
+			"user-peer": {
+				ID:        "user-peer",
+				AccountID: "acct-1",
+				Key:       "user-peer-key",
+				IP:        userPeerIP,
 			},
-			peerGroups: LookupMap{"group1": struct{}{}},
-			expected: []nbdns.CustomZone{
-				{
-					Domain: "example.com.",
-					Records: []nbdns.SimpleRecord{
-						{
-							Name:  "www.example.com.",
-							Type:  int(dns.TypeA),
-							Class: nbdns.DefaultClass,
-							TTL:   300,
-							RData: "192.168.1.1",
-						},
-					},
-					SearchDomainDisabled: true,
+			"proxy-peer": {
+				ID:        "proxy-peer",
+				AccountID: "acct-1",
+				Key:       "proxy-peer-key",
+				IP:        proxyPeerIP,
+				ProxyMeta: nbpeer.ProxyMeta{
+					Embedded: true,
+					Cluster:  "eu.proxy.netbird.io",
 				},
 			},
 		},
-		{
-			name: "peer has access to zone with search domain enabled",
-			accountZones: []*zones.Zone{
-				{
-					ID:                 "zone1",
-					Domain:             "internal.local",
-					Enabled:            true,
-					EnableSearchDomain: true,
-					DistributionGroups: []string{"group1"},
-					Records: []*records.Record{
-						{
-							ID:      "record1",
-							Name:    "api.internal.local",
-							Type:    records.RecordTypeA,
-							Content: "10.0.0.1",
-							TTL:     600,
-						},
-					},
-				},
-			},
-			peerGroups: LookupMap{"group1": struct{}{}},
-			expected: []nbdns.CustomZone{
-				{
-					Domain: "internal.local.",
-					Records: []nbdns.SimpleRecord{
-						{
-							Name:  "api.internal.local.",
-							Type:  int(dns.TypeA),
-							Class: nbdns.DefaultClass,
-							TTL:   600,
-							RData: "10.0.0.1",
-						},
-					},
-					SearchDomainDisabled: false,
-				},
+		Groups: map[string]*Group{
+			"grp-admins": {
+				ID:    "grp-admins",
+				Name:  "admins",
+				Peers: []string{"user-peer"},
 			},
 		},
-		{
-			name: "peer has no access to zone",
-			accountZones: []*zones.Zone{
-				{
-					ID:                 "zone1",
-					Domain:             "private.com",
-					Enabled:            true,
-					EnableSearchDomain: false,
-					DistributionGroups: []string{"group2"},
-					Records: []*records.Record{
-						{
-							ID:      "record1",
-							Name:    "secret.private.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.1",
-							TTL:     300,
-						},
+		Services: []*service.Service{
+			{
+				ID:           "svc-1",
+				AccountID:    "acct-1",
+				Name:         "myapp",
+				Domain:       "myapp.eu.proxy.netbird.io",
+				ProxyCluster: "eu.proxy.netbird.io",
+				Enabled:      true,
+				Private:      true,
+				Mode:         service.ModeHTTP,
+				AccessGroups: []string{"grp-admins"},
+				Targets: []*service.Target{
+					{
+						TargetId:   "eu.proxy.netbird.io",
+						TargetType: service.TargetTypeCluster,
+						Protocol:   "http",
+						Host:       "127.0.0.1",
+						Port:       8080,
+						Enabled:    true,
 					},
-				},
-			},
-			peerGroups: LookupMap{"group1": struct{}{}},
-			expected:   []nbdns.CustomZone{},
-		},
-		{
-			name: "disabled zone is filtered out",
-			accountZones: []*zones.Zone{
-				{
-					ID:                 "zone1",
-					Domain:             "disabled.com",
-					Enabled:            false,
-					EnableSearchDomain: false,
-					DistributionGroups: []string{"group1"},
-					Records: []*records.Record{
-						{
-							ID:      "record1",
-							Name:    "www.disabled.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.1",
-							TTL:     300,
-						},
-					},
-				},
-			},
-			peerGroups: LookupMap{"group1": struct{}{}},
-			expected:   []nbdns.CustomZone{},
-		},
-		{
-			name: "zone with no records is filtered out",
-			accountZones: []*zones.Zone{
-				{
-					ID:                 "zone1",
-					Domain:             "empty.com",
-					Enabled:            true,
-					EnableSearchDomain: false,
-					DistributionGroups: []string{"group1"},
-					Records:            []*records.Record{},
-				},
-			},
-			peerGroups: LookupMap{"group1": struct{}{}},
-			expected:   []nbdns.CustomZone{},
-		},
-		{
-			name: "peer has access via multiple groups",
-			accountZones: []*zones.Zone{
-				{
-					ID:                 "zone1",
-					Domain:             "multi.com",
-					Enabled:            true,
-					EnableSearchDomain: false,
-					DistributionGroups: []string{"group1", "group2", "group3"},
-					Records: []*records.Record{
-						{
-							ID:      "record1",
-							Name:    "www.multi.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.1",
-							TTL:     300,
-						},
-					},
-				},
-			},
-			peerGroups: LookupMap{"group2": struct{}{}},
-			expected: []nbdns.CustomZone{
-				{
-					Domain: "multi.com.",
-					Records: []nbdns.SimpleRecord{
-						{
-							Name:  "www.multi.com.",
-							Type:  int(dns.TypeA),
-							Class: nbdns.DefaultClass,
-							TTL:   300,
-							RData: "192.168.1.1",
-						},
-					},
-					SearchDomainDisabled: true,
-				},
-			},
-		},
-		{
-			name: "multiple zones with mixed access",
-			accountZones: []*zones.Zone{
-				{
-					ID:                 "zone1",
-					Domain:             "allowed.com",
-					Enabled:            true,
-					EnableSearchDomain: false,
-					DistributionGroups: []string{"group1"},
-					Records: []*records.Record{
-						{
-							ID:      "record1",
-							Name:    "www.allowed.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.1",
-							TTL:     300,
-						},
-					},
-				},
-				{
-					ID:                 "zone2",
-					Domain:             "denied.com",
-					Enabled:            true,
-					EnableSearchDomain: false,
-					DistributionGroups: []string{"group2"},
-					Records: []*records.Record{
-						{
-							ID:      "record2",
-							Name:    "www.denied.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.2",
-							TTL:     300,
-						},
-					},
-				},
-			},
-			peerGroups: LookupMap{"group1": struct{}{}},
-			expected: []nbdns.CustomZone{
-				{
-					Domain: "allowed.com.",
-					Records: []nbdns.SimpleRecord{
-						{
-							Name:  "www.allowed.com.",
-							Type:  int(dns.TypeA),
-							Class: nbdns.DefaultClass,
-							TTL:   300,
-							RData: "192.168.1.1",
-						},
-					},
-					SearchDomainDisabled: true,
-				},
-			},
-		},
-		{
-			name: "zone with multiple record types",
-			accountZones: []*zones.Zone{
-				{
-					ID:                 "zone1",
-					Domain:             "mixed.com",
-					Enabled:            true,
-					EnableSearchDomain: false,
-					DistributionGroups: []string{"group1"},
-					Records: []*records.Record{
-						{
-							ID:      "record1",
-							Name:    "www.mixed.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.1",
-							TTL:     300,
-						},
-						{
-							ID:      "record2",
-							Name:    "ipv6.mixed.com",
-							Type:    records.RecordTypeAAAA,
-							Content: "2001:db8::1",
-							TTL:     600,
-						},
-						{
-							ID:      "record3",
-							Name:    "alias.mixed.com",
-							Type:    records.RecordTypeCNAME,
-							Content: "www.mixed.com",
-							TTL:     900,
-						},
-					},
-				},
-			},
-			peerGroups: LookupMap{"group1": struct{}{}},
-			expected: []nbdns.CustomZone{
-				{
-					Domain: "mixed.com.",
-					Records: []nbdns.SimpleRecord{
-						{
-							Name:  "www.mixed.com.",
-							Type:  int(dns.TypeA),
-							Class: nbdns.DefaultClass,
-							TTL:   300,
-							RData: "192.168.1.1",
-						},
-						{
-							Name:  "ipv6.mixed.com.",
-							Type:  int(dns.TypeAAAA),
-							Class: nbdns.DefaultClass,
-							TTL:   600,
-							RData: "2001:db8::1",
-						},
-						{
-							Name:  "alias.mixed.com.",
-							Type:  int(dns.TypeCNAME),
-							Class: nbdns.DefaultClass,
-							TTL:   900,
-							RData: "www.mixed.com.",
-						},
-					},
-					SearchDomainDisabled: true,
-				},
-			},
-		},
-		{
-			name: "multiple zones both accessible",
-			accountZones: []*zones.Zone{
-				{
-					ID:                 "zone1",
-					Domain:             "first.com",
-					Enabled:            true,
-					EnableSearchDomain: true,
-					DistributionGroups: []string{"group1"},
-					Records: []*records.Record{
-						{
-							ID:      "record1",
-							Name:    "www.first.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.1",
-							TTL:     300,
-						},
-					},
-				},
-				{
-					ID:                 "zone2",
-					Domain:             "second.com",
-					Enabled:            true,
-					EnableSearchDomain: false,
-					DistributionGroups: []string{"group1"},
-					Records: []*records.Record{
-						{
-							ID:      "record2",
-							Name:    "www.second.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.2",
-							TTL:     600,
-						},
-					},
-				},
-			},
-			peerGroups: LookupMap{"group1": struct{}{}},
-			expected: []nbdns.CustomZone{
-				{
-					Domain: "first.com.",
-					Records: []nbdns.SimpleRecord{
-						{
-							Name:  "www.first.com.",
-							Type:  int(dns.TypeA),
-							Class: nbdns.DefaultClass,
-							TTL:   300,
-							RData: "192.168.1.1",
-						},
-					},
-					SearchDomainDisabled: false,
-				},
-				{
-					Domain: "second.com.",
-					Records: []nbdns.SimpleRecord{
-						{
-							Name:  "www.second.com.",
-							Type:  int(dns.TypeA),
-							Class: nbdns.DefaultClass,
-							TTL:   600,
-							RData: "192.168.1.2",
-						},
-					},
-					SearchDomainDisabled: true,
-				},
-			},
-		},
-		{
-			name: "zone with multiple records of same type",
-			accountZones: []*zones.Zone{
-				{
-					ID:                 "zone1",
-					Domain:             "multi-a.com",
-					Enabled:            true,
-					EnableSearchDomain: false,
-					DistributionGroups: []string{"group1"},
-					Records: []*records.Record{
-						{
-							ID:      "record1",
-							Name:    "www.multi-a.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.1",
-							TTL:     300,
-						},
-						{
-							ID:      "record2",
-							Name:    "www.multi-a.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.2",
-							TTL:     300,
-						},
-					},
-				},
-			},
-			peerGroups: LookupMap{"group1": struct{}{}},
-			expected: []nbdns.CustomZone{
-				{
-					Domain: "multi-a.com.",
-					Records: []nbdns.SimpleRecord{
-						{
-							Name:  "www.multi-a.com.",
-							Type:  int(dns.TypeA),
-							Class: nbdns.DefaultClass,
-							TTL:   300,
-							RData: "192.168.1.1",
-						},
-						{
-							Name:  "www.multi-a.com.",
-							Type:  int(dns.TypeA),
-							Class: nbdns.DefaultClass,
-							TTL:   300,
-							RData: "192.168.1.2",
-						},
-					},
-					SearchDomainDisabled: true,
-				},
-			},
-		},
-		{
-			name: "peer in multiple groups accessing different zones",
-			accountZones: []*zones.Zone{
-				{
-					ID:                 "zone1",
-					Domain:             "zone1.com",
-					Enabled:            true,
-					EnableSearchDomain: false,
-					DistributionGroups: []string{"group1"},
-					Records: []*records.Record{
-						{
-							ID:      "record1",
-							Name:    "www.zone1.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.1",
-							TTL:     300,
-						},
-					},
-				},
-				{
-					ID:                 "zone2",
-					Domain:             "zone2.com",
-					Enabled:            true,
-					EnableSearchDomain: false,
-					DistributionGroups: []string{"group2"},
-					Records: []*records.Record{
-						{
-							ID:      "record2",
-							Name:    "www.zone2.com",
-							Type:    records.RecordTypeA,
-							Content: "192.168.1.2",
-							TTL:     300,
-						},
-					},
-				},
-			},
-			peerGroups: LookupMap{"group1": struct{}{}, "group2": struct{}{}},
-			expected: []nbdns.CustomZone{
-				{
-					Domain: "zone1.com.",
-					Records: []nbdns.SimpleRecord{
-						{
-							Name:  "www.zone1.com.",
-							Type:  int(dns.TypeA),
-							Class: nbdns.DefaultClass,
-							TTL:   300,
-							RData: "192.168.1.1",
-						},
-					},
-					SearchDomainDisabled: true,
-				},
-				{
-					Domain: "zone2.com.",
-					Records: []nbdns.SimpleRecord{
-						{
-							Name:  "www.zone2.com.",
-							Type:  int(dns.TypeA),
-							Class: nbdns.DefaultClass,
-							TTL:   300,
-							RData: "192.168.1.2",
-						},
-					},
-					SearchDomainDisabled: true,
 				},
 			},
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := filterPeerAppliedZones(ctx, tt.accountZones, tt.peerGroups)
-			require.Equal(t, len(tt.expected), len(result), "number of custom zones should match")
+	found := findPolicy(injectedPolicies(account), "private-access-svc-1-proxy-peer")
+	require.NotNil(t, found, "expected synthesised private-access policy in the twin store")
+	require.Len(t, found.Rules, 1, "policy should have exactly one rule")
+	rule := found.Rules[0]
+	assert.Equal(t, []string{"grp-admins"}, rule.Sources, "sources should be group IDs verbatim")
+	assert.Equal(t, "proxy-peer", rule.DestinationResource.ID, "destination resource should be the proxy peer ID")
+	assert.Equal(t, string(ResourceTypePeer), rule.DestinationResource.Type, "destination resource type should be peer")
 
-			for i, expectedZone := range tt.expected {
-				assert.Equal(t, expectedZone.Domain, result[i].Domain, "domain should match")
-				assert.Equal(t, expectedZone.SearchDomainDisabled, result[i].SearchDomainDisabled, "search domain disabled flag should match")
-				assert.Equal(t, len(expectedZone.Records), len(result[i].Records), "number of records should match")
-
-				for j, expectedRecord := range expectedZone.Records {
-					assert.Equal(t, expectedRecord.Name, result[i].Records[j].Name, "record name should match")
-					assert.Equal(t, expectedRecord.Type, result[i].Records[j].Type, "record type should match")
-					assert.Equal(t, expectedRecord.Class, result[i].Records[j].Class, "record class should match")
-					assert.Equal(t, expectedRecord.TTL, result[i].Records[j].TTL, "record TTL should match")
-					assert.Equal(t, expectedRecord.RData, result[i].Records[j].RData, "record RData should match")
-				}
-			}
-		})
+	validatedPeersMap := map[string]struct{}{
+		"user-peer":  {},
+		"proxy-peer": {},
 	}
+
+	nm := account.GetPeerNetworkMapFromComponents(ctx, "proxy-peer", nbdns.CustomZone{}, nil, validatedPeersMap, nil, nil, nil, nil)
+
+	assert.Contains(t, netmapPeerIDs(nm.Peers), "user-peer", "proxy peer should see the user peer as an ACL peer")
+
+	var inboundRules []*FirewallRule
+	for _, r := range nm.FirewallRules {
+		if r.Direction == FirewallRuleDirectionIN && r.PeerIP == userPeerIP.String() {
+			inboundRules = append(inboundRules, r)
+		}
+	}
+	assert.NotEmpty(t, inboundRules, "proxy peer should have inbound firewall rules from the user peer")
+}
+
+func TestInjectPrivateServicePolicies_NotPrivate_NoPolicy(t *testing.T) {
+	account := privateServiceTestAccount(t)
+	account.Services[0].Private = false
+
+	assert.False(t, hasPrivateAccessPolicy(account, "svc-1"), "non-private service must not synthesise an access policy")
+}
+
+func TestInjectPrivateServicePolicies_EmptyAccessGroups_NoPolicy(t *testing.T) {
+	account := privateServiceTestAccount(t)
+	account.Services[0].AccessGroups = nil
+
+	assert.False(t, hasPrivateAccessPolicy(account, "svc-1"), "private service with no access groups must not synthesise a policy")
+}
+
+func TestInjectPrivateServicePolicies_NoProxyPeers_NoPolicy(t *testing.T) {
+	account := privateServiceTestAccount(t)
+	delete(account.Peers, "proxy-peer")
+
+	assert.False(t, hasPrivateAccessPolicy(account, "svc-1"), "policy must not synthesise when the cluster has no proxy peers")
+}
+
+func privateServiceTestAccount(t *testing.T) *Account {
+	t.Helper()
+	return &Account{
+		Id: "acct-1",
+		Network: &Network{
+			Identifier: "net-1",
+			Net:        net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.CIDRMask(10, 32)},
+		},
+		Peers: map[string]*nbpeer.Peer{
+			"user-peer": {
+				ID:        "user-peer",
+				AccountID: "acct-1",
+				Key:       "user-peer-key",
+				IP:        netip.MustParseAddr("100.64.0.10"),
+			},
+			"proxy-peer": {
+				ID:        "proxy-peer",
+				AccountID: "acct-1",
+				Key:       "proxy-peer-key",
+				IP:        netip.MustParseAddr("100.64.0.99"),
+				ProxyMeta: nbpeer.ProxyMeta{
+					Embedded: true,
+					Cluster:  "eu.proxy.netbird.io",
+				},
+			},
+		},
+		Groups: map[string]*Group{
+			"grp-admins": {
+				ID:    "grp-admins",
+				Name:  "admins",
+				Peers: []string{"user-peer"},
+			},
+		},
+		Services: []*service.Service{
+			{
+				ID:           "svc-1",
+				AccountID:    "acct-1",
+				Name:         "myapp",
+				Domain:       "myapp.eu.proxy.netbird.io",
+				ProxyCluster: "eu.proxy.netbird.io",
+				Enabled:      true,
+				Private:      true,
+				Mode:         service.ModeHTTP,
+				AccessGroups: []string{"grp-admins"},
+				Targets: []*service.Target{
+					{
+						TargetId:   "eu.proxy.netbird.io",
+						TargetType: service.TargetTypeCluster,
+						Protocol:   "http",
+						Host:       "127.0.0.1",
+						Port:       8080,
+						Enabled:    true,
+					},
+				},
+			},
+		},
+	}
+}
+
+// injectedPolicies returns the twin's policies with the synthesised proxy ACLs
+// already in place, the way the per-peer computation sees them.
+func injectedPolicies(account *Account) []*nmdata.Policy {
+	nmd := account.toNetworkMapData(nil, nil, nil, nil, nil)
+	nmd.InjectProxyPolicies()
+	return nmd.Policies
+}
+
+func findPolicy(policies []*nmdata.Policy, id string) *nmdata.Policy {
+	for _, p := range policies {
+		if p != nil && p.ID == id {
+			return p
+		}
+	}
+	return nil
+}
+
+func hasPrivateAccessPolicy(account *Account, serviceID string) bool {
+	prefix := "private-access-" + serviceID + "-"
+	for _, p := range injectedPolicies(account) {
+		if p != nil && strings.HasPrefix(p.ID, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestForcesRoutingPeerDNSResolution(t *testing.T) {
+	buildAccountRes := func(serviceEnabled, targetEnabled, resourceEnabled bool, targetType service.TargetType, resType resourceTypes.NetworkResourceType) *Account {
+		return &Account{
+			Id: "accountID",
+			Groups: map[string]*Group{
+				"router-group": {ID: "router-group", Peers: []string{"router-peer-grp"}},
+			},
+			NetworkRouters: []*routerTypes.NetworkRouter{
+				{ID: "r1", NetworkID: "net-1", AccountID: "accountID", Peer: "router-peer", Enabled: true},
+				{ID: "r2", NetworkID: "net-1", AccountID: "accountID", PeerGroups: []string{"router-group"}, Enabled: true},
+			},
+			NetworkResources: []*resourceTypes.NetworkResource{
+				{ID: "res-domain", AccountID: "accountID", NetworkID: "net-1", Type: resType, Domain: "example.org", Enabled: resourceEnabled},
+			},
+			Services: []*service.Service{
+				{
+					ID: "svc-1", AccountID: "accountID", Enabled: serviceEnabled,
+					Targets: []*service.Target{
+						{TargetId: "res-domain", TargetType: targetType, Enabled: targetEnabled},
+					},
+				},
+			},
+		}
+	}
+
+	buildAccount := func(serviceEnabled, targetEnabled, resourceEnabled bool, targetType service.TargetType) *Account {
+		return buildAccountRes(serviceEnabled, targetEnabled, resourceEnabled, targetType, resourceTypes.Domain)
+	}
+
+	forced := func(account *Account, peerID string) bool {
+		nmd := account.toNetworkMapData(nil, nil, nil, account.GetResourceRoutersMap(), nil)
+		return nmd.GetPeerNetworkMapComponents(peerID, nmdata.CustomZone{}).ForceRoutingPeerDNSResolution
+	}
+
+	t.Run("router peer for RP-targeted domain resource is forced", func(t *testing.T) {
+		account := buildAccount(true, true, true, service.TargetTypeDomain)
+		assert.True(t, forced(account, "router-peer"), "direct router peer should be forced")
+		assert.True(t, forced(account, "router-peer-grp"), "group-member router peer should be forced")
+	})
+
+	t.Run("non-router peer is not forced", func(t *testing.T) {
+		account := buildAccount(true, true, true, service.TargetTypeDomain)
+		assert.False(t, forced(account, "other-peer"))
+	})
+
+	t.Run("not forced when service disabled", func(t *testing.T) {
+		account := buildAccount(false, true, true, service.TargetTypeDomain)
+		assert.False(t, forced(account, "router-peer"))
+	})
+
+	t.Run("not forced when target disabled", func(t *testing.T) {
+		account := buildAccount(true, false, true, service.TargetTypeDomain)
+		assert.False(t, forced(account, "router-peer"))
+	})
+
+	t.Run("not forced when resource disabled", func(t *testing.T) {
+		account := buildAccount(true, true, false, service.TargetTypeDomain)
+		assert.False(t, forced(account, "router-peer"))
+	})
+
+	t.Run("not forced for non-domain target type", func(t *testing.T) {
+		account := buildAccount(true, true, true, service.TargetTypePeer)
+		assert.False(t, forced(account, "router-peer"))
+	})
+
+	t.Run("not forced when targeted resource is not a domain", func(t *testing.T) {
+		account := buildAccountRes(true, true, true, service.TargetTypeDomain, resourceTypes.Host)
+		assert.False(t, forced(account, "router-peer"),
+			"a domain target pointing at a non-domain resource must not force resolution")
+	})
 }

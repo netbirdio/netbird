@@ -1,0 +1,93 @@
+{
+  "Serial": "37",
+  "peerConfig": {
+    "address": "100.64.0.1/10",
+    "sshConfig": {},
+    "fqdn": "peer-client.netbird.test",
+    "autoUpdate": {}
+  },
+  "remotePeers": [
+    {
+      "wgPubKey": "MdeD+cDSnurizeZ/Zd7rEdIhs9VZViEnutUwkodqb1s=",
+      "allowedIps": [
+        "100.64.0.12/32"
+      ],
+      "sshConfig": {},
+      "fqdn": "peer-srv-new.netbird.test",
+      "agentVersion": "1.0.0"
+    },
+    {
+      "wgPubKey": "ph1eqUTlSeLQ6V9zLEUpck25m5K5sOQq+AHY879HZME=",
+      "allowedIps": [
+        "100.64.0.11/32"
+      ],
+      "sshConfig": {},
+      "fqdn": "peer-srv-old.netbird.test",
+      "agentVersion": "0.30.0"
+    }
+  ],
+  "DNSConfig": {
+    "ServiceEnable": true,
+    "CustomZones": [
+      {
+        "Domain": "netbird.test.",
+        "Records": [
+          {
+            "Name": "peer-client.netbird.test",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "100.64.0.1"
+          },
+          {
+            "Name": "peer-srv-new.netbird.test",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "100.64.0.12"
+          },
+          {
+            "Name": "peer-srv-old.netbird.test",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "100.64.0.11"
+          }
+        ]
+      }
+    ],
+    "ForwarderPort": "5353"
+  },
+  "FirewallRules": [
+    {
+      "PeerIP": "100.64.0.11",
+      "Protocol": "TCP",
+      "Port": "443",
+      "PolicyID": "cG9sLWRlc3Q="
+    },
+    {
+      "PeerIP": "100.64.0.11",
+      "Direction": "OUT",
+      "Protocol": "TCP",
+      "Port": "443",
+      "PolicyID": "cG9sLWRlc3Q="
+    },
+    {
+      "PeerIP": "100.64.0.12",
+      "Protocol": "TCP",
+      "Port": "443",
+      "PolicyID": "cG9sLWRlc3Q="
+    },
+    {
+      "PeerIP": "100.64.0.12",
+      "Direction": "OUT",
+      "Protocol": "TCP",
+      "Port": "443",
+      "PolicyID": "cG9sLWRlc3Q="
+    }
+  ],
+  "routesFirewallRulesIsEmpty": true,
+  "sshAuth": {
+    "UserIDClaim": "sub"
+  }
+}

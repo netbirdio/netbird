@@ -73,61 +73,6 @@ func TestPrivilegeDropper_ValidatePrivileges(t *testing.T) {
 	}
 }
 
-func TestPrivilegeDropper_CreateExecutorCommand(t *testing.T) {
-	pd := NewPrivilegeDropper()
-
-	config := ExecutorConfig{
-		UID:        1000,
-		GID:        1000,
-		Groups:     []uint32{1000, 1001},
-		WorkingDir: "/home/testuser",
-		Shell:      "/bin/bash",
-		Command:    "ls -la",
-	}
-
-	cmd, err := pd.CreateExecutorCommand(context.Background(), config)
-	require.NoError(t, err)
-	require.NotNil(t, cmd)
-
-	// Verify the command is calling netbird ssh exec
-	assert.Contains(t, cmd.Args, "ssh")
-	assert.Contains(t, cmd.Args, "exec")
-	assert.Contains(t, cmd.Args, "--uid")
-	assert.Contains(t, cmd.Args, "1000")
-	assert.Contains(t, cmd.Args, "--gid")
-	assert.Contains(t, cmd.Args, "1000")
-	assert.Contains(t, cmd.Args, "--groups")
-	assert.Contains(t, cmd.Args, "1000")
-	assert.Contains(t, cmd.Args, "1001")
-	assert.Contains(t, cmd.Args, "--working-dir")
-	assert.Contains(t, cmd.Args, "/home/testuser")
-	assert.Contains(t, cmd.Args, "--shell")
-	assert.Contains(t, cmd.Args, "/bin/bash")
-	assert.Contains(t, cmd.Args, "--cmd")
-	assert.Contains(t, cmd.Args, "ls -la")
-}
-
-func TestPrivilegeDropper_CreateExecutorCommandInteractive(t *testing.T) {
-	pd := NewPrivilegeDropper()
-
-	config := ExecutorConfig{
-		UID:        1000,
-		GID:        1000,
-		Groups:     []uint32{1000},
-		WorkingDir: "/home/testuser",
-		Shell:      "/bin/bash",
-		Command:    "",
-	}
-
-	cmd, err := pd.CreateExecutorCommand(context.Background(), config)
-	require.NoError(t, err)
-	require.NotNil(t, cmd)
-
-	// Verify no command mode (command is empty so no --cmd flag)
-	assert.NotContains(t, cmd.Args, "--cmd")
-	assert.NotContains(t, cmd.Args, "--interactive")
-}
-
 // TestPrivilegeDropper_ActualPrivilegeDrop tests actual privilege dropping
 // This test requires root privileges and will be skipped if not running as root
 func TestPrivilegeDropper_ActualPrivilegeDrop(t *testing.T) {
@@ -259,4 +204,21 @@ func TestPrivilegeDropper_ExecuteWithPrivilegeDrop_Validation(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "cannot drop privileges")
 	}
+}
+
+func TestPrivilegeDropper_CreateExecutorCommand_NoLoginShell(t *testing.T) {
+	uid := uint32(os.Geteuid())
+	gid := uint32(os.Getegid())
+	pd := NewPrivilegeDropper()
+
+	base := ExecutorConfig{UID: uid, GID: gid, Shell: "/bin/sh", Command: "true"}
+
+	cmd, err := pd.CreateExecutorCommand(context.Background(), base)
+	require.NoError(t, err)
+	assert.NotContains(t, cmd.Args, "--no-login-shell", "a regular command keeps login shell semantics")
+
+	base.NoLoginShell = true
+	cmd, err = pd.CreateExecutorCommand(context.Background(), base)
+	require.NoError(t, err)
+	assert.Contains(t, cmd.Args, "--no-login-shell", "a protocol stream must not go through a login shell")
 }

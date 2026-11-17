@@ -54,13 +54,7 @@ type azureProfile map[string]any
 
 // NewAzureManager creates a new instance of the AzureManager.
 func NewAzureManager(config AzureClientConfig, appMetrics telemetry.AppMetrics) (*AzureManager, error) {
-	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
-	httpTransport.MaxIdleConns = 5
-
-	httpClient := &http.Client{
-		Timeout:   idpTimeout(),
-		Transport: httpTransport,
-	}
+	httpClient := newHTTPClient()
 
 	helper := JsonParser{}
 

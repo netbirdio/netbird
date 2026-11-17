@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	"github.com/hashicorp/go-version"
+
+	nbversion "github.com/netbirdio/netbird/version"
 )
 
 var (
@@ -11,7 +13,7 @@ var (
 )
 
 func IsSupported(agentVersion string) bool {
-	if agentVersion == "development" {
+	if nbversion.IsDevelopmentVersion(agentVersion) {
 		return true
 	}
 

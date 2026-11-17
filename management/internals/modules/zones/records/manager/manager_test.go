@@ -4,13 +4,14 @@ import (
 	"context"
 	"testing"
 
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -80,7 +81,7 @@ func TestManagerImpl_GetAllRecords(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Read).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		result, err := manager.GetAllRecords(ctx, testAccountID, testUserID, zone.ID)
 		require.NoError(t, err)
@@ -96,7 +97,7 @@ func TestManagerImpl_GetAllRecords(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Read).
-			Return(false, nil)
+			Return(false, ctx, nil)
 
 		result, err := manager.GetAllRecords(ctx, testAccountID, testUserID, zone.ID)
 		require.Error(t, err)
@@ -113,7 +114,7 @@ func TestManagerImpl_GetAllRecords(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Read).
-			Return(false, status.Errorf(status.Internal, "permission check failed"))
+			Return(false, ctx, status.Errorf(status.Internal, "permission check failed"))
 
 		result, err := manager.GetAllRecords(ctx, testAccountID, testUserID, zone.ID)
 		require.Error(t, err)
@@ -135,7 +136,7 @@ func TestManagerImpl_GetRecord(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Read).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		result, err := manager.GetRecord(ctx, testAccountID, testUserID, zone.ID, record.ID)
 		require.NoError(t, err)
@@ -153,7 +154,7 @@ func TestManagerImpl_GetRecord(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Read).
-			Return(false, nil)
+			Return(false, ctx, nil)
 
 		result, err := manager.GetRecord(ctx, testAccountID, testUserID, zone.ID, testRecordID)
 		require.Error(t, err)
@@ -181,7 +182,7 @@ func TestManagerImpl_CreateRecord(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Create).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		mockAccountManager.StoreEventFunc = func(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
 			assert.Equal(t, testUserID, initiatorID)
@@ -189,8 +190,14 @@ func TestManagerImpl_CreateRecord(t *testing.T) {
 			assert.Equal(t, activity.DNSRecordCreated, activityID)
 		}
 
+		var reason types.UpdateReason
+		mockAccountManager.ExpandAndUpdateAffectedFunc = func(_ context.Context, _ string, _ *affectedpeers.Snapshot, _ affectedpeers.Change, r types.UpdateReason) {
+			reason = r
+		}
+
 		result, err := manager.CreateRecord(ctx, testAccountID, testUserID, zone.ID, inputRecord)
 		require.NoError(t, err)
+		assert.Equal(t, types.UpdateReason{Resource: types.UpdateResourceZoneRecord, Operation: types.UpdateOperationCreate}, reason)
 		assert.NotNil(t, result)
 		assert.NotEmpty(t, result.ID)
 		assert.Equal(t, testAccountID, result.AccountID)
@@ -215,7 +222,7 @@ func TestManagerImpl_CreateRecord(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Create).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		mockAccountManager.StoreEventFunc = func(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
 			assert.Equal(t, testUserID, initiatorID)
@@ -244,7 +251,7 @@ func TestManagerImpl_CreateRecord(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Create).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		mockAccountManager.StoreEventFunc = func(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
 			assert.Equal(t, testUserID, initiatorID)
@@ -273,7 +280,7 @@ func TestManagerImpl_CreateRecord(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Create).
-			Return(false, nil)
+			Return(false, ctx, nil)
 
 		result, err := manager.CreateRecord(ctx, testAccountID, testUserID, zone.ID, inputRecord)
 		require.Error(t, err)
@@ -297,7 +304,7 @@ func TestManagerImpl_CreateRecord(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Create).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		result, err := manager.CreateRecord(ctx, testAccountID, testUserID, zone.ID, inputRecord)
 		require.Error(t, err)
@@ -323,7 +330,7 @@ func TestManagerImpl_CreateRecord(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Create).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		result, err := manager.CreateRecord(ctx, testAccountID, testUserID, zone.ID, inputRecord)
 		require.Error(t, err)
@@ -349,7 +356,7 @@ func TestManagerImpl_CreateRecord(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Create).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		result, err := manager.CreateRecord(ctx, testAccountID, testUserID, zone.ID, inputRecord)
 		require.Error(t, err)
@@ -380,7 +387,7 @@ func TestManagerImpl_UpdateRecord(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Update).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		storeEventCalled := false
 		mockAccountManager.StoreEventFunc = func(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
@@ -391,8 +398,14 @@ func TestManagerImpl_UpdateRecord(t *testing.T) {
 			assert.Equal(t, activity.DNSRecordUpdated, activityID)
 		}
 
+		var reason types.UpdateReason
+		mockAccountManager.ExpandAndUpdateAffectedFunc = func(_ context.Context, _ string, _ *affectedpeers.Snapshot, _ affectedpeers.Change, r types.UpdateReason) {
+			reason = r
+		}
+
 		result, err := manager.UpdateRecord(ctx, testAccountID, testUserID, zone.ID, updatedRecord)
 		require.NoError(t, err)
+		assert.Equal(t, types.UpdateReason{Resource: types.UpdateResourceZoneRecord, Operation: types.UpdateOperationUpdate}, reason)
 		assert.NotNil(t, result)
 		assert.Equal(t, updatedRecord.Content, result.Content)
 		assert.Equal(t, updatedRecord.TTL, result.TTL)
@@ -418,7 +431,7 @@ func TestManagerImpl_UpdateRecord(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Update).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		mockAccountManager.StoreEventFunc = func(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
 			// Event should be stored
@@ -428,6 +441,39 @@ func TestManagerImpl_UpdateRecord(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotNil(t, result)
 		assert.Equal(t, 600, result.TTL)
+	})
+
+	t.Run("unchanged record - no write", func(t *testing.T) {
+		manager, testStore, zone, mockAccountManager, mockPermissionsManager, ctrl, cleanup := setupTest(t)
+		defer cleanup()
+		defer ctrl.Finish()
+
+		existingRecord := records.NewRecord(testAccountID, zone.ID, "api.example.com", records.RecordTypeA, "192.168.1.1", 300)
+		require.NoError(t, testStore.CreateDNSRecord(ctx, existingRecord))
+
+		mockPermissionsManager.EXPECT().
+			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Update).
+			Return(true, ctx, nil)
+
+		var events, fanOuts int
+		mockAccountManager.StoreEventFunc = func(context.Context, string, string, string, activity.ActivityDescriber, map[string]any) {
+			events++
+		}
+		mockAccountManager.ExpandAndUpdateAffectedFunc = func(context.Context, string, *affectedpeers.Snapshot, affectedpeers.Change, types.UpdateReason) {
+			fanOuts++
+		}
+
+		result, err := manager.UpdateRecord(ctx, testAccountID, testUserID, zone.ID, &records.Record{
+			ID:      existingRecord.ID,
+			Name:    existingRecord.Name,
+			Type:    existingRecord.Type,
+			Content: existingRecord.Content,
+			TTL:     existingRecord.TTL,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, existingRecord.Content, result.Content, "unchanged update must return the stored record")
+		assert.Equal(t, 1, events, "unchanged update must still log an event")
+		assert.Zero(t, fanOuts, "unchanged update must not update affected peers")
 	})
 
 	t.Run("permission denied", func(t *testing.T) {
@@ -445,7 +491,7 @@ func TestManagerImpl_UpdateRecord(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Update).
-			Return(false, nil)
+			Return(false, ctx, nil)
 
 		result, err := manager.UpdateRecord(ctx, testAccountID, testUserID, zone.ID, updatedRecord)
 		require.Error(t, err)
@@ -470,7 +516,7 @@ func TestManagerImpl_UpdateRecord(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Update).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		result, err := manager.UpdateRecord(ctx, testAccountID, testUserID, zone.ID, updatedRecord)
 		require.Error(t, err)
@@ -500,7 +546,7 @@ func TestManagerImpl_UpdateRecord(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Update).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		result, err := manager.UpdateRecord(ctx, testAccountID, testUserID, zone.ID, updatedRecord)
 		require.Error(t, err)
@@ -523,7 +569,7 @@ func TestManagerImpl_DeleteRecord(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Delete).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		storeEventCalled := false
 		mockAccountManager.StoreEventFunc = func(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
@@ -534,8 +580,14 @@ func TestManagerImpl_DeleteRecord(t *testing.T) {
 			assert.Equal(t, activity.DNSRecordDeleted, activityID)
 		}
 
+		var reason types.UpdateReason
+		mockAccountManager.ExpandAndUpdateAffectedFunc = func(_ context.Context, _ string, _ *affectedpeers.Snapshot, _ affectedpeers.Change, r types.UpdateReason) {
+			reason = r
+		}
+
 		err = manager.DeleteRecord(ctx, testAccountID, testUserID, zone.ID, record.ID)
 		require.NoError(t, err)
+		assert.Equal(t, types.UpdateReason{Resource: types.UpdateResourceZoneRecord, Operation: types.UpdateOperationDelete}, reason)
 		assert.True(t, storeEventCalled, "StoreEvent should have been called")
 
 		_, err = testStore.GetDNSRecordByID(ctx, store.LockingStrengthNone, testAccountID, zone.ID, record.ID)
@@ -549,7 +601,7 @@ func TestManagerImpl_DeleteRecord(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Delete).
-			Return(false, nil)
+			Return(false, ctx, nil)
 
 		err := manager.DeleteRecord(ctx, testAccountID, testUserID, zone.ID, testRecordID)
 		require.Error(t, err)
@@ -565,7 +617,7 @@ func TestManagerImpl_DeleteRecord(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Delete).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		err := manager.DeleteRecord(ctx, testAccountID, testUserID, zone.ID, "non-existent-record")
 		require.Error(t, err)

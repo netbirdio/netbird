@@ -21,6 +21,8 @@ const (
 	httpRequestCounterPrefix  = "management.http.request.counter"
 	httpResponseCounterPrefix = "management.http.response.counter"
 	httpRequestDurationPrefix = "management.http.request.duration.ms"
+
+	RequestIDHeader = "X-Request-Id"
 )
 
 // WrappedResponseWriter is a wrapper for http.ResponseWriter that allows the
@@ -172,6 +174,10 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 		reqID := xid.New().String()
 		//nolint
 		ctx = context.WithValue(ctx, nbContext.RequestIDKey, reqID)
+		//nolint
+		ctx = context.WithValue(ctx, nbContext.UserAgentKey, r.UserAgent())
+
+		rw.Header().Set(RequestIDHeader, reqID)
 
 		log.WithContext(ctx).Tracef("HTTP request %v: %v %v", reqID, r.Method, r.URL)
 
@@ -183,35 +189,29 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 
 		w := WrapResponseWriter(rw)
 
+		reqCtx := ctx
 		handlerDone := make(chan struct{})
-		context.AfterFunc(ctx, func() {
+		stopAfter := context.AfterFunc(reqCtx, func() {
 			select {
 			case <-handlerDone:
 			default:
 				log.Debugf("HTTP request context canceled mid-flight: %v %v (reqID=%s, after %v, cause: %v)",
-					r.Method, r.URL.Path, reqID, time.Since(reqStart), context.Cause(ctx))
+					r.Method, r.URL.Path, reqID, time.Since(reqStart), context.Cause(reqCtx))
 			}
 		})
 
-		h.ServeHTTP(w, r.WithContext(ctx))
+		// Hold on to req so auth's in-place ctx update is visible after ServeHTTP.
+		req := r.WithContext(reqCtx)
+		h.ServeHTTP(w, req)
 		close(handlerDone)
+		stopAfter()
 
-		userAuth, err := nbContext.GetUserAuthFromContext(r.Context())
-		if err == nil {
-			if userAuth.AccountId != "" {
-				//nolint
-				ctx = context.WithValue(ctx, nbContext.AccountIDKey, userAuth.AccountId)
-			}
-			if userAuth.UserId != "" {
-				//nolint
-				ctx = context.WithValue(ctx, nbContext.UserIDKey, userAuth.UserId)
-			}
-		}
+		respCtx := req.Context()
 
 		if w.Status() > 399 {
-			log.WithContext(ctx).Errorf("HTTP response %v: %v %v status %v", reqID, r.Method, r.URL, w.Status())
+			log.WithContext(respCtx).Errorf("HTTP response %v: %v %v status %v", reqID, r.Method, r.URL, w.Status())
 		} else {
-			log.WithContext(ctx).Tracef("HTTP response %v: %v %v status %v", reqID, r.Method, r.URL, w.Status())
+			log.WithContext(respCtx).Tracef("HTTP response %v: %v %v status %v", reqID, r.Method, r.URL, w.Status())
 		}
 
 		statusCodeAttr := attribute.Int("code", w.Status())
@@ -222,7 +222,7 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 
 		reqTook := time.Since(reqStart)
 		m.httpRequestDuration.Record(m.ctx, reqTook.Milliseconds(), metric.WithAttributes(endpointAttr, methodAttr))
-		log.WithContext(ctx).Debugf("request %s %s took %d ms and finished with status %d", r.Method, r.URL.Path, reqTook.Milliseconds(), w.Status())
+		log.WithContext(respCtx).Debugf("request %s %s took %d ms and finished with status %d", r.Method, r.URL.Path, reqTook.Milliseconds(), w.Status())
 
 		if w.Status() == 200 && (r.Method == http.MethodPut || r.Method == http.MethodPost || r.Method == http.MethodDelete) {
 			opts := metric.WithAttributeSet(attribute.NewSet(attribute.String("type", "write")))

@@ -20,6 +20,7 @@ const (
 	HTTPSource   ExecutionContext = "HTTP"
 	GRPCSource   ExecutionContext = "GRPC"
 	SystemSource ExecutionContext = "SYSTEM"
+	MCPSource    ExecutionContext = "MCP"
 )
 
 // ContextHook is a custom hook for add the source information for the entry
@@ -98,6 +99,9 @@ func addFields(entry *logrus.Entry) {
 	}
 	if ctxAccountID, ok := entry.Context.Value(context.AccountIDKey).(string); ok {
 		entry.Data[context.AccountIDKey] = ctxAccountID
+	}
+	if ctxUserAgent, ok := entry.Context.Value(context.UserAgentKey).(string); ok {
+		entry.Data[context.UserAgentKey] = ctxUserAgent
 	}
 	if ctxInitiatorID, ok := entry.Context.Value(context.UserIDKey).(string); ok {
 		entry.Data[context.UserIDKey] = ctxInitiatorID

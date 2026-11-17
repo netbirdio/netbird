@@ -1,0 +1,4 @@
+{
+  "description": "The same peer under two policies carrying different posture checks. peer-x is on an old agent version but in an allowed country, so the version-gated policy rejects it while the location-gated one admits it: it must reach peer-srv-b on 8443 and not peer-srv-a at all. Failing one policy's check must not leak into another policy's decision. peer-srv-a correspondingly sees nobody, peer-srv-b sees peer-x.",
+  "peers": ["peer-x", "peer-srv-a", "peer-srv-b"]
+}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
@@ -26,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
+	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -56,13 +58,7 @@ func (s *BaseServer) GeoLocationManager() geolocation.Geolocation {
 
 func (s *BaseServer) PermissionsManager() permissions.Manager {
 	return Create(s, func() permissions.Manager {
-		manager := integrations.InitPermissionsManager(s.Store(), s.Metrics().GetMeter())
-
-		s.AfterInit(func(s *BaseServer) {
-			manager.SetAccountManager(s.AccountManager())
-		})
-
-		return manager
+		return permissions.NewManager(s.Store())
 	})
 }
 
@@ -88,7 +84,7 @@ func (s *BaseServer) SettingsManager() settings.Manager {
 
 func (s *BaseServer) PeersManager() peers.Manager {
 	return Create(s, func() peers.Manager {
-		manager := peers.NewManager(s.Store(), s.PermissionsManager())
+		manager := peers.NewManager(s.Store(), s.PermissionsManager(), s.PeerLiveness())
 		s.AfterInit(func(s *BaseServer) {
 			manager.SetNetworkMapController(s.NetworkMapController())
 			manager.SetIntegratedPeerValidator(s.IntegratedValidator())
@@ -100,43 +96,60 @@ func (s *BaseServer) PeersManager() peers.Manager {
 
 func (s *BaseServer) AccountManager() account.Manager {
 	return Create(s, func() account.Manager {
-		accountManager, err := server.BuildManager(context.Background(), s.Config, s.Store(), s.NetworkMapController(), s.JobManager(), s.IdpManager(), s.mgmtSingleAccModeDomain, s.EventStore(), s.GeoLocationManager(), s.userDeleteFromIDPEnabled, s.IntegratedValidator(), s.Metrics(), s.ProxyController(), s.SettingsManager(), s.PermissionsManager(), s.Config.DisableDefaultPolicy, s.CacheStore())
+		accountManager, err := server.BuildManager(context.Background(), s.Config, s.Store(), s.NetworkMapController(), s.JobManager(), s.IdpManager(), s.mgmtSingleAccModeDomain, s.EventStore(), s.GeoLocationManager(), s.userDeleteFromIDPEnabled, s.IntegratedValidator(), s.Metrics(), s.SettingsManager(), s.PermissionsManager(), s.Config.DisableDefaultPolicy, s.CacheStore(), s.PeerLiveness())
 		if err != nil {
 			log.Fatalf("failed to create account service: %v", err)
 		}
 
 		s.AfterInit(func(s *BaseServer) {
 			accountManager.SetServiceManager(s.ServiceManager())
+			accountManager.AddAccountDeletionHook(s.AgentNetworkManager().RemoveAccountGateway)
 		})
 
 		return accountManager
 	})
 }
 
+func isMFAEnabledForAccount(accounts []*types.Account) bool {
+	if len(accounts) != 1 {
+		return false
+	}
+
+	settings := accounts[0].Settings
+	return settings != nil && settings.LocalMfaEnabled
+}
+
 func (s *BaseServer) IdpManager() idp.Manager {
 	return Create(s, func() idp.Manager {
-		var idpManager idp.Manager
-		var err error
-
 		// Use embedded IdP service if embedded Dex is configured and enabled.
 		// Legacy IdpManager won't be used anymore even if configured.
 		embeddedEnabled := s.Config.EmbeddedIdP != nil && s.Config.EmbeddedIdP.Enabled
 		if embeddedEnabled {
-			idpManager, err = idp.NewEmbeddedIdPManager(context.Background(), s.Config.EmbeddedIdP, s.Metrics())
+			embeddedMgr, err := idp.NewEmbeddedIdPManager(context.Background(), s.Config.EmbeddedIdP, s.Metrics())
 			if err != nil {
 				log.Fatalf("failed to create embedded IDP service: %v", err)
 			}
-			return idpManager
+
+			if val := isMFAEnabledForAccount(s.Store().GetAllAccounts(context.Background())); val {
+				if err := embeddedMgr.SetMFAEnabled(context.Background(), val); err != nil {
+					log.Errorf("failed to set MFA enabled on embedded IDP: %v", err)
+				}
+			}
+
+			return embeddedMgr
 		}
 
 		// Fall back to external IdP service
 		if s.Config.IdpManagerConfig != nil {
-			idpManager, err = idp.NewManager(context.Background(), *s.Config.IdpManagerConfig, s.Metrics())
+			idpManager, err := idp.NewManager(context.Background(), *s.Config.IdpManagerConfig, s.Metrics())
 			if err != nil {
 				log.Fatalf("failed to create IDP service: %v", err)
 			}
+
+			return idpManager
 		}
-		return idpManager
+
+		return nil
 	})
 }
 
@@ -180,6 +193,24 @@ func (s *BaseServer) RoutesManager() routers.Manager {
 func (s *BaseServer) NetworksManager() networks.Manager {
 	return Create(s, func() networks.Manager {
 		return networks.NewManager(s.Store(), s.PermissionsManager(), s.ResourcesManager(), s.RoutesManager(), s.AccountManager())
+	})
+}
+
+func (s *BaseServer) AgentNetworkManager() agentnetwork.Manager {
+	return Create(s, func() agentnetwork.Manager {
+		mgr := agentnetwork.NewManager(
+			s.Store(),
+			s.PermissionsManager(),
+			s.AccountManager(),
+			s.ServiceProxyController(),
+		)
+		// Sweep expired agent-network access logs per account retention,
+		// reusing the reverse-proxy cleanup interval config.
+		mgr.StartAccessLogCleanup(
+			context.Background(),
+			s.Config.ReverseProxy.AccessLogCleanupIntervalHours,
+		)
+		return mgr
 	})
 }
 

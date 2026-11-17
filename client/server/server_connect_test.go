@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
 )
@@ -18,6 +19,11 @@ func newTestServer() *Server {
 	return &Server{
 		rootCtx:        context.Background(),
 		statusRecorder: peer.NewRecorder(""),
+		// New always populates the SSH JWT cache and the logout and
+		// profile-switch paths call into it unconditionally, so a Server
+		// assembled field by field has to populate it too.
+		jwtCache:              newJWTCache(),
+		extendAuthSessionFlow: auth.NewPendingFlow(),
 	}
 }
 
@@ -101,6 +107,7 @@ func TestCleanupConnection_ClearsConnectClient(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Nil(t, s.connectClient, "connectClient should be nil after cleanup")
+	assert.False(t, s.clientRunning, "clientRunning should be cleared after cleanup (intent = down)")
 }
 
 // TestCleanState_NilConnectClient validates that CleanState doesn't panic
@@ -144,17 +151,20 @@ func TestDownThenUp_StaleRunningChan(t *testing.T) {
 	_, cancel := context.WithCancel(context.Background())
 	s.actCancel = cancel
 
-	// Simulate Down(): cleanupConnection sets connectClient = nil
+	// Simulate Down(): cleanupConnection sets connectClient = nil and
+	// flips clientRunning to false (intent = down). The connectionGoroutineRunning state
+	// remains independent of intent — derived from clientGiveUpChan.
 	s.mutex.Lock()
 	err := s.cleanupConnection()
 	s.mutex.Unlock()
 	require.NoError(t, err)
 
-	// After cleanup: connectClient is nil, clientRunning still true
-	// (goroutine hasn't exited yet)
+	// After cleanup: connectClient is nil, clientRunning is false (intent
+	// cleared by cleanupConnection), connectionGoroutineRunning may still be true
+	// (goroutine teardown is independent of the intent flag).
 	s.mutex.Lock()
 	assert.Nil(t, s.connectClient, "connectClient should be nil after cleanup")
-	assert.True(t, s.clientRunning, "clientRunning still true until goroutine exits")
+	assert.False(t, s.clientRunning, "clientRunning should be cleared by cleanupConnection (intent = down)")
 	s.mutex.Unlock()
 
 	// waitForUp() returns immediately due to stale closed clientRunningChan

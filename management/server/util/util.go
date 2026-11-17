@@ -1,5 +1,20 @@
 package util
 
+import (
+	"crypto/rand"
+	"math/big"
+)
+
+// RandIntn returns a uniformly distributed int in [0, n) sourced from
+// crypto/rand. It panics if n <= 0 or the platform randomness source fails.
+func RandIntn(n int) int {
+	v, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+	if err != nil {
+		panic(err)
+	}
+	return int(v.Int64())
+}
+
 // Difference returns the elements in `a` that aren't in `b`.
 func Difference(a, b []string) []string {
 	mb := make(map[string]struct{}, len(b))
@@ -15,38 +30,26 @@ func Difference(a, b []string) []string {
 	return diff
 }
 
+// ElementsMatch reports whether a and b hold the same elements with the same
+// multiplicity, ignoring order.
+func ElementsMatch[T comparable](a, b []T) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	counts := make(map[T]int, len(a))
+	for _, x := range a {
+		counts[x]++
+	}
+	for _, x := range b {
+		if counts[x] == 0 {
+			return false
+		}
+		counts[x]--
+	}
+	return true
+}
+
 // ToPtr returns a pointer to the given value.
 func ToPtr[T any](value T) *T {
 	return &value
-}
-
-type comparableObject[T any] interface {
-	Equal(other T) bool
-}
-
-func MergeUnique[T comparableObject[T]](arr1, arr2 []T) []T {
-	var result []T
-
-	for _, item := range arr1 {
-		if !contains(result, item) {
-			result = append(result, item)
-		}
-	}
-
-	for _, item := range arr2 {
-		if !contains(result, item) {
-			result = append(result, item)
-		}
-	}
-
-	return result
-}
-
-func contains[T comparableObject[T]](slice []T, element T) bool {
-	for _, item := range slice {
-		if item.Equal(element) {
-			return true
-		}
-	}
-	return false
 }

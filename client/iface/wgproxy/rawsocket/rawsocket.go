@@ -10,8 +10,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
-
-	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 // PrepareSenderRawSocketIPv4 creates and configures a raw socket for sending IPv4 packets
@@ -60,14 +58,12 @@ func prepareSenderRawSocket(family int, isIPv4 bool) (net.PacketConn, error) {
 		return nil, fmt.Errorf("binding to lo interface failed: %w", err)
 	}
 
-	// Set the fwmark on the socket.
-	err = nbnet.SetSocketOpt(fd)
-	if err != nil {
-		if closeErr := syscall.Close(fd); closeErr != nil {
-			log.Warnf("failed to close raw socket fd: %v", closeErr)
-		}
-		return nil, fmt.Errorf("setting fwmark failed: %w", err)
-	}
+	// The socket is bound to lo and only ever sends to the local WireGuard
+	// instance, a destination the local routing table resolves without help, so
+	// it carries no fwmark. Staying unmarked also keeps these packets out of
+	// third-party NAT rules that match on marks: such a rule rewriting the
+	// source would make WireGuard adopt the rewritten address as the peer
+	// endpoint.
 
 	// Convert the file descriptor to a PacketConn.
 	file := os.NewFile(uintptr(fd), fmt.Sprintf("fd %d", fd))

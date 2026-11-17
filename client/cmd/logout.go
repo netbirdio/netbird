@@ -3,11 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os/user"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
@@ -17,8 +17,6 @@ var logoutCmd = &cobra.Command{
 	Short:   "Deregister from the NetBird management service and delete this peer",
 	Long:    "This command will deregister the current peer from the NetBird management service and all associated configuration. Use with caution as this will remove the peer from the network.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		SetFlagsFromEnvVars(rootCmd)
-
 		cmd.SetOut(cmd.OutOrStdout())
 
 		ctx, cancel := context.WithTimeout(cmd.Context(), time.Second*15)
@@ -37,7 +35,7 @@ var logoutCmd = &cobra.Command{
 		if profileName != "" {
 			req.ProfileName = &profileName
 
-			currUser, err := user.Current()
+			currUser, err := profilemanager.InvokingUser()
 			if err != nil {
 				return fmt.Errorf("get current user: %v", err)
 			}
@@ -46,7 +44,7 @@ var logoutCmd = &cobra.Command{
 		}
 
 		if _, err := daemonClient.Logout(ctx, req); err != nil {
-			return fmt.Errorf("deregister: %v", err)
+			return daemonCallError("deregister", err)
 		}
 
 		cmd.Println("Deregistered successfully")

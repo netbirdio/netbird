@@ -7,7 +7,18 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 )
+
+func TestAccessibleByReachesUnownedProfileWhenOwnershipDisabled(t *testing.T) {
+	t.Setenv(ipcauth.EnvDisableProfileOwnership, "true")
+
+	unowned := Profile{}
+	caller := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
+
+	assert.True(t, unowned.AccessibleBy(caller), "an unowned profile is reachable with ownership off")
+}
 
 func withTempConfigDir(t *testing.T, testFunc func(configDir string)) {
 	t.Helper()
@@ -27,7 +38,10 @@ func withPatchedGlobals(t *testing.T, configDir string, testFunc func()) {
 	DefaultConfigPath = filepath.Join(configDir, "default.json")
 	ActiveProfileStatePath = filepath.Join(configDir, "active_profile.json")
 	oldDefaultConfigPath = filepath.Join(configDir, "old_config.json")
-	ConfigDirOverride = configDir
+	// A subdirectory, mirroring production: loadAllProfiles only descends into
+	// directories under DefaultConfigPathDir, so profiles written straight into
+	// the config root would be invisible to it.
+	ConfigDirOverride = filepath.Join(configDir, DefaultProfilePathDir)
 	// Clean up any files in the config dir to ensure isolation
 	os.RemoveAll(configDir)
 	os.MkdirAll(configDir, 0755) //nolint: errcheck
@@ -50,14 +64,14 @@ func TestServiceManager_CreateAndGetDefaultProfile(t *testing.T) {
 
 			state, err := sm.GetActiveProfileState()
 			assert.NoError(t, err)
-			assert.Equal(t, state.Name, defaultProfileName) // No active profile state yet
+			assert.Equal(t, defaultProfileName, state.ID.String()) // No active profile state yet
 
 			err = sm.SetActiveProfileStateToDefault()
 			assert.NoError(t, err)
 
 			active, err := sm.GetActiveProfileState()
 			assert.NoError(t, err)
-			assert.Equal(t, "default", active.Name)
+			assert.Equal(t, "default", active.ID.String())
 		})
 	})
 }
@@ -92,14 +106,14 @@ func TestServiceManager_SetActiveProfileState(t *testing.T) {
 			currUser, err := user.Current()
 			assert.NoError(t, err)
 			sm := &ServiceManager{}
-			state := &ActiveProfileState{Name: "foo", Username: currUser.Username}
+			state := &ActiveProfileState{ID: "foo", Username: currUser.Username}
 			err = sm.SetActiveProfileState(state)
 			assert.NoError(t, err)
 
 			// Should error on nil or incomplete state
 			err = sm.SetActiveProfileState(nil)
 			assert.Error(t, err)
-			err = sm.SetActiveProfileState(&ActiveProfileState{Name: "", Username: ""})
+			err = sm.SetActiveProfileState(&ActiveProfileState{ID: "", Username: ""})
 			assert.Error(t, err)
 		})
 	})

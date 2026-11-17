@@ -1,8 +1,9 @@
 package types
 
 import (
-	"github.com/netbirdio/netbird/management/server/integration_reference"
-	"github.com/netbirdio/netbird/management/server/networks/resources/types"
+	"github.com/netbirdio/netbird/management/server/util"
+	"github.com/netbirdio/netbird/shared/management/integration_reference"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 const (
@@ -18,6 +19,8 @@ type Group struct {
 
 	// AccountID is a reference to Account that this object belongs
 	AccountID string `json:"-" gorm:"index"`
+
+	PublicID string `json:"-"`
 
 	// Name visible in the UI
 	Name string
@@ -38,7 +41,7 @@ type Group struct {
 type GroupPeer struct {
 	AccountID string `gorm:"index"`
 	GroupID   string `gorm:"primaryKey"`
-	PeerID    string `gorm:"primaryKey"`
+	PeerID    string `gorm:"primaryKey;index:idx_group_peers_peer_id,option:CONCURRENTLY"`
 }
 
 func (g *Group) LoadGroupPeers() {
@@ -66,7 +69,7 @@ func (g *Group) EventMeta() map[string]any {
 	return map[string]any{"name": g.Name}
 }
 
-func (g *Group) EventMetaResource(resource *types.NetworkResource) map[string]any {
+func (g *Group) EventMetaResource(resource *nmdata.NetworkResource) map[string]any {
 	return map[string]any{"name": g.Name, "id": g.ID, "resource_name": resource.Name, "resource_id": resource.ID, "resource_type": resource.Type}
 }
 
@@ -74,6 +77,7 @@ func (g *Group) Copy() *Group {
 	group := &Group{
 		ID:                   g.ID,
 		AccountID:            g.AccountID,
+		PublicID:             g.PublicID,
 		Name:                 g.Name,
 		Issued:               g.Issued,
 		Peers:                make([]string, len(g.Peers)),
@@ -87,14 +91,31 @@ func (g *Group) Copy() *Group {
 	return group
 }
 
+func (g *Group) Equal(other *Group) bool {
+	if g == nil || other == nil {
+		return g == other
+	}
+
+	return g.ID == other.ID &&
+		g.AccountID == other.AccountID &&
+		g.Name == other.Name &&
+		g.Issued == other.Issued &&
+		g.IntegrationReference == other.IntegrationReference &&
+		util.ElementsMatch(g.Peers, other.Peers) &&
+		util.ElementsMatch(g.Resources, other.Resources)
+}
+
 // HasPeers checks if the group has any peers.
 func (g *Group) HasPeers() bool {
 	return len(g.Peers) > 0
 }
 
+// GroupAllName is the reserved name of the default group that contains every peer in an account.
+const GroupAllName = "All"
+
 // IsGroupAll checks if the group is a default "All" group.
 func (g *Group) IsGroupAll() bool {
-	return g.Name == "All"
+	return g.Name == GroupAllName
 }
 
 // AddPeer adds peerID to Peers if not present, returning true if added.

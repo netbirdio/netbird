@@ -58,13 +58,7 @@ type JumpCloudCredentials struct {
 
 // NewJumpCloudManager creates a new instance of the JumpCloudManager.
 func NewJumpCloudManager(config JumpCloudClientConfig, appMetrics telemetry.AppMetrics) (*JumpCloudManager, error) {
-	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
-	httpTransport.MaxIdleConns = 5
-
-	httpClient := &http.Client{
-		Timeout:   idpTimeout(),
-		Transport: httpTransport,
-	}
+	httpClient := newHTTPClient()
 
 	helper := JsonParser{}
 

@@ -9,16 +9,18 @@ import (
 	"testing"
 	"time"
 
-	cachestore "github.com/eko/gocache/lib/v4/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
-func testCacheStore(t *testing.T) cachestore.StoreInterface {
+func testCacheStore(t *testing.T) nbcache.Store {
 	t.Helper()
 	s, err := nbcache.NewStore(context.Background(), 30*time.Minute, 10*time.Minute, 100)
 	require.NoError(t, err)
@@ -85,11 +87,14 @@ func registerFakeProxy(s *ProxyServiceServer, proxyID, clusterAddr string) chan 
 // registerFakeProxyWithCaps adds a fake proxy connection with explicit capabilities.
 func registerFakeProxyWithCaps(s *ProxyServiceServer, proxyID, clusterAddr string, caps *proto.ProxyCapabilities) chan *proto.GetMappingUpdateResponse {
 	ch := make(chan *proto.GetMappingUpdateResponse, 10)
+	ctx, cancel := context.WithCancel(context.Background())
 	conn := &proxyConnection{
 		proxyID:      proxyID,
 		address:      clusterAddr,
 		capabilities: caps,
 		sendChan:     ch,
+		ctx:          ctx,
+		cancel:       cancel,
 	}
 	s.connectedProxies.Store(proxyID, conn)
 
@@ -124,11 +129,11 @@ func drainEmpty(ch chan *proto.GetMappingUpdateResponse) bool {
 func TestSendServiceUpdateToCluster_UniqueTokensPerProxy(t *testing.T) {
 	ctx := context.Background()
 	tokenStore := NewOneTimeTokenStore(ctx, testCacheStore(t))
-	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
+	singleUseStore := NewSingleUseStore(ctx, testCacheStore(t))
 
 	s := &ProxyServiceServer{
-		tokenStore:        tokenStore,
-		pkceVerifierStore: pkceStore,
+		tokenStore:     tokenStore,
+		singleUseStore: singleUseStore,
 	}
 	s.SetProxyController(newTestProxyController())
 
@@ -181,11 +186,11 @@ func TestSendServiceUpdateToCluster_UniqueTokensPerProxy(t *testing.T) {
 func TestSendServiceUpdateToCluster_DeleteNoToken(t *testing.T) {
 	ctx := context.Background()
 	tokenStore := NewOneTimeTokenStore(ctx, testCacheStore(t))
-	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
+	singleUseStore := NewSingleUseStore(ctx, testCacheStore(t))
 
 	s := &ProxyServiceServer{
-		tokenStore:        tokenStore,
-		pkceVerifierStore: pkceStore,
+		tokenStore:     tokenStore,
+		singleUseStore: singleUseStore,
 	}
 	s.SetProxyController(newTestProxyController())
 
@@ -215,11 +220,11 @@ func TestSendServiceUpdateToCluster_DeleteNoToken(t *testing.T) {
 func TestSendServiceUpdate_UniqueTokensPerProxy(t *testing.T) {
 	ctx := context.Background()
 	tokenStore := NewOneTimeTokenStore(ctx, testCacheStore(t))
-	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
+	singleUseStore := NewSingleUseStore(ctx, testCacheStore(t))
 
 	s := &ProxyServiceServer{
-		tokenStore:        tokenStore,
-		pkceVerifierStore: pkceStore,
+		tokenStore:     tokenStore,
+		singleUseStore: singleUseStore,
 	}
 	s.SetProxyController(newTestProxyController())
 
@@ -267,13 +272,13 @@ func generateState(s *ProxyServiceServer, redirectURL string) string {
 
 func TestOAuthState_NeverTheSame(t *testing.T) {
 	ctx := context.Background()
-	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
+	singleUseStore := NewSingleUseStore(ctx, testCacheStore(t))
 
 	s := &ProxyServiceServer{
 		oidcConfig: ProxyOIDCConfig{
 			HMACKey: []byte("test-hmac-key"),
 		},
-		pkceVerifierStore: pkceStore,
+		singleUseStore: singleUseStore,
 	}
 
 	redirectURL := "https://app.example.com/callback"
@@ -295,42 +300,118 @@ func TestOAuthState_NeverTheSame(t *testing.T) {
 
 func TestValidateState_RejectsOldTwoPartFormat(t *testing.T) {
 	ctx := context.Background()
-	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
+	singleUseStore := NewSingleUseStore(ctx, testCacheStore(t))
 
 	s := &ProxyServiceServer{
 		oidcConfig: ProxyOIDCConfig{
 			HMACKey: []byte("test-hmac-key"),
 		},
-		pkceVerifierStore: pkceStore,
+		singleUseStore: singleUseStore,
 	}
 
 	// Old format had only 2 parts: base64(url)|hmac
-	err := s.pkceVerifierStore.Store("base64url|hmac", "test", 10*time.Minute)
+	err := s.singleUseStore.Store("base64url|hmac", "test", 10*time.Minute)
 	require.NoError(t, err)
 
-	_, _, err = s.ValidateState("base64url|hmac")
+	_, _, _, err = s.ValidateState("base64url|hmac")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid state format")
 }
 
+func scopedCtx(accountID string) context.Context {
+	token := &types.ProxyAccessToken{
+		ID:        "token-1",
+		AccountID: &accountID,
+	}
+	return context.WithValue(context.Background(), ProxyTokenContextKey, token)
+}
+
+func globalCtx() context.Context {
+	token := &types.ProxyAccessToken{
+		ID: "token-global",
+	}
+	return context.WithValue(context.Background(), ProxyTokenContextKey, token)
+}
+
+func TestEnforceAccountScope_AllowsMatchingAccount(t *testing.T) {
+	err := enforceAccountScope(scopedCtx("acc-1"), "acc-1")
+	assert.NoError(t, err)
+}
+
+func TestEnforceAccountScope_BlocksMismatchedAccount(t *testing.T) {
+	err := enforceAccountScope(scopedCtx("acc-1"), "acc-2")
+	require.Error(t, err)
+	st, ok := grpcstatus.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.PermissionDenied, st.Code())
+}
+
+func TestEnforceAccountScope_BlocksEmptyRequestAccountID(t *testing.T) {
+	err := enforceAccountScope(scopedCtx("acc-1"), "")
+	require.Error(t, err)
+	st, ok := grpcstatus.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.PermissionDenied, st.Code())
+}
+
+func TestEnforceAccountScope_AllowsGlobalToken(t *testing.T) {
+	err := enforceAccountScope(globalCtx(), "acc-1")
+	assert.NoError(t, err)
+
+	err = enforceAccountScope(globalCtx(), "acc-2")
+	assert.NoError(t, err)
+
+	err = enforceAccountScope(globalCtx(), "")
+	assert.NoError(t, err)
+}
+
+func TestEnforceAccountScope_AllowsNoTokenInContext(t *testing.T) {
+	err := enforceAccountScope(context.Background(), "acc-1")
+	assert.NoError(t, err)
+}
+
 func TestValidateState_RejectsInvalidHMAC(t *testing.T) {
 	ctx := context.Background()
-	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
+	singleUseStore := NewSingleUseStore(ctx, testCacheStore(t))
 
 	s := &ProxyServiceServer{
 		oidcConfig: ProxyOIDCConfig{
 			HMACKey: []byte("test-hmac-key"),
 		},
-		pkceVerifierStore: pkceStore,
+		singleUseStore: singleUseStore,
 	}
 
 	// Store with tampered HMAC
-	err := s.pkceVerifierStore.Store("dGVzdA==|nonce|wrong-hmac", "test", 10*time.Minute)
+	err := s.singleUseStore.Store("dGVzdA==|nonce|wrong-hmac", "test", 10*time.Minute)
 	require.NoError(t, err)
 
-	_, _, err = s.ValidateState("dGVzdA==|nonce|wrong-hmac")
+	_, _, _, err = s.ValidateState("dGVzdA==|nonce|wrong-hmac")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid state signature")
+}
+
+func TestSessionCodeCannotConsumeOIDCState(t *testing.T) {
+	const verifier = "pkce-verifier"
+
+	store := NewSingleUseStore(context.Background(), testCacheStore(t))
+	server := &ProxyServiceServer{
+		oidcConfig: ProxyOIDCConfig{
+			HMACKey: []byte("test-hmac-key"),
+		},
+		singleUseStore: store,
+	}
+	state := generateState(server, "https://service.example.com/callback")
+	require.NoError(t, store.Store(state, verifier, time.Minute))
+
+	response, err := server.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
+		SessionCode: state,
+	})
+	require.NoError(t, err)
+	assert.False(t, response.GetValid())
+
+	gotVerifier, _, _, err := server.ValidateState(state)
+	require.NoError(t, err)
+	assert.Equal(t, verifier, gotVerifier)
 }
 
 func TestSendServiceUpdateToCluster_FiltersOnCapability(t *testing.T) {

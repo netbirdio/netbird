@@ -22,8 +22,6 @@ var ErrGetServiceStatus = fmt.Errorf("failed to get service status")
 
 // Common service command setup
 func setupServiceCommand(cmd *cobra.Command) error {
-	SetFlagsFromEnvVars(rootCmd)
-	SetFlagsFromEnvVars(serviceCmd)
 	cmd.SetOut(cmd.OutOrStdout())
 	return handleRebrand(cmd)
 }
@@ -59,8 +57,23 @@ func buildServiceArguments() []string {
 		args = append(args, "--disable-update-settings")
 	}
 
+	if captureEnabled {
+		args = append(args, "--enable-capture")
+	}
+
 	if networksDisabled {
 		args = append(args, "--disable-networks")
+	}
+
+	if enableJSONSocket {
+		args = append(args, "--enable-json-socket", "--json-socket", jsonSocket)
+	}
+
+	// The resolved principals rather than the names the administrator typed, so
+	// the daemon needs no directory lookup on the boot path and a group renamed
+	// or recreated after the install cannot silently change who may connect.
+	for _, principal := range resolvedAllowGroups {
+		args = append(args, "--allow-group", principal)
 	}
 
 	return args
@@ -101,7 +114,20 @@ func configurePlatformSpecificSettings(svcConfig *service.Config) error {
 }
 
 // Create fully configured service config for install/reconfigure
-func createServiceConfigForInstall() (*service.Config, error) {
+func createServiceConfigForInstall(cmd *cobra.Command) (*service.Config, error) {
+	if err := validateJSONSocketFlags(cmd); err != nil {
+		return nil, err
+	}
+
+	// Resolved here, where a name that does not exist fails the install in front
+	// of the administrator, rather than at boot where it would leave the daemon
+	// unable to serve anybody.
+	resolved, err := resolveAllowGroups(allowGroups)
+	if err != nil {
+		return nil, err
+	}
+	resolvedAllowGroups = resolved
+
 	svcConfig, err := newSVCConfig()
 	if err != nil {
 		return nil, fmt.Errorf("create service config: %w", err)
@@ -127,7 +153,7 @@ var installCmd = &cobra.Command{
 			cmd.PrintErrf("Warning: failed to load saved service params: %v\n", err)
 		}
 
-		svcConfig, err := createServiceConfigForInstall()
+		svcConfig, err := createServiceConfigForInstall(cmd)
 		if err != nil {
 			return err
 		}
@@ -208,7 +234,7 @@ This command will temporarily stop the service, update its configuration, and re
 			return fmt.Errorf("check service status: %w", err)
 		}
 
-		svcConfig, err := createServiceConfigForInstall()
+		svcConfig, err := createServiceConfigForInstall(cmd)
 		if err != nil {
 			return err
 		}

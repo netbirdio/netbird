@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/netbirdio/netbird/proxy/internal/middleware"
+	"github.com/netbirdio/netbird/proxy/internal/middleware/bodytap"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 )
 
@@ -21,13 +23,44 @@ const (
 	PathRewritePreserve
 )
 
+// AccessAction controls how authentication handles requests for a target.
+type AccessAction string
+
+const (
+	// AccessActionInherit applies the service's configured authentication.
+	AccessActionInherit AccessAction = "inherit"
+	// AccessActionBypass skips the service's configured authentication.
+	AccessActionBypass AccessAction = "bypass"
+	// AccessActionBlock rejects the request before authentication.
+	AccessActionBlock AccessAction = "block"
+)
+
 // PathTarget holds a backend URL and per-target behavioral options.
 type PathTarget struct {
 	URL            *url.URL
+	AccessAction   AccessAction
 	SkipTLSVerify  bool
 	RequestTimeout time.Duration
 	PathRewrite    PathRewriteMode
 	CustomHeaders  map[string]string
+	// DirectUpstream selects the stdlib HTTP transport (host network stack)
+	// over the embedded NetBird WireGuard client when forwarding requests
+	// to this target. Default false → embedded client (existing behaviour).
+	DirectUpstream bool
+	// Middlewares is the validated per-target middleware chain. Nil or empty
+	// for non-agent-network targets, keeping them on the no-middleware fast path.
+	Middlewares []middleware.Spec
+	// CaptureConfig holds the per-target body-capture limits used by the
+	// middleware chain. Nil for targets without body-inspecting middlewares.
+	CaptureConfig *bodytap.Config
+	// AgentNetwork marks this target as a synthesised agent-network target so
+	// the proxy can tag access-log entries and gate agent-network behaviour.
+	AgentNetwork bool
+	// DisableAccessLog suppresses the per-request access-log emission for this
+	// target. Defaults false so non-agent-network targets continue to log
+	// unchanged. The agent-network synthesizer sets this true only when the
+	// account's EnableLogCollection toggle is off.
+	DisableAccessLog bool
 }
 
 // Mapping describes how a domain is routed by the HTTP reverse proxy.
@@ -41,18 +74,25 @@ type Mapping struct {
 	// StripAuthHeaders are header names used for header-based auth.
 	// These headers are stripped from requests before forwarding.
 	StripAuthHeaders []string
+	// MiddlewareRevision binds this routing snapshot to its middleware policies.
+	MiddlewareRevision middleware.Revision
 	// sortedPaths caches the paths sorted by length (longest first).
 	sortedPaths []string
+	// requirePinnedResolution prevents a mapping with target access actions
+	// from being forwarded outside the auth-owned resolver snapshot.
+	requirePinnedResolution bool
 }
 
 type targetResult struct {
-	target           *PathTarget
-	matchedPath      string
-	serviceID        types.ServiceID
-	accountID        types.AccountID
-	passHostHeader   bool
-	rewriteRedirects bool
-	stripAuthHeaders []string
+	target             *PathTarget
+	matchedPath        string
+	serviceID          types.ServiceID
+	accountID          types.AccountID
+	passHostHeader     bool
+	rewriteRedirects   bool
+	stripAuthHeaders   []string
+	middlewareRevision middleware.Revision
+	requirePinned      bool
 }
 
 func (p *ReverseProxy) findTargetForRequest(req *http.Request) (targetResult, bool) {
@@ -70,6 +110,7 @@ func (p *ReverseProxy) findTargetForRequest(req *http.Request) (targetResult, bo
 		p.logger.Debugf("no mapping found for host: %s", host)
 		return targetResult{}, false
 	}
+	baseResult := targetResult{requirePinned: m.requirePinnedResolution}
 
 	for _, path := range m.sortedPaths {
 		if strings.HasPrefix(req.URL.Path, path) {
@@ -80,18 +121,20 @@ func (p *ReverseProxy) findTargetForRequest(req *http.Request) (targetResult, bo
 			}
 			p.logger.Debugf("matched host: %s, path: %s -> %s", host, path, pt.URL)
 			return targetResult{
-				target:           pt,
-				matchedPath:      path,
-				serviceID:        m.ID,
-				accountID:        m.AccountID,
-				passHostHeader:   m.PassHostHeader,
-				rewriteRedirects: m.RewriteRedirects,
-				stripAuthHeaders: m.StripAuthHeaders,
+				target:             pt,
+				matchedPath:        path,
+				serviceID:          m.ID,
+				accountID:          m.AccountID,
+				passHostHeader:     m.PassHostHeader,
+				rewriteRedirects:   m.RewriteRedirects,
+				stripAuthHeaders:   m.StripAuthHeaders,
+				middlewareRevision: m.MiddlewareRevision,
+				requirePinned:      m.requirePinnedResolution,
 			}, true
 		}
 	}
 	p.logger.Debugf("no path match for host: %s, path: %s", host, req.URL.Path)
-	return targetResult{}, false
+	return baseResult, false
 }
 
 // AddMapping registers a host-to-backend mapping for the reverse proxy.
@@ -105,6 +148,7 @@ func (p *ReverseProxy) AddMapping(m Mapping) {
 		return len(paths[i]) > len(paths[j])
 	})
 	m.sortedPaths = paths
+	m.requirePinnedResolution = mappingHasNonDefaultAccessAction(m)
 
 	p.mappingsMux.Lock()
 	defer p.mappingsMux.Unlock()

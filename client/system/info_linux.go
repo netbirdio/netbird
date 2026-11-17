@@ -3,14 +3,13 @@
 package system
 
 import (
-	"bytes"
 	"context"
 	"os"
-	"os/exec"
 	"regexp"
 	"runtime"
-	"strings"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/zcalusic/sysinfo"
@@ -29,19 +28,11 @@ func UpdateStaticInfoAsync() {
 
 // GetInfo retrieves and parses the system information
 func GetInfo(ctx context.Context) *Info {
-	info := _getInfo()
-	for strings.Contains(info, "broken pipe") {
-		info = _getInfo()
-		time.Sleep(500 * time.Millisecond)
-	}
-
-	osStr := strings.ReplaceAll(info, "\n", "")
-	osStr = strings.ReplaceAll(osStr, "\r\n", "")
-	osInfo := strings.Split(osStr, " ")
+	kernelName, kernelVersion, kernelPlatform := kernelInfo()
 
 	osName, osVersion := readOsReleaseFile()
 	if osName == "" {
-		osName = osInfo[3]
+		osName = kernelName
 	}
 
 	systemHostname, _ := os.Hostname()
@@ -58,8 +49,8 @@ func GetInfo(ctx context.Context) *Info {
 	}
 
 	gio := &Info{
-		Kernel:             osInfo[0],
-		Platform:           osInfo[2],
+		Kernel:             kernelName,
+		Platform:           kernelPlatform,
 		OS:                 osName,
 		OSVersion:          osVersion,
 		Hostname:           extractDeviceName(ctx, systemHostname),
@@ -67,29 +58,24 @@ func GetInfo(ctx context.Context) *Info {
 		CPUs:               runtime.NumCPU(),
 		NetbirdVersion:     version.NetbirdVersion(),
 		UIVersion:          extractUserAgent(ctx),
-		KernelVersion:      osInfo[1],
+		KernelVersion:      kernelVersion,
 		NetworkAddresses:   addrs,
 		SystemSerialNumber: si.SystemSerialNumber,
 		SystemProductName:  si.SystemProductName,
 		SystemManufacturer: si.SystemManufacturer,
+		SystemHardwareUUID: si.SystemHardwareUUID,
 		Environment:        si.Environment,
 	}
 
 	return gio
 }
 
-func _getInfo() string {
-	cmd := exec.Command("uname", "-srio")
-	cmd.Stdin = strings.NewReader("some")
-	var out bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	if err != nil {
-		log.Warnf("getInfo: %s", err)
+func kernelInfo() (string, string, string) {
+	var uts unix.Utsname
+	if err := unix.Uname(&uts); err != nil {
+		return "", "", ""
 	}
-	return out.String()
+	return unix.ByteSliceToString(uts.Sysname[:]), unix.ByteSliceToString(uts.Release[:]), unix.ByteSliceToString(uts.Machine[:])
 }
 
 func sysInfo() (string, string, string) {
@@ -124,6 +110,17 @@ func sysInfo() (string, string, string) {
 		manufacturer = si.ProductVendor
 	}
 	return serial, name, manufacturer
+}
+
+// sysHardwareUUID reads the SMBIOS UUID from the same file osquery uses for
+// system_info.uuid. The file is root-only and absent on machines without DMI.
+func sysHardwareUUID() string {
+	raw, err := os.ReadFile("/sys/class/dmi/id/product_uuid")
+	if err != nil {
+		log.Debugf("failed to read system hardware UUID: %v", err)
+		return ""
+	}
+	return cleanHardwareUUID(string(raw))
 }
 
 func defaultSysInfoImplementation() SysInfo {

@@ -10,12 +10,14 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/trustedproxy"
 )
 
 func TestWrapProxyProtocol_OverridesRemoteAddr(t *testing.T) {
 	srv := &Server{
 		Logger:         log.StandardLogger(),
-		TrustedProxies: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")},
+		TrustedProxies: trustedproxy.FromPrefixes([]netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}),
 		ProxyProtocol:  true,
 	}
 
@@ -66,7 +68,7 @@ func TestWrapProxyProtocol_OverridesRemoteAddr(t *testing.T) {
 func TestProxyProtocolPolicy_TrustedRequires(t *testing.T) {
 	srv := &Server{
 		Logger:         log.StandardLogger(),
-		TrustedProxies: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
+		TrustedProxies: trustedproxy.FromPrefixes([]netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}),
 	}
 
 	opts := proxyproto.ConnPolicyOptions{
@@ -80,7 +82,7 @@ func TestProxyProtocolPolicy_TrustedRequires(t *testing.T) {
 func TestProxyProtocolPolicy_UntrustedIgnores(t *testing.T) {
 	srv := &Server{
 		Logger:         log.StandardLogger(),
-		TrustedProxies: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
+		TrustedProxies: trustedproxy.FromPrefixes([]netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}),
 	}
 
 	opts := proxyproto.ConnPolicyOptions{
@@ -94,7 +96,7 @@ func TestProxyProtocolPolicy_UntrustedIgnores(t *testing.T) {
 func TestProxyProtocolPolicy_InvalidIPRejects(t *testing.T) {
 	srv := &Server{
 		Logger:         log.StandardLogger(),
-		TrustedProxies: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
+		TrustedProxies: trustedproxy.FromPrefixes([]netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}),
 	}
 
 	opts := proxyproto.ConnPolicyOptions{

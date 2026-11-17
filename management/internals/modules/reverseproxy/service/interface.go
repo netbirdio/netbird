@@ -1,6 +1,6 @@
 package service
 
-//go:generate go run github.com/golang/mock/mockgen -package service -destination=interface_mock.go -source=./interface.go -build_flags=-mod=mod
+//go:generate go tool mockgen -package service -destination=interface_mock.go -source=./interface.go -build_flags=-mod=mod
 
 import (
 	"context"
@@ -9,7 +9,8 @@ import (
 )
 
 type Manager interface {
-	GetActiveClusters(ctx context.Context, accountID, userID string) ([]proxy.Cluster, error)
+	GetClusters(ctx context.Context, accountID, userID string) ([]proxy.Cluster, error)
+	DeleteAccountCluster(ctx context.Context, accountID, userID, clusterAddress string) error
 	GetAllServices(ctx context.Context, accountID, userID string) ([]*Service, error)
 	GetService(ctx context.Context, accountID, userID, serviceID string) (*Service, error)
 	CreateService(ctx context.Context, accountID, userID string, service *Service) (*Service, error)
@@ -28,4 +29,5 @@ type Manager interface {
 	RenewServiceFromPeer(ctx context.Context, accountID, peerID, serviceID string) error
 	StopServiceFromPeer(ctx context.Context, accountID, peerID, serviceID string) error
 	StartExposeReaper(ctx context.Context)
+	GetServiceByDomain(ctx context.Context, domain string) (*Service, error)
 }

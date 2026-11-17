@@ -16,8 +16,8 @@ const (
 // This is used when the DNS server cannot bind port 53 directly
 // and needs firewall rules to redirect traffic.
 type Firewall interface {
-	AddOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error
-	RemoveOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error
+	AddOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, originalPort, translatedPort uint16) error
+	RemoveOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, originalPort, translatedPort uint16) error
 }
 
 type service interface {

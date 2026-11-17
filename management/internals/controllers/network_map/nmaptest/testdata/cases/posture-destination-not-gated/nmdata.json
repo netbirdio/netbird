@@ -1,0 +1,33 @@
+{
+  "Network": {"Serial": 37},
+  "Peers": {
+    "peer-client": {"IP": "100.64.0.1", "Meta": {"WtVersion": "1.0.0"}},
+    "peer-srv-old": {"IP": "100.64.0.11", "Meta": {"WtVersion": "0.30.0"}},
+    "peer-srv-new": {"IP": "100.64.0.12", "Meta": {"WtVersion": "1.0.0"}}
+  },
+  "Groups": {
+    "grp-clients": {"Peers": ["peer-client"]},
+    "grp-srv": {"Peers": ["peer-srv-old", "peer-srv-new"]}
+  },
+  "PostureChecks": {
+    "chk-version": {"Checks": {"NBVersionCheck": {"MinVersion": "0.45.0"}}}
+  },
+  "Policies": [
+    {
+      "ID": "pol-dest",
+      "Enabled": true,
+      "SourcePostureChecks": ["chk-version"],
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "tcp",
+          "Ports": ["443"],
+          "Bidirectional": true,
+          "Sources": ["grp-clients"],
+          "Destinations": ["grp-srv"]
+        }
+      ]
+    }
+  ]
+}

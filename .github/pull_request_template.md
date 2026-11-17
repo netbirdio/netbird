@@ -2,6 +2,12 @@
 
 ## Issue ticket number and link
 
+<!--
+Required for anything that changes behavior. Link the issue (or the validated
+discussion it came from) that the NetBird team already agreed on. See
+https://github.com/netbirdio/netbird/blob/main/CONTRIBUTING.md#ticket-first-pr-second
+-->
+
 ## Stack
 
 <!-- branch-stack -->
@@ -12,6 +18,9 @@
 - [ ] Is a feature enhancement
 - [ ] It is a refactor
 - [ ] Created tests that fail without the change (if possible)
+- [ ] I ran and tested this change locally — I did not rely on CI to find out whether it works
+- [ ] This PR has a single purpose (not a fix + refactor + feature in one)
+- [ ] This change is a trivial fix, **OR** it links an issue the NetBird team agreed on beforehand. Changes to the public API, gRPC protocols, functionality behavior, CLI / service flags, or new features always need that agreement first. See [CONTRIBUTING.md](https://github.com/netbirdio/netbird/blob/main/CONTRIBUTING.md#ticket-first-pr-second).
 
 > By submitting this pull request, you confirm that you have read and agree to the terms of the [Contributor License Agreement](https://github.com/netbirdio/netbird/blob/main/CONTRIBUTOR_LICENSE_AGREEMENT.md).
 

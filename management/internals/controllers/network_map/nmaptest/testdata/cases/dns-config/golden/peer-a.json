@@ -1,0 +1,115 @@
+{
+  "Serial": "8",
+  "peerConfig": {
+    "address": "100.64.0.1/10",
+    "sshConfig": {},
+    "fqdn": "peer-a.netbird.test",
+    "RoutingPeerDnsResolutionEnabled": true,
+    "autoUpdate": {}
+  },
+  "remotePeers": [
+    {
+      "wgPubKey": "AvldyrZ12Pf90jzf3AXmhPwg3UcI+jtJHfbpBlupvko=",
+      "allowedIps": [
+        "100.64.0.2/32"
+      ],
+      "sshConfig": {},
+      "fqdn": "peer-b.netbird.test",
+      "agentVersion": "0.60.0"
+    }
+  ],
+  "DNSConfig": {
+    "ServiceEnable": true,
+    "NameServerGroups": [
+      {
+        "NameServers": [
+          {
+            "IP": "8.8.8.8",
+            "Port": "53"
+          }
+        ],
+        "Primary": true
+      }
+    ],
+    "CustomZones": [
+      {
+        "Domain": "corp.internal.",
+        "NonAuthoritative": true,
+        "Records": [
+          {
+            "Name": "db.corp.internal.",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "10.10.0.5"
+          }
+        ]
+      },
+      {
+        "Domain": "search-off.internal.",
+        "SearchDomainDisabled": true,
+        "NonAuthoritative": true,
+        "Records": [
+          {
+            "Name": "alias.search-off.internal.",
+            "Type": "5",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "app.search-off.internal."
+          },
+          {
+            "Name": "app.search-off.internal.",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "10.10.0.6"
+          }
+        ]
+      },
+      {
+        "Domain": "netbird.test.",
+        "Records": [
+          {
+            "Name": "peer-a.netbird.test",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "100.64.0.1"
+          },
+          {
+            "Name": "peer-b.netbird.test",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "100.64.0.2"
+          },
+          {
+            "Name": "www.netbird.test",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "100.64.0.1"
+          }
+        ]
+      }
+    ],
+    "ForwarderPort": "22054"
+  },
+  "FirewallRules": [
+    {
+      "PeerIP": "100.64.0.2",
+      "Protocol": "ALL",
+      "PolicyID": "cG9sLW1lc2g="
+    },
+    {
+      "PeerIP": "100.64.0.2",
+      "Direction": "OUT",
+      "Protocol": "ALL",
+      "PolicyID": "cG9sLW1lc2g="
+    }
+  ],
+  "routesFirewallRulesIsEmpty": true,
+  "sshAuth": {
+    "UserIDClaim": "sub"
+  }
+}

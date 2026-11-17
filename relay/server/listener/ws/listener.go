@@ -15,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/relay/protocol"
 	relaylistener "github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/shared/relay"
+	"github.com/netbirdio/netbird/trustedproxy"
 )
 
 const (
@@ -27,32 +28,60 @@ type Listener struct {
 	Address string
 	// TLSConfig is the TLS configuration for the server.
 	TLSConfig *tls.Config
+	// TrustedProxies is the set of upstream proxies whose X-Real-Ip/X-Real-Port
+	// headers are trusted. Headers from any other immediate peer are ignored.
+	TrustedProxies *trustedproxy.List
 
+	listener net.Listener
 	server   *http.Server
 	acceptFn func(conn relaylistener.Conn)
 }
 
-func (l *Listener) Listen(acceptFn func(conn relaylistener.Conn)) error {
-	l.acceptFn = acceptFn
+func (l *Listener) Bind() error {
+	addr := l.Address
+	if addr == "" {
+		addr = ":http"
+		if l.TLSConfig != nil {
+			addr = ":https"
+		}
+	}
+
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc(URLPath, l.onAccept)
 
+	l.listener = listener
 	l.server = &http.Server{
-		Addr:              l.Address,
 		Handler:           mux,
 		TLSConfig:         l.TLSConfig,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	log.Infof("WS server listening address: %s", l.Address)
+	log.Infof("WS server listening address: %s", addr)
+	return nil
+}
+
+func (l *Listener) Serve(acceptFn func(conn relaylistener.Conn)) error {
+	if l.listener == nil {
+		return errors.New("listener is not bound")
+	}
+
+	l.acceptFn = acceptFn
 	var err error
 	if l.TLSConfig != nil {
-		err = l.server.ListenAndServeTLS("", "")
+		err = l.server.ServeTLS(l.listener, "", "")
 	} else {
-		err = l.server.ListenAndServe()
+		err = l.server.Serve(l.listener)
 	}
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
+	}
+	if closeErr := l.listener.Close(); closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
+		log.Debugf("failed to close WS listener: %v", closeErr)
 	}
 	return err
 }
@@ -62,7 +91,7 @@ func (l *Listener) Protocol() protocol.Protocol {
 }
 
 func (l *Listener) Shutdown(ctx context.Context) error {
-	if l.server == nil {
+	if l.listener == nil {
 		return nil
 	}
 
@@ -70,12 +99,15 @@ func (l *Listener) Shutdown(ctx context.Context) error {
 	if err := l.server.Shutdown(ctx); err != nil {
 		return fmt.Errorf("server shutdown failed: %v", err)
 	}
+	if err := l.listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		return fmt.Errorf("close listener: %w", err)
+	}
 	log.Infof("WS listener stopped")
 	return nil
 }
 
 func (l *Listener) onAccept(w http.ResponseWriter, r *http.Request) {
-	connRemoteAddr := remoteAddr(r)
+	connRemoteAddr := remoteAddr(r, l.TrustedProxies)
 
 	acceptOptions := &websocket.AcceptOptions{
 		OriginPatterns: []string{"*"},
@@ -102,9 +134,17 @@ func (l *Listener) onAccept(w http.ResponseWriter, r *http.Request) {
 	l.acceptFn(conn)
 }
 
-func remoteAddr(r *http.Request) string {
-	if r.Header.Get("X-Real-Ip") == "" || r.Header.Get("X-Real-Port") == "" {
+func remoteAddr(r *http.Request, trustedProxies *trustedproxy.List) string {
+	realIP := r.Header.Get("X-Real-Ip")
+	realPort := r.Header.Get("X-Real-Port")
+	if realIP == "" || realPort == "" {
 		return r.RemoteAddr
 	}
-	return net.JoinHostPort(r.Header.Get("X-Real-Ip"), r.Header.Get("X-Real-Port"))
+
+	if !trustedProxies.IsTrusted(r.RemoteAddr) {
+		log.Debugf("ignoring X-Real-Ip header from untrusted peer %s", r.RemoteAddr)
+		return r.RemoteAddr
+	}
+
+	return net.JoinHostPort(realIP, realPort)
 }

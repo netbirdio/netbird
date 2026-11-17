@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -33,6 +32,9 @@ type ExecutorConfig struct {
 	Shell      string
 	Command    string
 	PTY        bool
+	// NoLoginShell starts the shell as a plain shell instead of a login shell, so the
+	// user's profile output stays out of a protocol spoken over stdout.
+	NoLoginShell bool
 }
 
 // PrivilegeDropper handles secure privilege dropping in child processes
@@ -94,6 +96,10 @@ func (pd *PrivilegeDropper) CreateExecutorCommand(ctx context.Context, config Ex
 		args = append(args, "--pty")
 	}
 
+	if config.NoLoginShell {
+		args = append(args, "--no-login-shell")
+	}
+
 	if config.Command != "" {
 		args = append(args, "--cmd", config.Command)
 	}
@@ -151,15 +157,15 @@ func (pd *PrivilegeDropper) setGroupsAndIDs(targetUID, targetGID uint32, supplem
 		}
 	}
 
-	if err := syscall.Setgroups(groups); err != nil {
+	if err := setgroups(groups); err != nil {
 		return fmt.Errorf("setgroups to %v: %w", groups, err)
 	}
 
-	if err := syscall.Setgid(int(targetGID)); err != nil {
+	if err := setgid(int(targetGID)); err != nil {
 		return fmt.Errorf("setgid to %d: %w", targetGID, err)
 	}
 
-	if err := syscall.Setuid(int(targetUID)); err != nil {
+	if err := setuid(int(targetUID)); err != nil {
 		return fmt.Errorf("setuid to %d: %w", targetUID, err)
 	}
 
@@ -182,12 +188,12 @@ func (pd *PrivilegeDropper) validatePrivilegeDropSuccess(targetUID, targetGID ui
 // validatePrivilegeDropReversibility ensures privileges cannot be restored
 func (pd *PrivilegeDropper) validatePrivilegeDropReversibility(targetUID, targetGID uint32, originalUID, originalGID int) error {
 	if originalGID != int(targetGID) {
-		if err := syscall.Setegid(originalGID); err == nil {
+		if err := setegid(originalGID); err == nil {
 			return fmt.Errorf("privilege drop validation failed: able to restore original GID %d", originalGID)
 		}
 	}
 	if originalUID != int(targetUID) {
-		if err := syscall.Seteuid(originalUID); err == nil {
+		if err := seteuid(originalUID); err == nil {
 			return fmt.Errorf("privilege drop validation failed: able to restore original UID %d", originalUID)
 		}
 	}
@@ -235,7 +241,9 @@ func (pd *PrivilegeDropper) ExecuteWithPrivilegeDrop(ctx context.Context, config
 	} else {
 		execCmd = exec.CommandContext(ctx, config.Shell, "-c", config.Command)
 	}
-	execCmd.Args[0] = "-" + filepath.Base(config.Shell)
+	if !config.NoLoginShell {
+		execCmd.Args[0] = "-" + filepath.Base(config.Shell)
+	}
 	execCmd.Stdin = os.Stdin
 	execCmd.Stdout = os.Stdout
 	execCmd.Stderr = os.Stderr

@@ -13,11 +13,9 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
-	"google.golang.org/grpc/status"
 
 	nbgrpc "github.com/netbirdio/netbird/client/grpc"
 	"github.com/netbirdio/netbird/flow/proto"
@@ -111,7 +109,7 @@ func (c *GRPCClient) Close() error {
 func (c *GRPCClient) Send(event *proto.FlowEvent) error {
 	c.mu.Lock()
 	stream := c.stream
-	c.mu.Unlock()
+	defer c.mu.Unlock() // stream.Send() is not safe to call concurrently from multiple goroutines
 
 	if stream == nil {
 		return errors.New("stream not initialized")
@@ -148,11 +146,14 @@ func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHan
 
 		streamStart := time.Now()
 
-		if err := c.receive(stream, msgHandler); err != nil {
+		// receive always returns a non-nil error once the stream breaks;
+		// handleRetryableError decides between reconnecting and exiting
+		// permanently on local context cancellation
+		err = c.receive(stream, msgHandler)
+		if !isContextDone(err) {
 			log.Errorf("receive failed: %v", err)
-			return c.handleRetryableError(err, streamStart, backOff)
 		}
-		return nil
+		return c.handleRetryableError(err, streamStart, backOff)
 	}
 
 	if err := backoff.Retry(operation, backOff); err != nil {
@@ -301,12 +302,11 @@ func defaultBackoff(ctx context.Context, interval time.Duration) backoff.BackOff
 	}, ctx)
 }
 
+// isContextDone reports whether the local context has been canceled or has
+// exceeded its deadline. It deliberately does not inspect gRPC status codes:
+// a server- or proxy-sent codes.Canceled / codes.DeadlineExceeded must not
+// short-circuit our retry loop, since retrying is the correct response when
+// the local context is still alive.
 func isContextDone(err error) bool {
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return true
-	}
-	if s, ok := status.FromError(err); ok {
-		return s.Code() == codes.Canceled || s.Code() == codes.DeadlineExceeded
-	}
-	return false
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }

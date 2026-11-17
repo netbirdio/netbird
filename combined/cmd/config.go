@@ -6,20 +6,25 @@ import (
 	"net"
 	"net/netip"
 	"os"
-	"path"
-	"path/filepath"
+	filePath "path/filepath"
 	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"gopkg.in/yaml.v3"
 
+	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util"
+	configloader "github.com/netbirdio/netbird/util/config"
 	"github.com/netbirdio/netbird/util/crypt"
+)
 
-	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+const (
+	// envRelayAuthSecret is the standalone relay --auth-secret env name so split
+	// and combined deployments share it.
+	envRelayAuthSecret    = "NB_AUTH_SECRET" //nolint:gosec // env var name, not a credential
+	envStoreEncryptionKey = "NB_STORE_ENCRYPTION_KEY"
 )
 
 // CombinedConfig is the root configuration for the combined server.
@@ -72,8 +77,19 @@ type ServerConfig struct {
 	Auth                    AuthConfig         `yaml:"auth"`
 	Store                   StoreConfig        `yaml:"store"`
 	ActivityStore           StoreConfig        `yaml:"activityStore"`
+	AccessLogStore          StoreConfig        `yaml:"accessLogStore"`
 	AuthStore               StoreConfig        `yaml:"authStore"`
 	ReverseProxy            ReverseProxyConfig `yaml:"reverseProxy"`
+
+	SupportedSyncMessageVersions           *int           `yaml:"supportedSyncMessageVersions,omitempty"`
+	PerAccountSupportedSyncMessageVersions map[string]int `yaml:"perAccountSupportedSyncMessageVersions,omitempty"`
+
+	AgentNetwork AgentNetworkConfig `yaml:"agentNetwork"`
+}
+
+// AgentNetworkConfig contains agent-network (LLM gateway) configuration.
+type AgentNetworkConfig struct {
+	PricingDefaultsFile string `yaml:"pricingDefaultsFile"`
 }
 
 // TLSConfig contains TLS/HTTPS settings
@@ -133,13 +149,19 @@ type ManagementConfig struct {
 
 // AuthConfig contains authentication/identity provider settings
 type AuthConfig struct {
-	Issuer                string            `yaml:"issuer"`
-	LocalAuthDisabled     bool              `yaml:"localAuthDisabled"`
-	SignKeyRefreshEnabled bool              `yaml:"signKeyRefreshEnabled"`
-	Storage               AuthStorageConfig `yaml:"storage"`
-	DashboardRedirectURIs []string          `yaml:"dashboardRedirectURIs"`
-	CLIRedirectURIs       []string          `yaml:"cliRedirectURIs"`
-	Owner                 *AuthOwnerConfig  `yaml:"owner,omitempty"`
+	Issuer                          string            `yaml:"issuer"`
+	LocalAuthDisabled               bool              `yaml:"localAuthDisabled"`
+	SignKeyRefreshEnabled           bool              `yaml:"signKeyRefreshEnabled"`
+	MfaSessionMaxLifetime           string            `yaml:"mfaSessionMaxLifetime"`
+	MfaSessionIdleTimeout           string            `yaml:"mfaSessionIdleTimeout"`
+	MfaSessionRememberMe            bool              `yaml:"mfaSessionRememberMe"`
+	SessionCookieEncryptionKey      string            `yaml:"sessionCookieEncryptionKey"`
+	Storage                         AuthStorageConfig `yaml:"storage"`
+	DashboardRedirectURIs           []string          `yaml:"dashboardRedirectURIs"`
+	CLIRedirectURIs                 []string          `yaml:"cliRedirectURIs"`
+	Owner                           *AuthOwnerConfig  `yaml:"owner,omitempty"`
+	DashboardPostLogoutRedirectURIs []string          `yaml:"dashboardPostLogoutRedirectURIs"`
+	GrantTypes                      []string          `yaml:"grantTypes"`
 }
 
 // AuthStorageConfig contains auth storage settings
@@ -173,7 +195,7 @@ type RelaysConfig struct {
 type StoreConfig struct {
 	Engine        string `yaml:"engine"`
 	EncryptionKey string `yaml:"encryptionKey"`
-	DSN           string `yaml:"dsn"`  // Connection string for postgres or mysql engines
+	DSN           string `yaml:"dsn"`  // Connection string for the postgres engine
 	File          string `yaml:"file"` // SQLite database file path (optional, defaults to dataDir)
 }
 
@@ -294,6 +316,19 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 	c.autoConfigureClientSettings(exposedProto, exposedHost, exposedHostPort, hasExternalStuns, hasExternalRelay, hasExternalSignal)
 }
 
+// ApplyAdminDefaults applies the management settings needed by admin commands even
+// when the full server config is invalid and ApplySimplifiedDefaults cannot run.
+func (c *CombinedConfig) ApplyAdminDefaults() {
+	if c.Management.DataDir == "" || c.Management.DataDir == "/var/lib/netbird/" {
+		c.Management.DataDir = c.Server.DataDir
+	}
+	if c.Management.Store.Engine == "" || c.Management.Store.Engine == "sqlite" {
+		if c.Server.Store.Engine != "" || c.Server.Store.File != "" || c.Server.Store.DSN != "" {
+			c.Management.Store = c.Server.Store
+		}
+	}
+}
+
 // applyRelayDefaults configures the relay service if no external relay is configured.
 func (c *CombinedConfig) applyRelayDefaults(exposedProto, exposedHostPort string, hasExternalRelay, hasExternalStuns bool) {
 	if hasExternalRelay {
@@ -380,7 +415,7 @@ func (c *CombinedConfig) autoConfigureClientSettings(exposedProto, exposedHost, 
 		// Auto-configure local STUN servers for all ports
 		for _, port := range c.Server.StunPorts {
 			c.Management.Stuns = append(c.Management.Stuns, HostConfig{
-				URI: fmt.Sprintf("stun:%s:%d", exposedHost, port),
+				URI: "stun:" + net.JoinHostPort(strings.Trim(exposedHost, "[]"), fmt.Sprintf("%d", port)),
 			})
 		}
 	}
@@ -412,27 +447,34 @@ func (c *CombinedConfig) autoConfigureClientSettings(exposedProto, exposedHost, 
 	}
 }
 
-// LoadConfig loads configuration from a YAML file
+// LoadConfig loads the combined server configuration.
 func LoadConfig(configPath string) (*CombinedConfig, error) {
-	cfg := DefaultConfig()
-
-	if configPath == "" {
-		return cfg, nil
-	}
-
-	data, err := os.ReadFile(configPath)
+	cfg, err := configloader.Load(configPath, DefaultConfig(), configloader.Options{
+		TagName:           "yaml",
+		AllowMissing:      configPath == "",
+		DecodeErrorPrefix: "failed to parse config file",
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+		return nil, err
 	}
 
-	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
-	}
+	applyServerSecretEnv(cfg)
 
-	// Populate internal configs from server settings
 	cfg.ApplySimplifiedDefaults()
-
 	return cfg, nil
+}
+
+// applyServerSecretEnv copies non-empty environment overrides onto the parsed
+// YAML values before defaults and validation run.
+func applyServerSecretEnv(cfg *CombinedConfig) {
+	if secret := os.Getenv(envRelayAuthSecret); secret != "" {
+		cfg.Server.AuthSecret = secret
+		log.Infof("server.authSecret taken from %s", envRelayAuthSecret)
+	}
+	if key := os.Getenv(envStoreEncryptionKey); key != "" {
+		cfg.Server.Store.EncryptionKey = key
+		log.Infof("server.store.encryptionKey taken from %s", envStoreEncryptionKey)
+	}
 }
 
 // Validate validates the configuration
@@ -571,20 +613,24 @@ func (c *CombinedConfig) buildEmbeddedIdPConfig(mgmt ManagementConfig) (*idp.Emb
 			return nil, fmt.Errorf("authStore.dsn is required when authStore.engine is postgres")
 		}
 	} else {
-		authStorageFile = path.Join(mgmt.DataDir, "idp.db")
+		authStorageFile = filePath.Join(mgmt.DataDir, "idp.db")
 		if c.Server.AuthStore.File != "" {
 			authStorageFile = c.Server.AuthStore.File
-			if !filepath.IsAbs(authStorageFile) {
-				authStorageFile = filepath.Join(mgmt.DataDir, authStorageFile)
+			if !filePath.IsAbs(authStorageFile) {
+				authStorageFile = filePath.Join(mgmt.DataDir, authStorageFile)
 			}
 		}
 	}
 
 	cfg := &idp.EmbeddedIdPConfig{
-		Enabled:               true,
-		Issuer:                mgmt.Auth.Issuer,
-		LocalAuthDisabled:     mgmt.Auth.LocalAuthDisabled,
-		SignKeyRefreshEnabled: mgmt.Auth.SignKeyRefreshEnabled,
+		Enabled:                    true,
+		Issuer:                     mgmt.Auth.Issuer,
+		LocalAuthDisabled:          mgmt.Auth.LocalAuthDisabled,
+		SignKeyRefreshEnabled:      mgmt.Auth.SignKeyRefreshEnabled,
+		MfaSessionMaxLifetime:      mgmt.Auth.MfaSessionMaxLifetime,
+		MfaSessionIdleTimeout:      mgmt.Auth.MfaSessionIdleTimeout,
+		MfaSessionRememberMe:       mgmt.Auth.MfaSessionRememberMe,
+		SessionCookieEncryptionKey: mgmt.Auth.SessionCookieEncryptionKey,
 		Storage: idp.EmbeddedStorageConfig{
 			Type: authStorageType,
 			Config: idp.EmbeddedStorageTypeConfig{
@@ -592,8 +638,10 @@ func (c *CombinedConfig) buildEmbeddedIdPConfig(mgmt ManagementConfig) (*idp.Emb
 				DSN:  authStorageDSN,
 			},
 		},
-		DashboardRedirectURIs: mgmt.Auth.DashboardRedirectURIs,
-		CLIRedirectURIs:       mgmt.Auth.CLIRedirectURIs,
+		DashboardRedirectURIs:           mgmt.Auth.DashboardRedirectURIs,
+		CLIRedirectURIs:                 mgmt.Auth.CLIRedirectURIs,
+		DashboardPostLogoutRedirectURIs: mgmt.Auth.DashboardPostLogoutRedirectURIs,
+		GrantTypes:                      mgmt.Auth.GrantTypes,
 	}
 
 	if mgmt.Auth.Owner != nil && mgmt.Auth.Owner.Email != "" {
@@ -684,16 +732,21 @@ func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 	httpConfig.AuthCallbackURL = callbackURL + types.ProxyCallbackEndpointFull
 
 	return &nbconfig.Config{
-		Stuns:                  stuns,
-		Relay:                  relayConfig,
-		Signal:                 signalConfig,
-		Datadir:                mgmt.DataDir,
-		DataStoreEncryptionKey: mgmt.Store.EncryptionKey,
-		HttpConfig:             httpConfig,
-		StoreConfig:            storeConfig,
-		ReverseProxy:           reverseProxy,
-		DisableDefaultPolicy:   mgmt.DisableDefaultPolicy,
-		EmbeddedIdP:            embeddedIdP,
+		Stuns:                              stuns,
+		Relay:                              relayConfig,
+		Signal:                             signalConfig,
+		Datadir:                            mgmt.DataDir,
+		DataStoreEncryptionKey:             mgmt.Store.EncryptionKey,
+		HttpConfig:                         httpConfig,
+		StoreConfig:                        storeConfig,
+		ReverseProxy:                       reverseProxy,
+		DisableDefaultPolicy:               mgmt.DisableDefaultPolicy,
+		EmbeddedIdP:                        embeddedIdP,
+		HighestSupportedSyncMessageVersion: c.Server.SupportedSyncMessageVersions,
+		PerAccountHighestSupportedSyncMessageVersion: c.Server.PerAccountSupportedSyncMessageVersions,
+		AgentNetwork: nbconfig.AgentNetwork{
+			PricingDefaultsFile: c.Server.AgentNetwork.PricingDefaultsFile,
+		},
 	}, nil
 }
 
@@ -717,7 +770,7 @@ func ApplyEmbeddedIdPConfig(ctx context.Context, cfg *nbconfig.Config, mgmtPort 
 		cfg.EmbeddedIdP.Storage.Type = "sqlite3"
 	}
 	if cfg.EmbeddedIdP.Storage.Config.File == "" && cfg.Datadir != "" {
-		cfg.EmbeddedIdP.Storage.Config.File = path.Join(cfg.Datadir, "idp.db")
+		cfg.EmbeddedIdP.Storage.Config.File = filePath.Join(cfg.Datadir, "idp.db")
 	}
 
 	issuer := cfg.EmbeddedIdP.Issuer

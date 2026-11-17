@@ -51,7 +51,5 @@ func (n *notifier) notify() {
 		return
 	}
 
-	go func(l listener.NetworkChangeListener) {
-		l.OnNetworkChanged("")
-	}(n.listener)
+	n.listener.OnNetworkChanged("")
 }

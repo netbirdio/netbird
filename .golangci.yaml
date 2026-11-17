@@ -24,6 +24,15 @@ linters:
   settings:
     errcheck:
       check-type-assertions: false
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: ^(fmt\.Print(|f|ln)|print|println)$
+        # Builds that link libc through purego mark the runtime as cgo without
+        # registering the libc setxid hooks, so these panic in AllThreadsSyscall.
+        - pattern: ^(syscall|unix)\.(Setgroups|Set(e|re|res)?[ug]id|AllThreadsSyscall6?)$
+          pkg: ^(syscall|golang\.org/x/sys/unix)$
+          msg: use the setgroups/setgid/setuid helpers in client/ssh/server, which go through libc in purego builds
     gocritic:
       disabled-checks:
         - commentFormatting
@@ -58,6 +67,11 @@ linters:
     govet:
       enable:
         - nilness
+      disable:
+        # The inline analyzer flags x/exp/maps Clone/Clear with //go:fix inline
+        # directives but cannot perform the rewrite due to generic type
+        # parameter inference limitations in the Go inliner.
+        - inline
       enable-all: false
     revive:
       rules:
@@ -81,6 +95,9 @@ linters:
       - linters:
           - forbidigo
         path: signal/cmd/root\.go
+      - linters:
+          - forbidigo
+        path: client/ssh/server/setid_unix\.go
       - linters:
           - unused
         path: sharedsock/filter\.go
@@ -109,6 +126,16 @@ linters:
       - linters:
           - staticcheck
         text: "QF1012"
+      # client/ui/main.go uses //go:embed all:frontend/dist; the
+      # directory is populated by `pnpm build` in the release pipeline
+      # and missing at lint time, so the embed parses to "no matching
+      # files found" — surfaced by golangci-lint's typecheck pre-pass.
+      # Suppress just that one diagnostic; the rest of the package
+      # (services/, tray.go, grpc.go, ...) still gets linted normally.
+      - linters:
+          - typecheck
+        path: client/ui/main\.go
+        text: "pattern all:frontend/dist"
     paths:
       - third_party$
       - builtin$

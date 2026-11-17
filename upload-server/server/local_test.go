@@ -8,11 +8,20 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/upload-server/types"
 )
+
+const testSigningKey = "test-signing-key-with-enough-length"
+
+func signedQuery(t *testing.T, objectKey string) string {
+	t.Helper()
+	s := &signer{key: []byte(testSigningKey)}
+	return s.sign(objectKey, time.Now()).Encode()
+}
 
 func Test_LocalHandlerGetUploadURL(t *testing.T) {
 	mockURL := "http://localhost:8080"
@@ -20,7 +29,7 @@ func Test_LocalHandlerGetUploadURL(t *testing.T) {
 	t.Setenv("STORE_DIR", t.TempDir())
 
 	mux := http.NewServeMux()
-	err := configureLocalHandlers(mux)
+	err := configureLocalHandlers(mux, newTestRateLimiter(t))
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodGet, types.GetURLPath+"?id=test-file", nil)
@@ -37,7 +46,6 @@ func Test_LocalHandlerGetUploadURL(t *testing.T) {
 	require.Contains(t, response.URL, "test-file/")
 	require.NotEmpty(t, response.Key)
 	require.Contains(t, response.Key, "test-file/")
-
 }
 
 func Test_LocalHandlePutRequest(t *testing.T) {
@@ -45,13 +53,15 @@ func Test_LocalHandlePutRequest(t *testing.T) {
 	mockURL := "http://localhost:8080"
 	t.Setenv("SERVER_URL", mockURL)
 	t.Setenv("STORE_DIR", mockDir)
+	t.Setenv(signingKeyVar, testSigningKey)
 
 	mux := http.NewServeMux()
-	err := configureLocalHandlers(mux)
+	err := configureLocalHandlers(mux, newTestRateLimiter(t))
 	require.NoError(t, err)
 
 	fileContent := []byte("test file content")
-	req := httptest.NewRequest(http.MethodPut, putURLPath+"/uploads/test.txt", bytes.NewReader(fileContent))
+	req := httptest.NewRequest(http.MethodPut,
+		putURLPath+"/uploads/test.txt?"+signedQuery(t, "uploads/test.txt"), bytes.NewReader(fileContent))
 
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -69,13 +79,16 @@ func Test_LocalHandlePutRequest_PathTraversal(t *testing.T) {
 	mockURL := "http://localhost:8080"
 	t.Setenv("SERVER_URL", mockURL)
 	t.Setenv("STORE_DIR", mockDir)
+	t.Setenv(signingKeyVar, testSigningKey)
 
 	mux := http.NewServeMux()
-	err := configureLocalHandlers(mux)
+	err := configureLocalHandlers(mux, newTestRateLimiter(t))
 	require.NoError(t, err)
 
 	fileContent := []byte("malicious content")
-	req := httptest.NewRequest(http.MethodPut, putURLPath+"/uploads/%2e%2e%2f%2e%2e%2fetc%2fpasswd", bytes.NewReader(fileContent))
+	req := httptest.NewRequest(http.MethodPut,
+		putURLPath+"/uploads/%2e%2e%2f%2e%2e%2fetc%2fpasswd?"+signedQuery(t, "uploads/../../etc/passwd"),
+		bytes.NewReader(fileContent))
 
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -90,11 +103,13 @@ func Test_LocalHandlePutRequest_DirTraversal(t *testing.T) {
 	mockDir := t.TempDir()
 	t.Setenv("SERVER_URL", "http://localhost:8080")
 	t.Setenv("STORE_DIR", mockDir)
+	t.Setenv(signingKeyVar, testSigningKey)
 
-	l := &local{url: "http://localhost:8080", dir: mockDir}
+	l := &local{url: "http://localhost:8080", dir: mockDir, signer: &signer{key: []byte(testSigningKey)}}
 
 	body := bytes.NewReader([]byte("bad"))
-	req := httptest.NewRequest(http.MethodPut, putURLPath+"/x/evil.txt", body)
+	req := httptest.NewRequest(http.MethodPut,
+		putURLPath+"/x/evil.txt?"+signedQuery(t, "../../../tmp/evil.txt"), body)
 	req.SetPathValue("dir", "../../../tmp")
 	req.SetPathValue("file", "evil.txt")
 
@@ -111,17 +126,20 @@ func Test_LocalHandlePutRequest_DuplicateFile(t *testing.T) {
 	mockDir := t.TempDir()
 	t.Setenv("SERVER_URL", "http://localhost:8080")
 	t.Setenv("STORE_DIR", mockDir)
+	t.Setenv(signingKeyVar, testSigningKey)
 
 	mux := http.NewServeMux()
-	err := configureLocalHandlers(mux)
+	err := configureLocalHandlers(mux, newTestRateLimiter(t))
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodPut, putURLPath+"/dir/dup.txt", bytes.NewReader([]byte("first")))
+	req := httptest.NewRequest(http.MethodPut,
+		putURLPath+"/dir/dup.txt?"+signedQuery(t, "dir/dup.txt"), bytes.NewReader([]byte("first")))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	req = httptest.NewRequest(http.MethodPut, putURLPath+"/dir/dup.txt", bytes.NewReader([]byte("second")))
+	req = httptest.NewRequest(http.MethodPut,
+		putURLPath+"/dir/dup.txt?"+signedQuery(t, "dir/dup.txt"), bytes.NewReader([]byte("second")))
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusConflict, rec.Code)
@@ -135,13 +153,15 @@ func Test_LocalHandlePutRequest_BodyTooLarge(t *testing.T) {
 	mockDir := t.TempDir()
 	t.Setenv("SERVER_URL", "http://localhost:8080")
 	t.Setenv("STORE_DIR", mockDir)
+	t.Setenv(signingKeyVar, testSigningKey)
 
 	mux := http.NewServeMux()
-	err := configureLocalHandlers(mux)
+	err := configureLocalHandlers(mux, newTestRateLimiter(t))
 	require.NoError(t, err)
 
 	largeBody := make([]byte, maxUploadSize+1)
-	req := httptest.NewRequest(http.MethodPut, putURLPath+"/dir/big.txt", bytes.NewReader(largeBody))
+	req := httptest.NewRequest(http.MethodPut,
+		putURLPath+"/dir/big.txt?"+signedQuery(t, "dir/big.txt"), bytes.NewReader(largeBody))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 

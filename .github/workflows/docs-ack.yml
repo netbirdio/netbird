@@ -12,6 +12,8 @@ jobs:
   docs-ack:
     name: Require docs PR URL or explicit "not needed"
     runs-on: ubuntu-latest
+    # Crowdin's translation-sync service PRs are auto-generated without the PR template.
+    if: github.event.pull_request.user.login != 'netbirddev'
 
     steps:
       - name: Read PR body
@@ -83,7 +85,7 @@ jobs:
 
       - name: Verify docs PR exists (and is open or merged)
         if: steps.validate.outputs.mode == 'added'
-        uses: actions/github-script@v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         id: verify
         with:
           pr_number: ${{ steps.extract.outputs.pr_number }}

@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/netbirdio/netbird/management/server/testutil"
 )
 
 func TestAddPeer(t *testing.T) {
@@ -87,4 +89,10 @@ func TestRemovePeer(t *testing.T) {
 		assert.False(t, group.RemovePeer(peerID))
 		assert.Equal(t, 2, len(group.Peers))
 	})
+}
+
+func TestGroup_EqualComparesAllFields(t *testing.T) {
+	// PublicID is copied from the stored group before comparing, and GroupPeers
+	// is a transient form of Peers.
+	testutil.EqualComparesAllFields(t, (*Group).Equal, "PublicID", "GroupPeers")
 }

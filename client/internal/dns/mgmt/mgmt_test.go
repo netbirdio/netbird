@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -21,6 +22,60 @@ func TestResolver_NewResolver(t *testing.T) {
 	assert.NotNil(t, resolver)
 	assert.NotNil(t, resolver.records)
 	assert.False(t, resolver.MatchSubdomains())
+}
+
+func TestResolveCacheTTL(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  time.Duration
+	}{
+		{"unset falls back to default", "", defaultTTL},
+		{"valid duration", "45s", 45 * time.Second},
+		{"valid minutes", "2m", 2 * time.Minute},
+		{"malformed falls back to default", "not-a-duration", defaultTTL},
+		{"zero falls back to default", "0s", defaultTTL},
+		{"negative falls back to default", "-5s", defaultTTL},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(envMgmtCacheTTL, tc.value)
+			got := resolveCacheTTL()
+			assert.Equal(t, tc.want, got, "parsed TTL should match")
+		})
+	}
+}
+
+func TestNewResolver_CacheTTLFromEnv(t *testing.T) {
+	t.Setenv(envMgmtCacheTTL, "7s")
+	r := NewResolver()
+	assert.Equal(t, 7*time.Second, r.cacheTTL, "NewResolver should evaluate cacheTTL once from env")
+}
+
+func TestResolver_ResponseTTL(t *testing.T) {
+	now := time.Now()
+	tests := []struct {
+		name     string
+		cacheTTL time.Duration
+		cachedAt time.Time
+		wantMin  uint32
+		wantMax  uint32
+	}{
+		{"fresh entry returns full TTL", 60 * time.Second, now, 59, 60},
+		{"half-aged entry returns half TTL", 60 * time.Second, now.Add(-30 * time.Second), 29, 31},
+		{"expired entry returns zero", 60 * time.Second, now.Add(-61 * time.Second), 0, 0},
+		{"exactly expired returns zero", 10 * time.Second, now.Add(-10 * time.Second), 0, 0},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &Resolver{cacheTTL: tc.cacheTTL}
+			got := r.responseTTL(tc.cachedAt)
+			assert.GreaterOrEqual(t, got, tc.wantMin, "remaining TTL should be >= wantMin")
+			assert.LessOrEqual(t, got, tc.wantMax, "remaining TTL should be <= wantMax")
+		})
+	}
 }
 
 func TestResolver_ExtractDomainFromURL(t *testing.T) {

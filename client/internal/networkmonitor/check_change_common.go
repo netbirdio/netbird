@@ -50,7 +50,7 @@ func routeCheck(ctx context.Context, fd int, nexthopv4, nexthopv6 systemops.Next
 		switch msg.Type {
 		// handle route changes
 		case unix.RTM_ADD, syscall.RTM_DELETE:
-			route, err := parseRouteMessage(buf[:n])
+			route, flags, err := parseRouteMessage(buf[:n])
 			if err != nil {
 				log.Debugf("Network monitor: error parsing routing message: %v", err)
 				continue
@@ -66,6 +66,10 @@ func routeCheck(ctx context.Context, fd int, nexthopv4, nexthopv6 systemops.Next
 			}
 			switch msg.Type {
 			case unix.RTM_ADD:
+				if systemops.IgnoreAddedDefaultRoute(flags) {
+					log.Debugf("Network monitor: ignoring added default route via %s, interface %s, flags %#x", route.Gw, intf, flags)
+					continue
+				}
 				log.Infof("Network monitor: default route changed: via %s, interface %s", route.Gw, intf)
 				return nil
 			case unix.RTM_DELETE:
@@ -78,22 +82,26 @@ func routeCheck(ctx context.Context, fd int, nexthopv4, nexthopv6 systemops.Next
 	}
 }
 
-func parseRouteMessage(buf []byte) (*systemops.Route, error) {
+func parseRouteMessage(buf []byte) (*systemops.Route, int, error) {
 	msgs, err := route.ParseRIB(route.RIBTypeRoute, buf)
 	if err != nil {
-		return nil, fmt.Errorf("parse RIB: %v", err)
+		return nil, 0, fmt.Errorf("parse RIB: %v", err)
 	}
 
 	if len(msgs) != 1 {
-		return nil, fmt.Errorf("unexpected RIB message msgs: %v", msgs)
+		return nil, 0, fmt.Errorf("unexpected RIB message msgs: %v", msgs)
 	}
 
 	msg, ok := msgs[0].(*route.RouteMessage)
 	if !ok {
-		return nil, fmt.Errorf("unexpected RIB message type: %T", msgs[0])
+		return nil, 0, fmt.Errorf("unexpected RIB message type: %T", msgs[0])
 	}
 
-	return systemops.MsgToRoute(msg)
+	r, err := systemops.MsgToRoute(msg)
+	if err != nil {
+		return nil, 0, err
+	}
+	return r, msg.Flags, nil
 }
 
 // waitReadable blocks until fd has data to read, or ctx is cancelled.

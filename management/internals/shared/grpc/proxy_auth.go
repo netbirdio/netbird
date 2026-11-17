@@ -153,9 +153,6 @@ func (i *proxyAuthInterceptor) doValidateProxyToken(ctx context.Context) (*types
 		return nil, status.Errorf(codes.Unauthenticated, "invalid token")
 	}
 
-	// TODO: Enforce AccountID scope for "bring your own proxy" feature.
-	// Currently tokens are management-wide; AccountID field is reserved for future use.
-
 	if !token.IsValid() {
 		return nil, status.Errorf(codes.Unauthenticated, "token expired or revoked")
 	}

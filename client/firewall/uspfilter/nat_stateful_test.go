@@ -13,9 +13,11 @@ import (
 
 // TestPortDNATBasic tests basic port DNAT functionality
 func TestPortDNATBasic(t *testing.T) {
-	manager, err := Create(&IFaceMock{
-		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{
+		IFace: &IFaceMock{
+			SetFilterFunc: func(device.PacketFilter) error { return nil },
+		},
+		FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, manager.Close(nil))
@@ -49,9 +51,11 @@ func TestPortDNATBasic(t *testing.T) {
 
 // TestPortDNATMultipleRules tests multiple port DNAT rules
 func TestPortDNATMultipleRules(t *testing.T) {
-	manager, err := Create(&IFaceMock{
-		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{
+		IFace: &IFaceMock{
+			SetFilterFunc: func(device.PacketFilter) error { return nil },
+		},
+		FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, manager.Close(nil))

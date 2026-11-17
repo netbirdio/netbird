@@ -22,9 +22,9 @@ const (
 
 type AccessLogEntry struct {
 	ID              string        `gorm:"primaryKey"`
-	AccountID       string        `gorm:"index"`
+	AccountID       string        `gorm:"index;index:idx_access_log_entries_account_timestamp,priority:1,option:CONCURRENTLY"`
 	ServiceID       string        `gorm:"index"`
-	Timestamp       time.Time     `gorm:"index"`
+	Timestamp       time.Time     `gorm:"index;index:idx_access_log_entries_account_timestamp,priority:2"`
 	GeoLocation     peer.Location `gorm:"embedded;embeddedPrefix:location_"`
 	SubdivisionCode string
 	Method          string        `gorm:"index"`
@@ -39,6 +39,10 @@ type AccessLogEntry struct {
 	BytesDownload   int64             `gorm:"index"`
 	Protocol        AccessLogProtocol `gorm:"index"`
 	Metadata        map[string]string `gorm:"serializer:json"`
+	// AgentNetwork marks the entry as emitted by a synthesised agent-network
+	// service. Sourced from proto.AccessLog.AgentNetwork the proxy stamps
+	// before shipping. Indexed so the agent-network log surface filters cheaply.
+	AgentNetwork bool `gorm:"index"`
 }
 
 // FromProto creates an AccessLogEntry from a proto.AccessLog
@@ -58,6 +62,7 @@ func (a *AccessLogEntry) FromProto(serviceLog *proto.AccessLog) {
 	a.BytesDownload = serviceLog.GetBytesDownload()
 	a.Protocol = AccessLogProtocol(serviceLog.GetProtocol())
 	a.Metadata = maps.Clone(serviceLog.GetMetadata())
+	a.AgentNetwork = serviceLog.GetAgentNetwork()
 
 	if sourceIP := serviceLog.GetSourceIp(); sourceIP != "" {
 		if addr, err := netip.ParseAddr(sourceIP); err == nil {

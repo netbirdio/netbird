@@ -1,0 +1,144 @@
+version: 2
+env:
+  - SKIP_PUBLISH={{ if index .Env "SKIP_PUBLISH" }}{{ .Env.SKIP_PUBLISH }}{{ else }}true{{ end }}
+project_name: netbird-ui
+
+before:
+  hooks:
+    # Bindings are gitignored; regenerate before the frontend build so
+    # the @wailsio/runtime Vite plugin can resolve them (vite refuses to
+    # build without them).
+    # -f '-tags gtk3': the generator type-checks client/ui, whose cgo imports
+    # would otherwise resolve gtk4/webkitgtk-6.0 pkg-config entries that do
+    # not exist on ubuntu-22.04.
+    - sh -c 'cd client/ui && wails3 generate bindings -clean=true -ts -f "-tags gtk3"'
+    - sh -c 'cd client/ui/frontend && pnpm install --frozen-lockfile && pnpm build'
+
+builds:
+  # Legacy GTK3 / WebKit2GTK 4.1 build for distros without WebKitGTK 6.0
+  # (Ubuntu 22.04, Debian 12, RHEL 9, Fedora <=39). The gtk3 tag flips the
+  # Wails Linux backend to the GTK3 stack and swaps our GTK4-only XEmbed
+  # tray host for the pure-Go stub (client/ui/xembed_host_gtk3_linux.go).
+  # Must be built on the oldest supported glibc (ubuntu-22.04 runner).
+  - id: netbird-ui-gtk3
+    dir: client/ui
+    binary: netbird-ui
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+    goarch:
+      - amd64
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    tags:
+      - production
+      - gtk3
+
+archives:
+  - id: linux-gtk3-arch
+    name_template: "{{ .ProjectName }}-linux-gtk3_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    builds:
+      - netbird-ui-gtk3
+
+nfpms:
+  # Mutually-exclusive alternative to the GTK4 netbird-ui package -- both
+  # ship the same /usr/bin/netbird-ui from the shared stable/yum repos, so
+  # this one carries its own name and conflicts with the GTK4 package.
+  - maintainer: Netbird <dev@netbird.io>
+    description: Netbird client UI.
+    homepage: https://netbird.io/
+    license: BSD-3-Clause
+    vendor: NetBird
+    id: netbird_ui_deb_gtk3
+    package_name: netbird-ui-gtk3
+    file_name_template: "{{ .PackageName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    builds:
+      - netbird-ui-gtk3
+    formats:
+      - deb
+    scripts:
+      postinstall: "release_files/ui-post-install.sh"
+    contents:
+      - src: client/ui/build/linux/netbird.desktop
+        dst: /usr/share/applications/org.wails.netbird.desktop
+      - src: client/ui/build/appicon.png
+        dst: /usr/share/pixmaps/netbird.png
+    conflicts:
+      - netbird-ui
+    replaces:
+      - netbird-ui
+    dependencies:
+      - netbird (>= 0.75.0)
+      - libgtk-3-0
+      - libwebkit2gtk-4.1-0
+      - xdg-utils
+
+  - maintainer: Netbird <dev@netbird.io>
+    description: Netbird client UI.
+    homepage: https://netbird.io/
+    license: BSD-3-Clause
+    vendor: NetBird
+    id: netbird_ui_rpm_gtk3
+    package_name: netbird-ui-gtk3
+    file_name_template: "{{ .PackageName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    builds:
+      - netbird-ui-gtk3
+    formats:
+      - rpm
+    scripts:
+      postinstall: "release_files/ui-post-install.sh"
+    contents:
+      - src: client/ui/build/linux/netbird.desktop
+        dst: /usr/share/applications/org.wails.netbird.desktop
+      - src: client/ui/build/appicon.png
+        dst: /usr/share/pixmaps/netbird.png
+    # No `replaces` here: nfpm maps it to rpm Obsoletes, which would make
+    # dnf swap installed GTK4 netbird-ui packages for this one on upgrade.
+    conflicts:
+      - netbird-ui
+    dependencies:
+      - netbird >= 0.75.0
+      - (gtk3 or libgtk-3-0)
+      - (webkit2gtk4.1 or libwebkit2gtk-4_1-0)
+      - xdg-utils
+
+    rpm:
+      signature:
+        key_file: '{{ if index .Env "GPG_RPM_KEY_FILE" }}{{ .Env.GPG_RPM_KEY_FILE }}{{ end }}'
+
+# The GTK4 UI job shares project_name, so the default checksum file name would
+# collide with it on the shared GitHub release.
+checksum:
+  name_template: "{{ .ProjectName }}_gtk3_checksums.txt"
+
+changelog:
+  disable: true
+
+uploads:
+  - name: debian
+    skip: "{{ .Env.SKIP_PUBLISH }}"
+    ids:
+      - netbird_ui_deb_gtk3
+    mode: archive
+    target: https://pkgs.wiretrustee.com/debian/pool/{{ .ArtifactName }};deb.distribution=stable;deb.component=main;deb.architecture={{ if .Arm }}armhf{{ else }}{{ .Arch }}{{ end }};deb.package=
+    username: dev@wiretrustee.com
+    method: PUT
+
+  - name: yum
+    skip: "{{ .Env.SKIP_PUBLISH }}"
+    ids:
+      - netbird_ui_rpm_gtk3
+    mode: archive
+    target: https://pkgs.wiretrustee.com/yum/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
+    username: dev@wiretrustee.com
+    method: PUT
+
+release:
+  # Uploads into the release created by the main .goreleaser.yaml run.
+  # make_latest stays false everywhere: the signing pipeline
+  # (netbirdio/sign-pipelines) marks the release latest after the Windows
+  # and macOS artifacts are signed.
+  make_latest: false
+  prerelease: auto

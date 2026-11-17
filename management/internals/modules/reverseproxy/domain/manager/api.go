@@ -49,6 +49,7 @@ func domainToApi(d *domain.Domain) api.ReverseProxyDomain {
 		SupportsCustomPorts: d.SupportsCustomPorts,
 		RequireSubdomain:    d.RequireSubdomain,
 		SupportsCrowdsec:    d.SupportsCrowdSec,
+		SupportsPrivate:     d.SupportsPrivate,
 	}
 	if d.TargetCluster != "" {
 		resp.TargetCluster = &d.TargetCluster
@@ -133,7 +134,10 @@ func (h *handler) triggerCustomDomainValidation(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	go h.manager.ValidateDomain(r.Context(), userAuth.AccountId, userAuth.UserId, domainID)
+	if err := h.manager.ValidateDomain(r.Context(), userAuth.AccountId, userAuth.UserId, domainID); err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
 
-	w.WriteHeader(http.StatusAccepted)
+	w.WriteHeader(http.StatusNoContent)
 }
