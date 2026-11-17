@@ -55,7 +55,7 @@ func (m *managerImpl) fillAllowances(ctx context.Context, accountID, userID stri
 		providers[i].Allowance = a
 	}
 
-	return m.fillGroupNames(ctx, accountID, providers)
+	return nil
 }
 
 // providerAllowance builds one provider's allowance from its applicable
@@ -94,7 +94,7 @@ func providerAllowance(in PolicySelectionInput, candidates []*types.Policy, cach
 		budgetCapUsages(cache, in.AccountID, in.UserID, attr, p.Limits.BudgetLimit, now)...,
 	)
 	for _, u := range usages {
-		a.Limits = append(a.Limits, allowanceLimit(types.AllowanceSourcePolicy, p.ID, p.Name, u))
+		a.Limits = append(a.Limits, allowanceLimit(u))
 	}
 	return a
 }
@@ -113,49 +113,17 @@ func accountRuleLimits(in PolicySelectionInput, rules []*types.AccountBudgetRule
 			budgetCapUsages(cache, in.AccountID, in.UserID, attr, r.Limits.BudgetLimit, now)...,
 		)
 		for _, u := range usages {
-			out = append(out, allowanceLimit(types.AllowanceSourceAccountRule, r.ID, r.Name, u))
+			out = append(out, allowanceLimit(u))
 		}
 	}
 	return out
 }
 
-func allowanceLimit(source types.AllowanceSource, id, name string, u capUsage) types.AllowanceLimit {
+func allowanceLimit(u capUsage) types.AllowanceLimit {
 	return types.AllowanceLimit{
-		Source:     source,
-		SourceID:   id,
-		SourceName: name,
-		Unit:       u.unit,
-		Scope:      u.scope,
-		GroupID:    u.groupID,
-		Cap:        u.cap,
-		Used:       u.used,
-		ResetsAt:   u.windowStart.Add(time.Duration(u.windowSeconds) * time.Second),
+		Unit:     u.unit,
+		Cap:      u.cap,
+		Used:     u.used,
+		ResetsAt: u.windowStart.Add(time.Duration(u.windowSeconds) * time.Second),
 	}
-}
-
-// fillGroupNames resolves the group names of group-scoped limits in one read.
-func (m *managerImpl) fillGroupNames(ctx context.Context, accountID string, providers []types.AgentConfigProvider) error {
-	var ids []string
-	for _, p := range providers {
-		for _, l := range p.Allowance.Limits {
-			if l.GroupID != "" {
-				ids = append(ids, l.GroupID)
-			}
-		}
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-	groups, err := m.store.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, ids)
-	if err != nil {
-		return fmt.Errorf("get limit groups: %w", err)
-	}
-	for _, p := range providers {
-		for i := range p.Allowance.Limits {
-			if g, ok := groups[p.Allowance.Limits[i].GroupID]; ok && g != nil {
-				p.Allowance.Limits[i].GroupName = g.Name
-			}
-		}
-	}
-	return nil
 }

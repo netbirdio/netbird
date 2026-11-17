@@ -48,39 +48,20 @@ type AgentConfigProvider struct {
 	Allowance *ProviderAllowance
 }
 
-// AllowanceSource names what a limit comes from.
-type AllowanceSource string
-
 // AllowanceUnit is what a limit counts.
 type AllowanceUnit string
 
-// AllowanceScope is whose consumption a limit counts.
-type AllowanceScope string
-
 const (
-	AllowanceSourcePolicy      AllowanceSource = "policy"
-	AllowanceSourceAccountRule AllowanceSource = "account_rule"
-
 	AllowanceUnitTokens AllowanceUnit = "tokens"
 	AllowanceUnitUSD    AllowanceUnit = "usd"
-
-	AllowanceScopeUser  AllowanceScope = "user"
-	AllowanceScopeGroup AllowanceScope = "group"
 )
 
 // AllowanceLimit is one cap that binds the caller on a provider, with the
 // caller's consumption in the cap's current epoch-aligned window.
 type AllowanceLimit struct {
-	Source     AllowanceSource
-	SourceID   string
-	SourceName string
-	Unit       AllowanceUnit
-	Scope      AllowanceScope
-	// GroupID and GroupName are set for group-scoped limits.
-	GroupID   string
-	GroupName string
-	Cap       float64
-	Used      float64
+	Unit AllowanceUnit
+	Cap  float64
+	Used float64
 	// ResetsAt is the end of the cap's current window.
 	ResetsAt time.Time
 }

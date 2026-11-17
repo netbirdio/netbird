@@ -121,12 +121,7 @@ func TestAllowance_RealStore_PolicyUserCap(t *testing.T) {
 	assert.False(t, a.Exhausted, "300 of 1000 used")
 	require.Len(t, a.Limits, 1)
 	l := a.Limits[0]
-	assert.Equal(t, types.AllowanceSourcePolicy, l.Source)
-	assert.Equal(t, "pol-user", l.SourceID)
-	assert.Equal(t, "policy pol-user", l.SourceName)
 	assert.Equal(t, types.AllowanceUnitTokens, l.Unit)
-	assert.Equal(t, types.AllowanceScopeUser, l.Scope)
-	assert.Empty(t, l.GroupID, "user scope has no group")
 	assert.Equal(t, 1000.0, l.Cap)
 	assert.Equal(t, 300.0, l.Used)
 	assert.Equal(t, types.WindowStart(time.Now(), 3600).Add(time.Hour), l.ResetsAt, "resets at the end of the epoch-aligned window")
@@ -140,9 +135,6 @@ func TestAllowance_RealStore_PolicyGroupCap(t *testing.T) {
 	require.Len(t, a.Limits, 1)
 	l := a.Limits[0]
 	assert.Equal(t, types.AllowanceUnitUSD, l.Unit)
-	assert.Equal(t, types.AllowanceScopeGroup, l.Scope)
-	assert.Equal(t, "grp-eng", l.GroupID, "group caps attribute to the lowest intersecting group")
-	assert.Equal(t, "Engineering", l.GroupName)
 	assert.Equal(t, 5.0, l.Cap)
 	assert.InDelta(t, 1.25, l.Used, 1e-9)
 	assert.False(t, a.Exhausted)
@@ -158,10 +150,8 @@ func TestAllowance_RealStore_AccountRuleMinWins(t *testing.T) {
 
 	a := peerAllowance(t, mgr)
 	require.Len(t, a.Limits, 2, "rule and policy caps are both shown")
-	assert.Equal(t, types.AllowanceSourceAccountRule, a.Limits[0].Source)
-	assert.Equal(t, "rule-1", a.Limits[0].SourceID)
-	assert.Equal(t, 100.0, a.Limits[0].Cap)
-	assert.Equal(t, types.AllowanceSourcePolicy, a.Limits[1].Source)
+	assert.Equal(t, 100.0, a.Limits[0].Cap, "the account rule comes first")
+	assert.Equal(t, 1000.0, a.Limits[1].Cap)
 	assert.False(t, a.Exhausted)
 
 	spend(t, mgr, 100, 0)
@@ -195,7 +185,6 @@ func TestAllowance_RealStore_CatchAllWithAccountRuleIsNotUnlimited(t *testing.T)
 	a := peerAllowance(t, mgr)
 	assert.False(t, a.Unlimited, "an account rule still binds")
 	require.Len(t, a.Limits, 1)
-	assert.Equal(t, types.AllowanceSourceAccountRule, a.Limits[0].Source)
 	assert.Equal(t, types.AllowanceUnitUSD, a.Limits[0].Unit)
 }
 
@@ -218,26 +207,26 @@ func TestAllowance_RealStore_ListsOnlyThePayingPolicy(t *testing.T) {
 
 	a := peerAllowance(t, mgr)
 	require.Len(t, a.Limits, 1, "the smaller pool is not listed while the bigger one pays")
-	assert.Equal(t, "pol-big", a.Limits[0].SourceID, "the bigger pool drains first")
+	assert.Equal(t, 1000.0, a.Limits[0].Cap, "the bigger pool drains first")
 
 	spend(t, mgr, 1000, 0)
 
 	a = peerAllowance(t, mgr)
 	assert.False(t, a.Exhausted, "the smaller pool still pays")
 	require.Len(t, a.Limits, 1)
-	assert.Equal(t, "pol-small", a.Limits[0].SourceID, "the drained pool gives way to the next one")
+	assert.Equal(t, 100.0, a.Limits[0].Cap, "the drained pool gives way to the next one")
 	assert.Equal(t, 0.0, a.Limits[0].Used)
 
 	res, err := mgr.SelectPolicyForRequest(context.Background(), selectionInput())
 	require.NoError(t, err)
-	assert.Equal(t, res.SelectedPolicyID, a.Limits[0].SourceID, "the listed policy is the one the selector picks")
+	assert.Equal(t, "pol-small", res.SelectedPolicyID, "the listed policy is the one the selector picks")
 
 	spend(t, mgr, 100, 0)
 
 	a = peerAllowance(t, mgr)
 	assert.True(t, a.Exhausted, "both pools are drained")
 	require.Len(t, a.Limits, 1)
-	assert.Equal(t, "pol-big", a.Limits[0].SourceID, "with nothing left the first in selection order is listed")
+	assert.Equal(t, 1000.0, a.Limits[0].Cap, "with nothing left the first in selection order is listed")
 }
 
 func TestAllowance_RealStore_PeerGroupsNotUserAutoGroups(t *testing.T) {
@@ -253,8 +242,7 @@ func TestAllowance_RealStore_PeerGroupsNotUserAutoGroups(t *testing.T) {
 
 	a := peerAllowance(t, mgr)
 	require.Len(t, a.Limits, 1, "only the peer-group policy applies")
-	assert.Equal(t, "pol-eng", a.Limits[0].SourceID)
-	assert.Equal(t, "grp-eng", a.Limits[0].GroupID)
+	assert.Equal(t, 500.0, a.Limits[0].Cap)
 	assert.False(t, a.Exhausted)
 }
 

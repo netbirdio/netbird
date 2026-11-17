@@ -32,9 +32,7 @@ func TestRelayAgentNetworkInfo(t *testing.T) {
 				AllModelsAllowed: true, Models: []string{"gpt-5.4"},
 				Exhausted: true,
 				Limits: []*mgmProto.AgentNetworkLimit{{
-					Source: mgmProto.AgentNetworkLimit_ACCOUNT_RULE, SourceId: "rule-1", SourceName: "Monthly",
-					Unit: mgmProto.AgentNetworkLimit_TOKENS, Scope: mgmProto.AgentNetworkLimit_GROUP,
-					GroupId: "grp-eng", GroupName: "Engineering", Cap: 1000, Used: 1000,
+					Unit: mgmProto.AgentNetworkLimit_TOKENS, Cap: 1000, Used: 1000,
 					ResetsAt: resetsAt,
 				}},
 			}},
@@ -49,9 +47,7 @@ func TestRelayAgentNetworkInfo(t *testing.T) {
 		AllModelsAllowed: true, Models: []string{"gpt-5.4"},
 		Exhausted: true,
 		Limits: []*proto.AgentNetworkLimit{{
-			Source: proto.AgentNetworkLimit_ACCOUNT_RULE, SourceId: "rule-1", SourceName: "Monthly",
-			Unit: proto.AgentNetworkLimit_TOKENS, Scope: proto.AgentNetworkLimit_GROUP,
-			GroupId: "grp-eng", GroupName: "Engineering", Cap: 1000, Used: 1000,
+			Unit: proto.AgentNetworkLimit_TOKENS, Cap: 1000, Used: 1000,
 			ResetsAt: resetsAt,
 		}},
 	}, resp.Providers[0], "provider must relay field for field")

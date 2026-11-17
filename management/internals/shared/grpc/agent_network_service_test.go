@@ -113,9 +113,8 @@ func TestGetAgentNetworkInfo_EncryptedRoundTrip(t *testing.T) {
 				Allowance: &types.ProviderAllowance{
 					Exhausted: true,
 					Limits: []types.AllowanceLimit{{
-						Source: types.AllowanceSourcePolicy, SourceID: "pol-1", SourceName: "Engineers",
-						Unit: types.AllowanceUnitUSD, Scope: types.AllowanceScopeUser,
-						Cap: 5, Used: 5.5, ResetsAt: resetsAt,
+						Unit: types.AllowanceUnitUSD,
+						Cap:  5, Used: 5.5, ResetsAt: resetsAt,
 					}},
 				},
 			}},
@@ -140,11 +139,7 @@ func TestGetAgentNetworkInfo_EncryptedRoundTrip(t *testing.T) {
 	assert.False(t, resp.Providers[0].Unlimited)
 	require.Len(t, resp.Providers[0].Limits, 1)
 	l := resp.Providers[0].Limits[0]
-	assert.Equal(t, proto.AgentNetworkLimit_POLICY, l.Source)
-	assert.Equal(t, "pol-1", l.SourceId)
-	assert.Equal(t, "Engineers", l.SourceName)
 	assert.Equal(t, proto.AgentNetworkLimit_USD, l.Unit)
-	assert.Equal(t, proto.AgentNetworkLimit_USER, l.Scope)
 	assert.Equal(t, 5.0, l.Cap)
 	assert.Equal(t, 5.5, l.Used)
 	assert.Equal(t, resetsAt, l.ResetsAt.AsTime())

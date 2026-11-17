@@ -878,33 +878,16 @@ message AgentNetworkProvider {
 }
 
 message AgentNetworkLimit {
-  enum Source {
-    SOURCE_UNSPECIFIED = 0;
-    POLICY = 1;
-    ACCOUNT_RULE = 2;
-  }
   enum Unit {
     UNIT_UNSPECIFIED = 0;
     TOKENS = 1;
     USD = 2;
   }
-  enum Scope {
-    SCOPE_UNSPECIFIED = 0;
-    USER = 1;
-    GROUP = 2;
-  }
-  Source source = 1;
-  string source_id = 2;
-  string source_name = 3;
-  Unit unit = 4;
-  Scope scope = 5;
-  // group_id and group_name are set for GROUP scope.
-  string group_id = 6;
-  string group_name = 7;
-  double cap = 8;
-  double used = 9;
+  Unit unit = 1;
+  double cap = 2;
+  double used = 3;
   // resets_at is the end of the cap's current window.
-  google.protobuf.Timestamp resets_at = 10;
+  google.protobuf.Timestamp resets_at = 4;
 }
 
 // =====================================================================

@@ -20,10 +20,9 @@ func TestAgentNetworkInfoFromProto(t *testing.T) {
 		Providers: []*proto.AgentNetworkProvider{{
 			Id: "prov-1", Name: "OpenAI", CatalogId: "openai_api", Exhausted: true,
 			Limits: []*proto.AgentNetworkLimit{{
-				Source: proto.AgentNetworkLimit_ACCOUNT_RULE, Unit: proto.AgentNetworkLimit_USD,
-				Scope: proto.AgentNetworkLimit_GROUP, GroupName: "Engineering", Cap: 5, Used: 5,
+				Unit: proto.AgentNetworkLimit_USD, Cap: 5, Used: 5,
 				ResetsAt: timestamppb.New(resetsAt),
-			}, {Source: proto.AgentNetworkLimit_POLICY}},
+			}, {Unit: proto.AgentNetworkLimit_TOKENS}},
 		}},
 	})
 
@@ -32,9 +31,7 @@ func TestAgentNetworkInfoFromProto(t *testing.T) {
 	assert.NotNil(t, got.Providers[0].Models, "empty lists must serialize as [] for the frontend")
 	require.Len(t, got.Providers[0].Limits, 2)
 	l := got.Providers[0].Limits[0]
-	assert.Equal(t, "account_rule", l.Source)
 	assert.Equal(t, "usd", l.Unit)
-	assert.Equal(t, "group", l.Scope)
 	assert.Equal(t, "2026-11-06T15:00:00Z", l.ResetsAt)
 	assert.Empty(t, got.Providers[0].Limits[1].ResetsAt, "an unset timestamp stays empty")
 

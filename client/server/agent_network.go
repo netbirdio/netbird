@@ -66,19 +66,13 @@ func agentNetworkProviderFromMgm(p *mgmProto.AgentNetworkProvider) *proto.AgentN
 		Unlimited:        p.GetUnlimited(),
 		Exhausted:        p.GetExhausted(),
 	}
-	// The enums mirror the management ones value for value.
+	// The unit enum mirrors the management one value for value.
 	for _, l := range p.GetLimits() {
 		out.Limits = append(out.Limits, &proto.AgentNetworkLimit{
-			Source:     proto.AgentNetworkLimit_Source(l.GetSource()),
-			SourceId:   l.GetSourceId(),
-			SourceName: l.GetSourceName(),
-			Unit:       proto.AgentNetworkLimit_Unit(l.GetUnit()),
-			Scope:      proto.AgentNetworkLimit_Scope(l.GetScope()),
-			GroupId:    l.GetGroupId(),
-			GroupName:  l.GetGroupName(),
-			Cap:        l.GetCap(),
-			Used:       l.GetUsed(),
-			ResetsAt:   l.GetResetsAt(),
+			Unit:     proto.AgentNetworkLimit_Unit(l.GetUnit()),
+			Cap:      l.GetCap(),
+			Used:     l.GetUsed(),
+			ResetsAt: l.GetResetsAt(),
 		})
 	}
 	return out

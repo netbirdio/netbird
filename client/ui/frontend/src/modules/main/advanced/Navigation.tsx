@@ -15,7 +15,6 @@ type TabEntry = {
     value: NavSection;
     label: string;
     icon: ComponentType<LucideProps>;
-    className?: string;
 };
 
 export const Navigation = () => {
@@ -60,8 +59,6 @@ export const Navigation = () => {
             value: "agentNetwork",
             label: t("nav.agentNetwork.title"),
             icon: BotIcon,
-            // The longest label: a third of the bar only fits it on one line with less padding.
-            className: "px-3 whitespace-nowrap",
         });
     }
 
@@ -131,15 +128,15 @@ export const Navigation = () => {
                         onKeyDown={handleKeyDown}
                         disabled={isDisabled}
                         className={cn(
-                            "group relative flex flex-1 items-center justify-center",
-                            "gap-2.5 px-5 py-3.5",
+                            // Sized by label, so a long one is not squeezed into an equal share.
+                            "group relative flex flex-auto items-center justify-center",
+                            "gap-2.5 px-5 py-3.5 whitespace-nowrap",
                             "outline-hidden transition-all",
                             isFirst && "rounded-ss-xl",
                             isLast && "rounded-se-xl",
                             "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-inset",
                             isActive ? "text-netbird" : "text-nb-gray-400 hover:text-nb-gray-300",
                             isDisabled ? "cursor-not-allowed opacity-50" : "cursor-default",
-                            tab.className,
                         )}
                     >
                         <Icon size={14} aria-hidden={"true"} />
