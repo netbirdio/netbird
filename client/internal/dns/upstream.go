@@ -177,6 +177,7 @@ type raceResult struct {
 }
 
 type upstreamAttempt struct {
+	idx     int
 	res     raceResult
 	failure *upstreamFailure
 }
@@ -416,18 +417,21 @@ func (u *upstreamResolverBase) tryRaceStaggered(ctx context.Context, r *dns.Msg,
 	timer := time.NewTimer(stagger)
 	defer timer.Stop()
 
+	started := make([]time.Time, 0, len(group))
+	answered := make([]bool, len(group))
 	next, inFlight := 0, 0
 	startNext := func() {
 		if next >= len(group) || ctx.Err() != nil {
 			return
 		}
-		upstream := group[next]
+		idx, upstream := next, group[next]
 		// Clone before launching: the exchange path mutates EDNS0 options
 		// in-place and r is shared with sibling goroutines.
 		msg := r.Copy()
+		started = append(started, time.Now())
 		go func() {
 			res, failure := u.queryUpstream(ctx, msg, upstream, raceMaxTotalTimeout)
-			attempts <- upstreamAttempt{res: res, failure: failure}
+			attempts <- upstreamAttempt{idx: idx, res: res, failure: failure}
 		}()
 		next++
 		inFlight++
@@ -440,8 +444,9 @@ func (u *upstreamResolverBase) tryRaceStaggered(ctx context.Context, r *dns.Msg,
 		select {
 		case a := <-attempts:
 			inFlight--
+			answered[a.idx] = true
 			if a.failure == nil {
-				a.res.failures = failures
+				a.res.failures = append(failures, u.unansweredFailures(group, started, answered, stagger)...)
 				return a.res
 			}
 			failures = append(failures, *a.failure)
@@ -451,6 +456,25 @@ func (u *upstreamResolverBase) tryRaceStaggered(ctx context.Context, r *dns.Msg,
 		}
 	}
 	return raceResult{failures: failures}
+}
+
+// unansweredFailures reports the upstreams still waiting when another one wins.
+// Their queries end as canceled and are never read, so without this a dead
+// primary leaves no trace in the log.
+func (u *upstreamResolverBase) unansweredFailures(group upstreamRace, started []time.Time, answered []bool, stagger time.Duration) []upstreamFailure {
+	var failures []upstreamFailure
+	for idx, start := range started {
+		elapsed := time.Since(start)
+		if answered[idx] || elapsed < stagger {
+			continue
+		}
+		reason := fmt.Sprintf("no reply after %v", elapsed.Truncate(time.Millisecond))
+		if peerInfo := u.debugUpstreamTimeout(group[idx]); peerInfo != "" {
+			reason += " " + peerInfo
+		}
+		failures = append(failures, upstreamFailure{upstream: group[idx], reason: reason})
+	}
+	return failures
 }
 
 func (u *upstreamResolverBase) queryUpstream(parentCtx context.Context, r *dns.Msg, upstream netip.AddrPort, timeout time.Duration) (raceResult, *upstreamFailure) {

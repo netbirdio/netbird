@@ -1149,3 +1149,39 @@ func TestUpstreamResolver_StaggeredRace(t *testing.T) {
 		})
 	}
 }
+
+// TestUpstreamResolver_StaggeredRaceReportsSilentPrimary checks that a primary
+// still waiting when the secondary wins is reported, so the log keeps the hint
+// that the primary is dead.
+func TestUpstreamResolver_StaggeredRaceReportsSilentPrimary(t *testing.T) {
+	t.Parallel()
+
+	primary := netip.MustParseAddrPort("192.0.2.20:53")
+	secondary := netip.MustParseAddrPort("192.0.2.21:53")
+
+	mockClient := &mockUpstreamResolverPerServer{
+		responses: map[string]mockUpstreamResponse{
+			primary.String():   {msg: buildMockResponse(dns.RcodeSuccess, "192.0.2.100"), delay: 30 * time.Second},
+			secondary.String(): {msg: buildMockResponse(dns.RcodeSuccess, "192.0.2.101")},
+		},
+		rtt: time.Millisecond,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	resolver := &upstreamResolverBase{
+		ctx:             ctx,
+		upstreamClient:  mockClient,
+		upstreamTimeout: UpstreamTimeout,
+	}
+
+	req := new(dns.Msg).SetQuestion("example.com.", dns.TypeA)
+	res := resolver.tryRace(ctx, req, upstreamRace{primary, secondary})
+
+	require.NotNil(t, res.msg, "secondary should answer")
+	assert.Equal(t, secondary, res.upstream, "answer from wrong upstream")
+	require.Len(t, res.failures, 1, "only the silent primary should be reported")
+	assert.Equal(t, primary, res.failures[0].upstream, "reported upstream")
+	assert.Contains(t, res.failures[0].reason, "no reply after", "reported reason")
+}
