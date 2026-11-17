@@ -5,10 +5,15 @@ import (
 	"testing"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
 	"github.com/netbirdio/netbird/management/server/account"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.uber.org/mock/gomock"
 )
 
@@ -129,4 +134,35 @@ func TestGetValidatedPeerWithComponents_DeletedPeer(t *testing.T) {
 	assert.Nil(t, posturechecks)
 	assert.Equal(t, int64(0), dnsforwardPort)
 	assert.NotNil(t, err)
+}
+
+func TestUpdateAffectedPeers_CountsReason(t *testing.T) {
+	ctx := context.Background()
+	reader := sdkmetric.NewManualReader()
+	metrics, err := telemetry.NewAccountManagerMetrics(ctx, sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter("test"))
+	require.NoError(t, err)
+
+	c := Controller{accountManagerMetrics: metrics, peersUpdateManager: update_channel.NewPeersUpdateManager(nil)}
+	reason := types.UpdateReason{Resource: types.UpdateResourceZoneRecord, Operation: types.UpdateOperationCreate}
+
+	require.NoError(t, c.UpdateAffectedPeers(ctx, "account-1", []string{"peer-1"}, reason))
+	require.NoError(t, c.UpdateAffectedPeers(ctx, "account-1", nil, reason))
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(ctx, &rm))
+
+	counts := map[string]int64{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != "management.account.update.account.peers.counter" {
+				continue
+			}
+			for _, dp := range m.Data.(metricdata.Sum[int64]).DataPoints {
+				resource, _ := dp.Attributes.Value("resource")
+				operation, _ := dp.Attributes.Value("operation")
+				counts[resource.AsString()+"/"+operation.AsString()] += dp.Value
+			}
+		}
+	}
+	assert.Equal(t, map[string]int64{"zone_record/create": 1}, counts)
 }

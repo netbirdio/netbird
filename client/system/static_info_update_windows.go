@@ -25,6 +25,7 @@ type Win32_ComputerSystem struct {
 
 type Win32_ComputerSystemProduct struct {
 	Name string
+	UUID string
 }
 
 type Win32_BIOS struct {
@@ -39,7 +40,7 @@ func newStaticInfo() StaticInfo {
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
-		si.SystemSerialNumber, si.SystemProductName, si.SystemManufacturer = sysInfo()
+		si.SystemSerialNumber, si.SystemProductName, si.SystemManufacturer, si.SystemHardwareUUID = sysInfo()
 		wg.Done()
 	}()
 	wg.Add(1)
@@ -66,16 +67,16 @@ func newStaticInfo() StaticInfo {
 	return si
 }
 
-func sysInfo() (serialNumber string, productName string, manufacturer string) {
+func sysInfo() (serialNumber, productName, manufacturer, hardwareUUID string) {
 	var err error
 	serialNumber, err = sysNumber()
 	if err != nil {
 		log.Warnf("failed to get system serial number: %s", err)
 	}
 
-	productName, err = sysProductName()
+	productName, hardwareUUID, err = sysProduct()
 	if err != nil {
-		log.Warnf("failed to get system product name: %s", err)
+		log.Warnf("failed to get system product: %s", err)
 	}
 
 	manufacturer, err = sysManufacturer()
@@ -83,7 +84,7 @@ func sysInfo() (serialNumber string, productName string, manufacturer string) {
 		log.Warnf("failed to get system manufacturer: %s", err)
 	}
 
-	return serialNumber, productName, manufacturer
+	return serialNumber, productName, manufacturer, hardwareUUID
 }
 
 func sysNumber() (string, error) {
@@ -96,18 +97,18 @@ func sysNumber() (string, error) {
 	return dst[0].SerialNumber, nil
 }
 
-func sysProductName() (string, error) {
+// sysProduct returns the product name and the SMBIOS UUID, read from the same WMI
+// class osquery uses for system_info.uuid.
+func sysProduct() (name, hardwareUUID string, err error) {
 	var dst []Win32_ComputerSystemProduct
-	query := wmi.CreateQuery(&dst, "")
-	err := wmi.Query(query, &dst)
-	if err != nil {
-		return "", err
+	if err := wmi.Query(wmi.CreateQuery(&dst, ""), &dst); err != nil {
+		return "", "", err
 	}
 	// `ComputerSystemProduct` could be empty on some virtualized systems
 	if len(dst) < 1 {
-		return "unknown", nil
+		return "unknown", "", nil
 	}
-	return dst[0].Name, nil
+	return dst[0].Name, cleanHardwareUUID(dst[0].UUID), nil
 }
 
 func sysManufacturer() (string, error) {

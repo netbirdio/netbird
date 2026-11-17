@@ -33,6 +33,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness/peerlivenesstest"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/internals/server/config"
@@ -493,7 +494,8 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 	}
 
 	permissionsManager := permissions.NewManager(store)
-	peersManager := peers.NewManager(store, permissionsManager)
+	peerLiveness := peerlivenesstest.NewStarted(t, store)
+	peersManager := peers.NewManager(store, permissionsManager, peerLiveness)
 	jobManager := job.NewJobManager(nil, store, peersManager)
 
 	cacheStore, err := nbcache.NewStore(context.Background(), 100*time.Millisecond, 300*time.Millisecond, 100)
@@ -523,7 +525,7 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := server.NewAccountRequestBuffer(context.Background(), store)
 	networkMapController := controller.NewController(context.Background(), store, metrics, updateManager, requestBuffer, server.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", manager.NewEphemeralManager(store, peersManager), config, nil)
-	accountManager, err := server.BuildManager(context.Background(), config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, ia, metrics, settingsMockManager, permissionsManager, false, cacheStore)
+	accountManager, err := server.BuildManager(context.Background(), config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, ia, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 	if err != nil {
 		return nil, "", err
 	}

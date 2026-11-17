@@ -335,12 +335,12 @@ func (c *Controller) sendUpdateAccountPeersFromData(ctx context.Context, account
 	if len(peersToUpdate) == 0 {
 		return nil
 	}
-	return c.sendUpdatesFromData(ctx, accountID, nmData, peersToUpdate, &reason)
+	return c.sendUpdatesFromData(ctx, accountID, nmData, peersToUpdate, reason)
 }
 
 // sendUpdateForAffectedPeersFromData is the account-free variant of
 // sendUpdateForAffectedPeers.
-func (c *Controller) sendUpdateForAffectedPeersFromData(ctx context.Context, accountID string, peerIDs []string, nmData *networkmap.NetworkMapData) error {
+func (c *Controller) sendUpdateForAffectedPeersFromData(ctx context.Context, accountID string, peerIDs []string, nmData *networkmap.NetworkMapData, reason types.UpdateReason) error {
 	if len(peerIDs) == 0 {
 		log.WithContext(ctx).Tracef("sendUpdateForAffectedPeersFromData: no affected peers")
 		return nil
@@ -354,7 +354,7 @@ func (c *Controller) sendUpdateForAffectedPeersFromData(ctx context.Context, acc
 
 	log.WithContext(ctx).Tracef("sendUpdateForAffectedPeersFromData: sending network map to %d connected peers", len(peersToUpdate))
 
-	return c.sendUpdatesFromData(ctx, accountID, nmData, peersToUpdate, nil)
+	return c.sendUpdatesFromData(ctx, accountID, nmData, peersToUpdate, reason)
 }
 
 // connectedPeersFromData returns the peers with an open update channel. An
@@ -384,7 +384,7 @@ func (c *Controller) connectedPeersFromData(nmData *networkmap.NetworkMapData, a
 	return result
 }
 
-func (c *Controller) sendUpdatesFromData(ctx context.Context, accountID string, nmData *networkmap.NetworkMapData, peersToUpdate []*nmdata.Peer, reason *types.UpdateReason) error {
+func (c *Controller) sendUpdatesFromData(ctx context.Context, accountID string, nmData *networkmap.NetworkMapData, peersToUpdate []*nmdata.Peer, reason types.UpdateReason) error {
 	globalStart := time.Now()
 
 	extraSettings, err := c.settingsManager.GetExtraSettings(ctx, accountID)
@@ -402,7 +402,7 @@ func (c *Controller) sendUpdatesFromData(ctx context.Context, accountID string, 
 	semaphore := make(chan struct{}, 10)
 
 	for _, peer := range peersToUpdate {
-		if reason != nil && c.accountManagerMetrics != nil {
+		if c.accountManagerMetrics != nil {
 			c.accountManagerMetrics.CountNmapTriggered(string(reason.Resource), string(reason.Operation))
 		}
 
@@ -611,14 +611,17 @@ func (c *Controller) UpdateAccountPeers(ctx context.Context, accountID string, r
 }
 
 // UpdateAffectedPeers updates only the specified peers that belong to an account.
-func (c *Controller) UpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) error {
+func (c *Controller) UpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string, reason types.UpdateReason) error {
 	if len(peerIDs) == 0 {
 		return nil
 	}
-	return c.sendUpdateForAffectedPeers(ctx, accountID, peerIDs)
+	if c.accountManagerMetrics != nil {
+		c.accountManagerMetrics.CountUpdateAccountPeersTriggered(string(reason.Resource), string(reason.Operation))
+	}
+	return c.sendUpdateForAffectedPeers(ctx, accountID, peerIDs, reason)
 }
 
-func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID string, peerIDs []string) error {
+func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID string, peerIDs []string, reason types.UpdateReason) error {
 	log.WithContext(ctx).Tracef("sendUpdateForAffectedPeers: account %s, %d affected peers: %v (caller: %s)", accountID, len(peerIDs), peerIDs, util.GetCallerName())
 
 	if !c.hasConnectedPeers(peerIDs) {
@@ -627,7 +630,7 @@ func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID s
 	}
 
 	if nmData := c.getNetworkMapData(ctx, accountID); nmData != nil {
-		return c.sendUpdateForAffectedPeersFromData(ctx, accountID, peerIDs, nmData)
+		return c.sendUpdateForAffectedPeersFromData(ctx, accountID, peerIDs, nmData, reason)
 	}
 
 	account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
@@ -684,6 +687,10 @@ func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID s
 	}
 
 	for _, peer := range peersToUpdate {
+		if c.accountManagerMetrics != nil {
+			c.accountManagerMetrics.CountNmapTriggered(string(reason.Resource), string(reason.Operation))
+		}
+
 		wg.Add(1)
 		semaphore <- struct{}{}
 		go func(p *nbpeer.Peer) {
@@ -1011,7 +1018,7 @@ func (c *Controller) BufferUpdateAffectedPeers(ctx context.Context, accountID st
 	collected := b.drainPeerIDs()
 	go func() {
 		defer b.sendMu.Unlock()
-		_ = c.sendUpdateForAffectedPeers(bgCtx, accountID, collected)
+		_ = c.sendUpdateForAffectedPeers(bgCtx, accountID, collected, reason)
 
 		// Check if more peer IDs accumulated while we were sending.
 		if !b.hasPending() {
@@ -1022,7 +1029,7 @@ func (c *Controller) BufferUpdateAffectedPeers(ctx context.Context, accountID st
 		b.setTimer(time.Duration(c.updateAccountPeersBufferInterval.Load()), func() {
 			ids := b.drainPeerIDs()
 			if len(ids) > 0 {
-				_ = c.sendUpdateForAffectedPeers(bgCtx, accountID, ids)
+				_ = c.sendUpdateForAffectedPeers(bgCtx, accountID, ids, reason)
 			}
 		})
 	}()

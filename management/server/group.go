@@ -91,6 +91,10 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 			return err
 		}
 
+		if err = validateGroupResources(ctx, transaction, accountID, newGroup.Resources); err != nil {
+			return err
+		}
+
 		newGroup.AccountID = accountID
 
 		events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
@@ -121,7 +125,7 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 		storeEvent()
 	}
 
-	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationCreate})
 
 	return nil
 }
@@ -151,6 +155,10 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 		oldGroup, err := transaction.GetGroupByID(ctx, store.LockingStrengthNoKeyUpdate, accountID, newGroup.ID)
 		if err != nil {
 			return status.Errorf(status.NotFound, "group with ID %s not found", newGroup.ID)
+		}
+
+		if err = validateGroupResources(ctx, transaction, accountID, addedResources(oldGroup, newGroup)); err != nil {
+			return err
 		}
 
 		newGroup.PublicID = oldGroup.PublicID
@@ -211,7 +219,7 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 		storeEvent()
 	}
 
-	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 
 	return nil
 }
@@ -274,6 +282,52 @@ func validateGroupPeers(ctx context.Context, transaction store.Store, accountID 
 	return nil
 }
 
+// validateGroupResources rejects resources that do not exist in the account.
+func validateGroupResources(ctx context.Context, transaction store.Store, accountID string, resources []types.Resource) error {
+	for _, res := range resources {
+		if err := validateGroupResource(ctx, transaction, accountID, res); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateGroupResource(ctx context.Context, transaction store.Store, accountID string, res types.Resource) error {
+	var err error
+	switch res.Type {
+	case types.ResourceTypePeer:
+		_, err = transaction.GetPeerByID(ctx, store.LockingStrengthNone, accountID, res.ID)
+	case types.ResourceTypeHost, types.ResourceTypeSubnet, types.ResourceTypeDomain:
+		_, err = transaction.GetNetworkResourceByID(ctx, store.LockingStrengthNone, accountID, res.ID)
+	default:
+		return status.Errorf(status.InvalidArgument, "resource %s has invalid type %q", res.ID, res.Type)
+	}
+	if err == nil {
+		return nil
+	}
+	if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
+		return status.Errorf(status.InvalidArgument, "resource with ID %s not found", res.ID)
+	}
+	return err
+}
+
+// addedResources returns the resources in newGroup that are not in oldGroup, so
+// pre-existing dangling references do not block unrelated updates.
+func addedResources(oldGroup, newGroup *types.Group) []types.Resource {
+	existing := make(map[types.Resource]struct{}, len(oldGroup.Resources))
+	for _, res := range oldGroup.Resources {
+		existing[res] = struct{}{}
+	}
+
+	var added []types.Resource
+	for _, res := range newGroup.Resources {
+		if _, ok := existing[res]; !ok {
+			added = append(added, res)
+		}
+	}
+	return added
+}
+
 // CreateGroups adds new groups to the account.
 // Note: This function does not acquire the global lock.
 // It is the caller's responsibility to ensure proper locking is in place before invoking this method.
@@ -298,6 +352,10 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 		var events []func()
 		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 			if err = validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
+				return err
+			}
+
+			if err = validateGroupResources(ctx, transaction, accountID, newGroup.Resources); err != nil {
 				return err
 			}
 
@@ -335,7 +393,7 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 		storeEvent()
 	}
 
-	go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids())
+	go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids(), types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationCreate})
 
 	return globalErr
 }
@@ -376,7 +434,7 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 		storeEvent()
 	}
 
-	go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids())
+	go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids(), types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 
 	return globalErr
 }
@@ -395,6 +453,11 @@ func (am *DefaultAccountManager) updateSingleGroup(ctx context.Context, accountI
 		if err != nil {
 			return err
 		}
+
+		if err := validateGroupResources(ctx, transaction, accountID, addedResources(oldGroup, newGroup)); err != nil {
+			return err
+		}
+
 		newGroup.PublicID = oldGroup.PublicID
 
 		if newGroup.Equal(oldGroup) {
@@ -587,7 +650,7 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 	affected := make(affectedPeerSet)
 	affected.add(snap.Expand(ctx, accountID, change))
 	affected.add(ipv6Snap.Expand(ctx, accountID, ipv6Change))
-	go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids())
+	go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids(), types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationDelete})
 
 	return allErrors
 }
@@ -645,7 +708,7 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 		return err
 	}
 
-	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 
 	return nil
 }
@@ -681,7 +744,7 @@ func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID
 		return err
 	}
 
-	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 
 	return nil
 }
@@ -718,7 +781,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 		return err
 	}
 
-	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 
 	return nil
 }
@@ -756,7 +819,7 @@ func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accoun
 		return err
 	}
 
-	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 
 	return nil
 }

@@ -276,6 +276,7 @@ message PeerSystemMeta {
   repeated PeerCapability capabilities = 18;
   int32 syncMessageVersion = 19;
   repeated CertificateProof certificateProofs = 20;
+  string sysHardwareUUID = 21;
 }
 
 message LoginResponse {

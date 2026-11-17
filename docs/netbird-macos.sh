@@ -73,6 +73,7 @@ disableAdvancedView="$NULL"           # tristate at the daemon
 rosenpassEnabled="$NULL"
 rosenpassPermissive="$NULL"
 wireguardPort='51820'
+extraIFaceBlackList="$NULL"                # comma-separated interface name prefixes, added to the built-in list
 splitTunnelMode="$NULL"                    # "allow" or "disallow", Android-only at the daemon level
 splitTunnelApps="$NULL"                    # comma-separated app IDs, Android-only
 ##############################################################################
@@ -205,6 +206,7 @@ main() {
   is_set "$rosenpassEnabled"          && emit_bool    rosenpassEnabled          "$rosenpassEnabled"
   is_set "$rosenpassPermissive"       && emit_bool    rosenpassPermissive       "$rosenpassPermissive"
   is_set "$wireguardPort"             && emit_int     wireguardPort             "$wireguardPort"
+  is_set "$extraIFaceBlackList"       && emit_string  extraIFaceBlackList       "$extraIFaceBlackList"
   is_set "$splitTunnelMode"           && emit_string  splitTunnelMode           "$splitTunnelMode"
   is_set "$splitTunnelApps"           && emit_string  splitTunnelApps           "$splitTunnelApps"
 

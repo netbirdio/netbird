@@ -2,10 +2,13 @@ package peers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness"
+	peerlivenesscontroller "github.com/netbirdio/netbird/management/internals/controllers/peerliveness/controller"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
@@ -28,7 +31,7 @@ func TestManager_GetPeersPaginated_HappyPath(t *testing.T) {
 	// ValidateUserPermissions
 	permissionsManager := permissions.NewMockManager(ctrl)
 
-	m := NewManager(mockStore, permissionsManager)
+	m := NewManager(mockStore, permissionsManager, peerlivenesscontroller.NewController(mockStore))
 
 	mockStore.EXPECT().GetUserByUserID(gomock.Any(), gomock.Eq(store.LockingStrengthNone), gomock.Eq("test-user")).Times(1).
 		Return(&types.User{
@@ -55,7 +58,7 @@ func TestManager_GetPeersPaginated_GetUserWithError(t *testing.T) {
 	mockStore := store.NewMockStore(ctrl)
 	permissionsManager := permissions.NewMockManager(ctrl)
 
-	m := NewManager(mockStore, permissionsManager)
+	m := NewManager(mockStore, permissionsManager, peerlivenesscontroller.NewController(mockStore))
 
 	mockStore.EXPECT().GetUserByUserID(gomock.Any(), gomock.Eq(store.LockingStrengthNone), gomock.Eq("test-user")).Times(1).
 		Return(nil, fmt.Errorf("boom!"))
@@ -73,7 +76,7 @@ func TestManager_GetPeersPaginated_NoPermission(t *testing.T) {
 	mockStore := store.NewMockStore(ctrl)
 	permissionsManager := permissions.NewMockManager(ctrl)
 
-	m := NewManager(mockStore, permissionsManager)
+	m := NewManager(mockStore, permissionsManager, peerlivenesscontroller.NewController(mockStore))
 
 	mockStore.EXPECT().GetUserByUserID(gomock.Any(), gomock.Eq(store.LockingStrengthNone), gomock.Eq("test-user")).Times(1).
 		Return(&types.User{
@@ -100,7 +103,7 @@ func TestManager_GetPeersPaginated_NoPermission_GetUserPeers_WithError(t *testin
 	mockStore := store.NewMockStore(ctrl)
 	permissionsManager := permissions.NewMockManager(ctrl)
 
-	m := NewManager(mockStore, permissionsManager)
+	m := NewManager(mockStore, permissionsManager, peerlivenesscontroller.NewController(mockStore))
 
 	mockStore.EXPECT().GetUserByUserID(gomock.Any(), gomock.Eq(store.LockingStrengthNone), gomock.Eq("test-user")).Times(1).
 		Return(&types.User{
@@ -126,7 +129,7 @@ func TestManager_GetPeersPaginated_GetAccountSettings_WithError(t *testing.T) {
 	mockStore := store.NewMockStore(ctrl)
 	permissionsManager := permissions.NewMockManager(ctrl)
 
-	m := NewManager(mockStore, permissionsManager)
+	m := NewManager(mockStore, permissionsManager, peerlivenesscontroller.NewController(mockStore))
 
 	mockStore.EXPECT().GetUserByUserID(gomock.Any(), gomock.Eq(store.LockingStrengthNone), gomock.Eq("test-user")).Times(1).
 		Return(&types.User{
@@ -149,7 +152,7 @@ func TestManager_GetPeersPaginated_NoPermission_User_IsRestrictable_ViewUnblocke
 	mockStore := store.NewMockStore(ctrl)
 	permissionsManager := permissions.NewMockManager(ctrl)
 
-	m := NewManager(mockStore, permissionsManager)
+	m := NewManager(mockStore, permissionsManager, peerlivenesscontroller.NewController(mockStore))
 
 	mockStore.EXPECT().GetUserByUserID(gomock.Any(), gomock.Eq(store.LockingStrengthNone), gomock.Eq("test-user")).Times(1).
 		Return(&types.User{
@@ -177,7 +180,7 @@ func TestManager_GetPeersPaginated_NoPermission_User_IsRestrictable_ViewBlocked(
 	mockStore := store.NewMockStore(ctrl)
 	permissionsManager := permissions.NewMockManager(ctrl)
 
-	m := NewManager(mockStore, permissionsManager)
+	m := NewManager(mockStore, permissionsManager, peerlivenesscontroller.NewController(mockStore))
 
 	mockStore.EXPECT().GetUserByUserID(gomock.Any(), gomock.Eq(store.LockingStrengthNone), gomock.Eq("test-user")).Times(1).
 		Return(&types.User{
@@ -205,7 +208,7 @@ func TestManager_DeletePeers_IncrementsNetworkSerial(t *testing.T) {
 	accountManager := account.NewMockManager(ctrl)
 	networkMapController := network_map.NewMockController(ctrl)
 
-	m := NewManager(mockStore, permissions.NewMockManager(ctrl)).(*managerImpl)
+	m := NewManager(mockStore, permissions.NewMockManager(ctrl), peerlivenesscontroller.NewController(mockStore)).(*managerImpl)
 	m.accountManager = accountManager
 	m.networkMapController = networkMapController
 
@@ -226,4 +229,74 @@ func TestManager_DeletePeers_IncrementsNetworkSerial(t *testing.T) {
 	accountManager.EXPECT().UpdateAccountPeers(gomock.Any(), "test-account", gomock.Any())
 
 	assert.NoError(t, m.DeletePeers(ctx, "test-account", []string{"peer-1", "peer-2"}, "test-user", false))
+}
+
+func TestManager_DeletePeers_ForgetsPeersAfterCommit(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	txStore := store.NewMockStore(ctrl)
+	accountManager := account.NewMockManager(ctrl)
+	networkMapController := network_map.NewMockController(ctrl)
+	liveness := peerliveness.NewMockController(ctrl)
+
+	m := NewManager(mockStore, permissions.NewMockManager(ctrl), liveness).(*managerImpl)
+	m.accountManager = accountManager
+	m.networkMapController = networkMapController
+
+	mockStore.EXPECT().GetAccountSettings(gomock.Any(), store.LockingStrengthNone, "test-account").Return(&types.Settings{}, nil)
+	networkMapController.EXPECT().GetDNSDomain(gomock.Any()).Return("netbird.selfhosted")
+
+	committed := false
+	mockStore.EXPECT().ExecuteInTransaction(gomock.Any(), gomock.Any()).Times(2).
+		DoAndReturn(func(_ context.Context, fn func(store.Store) error) error {
+			committed = false
+			err := fn(txStore)
+			committed = err == nil
+			return err
+		})
+
+	for _, id := range []string{"peer-1", "peer-2"} {
+		txStore.EXPECT().GetPeerByID(gomock.Any(), store.LockingStrengthNone, "test-account", id).Return(&peer.Peer{ID: id, Status: &peer.PeerStatus{}}, nil)
+		txStore.EXPECT().RemovePeerFromAllGroups(gomock.Any(), id).Return(nil)
+		txStore.EXPECT().GetPolicyRulesByResourceID(gomock.Any(), store.LockingStrengthNone, "test-account", id).Return(nil, nil)
+		txStore.EXPECT().DeletePeer(gomock.Any(), "test-account", id).Return(nil)
+		liveness.EXPECT().ForgetPeer(id).Do(func(string) { assert.True(t, committed, "ForgetPeer ran before the commit") })
+	}
+	txStore.EXPECT().IncrementNetworkSerial(gomock.Any(), "test-account").Times(2).Return(nil)
+	accountManager.EXPECT().StoreEvent(gomock.Any(), "test-user", gomock.Any(), "test-account", gomock.Any(), gomock.Any()).Times(2)
+	accountManager.EXPECT().UpdateAccountPeers(gomock.Any(), "test-account", gomock.Any())
+
+	assert.NoError(t, m.DeletePeers(context.Background(), "test-account", []string{"peer-1", "peer-2"}, "test-user", false))
+}
+
+func TestManager_DeletePeers_DoesNotForgetPeerOnTransactionFailure(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	txStore := store.NewMockStore(ctrl)
+	accountManager := account.NewMockManager(ctrl)
+	networkMapController := network_map.NewMockController(ctrl)
+	liveness := peerliveness.NewMockController(ctrl)
+
+	m := NewManager(mockStore, permissions.NewMockManager(ctrl), liveness).(*managerImpl)
+	m.accountManager = accountManager
+	m.networkMapController = networkMapController
+
+	mockStore.EXPECT().GetAccountSettings(gomock.Any(), store.LockingStrengthNone, "test-account").Return(&types.Settings{}, nil)
+	networkMapController.EXPECT().GetDNSDomain(gomock.Any()).Return("netbird.selfhosted")
+	mockStore.EXPECT().ExecuteInTransaction(gomock.Any(), gomock.Any()).Times(2).
+		DoAndReturn(func(_ context.Context, fn func(store.Store) error) error { return fn(txStore) })
+
+	for _, id := range []string{"peer-1", "peer-2"} {
+		txStore.EXPECT().GetPeerByID(gomock.Any(), store.LockingStrengthNone, "test-account", id).Return(&peer.Peer{ID: id, Status: &peer.PeerStatus{}}, nil)
+		txStore.EXPECT().RemovePeerFromAllGroups(gomock.Any(), id).Return(nil)
+		txStore.EXPECT().GetPolicyRulesByResourceID(gomock.Any(), store.LockingStrengthNone, "test-account", id).Return(nil, nil)
+	}
+	txStore.EXPECT().DeletePeer(gomock.Any(), "test-account", "peer-1").Return(errors.New("boom"))
+	txStore.EXPECT().DeletePeer(gomock.Any(), "test-account", "peer-2").Return(nil)
+	txStore.EXPECT().IncrementNetworkSerial(gomock.Any(), "test-account").Return(nil)
+	liveness.EXPECT().ForgetPeer("peer-2")
+	accountManager.EXPECT().StoreEvent(gomock.Any(), "test-user", "peer-2", "test-account", gomock.Any(), gomock.Any())
+	accountManager.EXPECT().UpdateAccountPeers(gomock.Any(), "test-account", gomock.Any())
+
+	assert.NoError(t, m.DeletePeers(context.Background(), "test-account", []string{"peer-1", "peer-2"}, "test-user", false))
 }

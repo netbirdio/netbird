@@ -17,6 +17,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness/peerlivenesstest"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/internals/server/config"
@@ -102,7 +103,8 @@ func createManagerWithEmbeddedIdPModeAndSetup(
 		AnyTimes()
 
 	permissionsManager := permissions.NewManager(testStore)
-	peersManager := peers.NewManager(testStore, permissionsManager)
+	peerLiveness := peerlivenesstest.NewStarted(t, testStore)
+	peersManager := peers.NewManager(testStore, permissionsManager, peerLiveness)
 
 	cacheStore, err := cache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
 	if err != nil {
@@ -112,7 +114,7 @@ func createManagerWithEmbeddedIdPModeAndSetup(
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, testStore)
 	networkMapController := controller.NewController(ctx, testStore, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(testStore, peersManager), &config.Config{}, nil)
-	manager, err := BuildManager(ctx, &config.Config{}, testStore, networkMapController, job.NewJobManager(nil, testStore, peersManager), idpManager, singleAccountModeDomain, eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore)
+	manager, err := BuildManager(ctx, &config.Config{}, testStore, networkMapController, job.NewJobManager(nil, testStore, peersManager), idpManager, singleAccountModeDomain, eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 	if err != nil {
 		return nil, nil, err
 	}

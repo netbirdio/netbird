@@ -504,15 +504,15 @@ func (mr *MockManagerMockRecorder) DeleteUserInvite(ctx, accountID, initiatorUse
 }
 
 // ExpandAndUpdateAffected mocks base method.
-func (m *MockManager) ExpandAndUpdateAffected(ctx context.Context, accountID string, snap *affectedpeers.Snapshot, change affectedpeers.Change) {
+func (m *MockManager) ExpandAndUpdateAffected(ctx context.Context, accountID string, snap *affectedpeers.Snapshot, change affectedpeers.Change, reason types.UpdateReason) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "ExpandAndUpdateAffected", ctx, accountID, snap, change)
+	m.ctrl.Call(m, "ExpandAndUpdateAffected", ctx, accountID, snap, change, reason)
 }
 
 // ExpandAndUpdateAffected indicates an expected call of ExpandAndUpdateAffected.
-func (mr *MockManagerMockRecorder) ExpandAndUpdateAffected(ctx, accountID, snap, change any) *gomock.Call {
+func (mr *MockManagerMockRecorder) ExpandAndUpdateAffected(ctx, accountID, snap, change, reason any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExpandAndUpdateAffected", reflect.TypeOf((*MockManager)(nil).ExpandAndUpdateAffected), ctx, accountID, snap, change)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExpandAndUpdateAffected", reflect.TypeOf((*MockManager)(nil).ExpandAndUpdateAffected), ctx, accountID, snap, change, reason)
 }
 
 // ExtendPeerSession mocks base method.
@@ -1381,20 +1381,6 @@ func (m *MockManager) MarkPeerDisconnected(ctx context.Context, peerKey, account
 func (mr *MockManagerMockRecorder) MarkPeerDisconnected(ctx, peerKey, accountID, sessionStartedAt any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPeerDisconnected", reflect.TypeOf((*MockManager)(nil).MarkPeerDisconnected), ctx, peerKey, accountID, sessionStartedAt)
-}
-
-// MarkPeersDisconnected mocks base method.
-func (m *MockManager) MarkPeersDisconnected(ctx context.Context, sessions []types.PeerSession) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MarkPeersDisconnected", ctx, sessions)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// MarkPeersDisconnected indicates an expected call of MarkPeersDisconnected.
-func (mr *MockManagerMockRecorder) MarkPeersDisconnected(ctx, sessions any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPeersDisconnected", reflect.TypeOf((*MockManager)(nil).MarkPeersDisconnected), ctx, sessions)
 }
 
 // OnPeerDisconnected mocks base method.

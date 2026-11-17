@@ -25,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/formatter/hook"
 	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/account"
@@ -85,6 +86,7 @@ type DefaultAccountManager struct {
 
 	settingsManager settings.Manager
 	serviceManager  service.Manager
+	peerLiveness    peerliveness.Controller
 
 	// config contains the management server configuration
 	config *nbconfig.Config
@@ -228,6 +230,7 @@ func BuildManager(
 	permissionsManager permissions.Manager,
 	disableDefaultPolicy bool,
 	sharedCacheStore cacheStore.StoreInterface,
+	peerLiveness peerliveness.Controller,
 ) (*DefaultAccountManager, error) {
 	start := time.Now()
 	defer func() {
@@ -254,6 +257,7 @@ func BuildManager(
 		settingsManager:          settingsManager,
 		permissionsManager:       permissionsManager,
 		disableDefaultPolicy:     disableDefaultPolicy,
+		peerLiveness:             peerLiveness,
 	}
 
 	am.certChallenges = newCertChallengeRefresher(am.refreshCertificateChallenges)
@@ -317,6 +321,28 @@ func (am *DefaultAccountManager) GetIdpManager() idp.Manager {
 	return am.idpManager
 }
 
+// fillIntegrationExtraSettings sets the integration-owned extra fields on the returned
+// settings of an update that omitted extra, since the stored row never holds them. The
+// update is already persisted, so a failed read leaves the settings as they are.
+func (am *DefaultAccountManager) fillIntegrationExtraSettings(ctx context.Context, accountID string, settings *types.Settings) {
+	if settings.Extra == nil {
+		return
+	}
+
+	current, err := am.settingsManager.GetSettings(ctx, accountID, activity.SystemInitiator)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed to read integration extra settings for account %s: %v", accountID, err)
+		return
+	}
+	if current.Extra == nil {
+		return
+	}
+
+	// Copy so the struct shared with the previously loaded settings is not mutated.
+	settings.Extra = settings.Extra.Copy()
+	settings.Extra.CopyIntegrationFieldsFrom(current.Extra)
+}
+
 // UpdateAccountSettings updates Account settings.
 // Only users with role UserRoleAdmin can update the account.
 // User that performs the update has to belong to the account.
@@ -334,6 +360,10 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	// Canonicalize the incoming range so a caller-supplied prefix with host bits
 	// (e.g. 100.64.1.1/16) compares equal to the masked form stored on network.Net.
 	newSettings.NetworkRange = newSettings.NetworkRange.Masked()
+
+	// The integration-owned extra fields are not stored in the account settings row, so an
+	// update that omits extra must leave them to the integration instead of zeroing them.
+	extraSupplied := newSettings.Extra != nil
 
 	var oldSettings *types.Settings
 	var updateAccountPeers bool
@@ -448,9 +478,14 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, err
 	}
 
-	extraSettingsChanged, err := am.settingsManager.UpdateExtraSettings(ctx, accountID, userID, newSettings.Extra)
-	if err != nil {
-		return nil, err
+	var extraSettingsChanged bool
+	if extraSupplied {
+		extraSettingsChanged, err = am.settingsManager.UpdateExtraSettings(ctx, accountID, userID, newSettings.Extra)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		am.fillIntegrationExtraSettings(ctx, accountID, newSettings)
 	}
 
 	am.handleRoutingPeerDNSResolutionSettings(ctx, oldSettings, newSettings, userID, accountID)
@@ -508,7 +543,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	case updateAccountPeers || extraSettingsChanged || groupChangesAffectPeers:
 		go am.UpdateAccountPeers(context.WithoutCancel(ctx), accountID, types.UpdateReason{Resource: types.UpdateResourceAccountSettings, Operation: types.UpdateOperationUpdate})
 	case ipv6Snap != nil:
-		am.ExpandAndUpdateAffected(ctx, accountID, ipv6Snap, ipv6Change)
+		am.ExpandAndUpdateAffected(ctx, accountID, ipv6Snap, ipv6Change, types.UpdateReason{Resource: types.UpdateResourceAccountSettings, Operation: types.UpdateOperationUpdate})
 	}
 
 	return newSettings, nil
@@ -1012,6 +1047,7 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 		log.WithContext(ctx).Errorf("failed deleting account %s. error: %s", accountID, err)
 		return err
 	}
+	am.peerLiveness.ForgetAccount(account.Id)
 	am.peerLoginExpiry.Cancel(ctx, []string{account.Id})
 	am.peerInactivityExpiry.Cancel(ctx, []string{account.Id})
 	am.certChallenges.Forget(account.Id)
@@ -2046,27 +2082,15 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID 
 	return peer, netMap, postureChecks, dnsfwdPort, nil
 }
 
-// OnPeerDisconnected is invoked when a sync stream ends. It marks the
-// peer disconnected only when the stored SessionStartedAt matches the
-// nanosecond token derived from streamStartTime — i.e. only when this
-// is the stream that currently owns the peer's session. A mismatch
-// means a newer stream has already replaced us, so the disconnect is
-// dropped.
+// OnPeerDisconnected is invoked when a sync stream ends. It releases the
+// peer's connection only when the stored session matches the nanosecond
+// token derived from streamStartTime — i.e. only when this is the stream
+// that currently owns the peer's session. A mismatch means a newer stream
+// has already replaced us, so the disconnect is dropped.
 func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string, streamStartTime time.Time) error {
 	if err := am.MarkPeerDisconnected(ctx, peerPubKey, accountID, streamStartTime.UnixNano()); err != nil {
 		log.WithContext(ctx).Warnf("failed marking peer as disconnected %s %v", peerPubKey, err)
 	}
-	return nil
-}
-
-// MarkPeersDisconnected marks the peers of the given sessions disconnected in batched writes,
-// skipping every peer whose stored session differs from the given one.
-func (am *DefaultAccountManager) MarkPeersDisconnected(ctx context.Context, sessions []types.PeerSession) error {
-	marked, err := am.Store.MarkPeersDisconnectedIfSameSession(ctx, sessions)
-	if err != nil {
-		return fmt.Errorf("mark peers disconnected: %w", err)
-	}
-	log.WithContext(ctx).Infof("marked %d of %d peers as disconnected", marked, len(sessions))
 	return nil
 }
 

@@ -7,7 +7,18 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 )
+
+func TestAccessibleByReachesUnownedProfileWhenOwnershipDisabled(t *testing.T) {
+	t.Setenv(ipcauth.EnvDisableProfileOwnership, "true")
+
+	unowned := Profile{}
+	caller := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
+
+	assert.True(t, unowned.AccessibleBy(caller), "an unowned profile is reachable with ownership off")
+}
 
 func withTempConfigDir(t *testing.T, testFunc func(configDir string)) {
 	t.Helper()
@@ -27,7 +38,10 @@ func withPatchedGlobals(t *testing.T, configDir string, testFunc func()) {
 	DefaultConfigPath = filepath.Join(configDir, "default.json")
 	ActiveProfileStatePath = filepath.Join(configDir, "active_profile.json")
 	oldDefaultConfigPath = filepath.Join(configDir, "old_config.json")
-	ConfigDirOverride = configDir
+	// A subdirectory, mirroring production: loadAllProfiles only descends into
+	// directories under DefaultConfigPathDir, so profiles written straight into
+	// the config root would be invisible to it.
+	ConfigDirOverride = filepath.Join(configDir, DefaultProfilePathDir)
 	// Clean up any files in the config dir to ensure isolation
 	os.RemoveAll(configDir)
 	os.MkdirAll(configDir, 0755) //nolint: errcheck

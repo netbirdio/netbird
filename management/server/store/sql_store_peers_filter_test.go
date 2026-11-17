@@ -3,19 +3,17 @@ package store
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
 func TestSqlStore_FilterPeers(t *testing.T) {
 	runTestForAllEnginesNoSqliteSeed(t, "../testdata/peers_pagination.sql", func(t *testing.T, engine string, store Store) {
+		require.NoError(t, store.RegisterInstance(context.Background(), "instance-1", "host"))
 		for _, peerID := range []string{"peer-id-one", "peer-id-two"} {
-			peer, err := store.GetPeerByID(context.Background(), LockingStrengthNone, "account-1", peerID)
+			applied, err := store.ConnectPeer(context.Background(), "account-1", peerID, "instance-1", 1)
 			require.NoError(t, err)
-			peer.Status.Connected = true
-			peer.Status.LastSeen = time.Now().UTC()
-			require.NoError(t, store.SavePeerStatus(context.Background(), "account-1", peerID, *peer.Status))
+			require.True(t, applied)
 		}
 
 		var tests = []struct {
@@ -35,6 +33,12 @@ func TestSqlStore_FilterPeers(t *testing.T) {
 				filters:        PeerFilters{Connected: new(true)},
 				expectedLength: 2,
 				expectedPeers:  []string{"Peer-1-name", "peer-2-name"},
+			},
+			{
+				description:    "filter by disconnected status",
+				filters:        PeerFilters{Connected: new(false)},
+				expectedLength: 4,
+				expectedPeers:  []string{"peer-3-name", "peer-4-name", "peer-5-name", "peer-6-name"},
 			},
 			{
 				description:    "filter by approval required status",

@@ -15,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/version"
 )
 
 var (
@@ -54,12 +55,11 @@ func init() {
 	statusCmd.PersistentFlags().StringSliceVarP(&prefixNamesFilter, "filter-by-names", "N", []string{}, "filters the detailed output by a list of one or more peer FQDN or hostnames, e.g., --filter-by-names peer-a,peer-b.netbird.cloud")
 	statusCmd.PersistentFlags().StringVarP(&statusFilter, "filter-by-status", "S", "", "filters the detailed output by connection status(idle|connecting|connected), e.g., --filter-by-status connected")
 	statusCmd.PersistentFlags().StringVarP(&connectionTypeFilter, "filter-by-connection-type", "T", "", "filters the detailed output by connection type (P2P|Relayed), e.g., --filter-by-connection-type P2P")
+	statusCmd.Flags().AddFlagSet(anonymizeFlags)
 	statusCmd.PersistentFlags().StringVarP(&checkFlag, "check", "C", "", "run a health check and exit with code 0 on success, 1 on failure (live|ready|startup)")
 }
 
 func statusFunc(cmd *cobra.Command, args []string) error {
-	SetFlagsFromEnvVars(rootCmd)
-
 	cmd.SetOut(cmd.OutOrStdout())
 
 	if checkFlag != "" {
@@ -97,6 +97,34 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 			"More info: https://docs.netbird.io/how-to/register-machines-using-setup-keys\n\n",
 			resp.GetStatus(),
 		)
+		return nil
+	}
+
+	if resp.GetFullStatus() == nil {
+		output := nbstatus.OutputOverview{
+			DaemonVersion: resp.GetDaemonVersion(),
+			CliVersion:    version.NetbirdVersion(),
+			DaemonStatus:  nbstatus.DaemonStatus(status),
+		}
+		var outputString string
+		var err error
+		switch {
+		case jsonFlag:
+			outputString, err = output.JSON()
+		case yamlFlag:
+			outputString, err = output.YAML()
+		default:
+			outputString = fmt.Sprintf("Daemon status: %s\n"+
+				"Daemon version: %s\nCLI version: %s\n\n"+
+				"Detailed status is unavailable: the connection belongs to another user.\n",
+				status, resp.GetDaemonVersion(), version.NetbirdVersion())
+		}
+
+		if err != nil {
+			return err
+		}
+
+		cmd.Print(outputString)
 		return nil
 	}
 
@@ -167,10 +195,7 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 func getStatus(ctx context.Context, fullPeerStatus bool, shouldRunProbes bool) (*proto.StatusResponse, error) {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
-		//nolint
-		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
-			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
+		return nil, daemonConnectError(err)
 	}
 	defer conn.Close()
 

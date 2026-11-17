@@ -830,3 +830,71 @@ func TestMigrateAgentNetworkSettingsToDomain_ResumesAfterPartialDrop(t *testing.
 	assert.Equal(t, "violet.eu.proxy.netbird.io", row.Domain, "migrated values must be untouched")
 	assert.Equal(t, "eu.proxy.netbird.io", row.ProxyAddress, "migrated values must be untouched")
 }
+
+type legacyLivenessPeer struct {
+	ID                 string `gorm:"primaryKey"`
+	AccountID          string
+	PeerStatusLastSeen *time.Time
+}
+
+func (legacyLivenessPeer) TableName() string {
+	return "peers"
+}
+
+func setupPeerConnectionsTestDB(t *testing.T, peers any) *gorm.DB {
+	t.Helper()
+	db := setupDatabase(t)
+	require.NoError(t, db.Migrator().DropTable(&nbpeer.Connection{}))
+	require.NoError(t, db.Migrator().DropTable("peers"))
+	require.NoError(t, db.AutoMigrate(peers))
+	return db
+}
+
+func TestBackfillPeerConnections(t *testing.T) {
+	ctx := context.Background()
+	db := setupPeerConnectionsTestDB(t, &legacyLivenessPeer{})
+
+	seen := time.Now().UTC().Add(-3 * time.Hour).Truncate(time.Second)
+	require.NoError(t, db.Create([]legacyLivenessPeer{
+		{ID: "peer1", AccountID: "acc1", PeerStatusLastSeen: &seen},
+		{ID: "peer2", AccountID: "acc2"},
+	}).Error)
+
+	require.NoError(t, migration.BackfillPeerConnections[nbpeer.Connection](ctx, db))
+
+	require.True(t, db.Migrator().HasTable(&nbpeer.Connection{}), "the backfill creates the table")
+	var rows []nbpeer.Connection
+	require.NoError(t, db.Order("peer_id").Find(&rows).Error)
+	require.Len(t, rows, 2)
+	assert.Equal(t, "peer1", rows[0].PeerID)
+	assert.Equal(t, "acc1", rows[0].AccountID)
+	assert.Nil(t, rows[0].InstanceID, "no instance holds a backfilled peer")
+	assert.Zero(t, rows[0].SessionStartedAt)
+	require.NotNil(t, rows[0].LastSeen)
+	assert.True(t, seen.Equal(rows[0].LastSeen.UTC()), "last seen is carried over: %v", rows[0].LastSeen)
+	assert.Equal(t, "peer2", rows[1].PeerID)
+	assert.Equal(t, "acc2", rows[1].AccountID)
+	assert.Nil(t, rows[1].LastSeen, "a peer that was never seen stays so")
+
+	later := seen.Add(time.Hour)
+	require.NoError(t, db.Model(&nbpeer.Connection{}).Where("peer_id = ?", "peer1").Update("last_seen", later).Error)
+	require.NoError(t, db.Create(&legacyLivenessPeer{ID: "peer3", AccountID: "acc1", PeerStatusLastSeen: &seen}).Error)
+
+	require.NoError(t, migration.BackfillPeerConnections[nbpeer.Connection](ctx, db))
+
+	var count int64
+	require.NoError(t, db.Model(&nbpeer.Connection{}).Count(&count).Error)
+	assert.Equal(t, int64(2), count, "once the table exists the peers table is not read again")
+	var peer1 nbpeer.Connection
+	require.NoError(t, db.Where("peer_id = ?", "peer1").Take(&peer1).Error)
+	assert.True(t, later.Equal(peer1.LastSeen.UTC()), "an existing row is not overwritten")
+}
+
+func TestBackfillPeerConnections_NoLegacyColumn(t *testing.T) {
+	db := setupPeerConnectionsTestDB(t, &nbpeer.Peer{})
+	require.False(t, db.Migrator().HasColumn("peers", "peer_status_last_seen"))
+
+	require.NoError(t, migration.BackfillPeerConnections[nbpeer.Connection](context.Background(), db))
+
+	assert.False(t, db.Migrator().HasTable(&nbpeer.Connection{}), "without the legacy column the table is left to AutoMigrate")
+}
