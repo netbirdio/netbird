@@ -14,50 +14,82 @@ import (
 
 const (
 	checkInterval = 1 * time.Minute
+	// tickSlack is how long past the expected aligned tick the fallback check
+	// waits, so a tick that arrives a little late still runs the check.
+	tickSlack = 10 * time.Second
 
 	DefaultInactivityThreshold = 15 * time.Minute
 	MinimumInactivityThreshold = 1 * time.Minute
+
+	// DefaultAlignedInactivityThreshold and MinimumAlignedInactivityThreshold apply
+	// to the check on the aligned heartbeat tick, which only mobile clients get. An
+	// idle peer there wakes the phone with its keepalives, so it is closed after a
+	// few seconds without traffic. The minimum matches the resolution of the
+	// interface activity recorder.
+	DefaultAlignedInactivityThreshold = 10 * time.Second
+	MinimumAlignedInactivityThreshold = 5 * time.Second
+)
+
+var (
+	stockLimits   = thresholdLimits{def: DefaultInactivityThreshold, min: MinimumInactivityThreshold}
+	alignedLimits = thresholdLimits{def: DefaultAlignedInactivityThreshold, min: MinimumAlignedInactivityThreshold}
 )
 
 type WgInterface interface {
 	LastActivities() map[string]monotime.Time
 }
 
+// TickSubscriber registers f to run on every aligned heartbeat tick, with the
+// heartbeat period. f must not block. The returned func unregisters it.
+type TickSubscriber func(f func(period time.Duration)) (unsubscribe func())
+
 type Manager struct {
 	inactivePeersChan chan map[string]struct{}
 
 	iface WgInterface
-	// peersMu guards interestedPeers: the engine adds and removes peers while
-	// the Start loop checks them.
-	peersMu             sync.Mutex
-	interestedPeers     map[string]*watchedPeer
+	// inactivityThreshold applies to the timer check, tickThreshold to the check
+	// on the aligned heartbeat tick.
 	inactivityThreshold time.Duration
+	tickThreshold       time.Duration
+	subscribeTick       TickSubscriber
+
+	// peersMu guards interestedPeers: the engine adds and removes peers while the
+	// Start loop checks them.
+	peersMu         sync.Mutex
+	interestedPeers map[string]*watchedPeer
 
 	// now is the clock for add times and idle checks, replaced in tests.
 	now func() monotime.Time
 }
 
-// watchedPeer is a peer under inactivity watch. addedAt counts as activity:
-// the interface keeps the last activity of a peer across a lazy close, so
-// right after a reopen it still reports the traffic of the previous session.
+// watchedPeer is a peer under inactivity watch. addedAt counts as activity: the
+// interface keeps the last activity of a peer across a lazy close, so right after a
+// reopen it still reports the traffic of the previous session.
 type watchedPeer struct {
 	cfg     *lazyconn.PeerConfig
 	addedAt monotime.Time
 }
 
-func NewManager(iface WgInterface, configuredThreshold *time.Duration) *Manager {
-	inactivityThreshold, err := validateInactivityThreshold(configuredThreshold)
-	if err != nil {
-		inactivityThreshold = DefaultInactivityThreshold
-		log.Warnf("invalid inactivity threshold configured: %v, using default: %v", err, DefaultInactivityThreshold)
+// NewManager returns an inactivity manager that checks once per checkInterval
+// with the stock threshold. With a subscribeTick it also checks on each aligned
+// heartbeat tick, inside a wake the device has anyway, with the short aligned
+// threshold. The timer then fires only while no tick arrives, so a client whose
+// servers send no aligned heartbeat behaves as stock.
+func NewManager(iface WgInterface, configuredThreshold *time.Duration, subscribeTick TickSubscriber) *Manager {
+	inactivityThreshold := stockLimits.resolve(configuredThreshold)
+	var tickThreshold time.Duration
+	if subscribeTick != nil {
+		tickThreshold = alignedLimits.resolve(configuredThreshold)
 	}
 
-	log.Infof("inactivity threshold configured: %v", inactivityThreshold)
+	log.Infof("inactivity threshold configured: %v, on aligned tick: %v", inactivityThreshold, tickThreshold)
 	return &Manager{
 		inactivePeersChan:   make(chan map[string]struct{}, 1),
 		iface:               iface,
 		interestedPeers:     make(map[string]*watchedPeer),
 		inactivityThreshold: inactivityThreshold,
+		tickThreshold:       tickThreshold,
+		subscribeTick:       subscribeTick,
 		now:                 monotime.Now,
 	}
 }
@@ -112,24 +144,59 @@ func (m *Manager) Start(ctx context.Context) {
 	ticker := newTicker(checkInterval)
 	defer ticker.Stop()
 
+	ticks := m.startTicks()
+	defer ticks.stop()
+
 	for {
+		threshold := m.inactivityThreshold
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C():
-			idlePeers, err := m.checkStats()
-			if err != nil {
-				log.Errorf("error checking stats: %v", err)
-				return
-			}
-
-			if len(idlePeers) == 0 {
-				continue
-			}
-
-			m.notifyInactivePeers(ctx, idlePeers)
+		case period := <-ticks.c:
+			// Push the fallback check out past the next expected tick, so it only
+			// fires while the ticks stop.
+			ticker.Reset(period + tickSlack)
+			threshold = m.tickThreshold
 		}
+
+		idlePeers, err := m.checkStats(threshold)
+		if err != nil {
+			log.Errorf("error checking stats: %v", err)
+			return
+		}
+
+		if len(idlePeers) == 0 {
+			continue
+		}
+
+		m.notifyInactivePeers(ctx, idlePeers)
 	}
+}
+
+// tickFeed carries the aligned heartbeat ticks into the Start loop. A nil c
+// never delivers, so without a subscriber only the timer runs.
+type tickFeed struct {
+	c    chan time.Duration
+	stop func()
+}
+
+func (m *Manager) startTicks() tickFeed {
+	if m.subscribeTick == nil {
+		return tickFeed{stop: func() {}}
+	}
+	c := make(chan time.Duration, 1)
+	unsubscribe := m.subscribeTick(func(period time.Duration) {
+		if period <= 0 {
+			return
+		}
+		// A check still waiting covers this tick too.
+		select {
+		case c <- period:
+		default:
+		}
+	})
+	return tickFeed{c: c, stop: unsubscribe}
 }
 
 func (m *Manager) notifyInactivePeers(ctx context.Context, inactivePeers map[string]struct{}) {
@@ -142,7 +209,7 @@ func (m *Manager) notifyInactivePeers(ctx context.Context, inactivePeers map[str
 	}
 }
 
-func (m *Manager) checkStats() (map[string]struct{}, error) {
+func (m *Manager) checkStats(threshold time.Duration) (map[string]struct{}, error) {
 	lastActivities := m.iface.LastActivities()
 
 	idlePeers := make(map[string]struct{})
@@ -161,7 +228,7 @@ func (m *Manager) checkStats() (map[string]struct{}, error) {
 		}
 
 		since := time.Duration(checkMono - max(lastActive, peer.addedAt))
-		if since > m.inactivityThreshold {
+		if since > threshold {
 			peer.cfg.Log.Infof("peer is inactive since time: %s", checkTime.Add(-since).String())
 			idlePeers[peerID] = struct{}{}
 		}
@@ -170,12 +237,28 @@ func (m *Manager) checkStats() (map[string]struct{}, error) {
 	return idlePeers, nil
 }
 
-func validateInactivityThreshold(configuredThreshold *time.Duration) (time.Duration, error) {
-	if configuredThreshold == nil {
-		return DefaultInactivityThreshold, nil
+type thresholdLimits struct {
+	def time.Duration
+	min time.Duration
+}
+
+// resolve returns the configured threshold, or the default when none is set or
+// it is below the minimum.
+func (l thresholdLimits) resolve(configuredThreshold *time.Duration) time.Duration {
+	threshold, err := l.validate(configuredThreshold)
+	if err != nil {
+		log.Warnf("invalid inactivity threshold configured: %v, using default: %v", err, l.def)
+		return l.def
 	}
-	if *configuredThreshold < MinimumInactivityThreshold {
-		return 0, fmt.Errorf("configured inactivity threshold %v is too low, using %v", *configuredThreshold, MinimumInactivityThreshold)
+	return threshold
+}
+
+func (l thresholdLimits) validate(configuredThreshold *time.Duration) (time.Duration, error) {
+	if configuredThreshold == nil {
+		return l.def, nil
+	}
+	if *configuredThreshold < l.min {
+		return 0, fmt.Errorf("configured inactivity threshold %v is below the minimum %v", *configuredThreshold, l.min)
 	}
 	return *configuredThreshold, nil
 }

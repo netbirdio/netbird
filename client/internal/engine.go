@@ -29,6 +29,7 @@ import (
 	"github.com/netbirdio/netbird/client/firewall/firewalld"
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/forwarder"
+	"github.com/netbirdio/netbird/client/hbwatch"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
@@ -65,6 +66,7 @@ import (
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/monotime"
 	"github.com/netbirdio/netbird/route"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -245,6 +247,10 @@ type Engine struct {
 	// syncMsgMux, which handleSync holds while it adds and removes peers;
 	// SetPerformance must stay reachable exactly when that work is stuck.
 	wgDevice atomic.Pointer[wgbackend.Device]
+
+	// removeTunnelActivity takes the tunnel activity probe off the heartbeat
+	// watcher. Set in Start, called in stopLocked, both under syncMsgMux.
+	removeTunnelActivity func()
 
 	udpMux *udpmux.UniversalUDPMuxDefault
 
@@ -456,6 +462,11 @@ func (e *Engine) Stop() error {
 // step is nil-guarded. It does not wait on shutdownWg — the caller does that
 // after releasing the lock, since the goroutines also take syncMsgMux.
 func (e *Engine) stopLocked() {
+	if e.removeTunnelActivity != nil {
+		e.removeTunnelActivity()
+		e.removeTunnelActivity = nil
+	}
+
 	if e.connMgr != nil {
 		e.connMgr.Close()
 	}
@@ -599,6 +610,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	}
 	e.wgInterface = wgIface
 	e.statusRecorder.SetWgIface(wgIface)
+	e.removeTunnelActivity = hbwatch.SetTunnelActivity(tunnelActivity(wgIface))
 
 	// start flow manager right after interface creation
 	publicKey := e.config.WgPrivateKey.PublicKey()
@@ -2995,4 +3007,23 @@ func decodeRelayIP(b []byte) netip.Addr {
 		return netip.Addr{}
 	}
 	return ip.Unmap()
+}
+
+// tunnelActivity returns the stamp of the newest real tunnel traffic. The
+// interface activity recorder counts only packets with a payload, so
+// keepalives and handshakes do not make an idle device look busy. The stamp is
+// on the monotonic clock, which stands still while iOS sleeps, so the watcher
+// compares stamps between wakes rather than reading an age.
+func tunnelActivity(iface WGIface) func() (int64, bool) {
+	return func() (int64, bool) {
+		activities := iface.LastActivities()
+		if len(activities) == 0 {
+			return 0, false
+		}
+		var newest monotime.Time
+		for _, at := range activities {
+			newest = max(newest, at)
+		}
+		return int64(newest), true
+	}
 }
