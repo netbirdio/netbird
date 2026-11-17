@@ -199,6 +199,20 @@ func (m *managerImpl) SelectPolicyForRequest(ctx context.Context, in PolicySelec
 		}, nil
 	}
 
+	sortCandidates(scored)
+
+	winner := scored[0]
+	return &PolicySelectionResult{
+		Allow:              true,
+		SelectedPolicyID:   winner.policy.ID,
+		AttributionGroupID: winner.attributionGroup,
+		WindowSeconds:      winner.windowSeconds,
+	}, nil
+}
+
+// sortCandidates orders candidates by who pays first, per the ordering
+// documented on SelectPolicyForRequest.
+func sortCandidates(scored []candidate) {
 	sort.SliceStable(scored, func(i, j int) bool {
 		// Catch-all-allow (no caps configured) wins outright over
 		// any capped policy.
@@ -223,14 +237,6 @@ func (m *managerImpl) SelectPolicyForRequest(ctx context.Context, in PolicySelec
 		}
 		return scored[i].policy.CreatedAt.Before(scored[j].policy.CreatedAt)
 	})
-
-	winner := scored[0]
-	return &PolicySelectionResult{
-		Allow:              true,
-		SelectedPolicyID:   winner.policy.ID,
-		AttributionGroupID: winner.attributionGroup,
-		WindowSeconds:      winner.windowSeconds,
-	}, nil
 }
 
 // filterApplicablePolicies returns the enabled policies that target

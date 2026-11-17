@@ -209,20 +209,35 @@ func TestAllowance_RealStore_ExhaustedPolicy(t *testing.T) {
 	assert.Equal(t, 150.0, a.Limits[0].Used, "used may overshoot the cap")
 }
 
-func TestAllowance_RealStore_SecondPolicyStillHasHeadroom(t *testing.T) {
+// Only the policy the selector would book the next request against is listed.
+func TestAllowance_RealStore_ListsOnlyThePayingPolicy(t *testing.T) {
 	mgr, _ := allowanceFixture(t, []*types.Policy{
 		allowPolicy("pol-big", []string{"grp-eng"}, tokenLimits(0, 1000, 3600)),
 		allowPolicy("pol-small", []string{"grp-ops"}, tokenLimits(0, 100, 3600)),
 	})
-	spend(t, mgr, 1000, 0)
 
 	a := peerAllowance(t, mgr)
+	require.Len(t, a.Limits, 1, "the smaller pool is not listed while the bigger one pays")
+	assert.Equal(t, "pol-big", a.Limits[0].SourceID, "the bigger pool drains first")
+
+	spend(t, mgr, 1000, 0)
+
+	a = peerAllowance(t, mgr)
 	assert.False(t, a.Exhausted, "the smaller pool still pays")
-	require.Len(t, a.Limits, 2)
-	assert.Equal(t, "grp-eng", a.Limits[0].GroupID)
-	assert.Equal(t, 1000.0, a.Limits[0].Used)
-	assert.Equal(t, "grp-ops", a.Limits[1].GroupID)
-	assert.Equal(t, 0.0, a.Limits[1].Used)
+	require.Len(t, a.Limits, 1)
+	assert.Equal(t, "pol-small", a.Limits[0].SourceID, "the drained pool gives way to the next one")
+	assert.Equal(t, 0.0, a.Limits[0].Used)
+
+	res, err := mgr.SelectPolicyForRequest(context.Background(), selectionInput())
+	require.NoError(t, err)
+	assert.Equal(t, res.SelectedPolicyID, a.Limits[0].SourceID, "the listed policy is the one the selector picks")
+
+	spend(t, mgr, 100, 0)
+
+	a = peerAllowance(t, mgr)
+	assert.True(t, a.Exhausted, "both pools are drained")
+	require.Len(t, a.Limits, 1)
+	assert.Equal(t, "pol-big", a.Limits[0].SourceID, "with nothing left the first in selection order is listed")
 }
 
 func TestAllowance_RealStore_PeerGroupsNotUserAutoGroups(t *testing.T) {
