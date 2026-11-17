@@ -41,6 +41,8 @@ func (u UpdateState) Name() string {
 }
 
 type Manager struct {
+	// ctx is the daemon lifetime context a forced directive starts the loop with.
+	ctx            context.Context
 	statusRecorder *peer.Status
 	stateManager   *statemanager.Manager
 
@@ -77,8 +79,9 @@ type Manager struct {
 }
 
 // NewManager creates a new update manager. The manager is single-use: once Stop() is called, it cannot be restarted.
-func NewManager(statusRecorder *peer.Status, stateManager *statemanager.Manager) *Manager {
+func NewManager(ctx context.Context, statusRecorder *peer.Status, stateManager *statemanager.Manager) *Manager {
 	manager := &Manager{
+		ctx:                 ctx,
 		statusRecorder:      statusRecorder,
 		stateManager:        stateManager,
 		mgmUpdateChan:       make(chan struct{}, 1),
@@ -177,13 +180,23 @@ func (m *Manager) SetVersion(expectedVersion string, forceUpdate bool) {
 		return
 	}
 
+	if m.applyDirective(expectedVersion, forceUpdate) && forceUpdate {
+		// A forced update installs without user interaction, so it must not wait
+		// for a UI to subscribe to daemon events, the only other caller of Start.
+		m.Start(m.ctx)
+	}
+}
+
+// applyDirective records a management directive and reports whether it put the
+// manager into a new managed state.
+func (m *Manager) applyDirective(expectedVersion string, forceUpdate bool) bool {
 	m.updateMutex.Lock()
 	defer m.updateMutex.Unlock()
 
 	if expectedVersion == "" {
 		log.Errorf("empty expected version provided")
 		m.setModeLocked(modeDownloadOnly)
-		return
+		return false
 	}
 
 	var expectedSemVer *v.Version
@@ -196,13 +209,13 @@ func (m *Manager) SetVersion(expectedVersion string, forceUpdate bool) {
 			case m.mgmUpdateChan <- struct{}{}:
 			default:
 			}
-			return
+			return false
 		}
 		expectedSemVer = parsed
 	}
 
 	if m.sameDirectiveLocked(expectedSemVer, forceUpdate) {
-		return
+		return false
 	}
 
 	m.setModeLocked(modeManaged)
@@ -214,6 +227,7 @@ func (m *Manager) SetVersion(expectedVersion string, forceUpdate bool) {
 	case m.mgmUpdateChan <- struct{}{}:
 	default:
 	}
+	return true
 }
 
 func (m *Manager) ResetMode() {

@@ -86,27 +86,69 @@ func TestRefreshPeerLastSeenRecordsNeverSeenPeer(t *testing.T) {
 }
 
 // TestRefreshPeerLastSeenLeavesSessionStateAlone pins the column boundary: the
-// connected flag and the session token belong to the sync stream that owns the
+// holding instance and the session token belong to the sync stream that owns the
 // peer's session, and a blind write here would corrupt its fencing. This is why
 // SavePeerStatus is not reused for an activity bump.
 func TestRefreshPeerLastSeenLeavesSessionStateAlone(t *testing.T) {
 	ctx := context.Background()
 	store := newActivityTestStore(t)
 
-	stored := activityPeer(time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC))
-	stored.Status.Connected = true
-	stored.Status.SessionStartedAt = 1234567890
-	require.NoError(t, store.AddPeerToAccount(ctx, stored))
+	require.NoError(t, store.AddPeerToAccount(ctx, activityPeer(time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC))))
+	applied, err := store.ConnectPeer(ctx, activityAccountID, "activityPeer", "instance-1", 1234567890)
+	require.NoError(t, err)
+	require.True(t, applied)
+	setPeerLastSeen(t, store, "activityPeer", time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC))
 
 	refreshed, err := store.RefreshPeerLastSeen(ctx, activityAccountID, "activityPeer", time.Now().UTC().Add(-time.Hour))
 	require.NoError(t, err)
 	require.True(t, refreshed, "the peer is stale enough to refresh")
 
-	peer, err := store.GetPeerByID(ctx, LockingStrengthNone, activityAccountID, "activityPeer")
-	require.NoError(t, err)
-	assert.WithinDuration(t, time.Now().UTC(), peer.Status.LastSeen.UTC(), time.Minute, "last seen should move forward")
-	assert.True(t, peer.Status.Connected, "connected flag must survive an activity write")
-	assert.Equal(t, int64(1234567890), peer.Status.SessionStartedAt, "session token must survive an activity write")
+	conn := getPeerConnection(t, store, "activityPeer")
+	require.NotNil(t, conn)
+	assert.WithinDuration(t, time.Now().UTC(), peerLastSeen(t, store, "activityPeer"), time.Minute, "last seen should move forward")
+	assert.Equal(t, "instance-1", instanceOf(conn), "the holding instance must survive an activity write")
+	assert.Equal(t, int64(1234567890), conn.SessionStartedAt, "session token must survive an activity write")
+}
+
+// TestPeerReadsAsDisconnectedWhenStale covers a management instance that stopped
+// without releasing its peers: their connection rows stay, so reads must fall back to
+// the instance's LastSeen, both when loading the peer and when filtering on it.
+func TestPeerReadsAsDisconnectedWhenStale(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name          string
+		instanceAge   time.Duration
+		wantConnected bool
+	}{
+		{name: "instance seen within InstanceStaleAfter", instanceAge: time.Minute, wantConnected: true},
+		{name: "instance not seen for longer than InstanceStaleAfter", instanceAge: nbpeer.InstanceStaleAfter + time.Minute},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newActivityTestStore(t)
+			require.NoError(t, store.AddPeerToAccount(ctx, activityPeer(time.Now().UTC().Add(-time.Hour))))
+			require.NoError(t, store.RegisterInstance(ctx, "instance-1", "host"))
+			applied, err := store.ConnectPeer(ctx, activityAccountID, "activityPeer", "instance-1", 1)
+			require.NoError(t, err)
+			require.True(t, applied)
+			ageInstance(t, store, "instance-1", tt.instanceAge)
+
+			peer, err := store.GetPeerByID(ctx, LockingStrengthNone, activityAccountID, "activityPeer")
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantConnected, peer.Status.Connected)
+
+			for _, connected := range []bool{true, false} {
+				peers, _, err := store.GetAccountPeersPaginated(ctx, LockingStrengthNone, activityAccountID, PaginationState{}, PeerFilters{Connected: &connected}, PeerSorting{})
+				require.NoError(t, err)
+				if connected == tt.wantConnected {
+					assert.Len(t, peers, 1, "filter connected=%t", connected)
+				} else {
+					assert.Empty(t, peers, "filter connected=%t", connected)
+				}
+			}
+		})
+	}
 }
 
 func activityPeer(lastSeen time.Time) *nbpeer.Peer {

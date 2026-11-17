@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dexidp/dex/storage"
+	"github.com/netbirdio/dex/storage"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/bcrypt"

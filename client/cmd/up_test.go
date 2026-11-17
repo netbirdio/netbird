@@ -24,65 +24,43 @@ func (f *fakeActiveProfileClient) GetActiveProfile(_ context.Context, _ *proto.G
 	return f.resp, f.err
 }
 
-func TestDaemonActiveProfileForUserReturnsOwnProfile(t *testing.T) {
-	client := &fakeActiveProfileClient{resp: &proto.GetActiveProfileResponse{Id: "default", ProfileName: "default", Username: "root"}}
-	prof, err := daemonActiveProfileForUser(context.Background(), client, "root")
-	require.NoError(t, err)
-	require.NotNil(t, prof)
-	assert.Equal(t, profilemanager.ID("default"), prof.ID)
-}
-
-func TestDaemonActiveProfileForUserReturnsUnownedProfile(t *testing.T) {
-	client := &fakeActiveProfileClient{resp: &proto.GetActiveProfileResponse{Id: "default", ProfileName: "default", Username: ""}}
-	prof, err := daemonActiveProfileForUser(context.Background(), client, "root")
-	require.NoError(t, err)
-	require.NotNil(t, prof)
-	assert.Equal(t, profilemanager.ID("default"), prof.ID)
-}
-
-func TestDaemonActiveProfileForUserKeepsDaemonProfileOverStaleMirror(t *testing.T) {
-	client := &fakeActiveProfileClient{resp: &proto.GetActiveProfileResponse{Id: "ab12", ProfileName: "work", Username: "misha"}}
-	prof, err := daemonActiveProfileForUser(context.Background(), client, "misha")
+func TestDaemonActiveProfileReturnsDaemonProfileOverStaleMirror(t *testing.T) {
+	client := &fakeActiveProfileClient{resp: &proto.GetActiveProfileResponse{Id: "ab12", ProfileName: "work"}}
+	prof, err := daemonActiveProfile(context.Background(), client)
 	require.NoError(t, err)
 	require.NotNil(t, prof)
 	assert.Equal(t, profilemanager.ID("ab12"), prof.ID)
 }
 
-func TestDaemonActiveProfileForUserRejectsOtherUsersProfile(t *testing.T) {
+// Root brings up whatever the daemon has active, so a profile another user
+// owns is not refused.
+func TestDaemonActiveProfileReturnsOtherUsersProfile(t *testing.T) {
 	client := &fakeActiveProfileClient{resp: &proto.GetActiveProfileResponse{Id: "ab12", ProfileName: "work", Username: "misha"}}
-	prof, err := daemonActiveProfileForUser(context.Background(), client, "root")
-	require.Error(t, err)
-	assert.Nil(t, prof)
-	assert.Contains(t, err.Error(), "--profile")
+	prof, err := daemonActiveProfile(context.Background(), client)
+	require.NoError(t, err)
+	require.NotNil(t, prof)
+	assert.Equal(t, profilemanager.ID("ab12"), prof.ID)
 }
 
-func TestDaemonActiveProfileForUserRejectsOtherUsersDefaultProfile(t *testing.T) {
-	client := &fakeActiveProfileClient{resp: &proto.GetActiveProfileResponse{Id: "default", ProfileName: "default", Username: "misha"}}
-	prof, err := daemonActiveProfileForUser(context.Background(), client, "root")
-	require.Error(t, err)
-	assert.Nil(t, prof)
-	assert.Contains(t, err.Error(), "--profile")
-}
-
-func TestDaemonActiveProfileForUserRejectsLookupError(t *testing.T) {
+func TestDaemonActiveProfileRejectsLookupError(t *testing.T) {
 	client := &fakeActiveProfileClient{err: gstatus.Error(codes.Internal, "boom")}
-	prof, err := daemonActiveProfileForUser(context.Background(), client, "root")
+	prof, err := daemonActiveProfile(context.Background(), client)
 	require.Error(t, err)
 	assert.Nil(t, prof)
 	assert.Contains(t, err.Error(), "--profile")
 }
 
-func TestDaemonActiveProfileForUserRejectsEmptyResponse(t *testing.T) {
+func TestDaemonActiveProfileRejectsEmptyResponse(t *testing.T) {
 	client := &fakeActiveProfileClient{resp: &proto.GetActiveProfileResponse{}}
-	prof, err := daemonActiveProfileForUser(context.Background(), client, "root")
+	prof, err := daemonActiveProfile(context.Background(), client)
 	require.Error(t, err)
 	assert.Nil(t, prof)
 	assert.Contains(t, err.Error(), "--profile")
 }
 
-func TestDaemonActiveProfileForUserKeepsMirrorWhenDaemonWithoutRPC(t *testing.T) {
+func TestDaemonActiveProfileKeepsMirrorWhenDaemonWithoutRPC(t *testing.T) {
 	client := &fakeActiveProfileClient{err: gstatus.Error(codes.Unimplemented, "unknown method")}
-	prof, err := daemonActiveProfileForUser(context.Background(), client, "root")
+	prof, err := daemonActiveProfile(context.Background(), client)
 	require.ErrorIs(t, err, errDaemonActiveProfileUnsupported)
 	assert.Nil(t, prof)
 }

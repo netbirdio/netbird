@@ -19,7 +19,7 @@ restrict_env_file() {
 }
 
 cleanInstall() {
-    printf "\033[32m Post Install of an clean install\033[0m\n"
+    printf "\033[32m Post Install of a clean install\033[0m\n"
     restrict_env_file
     # Step 3 (clean install), enable the service in the proper way for this platform
     /usr/bin/netbird service install

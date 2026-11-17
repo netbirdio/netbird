@@ -34,7 +34,7 @@ export const SearchInput = forwardRef<HTMLInputElement, Props>(function SearchIn
                 {...props}
                 className={cn(
                     "w-full bg-transparent text-sm text-nb-gray-200 placeholder:text-nb-gray-600 dark:placeholder:text-nb-gray-400",
-                    "border-none outline-none",
+                    "border-none outline-hidden",
                     disabled && "cursor-not-allowed",
                     className,
                 )}
@@ -45,7 +45,7 @@ export const SearchInput = forwardRef<HTMLInputElement, Props>(function SearchIn
                     className={cn(
                         "shrink-0 select-none",
                         "inline-flex items-center justify-center",
-                        "h-5 min-w-[20px] rounded px-1.5",
+                        "h-5 min-w-[20px] rounded-sm px-1.5",
                         "border border-nb-gray-850 bg-nb-gray-920",
                         "text-[10px] font-medium text-nb-gray-400",
                         "wails-no-draggable",

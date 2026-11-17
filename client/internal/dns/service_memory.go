@@ -119,7 +119,7 @@ func (s *ServiceViaMemory) filterDNSTraffic() error {
 	if s.tcpDNS == nil {
 		if dev := s.wgInterface.GetDevice(); dev != nil {
 			// MTU only affects TCP segment sizing; DNS messages are small so this has no practical impact.
-			s.tcpDNS = newTCPDNSServer(s.dnsMux, dev.Device, s.runtimeIP, uint16(s.runtimePort), iface.DefaultMTU)
+			s.tcpDNS = newTCPDNSServer(s.dnsMux, dev.TUN, s.runtimeIP, uint16(s.runtimePort), iface.DefaultMTU)
 		}
 	}
 
@@ -154,7 +154,7 @@ func (s *ServiceViaMemory) filterDNSTraffic() error {
 		writer := &responseWriter{
 			remote: remoteAddrFromPacket(packet),
 			packet: packet,
-			device: dev.Device,
+			device: dev.TUN,
 		}
 		go s.dnsMux.ServeDNS(writer, msg)
 		return true

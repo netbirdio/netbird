@@ -53,18 +53,6 @@ if [[ "$NETBIRD_STORE_CONFIG_ENGINE" == "postgres" ]]; then
   export NETBIRD_STORE_ENGINE_POSTGRES_DSN
 fi
 
-# Check if MySQL is set as the store engine
-if [[ "$NETBIRD_STORE_CONFIG_ENGINE" == "mysql" ]]; then
-  # Exit if 'NETBIRD_STORE_ENGINE_MYSQL_DSN' is not set
-  if [[ -z "$NETBIRD_STORE_ENGINE_MYSQL_DSN" ]]; then
-    echo "Warning: NETBIRD_STORE_CONFIG_ENGINE=mysql but NETBIRD_STORE_ENGINE_MYSQL_DSN is not set."
-    echo "Please add the following line to your setup.env file:"
-    echo 'NETBIRD_STORE_ENGINE_MYSQL_DSN="<username>:<password>@tcp(127.0.0.1:3306)/<database>"'
-    exit 1
-  fi
-  export NETBIRD_STORE_ENGINE_MYSQL_DSN
-fi
-
 # local development or tests
 if [[ $NETBIRD_DOMAIN == "localhost" || $NETBIRD_DOMAIN == "127.0.0.1" ]]; then
   export NETBIRD_MGMT_SINGLE_ACCOUNT_MODE_DOMAIN="netbird.selfhosted"
@@ -233,14 +221,16 @@ if [ "$NETBIRD_DASH_AUTH_USE_AUDIENCE" = "false" ]; then
     export NETBIRD_AUTH_PKCE_AUDIENCE=
 fi
 
-# Read the encryption key
-if test -f 'management.json'; then
-    encKey=$(jq -r  ".DataStoreEncryptionKey" management.json)
-    if [[ "$encKey" != "null" ]]; then
-        export NETBIRD_DATASTORE_ENC_KEY=$encKey
-
+# Read the encryption key from existing config (check artifacts/ first, then root)
+for mgmt_file in "${artifacts_path}/management.json" "management.json"; do
+    if test -f "$mgmt_file"; then
+        encKey=$(jq -r ".DataStoreEncryptionKey" "$mgmt_file")
+        if [[ "$encKey" != "null" && -n "$encKey" ]]; then
+            export NETBIRD_DATASTORE_ENC_KEY=$encKey
+            break
+        fi
     fi
-fi
+done
 
 env | grep NETBIRD
 

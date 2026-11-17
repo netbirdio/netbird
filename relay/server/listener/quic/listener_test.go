@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"math/big"
 	"net"
+	"strconv"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	relaylistener "github.com/netbirdio/netbird/relay/server/listener"
+	"github.com/netbirdio/netbird/shared/relay/messages"
 	quictls "github.com/netbirdio/netbird/shared/relay/tls"
 )
 
@@ -72,6 +74,52 @@ func TestListener_Unbound(t *testing.T) {
 	assert.NoError(t, l.Shutdown(context.Background()), "Shutdown of an unbound listener is a no-op")
 }
 
+func TestConn_WritesChunkedPeerStateMessages(t *testing.T) {
+	l := &Listener{Address: "127.0.0.1:0", TLSConfig: testTLSConfig(t)}
+	require.NoError(t, l.Bind())
+	t.Cleanup(func() { _ = l.Shutdown(context.Background()) })
+
+	accepted := make(chan relaylistener.Conn, 1)
+	go func() {
+		_ = l.Serve(func(conn relaylistener.Conn) { accepted <- conn })
+	}()
+
+	session := dialTestSession(t, l.listener.Addr().String())
+	var conn relaylistener.Conn
+	select {
+	case conn = <-accepted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("listener did not accept the test session")
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	// More IDs than a message at the relay protocol limit of 8820 bytes holds, so
+	// the messages written are the ones sized by the connection's own limit.
+	ids := make([]messages.PeerID, 245)
+	for i := range ids {
+		ids[i] = messages.HashID(strconv.Itoa(i))
+	}
+	msgs, err := messages.MarshalPeersOnline(ids, conn.MaxMessageSize())
+	require.NoError(t, err)
+	require.Greater(t, len(msgs), 1, "the connection limit must force a split")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var received []messages.PeerID
+	for i, msg := range msgs {
+		_, err := conn.Write(ctx, msg)
+		require.NoError(t, err, "message %d of %d bytes must fit a QUIC datagram", i, len(msg))
+
+		dgram, err := session.ReceiveDatagram(ctx)
+		require.NoError(t, err)
+		chunk, err := messages.UnmarshalPeersOnlineMsg(dgram)
+		require.NoError(t, err)
+		received = append(received, chunk...)
+	}
+	assert.Equal(t, ids, received, "every peer ID must reach the client")
+}
+
 func testTLSConfig(t *testing.T) *tls.Config {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -92,7 +140,7 @@ func testTLSConfig(t *testing.T) *tls.Config {
 	}
 }
 
-func dialTestSession(t *testing.T, addr string) {
+func dialTestSession(t *testing.T, addr string) *quic.Conn {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -101,6 +149,7 @@ func dialTestSession(t *testing.T, addr string) {
 	session, err := quic.DialAddr(ctx, addr, tlsCfg, &quic.Config{EnableDatagrams: true})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = session.CloseWithError(0, "") })
+	return session
 }
 
 func waitForServeToReturn(t *testing.T, errChan <-chan error) error {

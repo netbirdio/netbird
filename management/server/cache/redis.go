@@ -39,7 +39,7 @@ func getRedisStore(ctx context.Context, redisEnvAddr string, maxConn int) (Store
 		return nil, err
 	}
 
-	log.WithContext(subCtx).Infof("using redis cache at %s", redisEnvAddr)
+	log.WithContext(subCtx).Infof("using redis cache at %s", options.Addr)
 
 	return &redisStore{
 		StoreInterface: redisstore.NewRedis(redisClient),

@@ -2,6 +2,7 @@ import { type KeyboardEvent, useLayoutEffect, useMemo, useRef, useState } from "
 import { useTranslation } from "react-i18next";
 import {
     CircleMinus,
+    Lock,
     LogIn,
     MoreVertical,
     PencilLine,
@@ -34,7 +35,7 @@ import { isNetbirdCloud } from "@/hooks/useManagementUrl.ts";
 import { SectionGroup, SettingsBottomBar } from "@/modules/settings/SettingsSection.tsx";
 import { cn } from "@/lib/cn";
 import { reconcileOrder } from "@/lib/sorting";
-import { errorDialog, formatErrorMessage } from "@/lib/errors";
+import { errorDialogFor } from "@/lib/errors";
 
 const DEFAULT_PROFILE_ID = "default";
 
@@ -43,6 +44,7 @@ export function ProfilesTab() {
     const {
         profiles,
         activeProfileId,
+        activeProfileForeign,
         loaded,
         username,
         switchProfileNoConnect,
@@ -84,10 +86,7 @@ export function ProfilesTab() {
         try {
             await fn();
         } catch (e) {
-            await errorDialog({
-                Title: title,
-                Message: formatErrorMessage(e),
-            });
+            await errorDialogFor(title, e);
         } finally {
             setBusy(false);
         }
@@ -176,6 +175,8 @@ export function ProfilesTab() {
             <SectionGroup title={t("settings.profiles.section.profiles")}>
                 <HelpText className={"-mt-2 mb-0"}>{t("settings.profiles.intro")}</HelpText>
 
+                {activeProfileForeign && <ForeignProfileNotice />}
+
                 <div
                     className={cn(
                         "overflow-hidden rounded-xl border border-nb-gray-800 bg-nb-gray-930/60 dark:border-nb-gray-900",
@@ -204,7 +205,7 @@ export function ProfilesTab() {
                             <p className={"text-sm font-semibold text-nb-gray-200"}>
                                 {t("settings.profiles.emptyTitle")}
                             </p>
-                            <p className={"mt-1 max-w-sm text-balance text-xs text-nb-gray-400"}>
+                            <p className={"mt-1 max-w-sm text-xs text-balance text-nb-gray-400"}>
                                 {t("settings.profiles.emptyDescription")}
                             </p>
                         </div>
@@ -236,6 +237,25 @@ export function ProfilesTab() {
         </div>
     );
 }
+
+// ForeignProfileNotice explains why no row carries the active badge: the daemon
+// is on a profile belonging to somebody else, which this table cannot list.
+const ForeignProfileNotice = () => {
+    const { t } = useTranslation();
+    return (
+        <div
+            role={"note"}
+            className={cn(
+                "flex items-start gap-2 rounded-lg px-3 py-2.5",
+                "border border-nb-gray-800 bg-nb-gray-930/60 dark:border-nb-gray-900",
+                "text-xs leading-snug text-nb-gray-300",
+            )}
+        >
+            <Lock size={14} aria-hidden={"true"} className={"mt-px shrink-0"} />
+            <span>{t("profile.ownedByAnother.hint")}</span>
+        </div>
+    );
+};
 
 type ProfilesTableProps = {
     ordered: Profile[];
@@ -409,10 +429,10 @@ const ProfileRow = ({
             className={cn(
                 "flex items-center gap-4 px-4 py-2.5",
                 "border-b border-nb-gray-910 last:border-b-0",
-                "outline-none",
+                "outline-hidden",
                 isFirst && "rounded-t-xl",
                 isLast && "rounded-b-xl",
-                "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nb-gray-50/60",
+                "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-inset",
             )}
         >
             <td
@@ -430,7 +450,7 @@ const ProfileRow = ({
                     <div className={"flex min-w-0 items-center gap-2"}>
                         <span
                             className={
-                                "cursor-text select-text truncate font-medium text-nb-gray-100"
+                                "cursor-text truncate font-medium text-nb-gray-100 select-text"
                             }
                         >
                             {profile.name}
@@ -470,7 +490,7 @@ const TruncatedEmail = ({ email }: { email: string }) => {
     const span = (
         <span
             ref={ref}
-            className={"mt-0.5 cursor-text select-text truncate text-xs text-nb-gray-300"}
+            className={"mt-0.5 cursor-text truncate text-xs text-nb-gray-300 select-text"}
         >
             {email}
         </span>
@@ -558,7 +578,7 @@ const RowMoreMenu = ({
                     aria-label={moreLabel}
                     tabIndex={rowFocused ? 0 : -1}
                     className={cn(
-                        "inline-flex h-9 w-9 cursor-default items-center justify-center rounded-md outline-none",
+                        "inline-flex h-9 w-9 cursor-default items-center justify-center rounded-md outline-hidden",
                         "text-nb-gray-400 hover:bg-nb-gray-900 hover:text-nb-gray-100",
                         "transition-colors duration-150",
                         "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
@@ -605,7 +625,7 @@ const DeleteMenuItem = ({ disabled, disabledReason, onDelete }: DeleteMenuItemPr
         <DropdownMenuItem
             disabled={disabled}
             onClick={disabled ? undefined : onDelete}
-            className={cn(!disabled && "text-red-500 hover:!text-red-500 focus:text-red-500")}
+            className={cn(!disabled && "text-red-500 hover:text-red-500! focus:text-red-500")}
         >
             <div className={"flex w-full items-center gap-2"}>
                 <Trash2 size={14} aria-hidden={"true"} />
@@ -653,7 +673,7 @@ const ActionIconButton = ({
             aria-disabled={disabled || undefined}
             tabIndex={hidden || !tabbable ? -1 : 0}
             className={cn(
-                "inline-flex h-9 w-9 cursor-default items-center justify-center rounded-md outline-none",
+                "inline-flex h-9 w-9 cursor-default items-center justify-center rounded-md outline-hidden",
                 "transition-colors duration-150",
                 "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                 variant === "danger"
@@ -661,7 +681,7 @@ const ActionIconButton = ({
                     : "text-nb-gray-400 hover:bg-nb-gray-900 hover:text-nb-gray-100",
                 hidden && "pointer-events-none opacity-0",
                 disabled &&
-                    "cursor-not-allowed opacity-40 hover:!bg-transparent hover:!text-nb-gray-400",
+                    "cursor-not-allowed opacity-40 hover:bg-transparent! hover:text-nb-gray-400!",
             )}
         >
             <Icon size={16} aria-hidden={"true"} />

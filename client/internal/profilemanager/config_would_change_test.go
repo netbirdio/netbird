@@ -334,40 +334,34 @@ func TestCreateInMemoryConfigCarriesAnIdentity(t *testing.T) {
 	require.NotEmpty(t, cfg.SSHKey)
 }
 
-// The admin panel is opened, not dialed, so its path identifies it. Comparing
-// it as a bare endpoint left a custom panel URL unable to change.
-func TestAdminURLPathIsPartOfTheIdentity(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "panel.json")
-	_, err := UpdateOrCreateConfig(ConfigInput{
-		ConfigPath: path,
-		AdminURL:   "https://app.example.com/netbird",
-	})
+// Profiles written before the admin URL was dropped still carry an AdminURL key.
+// It must not break loading, and the next write must drop it.
+func TestLegacyAdminURLIsIgnored(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.json")
+	_, err := UpdateOrCreateConfig(ConfigInput{ConfigPath: path})
 	require.NoError(t, err)
 
-	cfg, err := GetExistingConfig(path)
+	raw, err := os.ReadFile(path)
 	require.NoError(t, err)
-	require.Equal(t, "https://app.example.com:443/netbird", cfg.AdminURL.String())
-
-	// Equivalent spellings of the same panel are still not a change.
-	for _, same := range []string{
-		"https://app.example.com/netbird",
-		"https://app.example.com:443/netbird",
-		"https://app.example.com/netbird/",
-		"https://APP.example.com/netbird",
-	} {
-		changed, err := cfg.WouldChange(ConfigInput{AdminURL: same})
-		require.NoError(t, err)
-		require.False(t, changed, "%q is the stored panel written differently", same)
-	}
-
-	// A different path is a different panel, and it must be persisted.
-	changed, err := cfg.WouldChange(ConfigInput{AdminURL: "https://app.example.com/other"})
+	var stored map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(raw, &stored))
+	stored["AdminURL"] = json.RawMessage(`{"Scheme":"https","Host":"panel.example.com:443","Path":"/netbird"}`)
+	rewritten, err := json.Marshal(stored)
 	require.NoError(t, err)
-	require.True(t, changed, "a different panel path is a change")
+	require.NoError(t, os.WriteFile(path, rewritten, 0600))
 
-	updated, err := UpdateConfig(ConfigInput{ConfigPath: path, AdminURL: "https://app.example.com/other"})
+	_, err = GetExistingConfig(path)
+	require.NoError(t, err, "a legacy AdminURL key must not prevent loading the profile")
+
+	port := 51999
+	_, err = UpdateConfig(ConfigInput{ConfigPath: path, WireguardPort: &port})
 	require.NoError(t, err)
-	require.Equal(t, "https://app.example.com:443/other", updated.AdminURL.String(), "the new panel path was not persisted")
+
+	raw, err = os.ReadFile(path)
+	require.NoError(t, err)
+	stored = nil
+	require.NoError(t, json.Unmarshal(raw, &stored))
+	require.NotContains(t, stored, "AdminURL", "the legacy AdminURL key should be dropped on write")
 }
 
 // unsetOnDisk rewrites the stored config so the named fields carry a JSON null,

@@ -905,6 +905,7 @@ func deleteWorkTable() {
 	for _, t := range tables {
 		if t.Name == tableNameNetbird {
 			sConn.DelTable(t)
+			_ = sConn.Flush()
 		}
 	}
 }

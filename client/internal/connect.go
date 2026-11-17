@@ -98,10 +98,10 @@ func WithNetEvents(events *netevents.Manager) ConnectClientOption {
 	return func(c *ConnectClient) { c.netMgr = events }
 }
 
-// WithProfileOwner names the OS account the active profile belongs to, whose own
-// certificate store answers user certificate posture checks.
-func WithProfileOwner(username string) ConnectClientOption {
-	return func(c *ConnectClient) { c.profileOwner = username }
+// WithProfileOwner names the account the active profile belongs to, by uid or SID, whose
+// own certificate store answers user certificate posture checks.
+func WithProfileOwner(owner string) ConnectClientOption {
+	return func(c *ConnectClient) { c.profileOwner = owner }
 }
 
 // WithUnknownProfileOwner records that the active profile's owner could not be

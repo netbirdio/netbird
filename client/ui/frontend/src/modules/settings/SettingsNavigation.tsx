@@ -28,7 +28,7 @@ export const SettingsNavigation = () => {
     ) : undefined;
 
     return (
-        <div className={"flex w-52 shrink-0 select-none flex-col items-center"}>
+        <div className={"flex w-52 shrink-0 flex-col items-center select-none"}>
             <VerticalTabs.List aria-label={t("settings.nav.label")}>
                 <VerticalTabs.Trigger
                     value={"general"}

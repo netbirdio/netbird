@@ -285,15 +285,15 @@ func (mr *MockControllerMockRecorder) UpdateAccountPeers(ctx, accountID, reason 
 }
 
 // UpdateAffectedPeers mocks base method.
-func (m *MockController) UpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) error {
+func (m *MockController) UpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string, reason types.UpdateReason) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateAffectedPeers", ctx, accountID, peerIDs)
+	ret := m.ctrl.Call(m, "UpdateAffectedPeers", ctx, accountID, peerIDs, reason)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UpdateAffectedPeers indicates an expected call of UpdateAffectedPeers.
-func (mr *MockControllerMockRecorder) UpdateAffectedPeers(ctx, accountID, peerIDs any) *gomock.Call {
+func (mr *MockControllerMockRecorder) UpdateAffectedPeers(ctx, accountID, peerIDs, reason any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAffectedPeers", reflect.TypeOf((*MockController)(nil).UpdateAffectedPeers), ctx, accountID, peerIDs)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAffectedPeers", reflect.TypeOf((*MockController)(nil).UpdateAffectedPeers), ctx, accountID, peerIDs, reason)
 }

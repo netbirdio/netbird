@@ -110,10 +110,10 @@ export const Navigation = () => {
                         className={cn(
                             "group relative flex flex-1 items-center justify-center",
                             "gap-2.5 px-5 py-3.5",
-                            "outline-none transition-all",
+                            "outline-hidden transition-all",
                             isFirst && "rounded-ss-xl",
                             isLast && "rounded-se-xl",
-                            "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nb-gray-50/60",
+                            "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-inset",
                             isActive ? "text-netbird" : "text-nb-gray-400 hover:text-nb-gray-300",
                             isDisabled ? "cursor-not-allowed opacity-50" : "cursor-default",
                         )}

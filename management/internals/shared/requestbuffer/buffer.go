@@ -26,6 +26,9 @@ type Buffer[T any] struct {
 
 	mu      sync.Mutex
 	waiting map[string][]chan result[T]
+	// inFlight holds the keys with a running fetch and whether their next flush
+	// is due once it ends. It is nil unless fetches are serialized.
+	inFlight map[string]bool
 }
 
 type result[T any] struct {
@@ -43,6 +46,15 @@ func New[T any](ctx context.Context, name string, interval time.Duration, fetch 
 		interval: interval,
 		waiting:  make(map[string][]chan result[T]),
 	}
+}
+
+// NewSerialized returns a Buffer like New that runs at most one fetch per key at
+// a time. Requests arriving during a fetch form the next batch, which is fetched
+// once both its window closed and the running fetch ended.
+func NewSerialized[T any](ctx context.Context, name string, interval time.Duration, fetch FetchFunc[T]) *Buffer[T] {
+	b := New(ctx, name, interval, fetch)
+	b.inFlight = make(map[string]bool)
+	return b
 }
 
 // Get returns the value for key, sharing one fetch with the other callers of
@@ -71,8 +83,16 @@ func (b *Buffer[T]) Get(ctx context.Context, key string) (T, error) {
 
 func (b *Buffer[T]) flush(key string) {
 	b.mu.Lock()
+	if _, running := b.inFlight[key]; running {
+		b.inFlight[key] = true
+		b.mu.Unlock()
+		return
+	}
 	waiting := b.waiting[key]
 	delete(b.waiting, key)
+	if b.inFlight != nil && len(waiting) > 0 {
+		b.inFlight[key] = false
+	}
 	b.mu.Unlock()
 
 	if len(waiting) == 0 {
@@ -85,6 +105,17 @@ func (b *Buffer[T]) flush(key string) {
 
 	for _, ch := range waiting {
 		ch <- result[T]{value: value, err: err}
+	}
+
+	if b.inFlight == nil {
+		return
+	}
+	b.mu.Lock()
+	due := b.inFlight[key]
+	delete(b.inFlight, key)
+	b.mu.Unlock()
+	if due {
+		go b.flush(key)
 	}
 }
 

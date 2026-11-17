@@ -173,8 +173,8 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 					return nil, fmt.Errorf("user not found")
 				}
 			},
-			GetPeersFunc: func(_ context.Context, accountID, userID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, error) {
-				return peers, nil
+			GetPeersFunc: func(_ context.Context, accountID, userID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, int, error) {
+				return peers, len(peers), nil
 			},
 			GetPeerGroupsFunc: func(ctx context.Context, accountID, peerID string) ([]*types.Group, error) {
 				peersID := make([]string, len(peers))

@@ -36,17 +36,14 @@ func TestGetConfig(t *testing.T) {
 	}
 
 	assert.Equal(t, config.ManagementURL.String(), DefaultManagementURL)
-	assert.Equal(t, config.AdminURL.String(), DefaultAdminURL)
 
 	managementURL := "https://test.management.url:33071"
-	adminURL := "https://app.admin.url:443"
 	path := filepath.Join(t.TempDir(), "config.json")
 	preSharedKey := "preSharedKey"
 
 	// case 2: new config has to be generated
 	config, err = UpdateOrCreateConfig(ConfigInput{
 		ManagementURL: managementURL,
-		AdminURL:      adminURL,
 		ConfigPath:    path,
 		PreSharedKey:  &preSharedKey,
 	})
@@ -64,7 +61,6 @@ func TestGetConfig(t *testing.T) {
 	// case 3: existing config -> fetch it
 	config, err = UpdateOrCreateConfig(ConfigInput{
 		ManagementURL: managementURL,
-		AdminURL:      adminURL,
 		ConfigPath:    path,
 		PreSharedKey:  &preSharedKey,
 	})
@@ -79,7 +75,6 @@ func TestGetConfig(t *testing.T) {
 	newManagementURL := "https://test.newManagement.url:33071"
 	config, err = UpdateOrCreateConfig(ConfigInput{
 		ManagementURL: newManagementURL,
-		AdminURL:      adminURL,
 		ConfigPath:    path,
 		PreSharedKey:  &preSharedKey,
 	})
@@ -164,7 +159,6 @@ func TestNewProfileDefaults(t *testing.T) {
 	require.NoError(t, err, "should create new config")
 
 	assert.Equal(t, DefaultManagementURL, config.ManagementURL.String(), "ManagementURL should have default")
-	assert.Equal(t, DefaultAdminURL, config.AdminURL.String(), "AdminURL should have default")
 	assert.NotEmpty(t, config.PrivateKey, "PrivateKey should be generated")
 	assert.NotEmpty(t, config.SSHKey, "SSHKey should be generated")
 	assert.Equal(t, iface.WgInterfaceDefault, config.WgIface, "WgIface should have default")
@@ -268,6 +262,55 @@ func TestUpdateConfigServerSSHAllowedNotSet(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, config.ServerSSHAllowed, "ServerSSHAllowed should be set from input")
 			assert.Equal(t, tt.want, *config.ServerSSHAllowed)
+		})
+	}
+}
+
+// A config that predates ServerSSHAllowed keeps the SSH server on, but only when it is
+// the config of an enrolled peer. A file with no identity, such as another component's
+// JSON file that was loaded as a profile, never ran a server and resolves to off,
+// including on the write paths that mint the identity.
+func TestServerSSHAllowedLegacyDefault(t *testing.T) {
+	enrolled := `{"PrivateKey":"` + generateKey() + `"}`
+
+	tests := []struct {
+		name  string
+		body  string
+		input ConfigInput
+		want  bool
+	}{
+		{"enrolled legacy config keeps SSH on", enrolled, ConfigInput{}, runtime.GOOS != "android"},
+		{"empty file", `{}`, ConfigInput{}, false},
+		{"foreign json", `{"Success":false,"Error":"x","ExecutedAt":"2026-01-01T00:00:00Z"}`, ConfigInput{}, false},
+		{"foreign json with management url", `{"name":"default","username":""}`, ConfigInput{ManagementURL: "https://example.com:443"}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			write := func() string {
+				path := filepath.Join(t.TempDir(), "config.json")
+				require.NoError(t, os.WriteFile(path, []byte(tt.body), 0600))
+				return path
+			}
+
+			path := write()
+			read, err := GetExistingConfig(path)
+			require.NoError(t, err)
+			require.NotNil(t, read.ServerSSHAllowed)
+			assert.Equal(t, tt.want, *read.ServerSSHAllowed, "read path")
+
+			input := tt.input
+			input.ConfigPath = write()
+			updated, err := UpdateConfig(input)
+			require.NoError(t, err)
+			require.NotNil(t, updated.ServerSSHAllowed)
+			assert.Equal(t, tt.want, *updated.ServerSSHAllowed, "UpdateConfig")
+
+			input.ConfigPath = write()
+			direct, err := DirectUpdateOrCreateConfig(input)
+			require.NoError(t, err)
+			require.NotNil(t, direct.ServerSSHAllowed)
+			assert.Equal(t, tt.want, *direct.ServerSSHAllowed, "DirectUpdateOrCreateConfig")
 		})
 	}
 }

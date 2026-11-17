@@ -243,6 +243,12 @@ func createConPtyProcess(commandLine string, userToken windows.Handle, userEnv [
 	siEx.StartupInfo.StdOutput = windows.Handle(0)
 	siEx.StartupInfo.StdErr = siEx.StartupInfo.StdOutput
 
+	// The pseudo console reaches the child through PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE and the
+	// standard handles are already redirected above, so the child needs no inherited handle.
+	// Inheriting here would hand it every inheritable handle open in the daemon, including the
+	// stdio pipes of other OS accounts' non-PTY SSH and SFTP sessions.
+	const inheritHandles = false
+
 	if userToken != windows.InvalidHandle {
 		err = windows.CreateProcessAsUser(
 			windows.Token(userToken),
@@ -250,7 +256,7 @@ func createConPtyProcess(commandLine string, userToken windows.Handle, userEnv [
 			commandLinePtr,
 			nil,
 			nil,
-			true,
+			inheritHandles,
 			creationFlags,
 			envPtr,
 			workingDirPtr,
@@ -263,7 +269,7 @@ func createConPtyProcess(commandLine string, userToken windows.Handle, userEnv [
 			commandLinePtr,
 			nil,
 			nil,
-			true,
+			inheritHandles,
 			creationFlags,
 			envPtr,
 			workingDirPtr,

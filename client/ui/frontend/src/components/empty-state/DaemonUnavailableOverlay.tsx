@@ -12,14 +12,21 @@ function openUrl(url: string) {
 
 export const DaemonUnavailableOverlay = () => {
     const { t } = useTranslation();
-    const { isDaemonUnavailable } = useStatus();
+    const { isDaemonUnavailable, isDaemonAccessDenied } = useStatus();
 
     if (!isDaemonUnavailable) return null;
+
+    const title = isDaemonAccessDenied
+        ? t("daemon.accessDenied.title")
+        : t("daemon.unavailable.title");
+    const description = isDaemonAccessDenied
+        ? t("daemon.accessDenied.description")
+        : t("daemon.unavailable.description");
 
     return (
         <div
             className={
-                "wails-draggable fixed inset-0 z-[100] flex cursor-default select-none items-center justify-center bg-nb-gray-950 backdrop-blur-sm"
+                "wails-draggable fixed inset-0 z-100 flex cursor-default items-center justify-center bg-nb-gray-950 backdrop-blur-xs select-none"
             }
         >
             <div className={"flex max-w-lg flex-col items-center gap-5 px-8 text-center"}>
@@ -32,20 +39,18 @@ export const DaemonUnavailableOverlay = () => {
                 </div>
 
                 <div className={"flex flex-col items-center gap-1"}>
-                    <p className={"text-base font-medium text-nb-gray-50"}>
-                        {t("daemon.unavailable.title")}
-                    </p>
-                    <p className={"text-sm text-nb-gray-300"}>
-                        {t("daemon.unavailable.description")}
-                    </p>
+                    <p className={"text-base font-medium text-nb-gray-50"}>{title}</p>
+                    <p className={"text-sm text-nb-gray-300"}>{description}</p>
                 </div>
 
-                <div className={"wails-no-draggable"}>
-                    <Button variant={"secondary"} size={"xs"} onClick={() => openUrl(DOCS_URL)}>
-                        <BookText size={14} />
-                        {t("daemon.unavailable.docsLink")}
-                    </Button>
-                </div>
+                {!isDaemonAccessDenied && (
+                    <div className={"wails-no-draggable"}>
+                        <Button variant={"secondary"} size={"xs"} onClick={() => openUrl(DOCS_URL)}>
+                            <BookText size={14} />
+                            {t("daemon.unavailable.docsLink")}
+                        </Button>
+                    </div>
+                )}
             </div>
         </div>
     );

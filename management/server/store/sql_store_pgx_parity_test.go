@@ -13,7 +13,7 @@ import (
 )
 
 // TestPgxServiceColumnsMatchGorm guards the Postgres pgx read path against
-// drifting from the gorm model. The SQLite/MySQL gorm path loads rows by struct,
+// drifting from the gorm model. The SQLite gorm path loads rows by struct,
 // so a new column on a model is picked up automatically, but the hand-written
 // pgx SELECT in sql_store.go must be updated by hand. This test fails when a
 // gorm column is missing from the pgx column list, which otherwise silently

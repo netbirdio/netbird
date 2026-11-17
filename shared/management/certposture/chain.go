@@ -68,10 +68,19 @@ func ChainMatchesCAs(chainPEM string, caPEMs []string, now time.Time) bool {
 // AnyChainMatchesCAs reports whether at least one of the peer's verified chains
 // is anchored in one of the configured CAs.
 func AnyChainMatchesCAs(chainPEMs, caPEMs []string, now time.Time) bool {
+	if len(chainPEMs) == 0 {
+		return false
+	}
 	roots, err := ParseCAs(caPEMs)
 	if err != nil {
 		return false
 	}
+	return AnyChainMatchesPool(chainPEMs, roots, now)
+}
+
+// AnyChainMatchesPool is AnyChainMatchesCAs over an already parsed root pool, for
+// callers that verify many peers against the same CAs.
+func AnyChainMatchesPool(chainPEMs []string, roots *x509.CertPool, now time.Time) bool {
 	for _, chainPEM := range chainPEMs {
 		if chainMatchesPool(chainPEM, roots, now) {
 			return true
