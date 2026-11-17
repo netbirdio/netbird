@@ -241,6 +241,9 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 			FlowGroups:               req.Settings.Extra.NetworkTrafficLogsGroups,
 			FlowPacketCounterEnabled: req.Settings.Extra.NetworkTrafficPacketCounterEnabled,
 		}
+		if req.Settings.Extra.UserEmailMappingEnabled != nil {
+			returnSettings.Extra.UserEmailMappingEnabled = *req.Settings.Extra.UserEmailMappingEnabled
+		}
 	}
 
 	if req.Settings.JwtGroupsEnabled != nil {
@@ -468,6 +471,7 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 			NetworkTrafficLogsEnabled:          settings.Extra.FlowEnabled,
 			NetworkTrafficLogsGroups:           settings.Extra.FlowGroups,
 			NetworkTrafficPacketCounterEnabled: settings.Extra.FlowPacketCounterEnabled,
+			UserEmailMappingEnabled:            &settings.Extra.UserEmailMappingEnabled,
 		}
 	}
 

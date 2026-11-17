@@ -91,6 +91,10 @@ func (c *scriptedConn) Protocol() string {
 	return "test"
 }
 
+func (c *scriptedConn) MaxMessageSize() int {
+	return messages.MaxMessageSize
+}
+
 func (c *scriptedConn) deliver(t *testing.T, frame []byte) {
 	t.Helper()
 	select {

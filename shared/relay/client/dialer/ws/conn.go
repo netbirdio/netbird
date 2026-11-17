@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/netbirdio/netbird/shared/relay/messages"
 )
 
 type Conn struct {
@@ -36,6 +38,11 @@ func NewConn(wsConn *websocket.Conn, serverAddress string, underlying net.Conn) 
 // Protocol returns the transport name for this connection.
 func (c *Conn) Protocol() string {
 	return Network
+}
+
+// MaxMessageSize returns the largest message a single Write carries.
+func (c *Conn) MaxMessageSize() int {
+	return messages.MaxMessageSize
 }
 
 func (c *Conn) Read(b []byte) (n int, err error) {
