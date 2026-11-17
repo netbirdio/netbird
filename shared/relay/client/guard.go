@@ -7,6 +7,8 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/hbwatch"
 )
 
 const (
@@ -76,8 +78,10 @@ func (g *Guard) LastError() error {
 // StartReconnectTrys is called when the relay client is disconnected from the relay server.
 // It attempts to reconnect to the relay server. The function first tries a quick reconnect
 // to the same server that was used before, if the server URL is still valid. If the quick
-// reconnect fails, it starts a ticker to periodically attempt server picking until it
-// succeeds or the context is done.
+// reconnect fails, it attempts server picking on an exponential backoff until it
+// succeeds or the context is done. The backoff waits run on the wall clock where
+// the build has a heartbeat watcher, so a wait that ran out while the device slept
+// ends at the next wake.
 //
 // Parameters:
 // - ctx: The context to control the lifecycle of the reconnection attempts.
@@ -90,32 +94,27 @@ func (g *Guard) StartReconnectTrys(ctx context.Context, relayClient *Client) {
 		return
 	}
 
-	// start a ticker to pick a new server
-	ticker := g.exponentTicker(ctx)
-	defer func() {
-		ticker.Stop()
-	}()
-
+	bo := g.reconnectBackoff()
 	for {
-		select {
-		case <-ticker.C:
-			// suspend reconnect attempts while the OS reports no usable network
-			if g.netWatcher != nil {
-				if waited, err := g.netWatcher.Wait(ctx); err != nil {
-					return
-				} else if waited {
-					ticker.Stop()
-					ticker = g.exponentTicker(ctx)
-					continue
-				}
-			}
-			if err := g.retry(ctx); err != nil {
-				log.Errorf("failed to pick new Relay server: %s", err)
-				g.setLastError(err)
+		if ctx.Err() != nil {
+			return
+		}
+		// suspend reconnect attempts while the OS reports no usable network
+		if g.netWatcher != nil {
+			if waited, err := g.netWatcher.Wait(ctx); err != nil {
+				return
+			} else if waited {
+				bo.Reset()
 				continue
 			}
+		}
+		err := g.retry(ctx)
+		if err == nil {
 			return
-		case <-ctx.Done():
+		}
+		log.Errorf("failed to pick new Relay server: %s", err)
+		g.setLastError(err)
+		if err := hbwatch.WaitRetryDelay(ctx, hbwatch.WaitRelay, bo.NextBackOff(), nil); err != nil {
 			return
 		}
 	}
@@ -197,17 +196,18 @@ func (g *Guard) notifyReconnected() {
 	}
 }
 
-func (g *Guard) exponentTicker(ctx context.Context) *backoff.Ticker {
-	bo := backoff.WithContext(&backoff.ExponentialBackOff{
+// reconnectBackoff returns the backoff between server picks. It never stops.
+func (g *Guard) reconnectBackoff() *backoff.ExponentialBackOff {
+	bo := &backoff.ExponentialBackOff{
 		InitialInterval: 2 * time.Second,
 		// Spreads the reconnects of every client that lost the same relay server.
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
 		Multiplier:          2,
 		MaxInterval:         g.maxBackoffInterval,
 		Clock:               backoff.SystemClock,
-	}, ctx)
-
-	return backoff.NewTicker(bo)
+	}
+	bo.Reset()
+	return bo
 }
 
 func waitBeforeRetry(ctx context.Context) bool {

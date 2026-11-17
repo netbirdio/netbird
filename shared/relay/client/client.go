@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/netip"
 	"net/url"
@@ -14,7 +15,10 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/hbwatch"
 	"github.com/netbirdio/netbird/client/netevents/sweep"
+	"github.com/netbirdio/netbird/shared/alignedhb"
+	"github.com/netbirdio/netbird/shared/alignedhb/keepalive"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	"github.com/netbirdio/netbird/shared/relay/client/dialer"
 	netErr "github.com/netbirdio/netbird/shared/relay/client/dialer/net"
@@ -201,6 +205,10 @@ type Client struct {
 	// the manager.
 	transportFallback *transportFallback
 
+	// versionFallback, when set, records relay servers that accept only the v1
+	// auth, so later connects to them skip the v2 attempt. Shared via the manager.
+	versionFallback *versionFallback
+
 	// netEvents registers the relay dial for the network change sweep; the
 	// read loop reports the disconnect and the guard reconnects. Shared via
 	// the manager.
@@ -213,6 +221,18 @@ type Client struct {
 	// current connection, guarded by mu.
 	transport string
 
+	// enc stamps outgoing frames with the protocol version selected for the
+	// current connection. Set by the handshake, like relayConn.
+	enc messages.Encoder
+	// alignedPeriod is the aligned heartbeat period of the current connection,
+	// zero when the server selected a version without it.
+	alignedPeriod time.Duration
+	// alignedRequest returns the aligned heartbeat period to ask for, ok false
+	// for none.
+	alignedRequest func() (period time.Duration, ok bool)
+	// authSeq is the sequence number of the signed phase the current
+	// connection sent in its auth message, zero for none.
+	authSeq    uint64
 	maxMsgSize int
 }
 
@@ -227,6 +247,12 @@ func (c *Client) Transport() string {
 // SetTransportFallback wires the shared datagram-transport fallback tracker.
 func (c *Client) SetTransportFallback(tf *transportFallback) {
 	c.transportFallback = tf
+}
+
+// SetVersionFallback wires the shared tracker of relay servers that accept only
+// the v1 auth.
+func (c *Client) SetVersionFallback(vf *versionFallback) {
+	c.versionFallback = vf
 }
 
 // NewClient creates a new client for the relay server. The client is not connected to the server until the Connect
@@ -255,7 +281,8 @@ func NewClientWithServerIP(serverURL string, serverIP netip.Addr, authTokenStore
 				return &buf
 			},
 		},
-		conns: make(map[messages.PeerID]*connContainer),
+		conns:          make(map[messages.PeerID]*connContainer),
+		alignedRequest: alignedhb.ClientPeriod,
 	}
 
 	c.earlyMsgs = newEarlyMsgBuffer()
@@ -285,7 +312,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	c.instanceURL = instanceURL
 	c.muInstanceURL.Unlock()
 
-	c.stateSubscription = NewPeersStateSubscription(c.log, c.relayConn, c.maxMsgSize, c.closeConnsByPeerID)
+	c.stateSubscription = NewPeersStateSubscription(c.log, c.relayConn, c.enc, c.closeConnsByPeerID)
 
 	c.log = c.log.WithField("relay", instanceURL.String())
 	c.log.Infof("relay connection established, server IP: %s", connectedIP(c.relayConn))
@@ -293,11 +320,30 @@ func (c *Client) Connect(ctx context.Context) error {
 	c.serviceIsRunning = true
 
 	internallyStoppedFlag := newInternalStopFlag()
-	hc := healthcheck.NewReceiver(c.log)
+	hc := c.newHealthCheckReceiver()
 	go c.listenForStopEvents(ctx, hc, c.relayConn, internallyStoppedFlag)
 
+	relayConn, connLog, version := c.relayConn, c.log, c.enc.Version()
+	echo := newAlignedEcho(c.enc, c.hashedID, c.alignedPeriod, c.authSeq, connLog)
+	reconnect := func() {
+		connLog.Warnf("relay connection is stale, closing it like a health check timeout")
+		c.healthCheckTimedOut(relayConn, internallyStoppedFlag)
+	}
+	unregisterStale := hbwatch.Register(hbwatch.Relay, hbwatch.Registration{
+		Kind:          hbwatch.ActionReconnect,
+		Stale:         reconnect,
+		Correct:       echo.correct,
+		Stream:        echo,
+		Addr:          c.connectionURL,
+		AlignedPeriod: c.alignedPeriod,
+		Frames:        echo.frameCount,
+	})
+
 	c.wgReadLoop.Add(1)
-	go c.readLoop(hc, c.relayConn, internallyStoppedFlag)
+	go func() {
+		c.readLoop(hc, relayConn, version, echo, internallyStoppedFlag)
+		unregisterStale()
+	}()
 
 	return nil
 }
@@ -398,7 +444,31 @@ func (c *Client) Close() error {
 	return c.close(true)
 }
 
+// connect dials the relay server and authenticates. A server that closes the
+// connection on the v2 auth predates version negotiation: it is dialed again
+// with the v1 auth and remembered once that succeeds.
 func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
+	instanceURL, err := c.connectWithVersion(ctx, c.versionFallback.maxVersion(c.connectionURL))
+	if err == nil && c.enc.Version() >= messages.ProtocolV2 {
+		c.versionFallback.recordV2(c.connectionURL)
+	}
+	if !errors.Is(err, errV2AuthRejected) {
+		return instanceURL, err
+	}
+
+	c.log.Infof("relay server closed the connection on the v2 auth, retrying with v1: %v", err)
+	instanceURL, err = c.connectWithVersion(ctx, messages.ProtocolV1)
+	if err != nil {
+		return nil, fmt.Errorf("v1 retry after rejected v2 auth: %w", err)
+	}
+	c.versionFallback.recordV1Only(c.connectionURL)
+	c.log.Infof("relay server accepts only the v1 auth, using v1 for it from now on")
+	return instanceURL, nil
+}
+
+// connectWithVersion dials the relay server and authenticates with an auth
+// message of at most maxVersion.
+func (c *Client) connectWithVersion(ctx context.Context, maxVersion messages.ProtocolVersion) (*RelayAddr, error) {
 	// A sweep cancels this context, so a dial started on the old network
 	// aborts instead of waiting out its handshake timeout.
 	var dial *sweep.Dial
@@ -448,7 +518,7 @@ func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 	c.relayConn = conn
 	c.datagramFallbackTriggered.Store(false)
 
-	instanceURL, err := c.handShake(ctx)
+	instanceURL, err := c.handShake(ctx, maxVersion)
 	if err != nil {
 		cErr := conn.Close()
 		if cErr != nil {
@@ -509,8 +579,86 @@ func substituteHost(serverURL string, ip netip.Addr) (string, string, error) {
 	return u.String(), origHost, nil
 }
 
-func (c *Client) handShake(ctx context.Context) (*RelayAddr, error) {
-	msg, err := messages.MarshalAuthMsg(c.hashedID, c.authTokenStore.TokenBinary())
+// newHealthCheckReceiver returns the receiver for the current connection: one
+// that waits for the aligned period when the server turned it on, else stock.
+func (c *Client) newHealthCheckReceiver() *healthcheck.Receiver {
+	if c.alignedPeriod > 0 {
+		c.log.Infof("aligned heartbeat on, period %s", c.alignedPeriod)
+		return healthcheck.NewAlignedReceiver(c.log, c.alignedPeriod)
+	}
+	return healthcheck.NewReceiver(c.log)
+}
+
+// authMsg returns the Auth message and the version it advertises. A client that
+// asks for the aligned heartbeat advertises v2 with its period in the extension,
+// any other client keeps the v1 auth. The envelope cannot carry an empty token,
+// so without a token the auth stays v1 as well, and so it does when maxVersion
+// is below v2.
+func (c *Client) authMsg(maxVersion messages.ProtocolVersion) ([]byte, messages.ProtocolVersion, time.Duration, error) {
+	token := c.authTokenStore.TokenBinary()
+	period, ok := c.alignedRequest()
+	if !ok || len(token) == 0 || maxVersion < messages.ProtocolV2 {
+		msg, err := messages.MarshalAuthMsg(c.hashedID, token)
+		return msg, messages.ProtocolV1, 0, err
+	}
+	ext, period, err := c.authExtension(period)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	msg, err := messages.NewEncoder(messages.ProtocolV2, messages.MaxMessageSize).Auth(c.hashedID, token, ext)
+	return msg, messages.ProtocolV2, period, err
+}
+
+// authExtension returns the auth extension with the period and, once the client
+// has one, the phase Management signed. The period is then the one the phase was
+// signed for, so the relay server can verify it.
+func (c *Client) authExtension(requested time.Duration) ([]byte, time.Duration, error) {
+	c.authSeq = 0
+	stored, ok := alignedhb.LoadStoredPhase(c.hashedID)
+	if !ok {
+		period := min(requested, time.Duration(math.MaxUint16)*time.Second)
+		ext, err := messages.MarshalAuthExtension(messages.AuthExtension{PeriodSeconds: uint16(period / time.Second)})
+		return ext, period, err
+	}
+	ext, period, err := signedPhaseExtension(stored)
+	if err != nil {
+		return nil, 0, err
+	}
+	c.authSeq = stored.Seq
+	return ext, period, nil
+}
+
+// signedPhaseExtension encodes a stored signed phase as the period and signed
+// phase fields of the auth extension. The period is the one the phase was signed
+// for, so the relay server can verify it.
+func signedPhaseExtension(stored alignedhb.StoredPhase) ([]byte, time.Duration, error) {
+	period := min(stored.Period, time.Duration(math.MaxUint16)*time.Second)
+	ext, err := messages.MarshalAuthExtension(messages.AuthExtension{
+		PeriodSeconds: uint16(period / time.Second),
+		SignedPhase: &messages.AuthSignedPhase{
+			PhaseMs:   uint32(stored.Signed.Phase.Milliseconds()),
+			Day:       stored.Signed.Day,
+			Signature: stored.Signed.Signature,
+		},
+	})
+	return ext, period, err
+}
+
+// selectedVersion reads the version the server selected from its auth response.
+// It must be one this client advertised or a lower one.
+func selectedVersion(resp []byte, advertised messages.ProtocolVersion) (messages.ProtocolVersion, error) {
+	version, err := messages.ReadVersion(resp)
+	if err != nil {
+		return 0, err
+	}
+	if version > advertised {
+		return 0, fmt.Errorf("server selected %d above the advertised %d: %w", version, advertised, messages.ErrUnsupportedVersion)
+	}
+	return version, nil
+}
+
+func (c *Client) handShake(ctx context.Context, maxVersion messages.ProtocolVersion) (*RelayAddr, error) {
+	msg, advertised, period, err := c.authMsg(maxVersion)
 	if err != nil {
 		c.log.Errorf("failed to marshal auth message: %s", err)
 		return nil, err
@@ -524,11 +672,10 @@ func (c *Client) handShake(ctx context.Context) (*RelayAddr, error) {
 	buf := make([]byte, messages.MaxHandshakeRespSize)
 	n, err := c.readWithTimeout(ctx, buf)
 	if err != nil {
-		c.log.Errorf("failed to read auth response: %s", err)
-		return nil, err
+		return nil, fmt.Errorf("read auth response: %w", authRejectErr(ctx, advertised, err))
 	}
 
-	_, err = messages.ValidateVersion(buf[:n])
+	selected, err := selectedVersion(buf[:n], advertised)
 	if err != nil {
 		return nil, fmt.Errorf("validate version: %w", err)
 	}
@@ -549,10 +696,28 @@ func (c *Client) handShake(ctx context.Context) (*RelayAddr, error) {
 		return nil, err
 	}
 
+	c.enc = messages.NewEncoder(selected, c.maxMsgSize)
+	c.alignedPeriod = 0
+	if selected >= messages.ProtocolV2 {
+		c.alignedPeriod = period
+		c.setAlignedKeepAlive(period)
+	}
 	return &RelayAddr{addr: addr}, nil
 }
 
-func (c *Client) readLoop(hc *healthcheck.Receiver, relayConn net.Conn, internallyStoppedFlag *internalStopFlag) {
+// setAlignedKeepAlive switches the TCP keepalive of the relay connection to the
+// one for heartbeats every period. The connection was dialed stock, and a v1
+// connection keeps that. QUIC has no TCP socket and is left as dialed.
+func (c *Client) setAlignedKeepAlive(period time.Duration) {
+	err := keepalive.SetAligned(c.relayConn, period)
+	switch {
+	case err == nil, errors.Is(err, keepalive.ErrNotTCP):
+	default:
+		c.log.Debugf("failed to set TCP keepalive for heartbeat period %s: %v", period, err)
+	}
+}
+
+func (c *Client) readLoop(hc *healthcheck.Receiver, relayConn net.Conn, version messages.ProtocolVersion, echo *alignedEcho, internallyStoppedFlag *internalStopFlag) {
 	var (
 		errExit error
 		n       int
@@ -574,7 +739,7 @@ func (c *Client) readLoop(hc *healthcheck.Receiver, relayConn net.Conn, internal
 
 		buf = buf[:n]
 
-		_, err := messages.ValidateVersion(buf)
+		err := messages.ValidateConnectionVersion(buf, version)
 		if err != nil {
 			c.log.Errorf("failed to validate protocol version: %s", err)
 			c.bufPool.Put(bufPtr)
@@ -588,11 +753,12 @@ func (c *Client) readLoop(hc *healthcheck.Receiver, relayConn net.Conn, internal
 			continue
 		}
 
-		if !c.handleMsg(msgType, buf, bufPtr, hc, internallyStoppedFlag) {
+		if !c.handleMsg(msgType, buf, bufPtr, hc, echo, internallyStoppedFlag) {
 			break
 		}
 	}
 
+	c.noteDrop(version)
 	hc.Stop()
 
 	c.stateSubscription.Cleanup()
@@ -601,10 +767,24 @@ func (c *Client) readLoop(hc *healthcheck.Receiver, relayConn net.Conn, internal
 	c.notifyDisconnected()
 }
 
-func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte, hc *healthcheck.Receiver, internallyStoppedFlag *internalStopFlag) (continueLoop bool) {
+// noteDrop tells the version fallback that a v1 connection dropped. The
+// service still runs unless Close ended the connection, which is no drop.
+func (c *Client) noteDrop(version messages.ProtocolVersion) {
+	c.mu.Lock()
+	dropped := c.serviceIsRunning
+	c.mu.Unlock()
+	if dropped && version < messages.ProtocolV2 {
+		c.versionFallback.v1Dropped(c.connectionURL)
+	}
+}
+
+func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte, hc *healthcheck.Receiver, echo *alignedEcho, internallyStoppedFlag *internalStopFlag) (continueLoop bool) {
+	if msgType != messages.MsgTypeHealthCheck {
+		echo.frame()
+	}
 	switch msgType {
 	case messages.MsgTypeHealthCheck:
-		c.handleHealthCheck(hc, internallyStoppedFlag)
+		c.handleHealthCheck(buf, hc, echo, internallyStoppedFlag)
 		c.bufPool.Put(bufPtr)
 	case messages.MsgTypeTransport:
 		return c.handleTransportMsg(buf, bufPtr, internallyStoppedFlag)
@@ -625,9 +805,11 @@ func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte,
 	return true
 }
 
-func (c *Client) handleHealthCheck(hc *healthcheck.Receiver, internallyStoppedFlag *internalStopFlag) {
-	msg := messages.MarshalHealthcheck()
-	_, wErr := c.relayConn.Write(msg)
+// handleHealthCheck answers a server health check. An aligned heartbeat goes
+// to the watcher first, so a phase correction it triggers rides on this answer.
+func (c *Client) handleHealthCheck(msg []byte, hc *healthcheck.Receiver, echo *alignedEcho, internallyStoppedFlag *internalStopFlag) {
+	echo.observe(msg)
+	_, wErr := c.relayConn.Write(echo.answer())
 	if wErr != nil {
 		if c.serviceIsRunning && !internallyStoppedFlag.isSet() {
 			c.log.Errorf("failed to send heartbeat: %s", wErr)
@@ -692,15 +874,11 @@ func (c *Client) writeTo(containerRef *connContainer, dstID messages.PeerID, pay
 	}
 
 	// todo: use buffer pool instead of create new transport msg.
-	msg, err := messages.MarshalTransportMsg(dstID, payload)
-	if err != nil {
-		c.log.Errorf("failed to marshal transport message: %s", err)
-		return 0, err
-	}
+	msg := c.enc.Transport(dstID, payload)
 
 	// the write always return with 0 length because the underling does not support the size feedback.
 	conn := c.relayConn
-	_, err = conn.Write(msg)
+	_, err := conn.Write(msg)
 	if err != nil {
 		if errors.Is(err, netErr.ErrDatagramTooLarge) {
 			c.onDatagramTooLarge(conn, err)
@@ -754,11 +932,7 @@ func (c *Client) listenForStopEvents(ctx context.Context, hc *healthcheck.Receiv
 				return
 			}
 			c.log.Errorf("health check timeout")
-			internalStopFlag.set()
-			if err := conn.Close(); err != nil {
-				// ignore the err handling because the readLoop will handle it
-				c.log.Warnf("failed to close connection: %s", err)
-			}
+			c.healthCheckTimedOut(conn, internalStopFlag)
 			return
 		case <-ctx.Done():
 			err := c.close(true)
@@ -767,6 +941,17 @@ func (c *Client) listenForStopEvents(ctx context.Context, hc *healthcheck.Receiv
 			}
 			return
 		}
+	}
+}
+
+// healthCheckTimedOut closes the relay connection as a dead link. The read loop
+// then exits, closes the peer conns and notifies the disconnect listener, which
+// starts the reconnect.
+func (c *Client) healthCheckTimedOut(conn net.Conn, internalStopFlag *internalStopFlag) {
+	internalStopFlag.set()
+	if err := conn.Close(); err != nil {
+		// ignore the err handling because the readLoop will handle it
+		c.log.Warnf("failed to close connection: %s", err)
 	}
 }
 
@@ -879,8 +1064,7 @@ func (c *Client) notifyDisconnected() {
 }
 
 func (c *Client) writeCloseMsg() {
-	msg := messages.MarshalCloseMsg()
-	_, err := c.relayConn.Write(msg)
+	_, err := c.relayConn.Write(c.enc.CloseMsg())
 	if err != nil {
 		c.log.Errorf("failed to send close message: %s", err)
 	}

@@ -99,6 +99,9 @@ type Manager struct {
 	// transportFallback is shared across home and foreign relay clients so a
 	// datagram-too-large failure makes that server avoid datagram-sized transports across reconnects.
 	transportFallback *transportFallback
+	// versionFallback is shared the same way, so a relay server that accepts only
+	// the v1 auth is not tried on v2 again on every reconnect.
+	versionFallback *versionFallback
 }
 
 // NewManager creates a new manager instance.
@@ -106,6 +109,7 @@ type Manager struct {
 func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uint16, opts ...ManagerOption) *Manager {
 	tokenStore := &relayAuth.TokenStore{}
 	tf := newTransportFallback()
+	vf := newVersionFallback()
 
 	m := &Manager{
 		ctx:               ctx,
@@ -113,12 +117,14 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
 		tokenStore:        tokenStore,
 		mtu:               mtu,
 		transportFallback: tf,
+		versionFallback:   vf,
 		serverPicker: &ServerPicker{
 			TokenStore:        tokenStore,
 			PeerID:            peerID,
 			MTU:               mtu,
 			ConnectionTimeout: defaultConnectionTimeout,
 			TransportFallback: tf,
+			VersionFallback:   vf,
 		},
 		relayClients:         make(map[string]*RelayTrack),
 		cleanupInterval:      relayCleanupInterval,
@@ -324,6 +330,7 @@ func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string
 
 	relayClient := NewClientWithServerIP(serverAddress, serverIP, m.tokenStore, m.peerID, m.mtu)
 	relayClient.SetTransportFallback(m.transportFallback)
+	relayClient.SetVersionFallback(m.versionFallback)
 	relayClient.netEvents = m.netEvents
 	err := relayClient.Connect(m.ctx)
 	if err != nil {

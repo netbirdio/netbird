@@ -97,3 +97,22 @@ func TestReceiverHealthCheckAttemptThreshold(t *testing.T) {
 		})
 	}
 }
+
+func TestAlignedReceiverTimeout(t *testing.T) {
+	tests := []struct {
+		name   string
+		period time.Duration
+		want   time.Duration
+	}{
+		{name: "short period keeps the stock timeout", period: 20 * time.Second, want: defaultHeartbeatTimeout},
+		{name: "30 s period", period: 30 * time.Second, want: 40 * time.Second},
+		{name: "60 s period", period: 60 * time.Second, want: 70 * time.Second},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := alignedHeartbeatTimeout(tc.period); got != tc.want {
+				t.Errorf("timeout = %s, want %s", got, tc.want)
+			}
+		})
+	}
+}

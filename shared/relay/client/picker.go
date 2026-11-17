@@ -30,6 +30,7 @@ type ServerPicker struct {
 	MTU               uint16
 	ConnectionTimeout time.Duration
 	TransportFallback *transportFallback
+	VersionFallback   *versionFallback
 	NetEvents         NetEvents
 }
 
@@ -79,6 +80,7 @@ func (sp *ServerPicker) startConnection(ctx context.Context, resultChan chan con
 	log.Infof("try to connecting to relay server: %s", url)
 	relayClient := NewClient(url, sp.TokenStore, sp.PeerID, sp.MTU)
 	relayClient.SetTransportFallback(sp.TransportFallback)
+	relayClient.SetVersionFallback(sp.VersionFallback)
 	relayClient.netEvents = sp.NetEvents
 	err := relayClient.Connect(ctx)
 	resultChan <- connResult{

@@ -12,9 +12,36 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nbnet "github.com/netbirdio/netbird/client/net"
+	"github.com/netbirdio/netbird/shared/alignedhb"
 	nbRelay "github.com/netbirdio/netbird/shared/relay"
 	quictls "github.com/netbirdio/netbird/shared/relay/tls"
 )
+
+const (
+	// maxIdleTimeout stays above the receive timeout of the longest aligned
+	// heartbeat period. quic-go uses the lower of both sides.
+	maxIdleTimeout = alignedhb.MaxPeriod + alignedhb.ReceiveMargin
+	// stockKeepAlivePeriod is the QUIC ping interval of clients without the
+	// aligned heartbeat.
+	stockKeepAlivePeriod = 30 * time.Second
+)
+
+// alignedHeartbeat reports whether this client asks for the aligned heartbeat.
+// A var so tests can switch it.
+var alignedHeartbeat = func() bool {
+	_, ok := alignedhb.ClientPeriod()
+	return ok
+}
+
+// keepAlivePeriod returns the QUIC ping interval. An aligned heartbeat client
+// sends no pings: the relay health check keeps the connection alive, and a ping
+// between two heartbeats would wake the radio. Other clients ping as before.
+func keepAlivePeriod() time.Duration {
+	if alignedHeartbeat() {
+		return 0
+	}
+	return stockKeepAlivePeriod
+}
 
 type Dialer struct {
 }
@@ -49,8 +76,8 @@ func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn,
 	}
 
 	quicConfig := &quic.Config{
-		KeepAlivePeriod:   30 * time.Second,
-		MaxIdleTimeout:    4 * time.Minute,
+		KeepAlivePeriod:   keepAlivePeriod(),
+		MaxIdleTimeout:    maxIdleTimeout,
 		EnableDatagrams:   true,
 		InitialPacketSize: nbRelay.QUICInitialPacketSize,
 		Tracer:            connectionTracer(quicURL),

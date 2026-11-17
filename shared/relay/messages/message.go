@@ -21,7 +21,7 @@ const (
 	// connection. Frames other than Auth and HealthCheck keep the v1 layout.
 	ProtocolV2 ProtocolVersion = 2
 	// CurrentProtocolVersion is the highest protocol version this build supports.
-	CurrentProtocolVersion = ProtocolV1
+	CurrentProtocolVersion = ProtocolV2
 
 	// authEnvelopeMinVersion is the first advertised version whose Auth message carries a
 	// length-prefixed token followed by an extension area.

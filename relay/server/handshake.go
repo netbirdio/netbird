@@ -20,10 +20,6 @@ const (
 	// handshakeTimeout bounds how long a connection may remain in the
 	// pre-authentication handshake phase before being closed.
 	handshakeTimeout = 10 * time.Second
-
-	// maxProtocolVersion is the highest protocol version this server selects.
-	// Version 2 turns the aligned heartbeat on for clients that offer it.
-	maxProtocolVersion = messages.ProtocolV2
 )
 
 type Validator interface {
@@ -58,14 +54,14 @@ type verifiedPhase struct {
 }
 
 func newPreparedMsg(instanceURL string) (*preparedMsg, error) {
-	responses := make(map[messages.ProtocolVersion][]byte, maxProtocolVersion)
+	responses := make(map[messages.ProtocolVersion][]byte, messages.CurrentProtocolVersion)
 	for version := messages.ProtocolV1; ; version++ {
 		ram, err := messages.NewEncoder(version, messages.MaxMessageSize).AuthResponse(instanceURL)
 		if err != nil {
 			return nil, fmt.Errorf("marshal auth response for version %d: %w", version, err)
 		}
 		responses[version] = ram
-		if version == maxProtocolVersion {
+		if version == messages.CurrentProtocolVersion {
 			break
 		}
 	}
@@ -111,7 +107,7 @@ func (h *handshake) handshakeReceive(ctx context.Context) (*messages.PeerID, err
 		return peerID, err
 	}
 
-	selected := messages.SelectVersion(advertised, maxProtocolVersion)
+	selected := messages.SelectVersion(advertised, messages.CurrentProtocolVersion)
 	var aligned *verifiedPhase
 	if selected >= messages.ProtocolV2 {
 		aligned = alignedSchedule(buf, *peerID, h.phaseVerifier, h.periodLimits, h.hbMetrics, time.Now())

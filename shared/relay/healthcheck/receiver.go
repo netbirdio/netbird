@@ -5,10 +5,13 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/shared/alignedhb"
 )
 
 const (
-	defaultHeartbeatTimeout = defaultHealthCheckInterval + 10*time.Second
+	heartbeatMargin         = 10 * time.Second
+	defaultHeartbeatTimeout = defaultHealthCheckInterval + heartbeatMargin
 )
 
 type ReceiverOptions struct {
@@ -34,6 +37,17 @@ type Receiver struct {
 func NewReceiver(log *log.Entry) *Receiver {
 	opts := ReceiverOptions{
 		HeartbeatTimeout: defaultHeartbeatTimeout,
+		AttemptThreshold: getAttemptThresholdFromEnv(),
+	}
+	return NewReceiverWithOpts(log, opts)
+}
+
+// NewAlignedReceiver creates a receiver for a connection on which the server sends
+// aligned heartbeats every period. It waits the period plus the margin, and never
+// less than the stock timeout.
+func NewAlignedReceiver(log *log.Entry, period time.Duration) *Receiver {
+	opts := ReceiverOptions{
+		HeartbeatTimeout: alignedHeartbeatTimeout(period),
 		AttemptThreshold: getAttemptThresholdFromEnv(),
 	}
 	return NewReceiverWithOpts(log, opts)
@@ -113,4 +127,11 @@ func (r *Receiver) notifyTimeout() {
 	case r.OnTimeout <- struct{}{}:
 	default:
 	}
+}
+
+// alignedHeartbeatTimeout is how long a receiver waits for an aligned heartbeat
+// sent every period: the period plus the margin, never less than the stock
+// timeout.
+func alignedHeartbeatTimeout(period time.Duration) time.Duration {
+	return max(defaultHeartbeatTimeout, alignedhb.ReceiveTimeout(period))
 }
