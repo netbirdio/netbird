@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -52,6 +53,7 @@ import (
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/client/internal/portforward"
+	"github.com/netbirdio/netbird/client/internal/pqkem"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
@@ -213,6 +215,13 @@ type Engine struct {
 
 	// rpManager is a Rosenpass manager
 	rpManager *rosenpass.Manager
+
+	// pqkemManager runs the ML-KEM post-quantum PSK exchange (gated by NB_ENABLE_PQ_MLKEM).
+	// It owns the data-path transport and peer endpoint routing.
+	pqkemManager *pqkem.Manager
+	// pqPSKReapplier restores the latest PQ PSK after a conn configures WireGuard with a
+	// stale one. Set together with pqkemManager.
+	pqPSKReapplier *pqPSKReapplier
 
 	// syncMsgMux is used to guarantee sequential Management Service message processing
 	syncMsgMux *sync.Mutex
@@ -555,6 +564,83 @@ func waitWithContext(ctx context.Context, wg *sync.WaitGroup) error {
 	}
 }
 
+// startRosenpassManager brings up Rosenpass when it is enabled and ML-KEM (which takes
+// precedence) is not, since the two post-quantum mechanisms are mutually exclusive.
+func (e *Engine) startRosenpassManager(publicKey wgtypes.Key) error {
+	if e.config.RosenpassEnabled && pqkem.Enabled() {
+		log.Warnf("rosenpass and ML-KEM post-quantum are mutually exclusive; ML-KEM is enabled, so rosenpass is disabled")
+	}
+	if !e.config.RosenpassEnabled || pqkem.Enabled() {
+		return nil
+	}
+
+	log.Infof("rosenpass is enabled")
+	if e.config.RosenpassPermissive {
+		log.Infof("running rosenpass in permissive mode")
+	} else {
+		log.Infof("running rosenpass in strict mode")
+	}
+
+	var err error
+	e.rpManager, err = rosenpass.NewManager(e.config.PreSharedKey, e.config.WgIfaceName, publicKey)
+	if err != nil {
+		return fmt.Errorf("create rosenpass manager: %w", err)
+	}
+	if err := e.rpManager.Run(); err != nil {
+		return fmt.Errorf("run rosenpass manager: %w", err)
+	}
+	return nil
+}
+
+// startPQKEMManager brings up the ML-KEM post-quantum PSK exchange when NB_ENABLE_PQ_MLKEM
+// is set. It binds the dedicated UDP transport on the WG overlay IP, so the interface must
+// already be up. In strict mode a bind failure is fatal (fail closed); in opportunistic
+// mode it is logged and the exchange stays disabled.
+func (e *Engine) startPQKEMManager(publicKey wgtypes.Key) error {
+	if !pqkem.Enabled() {
+		return nil
+	}
+	tr, err := newPQTransport(e.config.WgAddr.IP, e.wgInterface.GetNet())
+	if err != nil {
+		if pqkem.Strict() {
+			return fmt.Errorf("pqkem: strict mode enabled but transport bind failed: %w", err)
+		}
+		log.Errorf("pqkem: transport bind failed, exchange disabled: %v", err)
+		return nil
+	}
+	applied := newAppliedGenerations()
+	cbHandler := pqCallbackHandler{
+		wg:      e.wgInterface,
+		status:  e.statusRecorder,
+		applied: applied,
+		// On a persistent rekey failure, re-bootstrap the KEM over Signal: a fresh
+		// signalling offer starts a new exchange that overwrites the stalled PSK on both
+		// sides, recovering from a data-path desync.
+		recoverPQKeyOverSignal: func(remoteKey string) {
+			if conn, ok := e.peerStore.PeerConn(remoteKey); ok {
+				conn.RecoverPQKeyOverSignal()
+			}
+		},
+	}
+	var opts []pqkem.Option
+	if e.config.PreSharedKey != nil {
+		// The configured key promises that only peers holding it can communicate. The PQ
+		// PSK replaces it in WireGuard, so it has to carry that guarantee itself.
+		opts = append(opts, pqkem.WithPresharedSecret(e.config.PreSharedKey[:]))
+	}
+	e.pqkemManager = pqkem.NewManager(pqkem.LocalID(publicKey.String()), cbHandler, pqkem.NewLogger(), opts...)
+	// Shares the apply lock with the rotation push, so a reapply and a push are ordered.
+	e.pqPSKReapplier = &pqPSKReapplier{psks: e.pqkemManager, wg: e.wgInterface, applied: applied}
+	e.pqkemManager.Start(tr)
+	// Here rather than in initFirewall: the firewall comes up before the interface, and the
+	// transport can only bind once the interface is up.
+	if e.firewall != nil {
+		e.allowOverlayUDPPort("ML-KEM", uint16(e.pqkemManager.LocalPort()))
+	}
+	log.Infof("pqkem: enabled (udp port %d on overlay %s)", e.pqkemManager.LocalPort(), e.config.WgAddr.IP)
+	return nil
+}
+
 // Start creates a new WireGuard tunnel interface and listens to events from Signal and Management services
 // Connections to remote peers are not established here.
 // However, they will be established once an event with a list of peers to connect to will be received from Management Service
@@ -604,20 +690,8 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	publicKey := e.config.WgPrivateKey.PublicKey()
 	e.flowManager = netflow.NewManager(e.wgInterface, publicKey[:], e.statusRecorder)
 
-	if e.config.RosenpassEnabled {
-		log.Infof("rosenpass is enabled")
-		if e.config.RosenpassPermissive {
-			log.Infof("running rosenpass in permissive mode")
-		} else {
-			log.Infof("running rosenpass in strict mode")
-		}
-		e.rpManager, err = rosenpass.NewManager(e.config.PreSharedKey, e.config.WgIfaceName, publicKey)
-		if err != nil {
-			return fmt.Errorf("create rosenpass manager: %w", err)
-		}
-		if err := e.rpManager.Run(); err != nil {
-			return fmt.Errorf("run rosenpass manager: %w", err)
-		}
+	if err := e.startRosenpassManager(publicKey); err != nil {
+		return err
 	}
 	e.stateManager.Start()
 
@@ -694,6 +768,10 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	// Set the WireGuard interface for rosenpass after interface is up
 	if e.rpManager != nil {
 		e.rpManager.SetInterface(e.wgInterface)
+	}
+
+	if err := e.startPQKEMManager(publicKey); err != nil {
+		return err
 	}
 
 	// if inbound conns are blocked there is no need to create the ACL manager
@@ -795,14 +873,19 @@ func (e *Engine) initFirewall() error {
 		e.blockLanAccess()
 	}
 
-	if e.rpManager == nil || !e.config.RosenpassEnabled {
-		return nil
+	if e.rpManager != nil && e.config.RosenpassEnabled {
+		e.allowOverlayUDPPort("rosenpass", uint16(e.rpManager.GetAddress().Port))
 	}
 
-	rosenpassPort := e.rpManager.GetAddress().Port
-	port := firewallManager.Port{Values: []uint16{uint16(rosenpassPort)}}
+	return nil
+}
 
-	// IPv4-only: rosenpass peers connect via AllowedIps[0] which is always v4.
+// allowOverlayUDPPort accepts inbound UDP from any overlay peer on a port a local
+// service listens on, so the peer ACLs do not drop it. Failure is logged, not fatal.
+func (e *Engine) allowOverlayUDPPort(service string, portValue uint16) {
+	port := firewallManager.Port{Values: []uint16{portValue}}
+
+	// IPv4-only: the peers reach the service via AllowedIps[0], which is always v4.
 	if _, err := e.firewall.AddFilterRule(
 		nil,
 		[]netip.Prefix{netip.PrefixFrom(netip.IPv4Unspecified(), 0)},
@@ -812,13 +895,11 @@ func (e *Engine) initFirewall() error {
 		&port,
 		firewallManager.ActionAccept,
 	); err != nil {
-		log.Errorf("failed to allow rosenpass interface traffic: %v", err)
-		return nil
+		log.Errorf("failed to allow %s interface traffic: %v", service, err)
+		return
 	}
 
-	log.Infof("rosenpass interface traffic allowed on port %d", rosenpassPort)
-
-	return nil
+	log.Infof("%s interface traffic allowed on port %d", service, portValue)
 }
 
 func (e *Engine) blockLanAccess() {
@@ -945,6 +1026,10 @@ func (e *Engine) removePeer(peerKey string) error {
 	log.Debugf("removing peer from engine %s", peerKey)
 
 	e.connMgr.RemovePeerConn(peerKey)
+
+	if e.pqkemManager != nil {
+		e.pqkemManager.RemovePeer(pqkem.RemoteID(peerKey))
+	}
 
 	err := e.statusRecorder.RemovePeer(peerKey)
 	if err != nil {
@@ -2022,6 +2107,10 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 		ICEConfig: e.createICEConfig(),
 		NetMgr:    e.netMgr,
 	}
+	if e.pqkemManager != nil {
+		config.PQ = pqHandshaker{mgr: e.pqkemManager, reapplier: e.pqPSKReapplier, status: e.statusRecorder}
+		config.PQStrict = pqkem.Strict()
+	}
 
 	serviceDependencies := peer.ServiceDependencies{
 		StatusRecorder:     e.statusRecorder,
@@ -2207,6 +2296,10 @@ func (e *Engine) close() {
 
 	if e.rpManager != nil {
 		_ = e.rpManager.Close()
+	}
+
+	if e.pqkemManager != nil {
+		e.pqkemManager.Stop()
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -2956,6 +3049,13 @@ func convertToOfferAnswer(msg *sProto.Message) (*peer.OfferAnswer, error) {
 
 	relayIP := decodeRelayIP(msg.GetBody().GetRelayServerIP())
 
+	// Ports are uint16 internally; the proto widens them to uint32, so validate the
+	// range before narrowing (a value that does not fit is a malformed message).
+	mlkemPort := msg.GetBody().GetMlkemPort()
+	if mlkemPort > math.MaxUint16 {
+		return nil, fmt.Errorf("invalid ML-KEM port %d in signalling message", mlkemPort)
+	}
+
 	offerAnswer := peer.OfferAnswer{
 		IceCredentials: peer.IceCredentials{
 			UFrag: remoteCred.UFrag,
@@ -2965,6 +3065,8 @@ func convertToOfferAnswer(msg *sProto.Message) (*peer.OfferAnswer, error) {
 		Version:         msg.GetBody().GetNetBirdVersion(),
 		RosenpassPubKey: rosenpassPubKey,
 		RosenpassAddr:   rosenpassAddr,
+		MlkemPayload:    msg.GetBody().GetMlkemPayload(),
+		MlkemPort:       uint16(mlkemPort),
 		RelaySrvAddress: msg.GetBody().GetRelayServerAddress(),
 		RelaySrvIP:      relayIP,
 		SessionID:       sessionID,
