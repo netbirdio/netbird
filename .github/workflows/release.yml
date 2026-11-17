@@ -478,7 +478,7 @@ jobs:
       PYXIS_API_TOKEN: ${{ secrets.PYXIS_API_TOKEN }}
 
   release_ui:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       release_ui_artifact_url: ${{ steps.upload_release_ui.outputs.artifact-url }}
     steps:
@@ -584,6 +584,30 @@ jobs:
           GPG_RPM_KEY_FILE: ${{ env.GPG_RPM_KEY_FILE }}
           NFPM_NETBIRD_UI_RPM_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
           SKIP_PUBLISH: ${{ env.SKIP_PUBLISH }}
+      - name: Verify Linux amd64 UI CPU baseline
+        run: |
+          bin=dist/netbird-ui_linux_amd64_v1/netbird-ui
+          test -f "$bin"
+          isa=$(readelf -n "$bin" | sed -n 's/.*x86 ISA needed: //p')
+          echo "x86 ISA needed: ${isa:-none}"
+          if [[ -n "$isa" && "$isa" != "x86-64-baseline" ]]; then
+            echo "::error::netbird-ui requires more than the x86-64 baseline: $isa"
+            exit 1
+          fi
+      - name: Verify Linux amd64 UI glibc baseline
+        env:
+          MAX_GLIBC: "2.34"
+        run: |
+          bin=dist/netbird-ui_linux_amd64_v1/netbird-ui
+          test -f "$bin"
+          needed=$(objdump -T "$bin" | grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/^GLIBC_//' | sort -uV | tail -n 1)
+          test -n "$needed"
+          echo "glibc needed: $needed (max allowed: $MAX_GLIBC)"
+          if [[ "$(printf '%s\n' "$needed" "$MAX_GLIBC" | sort -V | tail -n 1)" != "$MAX_GLIBC" ]]; then
+            echo "::error::netbird-ui requires glibc $needed, newer than the allowed $MAX_GLIBC"
+            objdump -T "$bin" | grep "GLIBC_$needed" || true
+            exit 1
+          fi
       - name: Verify RPM signatures
         run: |
           docker run --rm -v $(pwd)/dist:/dist fedora:41 bash -c '
