@@ -52,14 +52,20 @@ func TestNotificationsDisabled_ManagedModeKeepsPendingVersion(t *testing.T) {
 	m, sub := newNotificationTestManager(t, &disabled)
 
 	m.SetVersion("1.0.1", false)
+
+	// handleUpdate records the pending version before it tries to announce it,
+	// so once it is set the announcement has been attempted or is about to be.
+	pendingVersion := func() *v.Version {
+		m.updateMutex.Lock()
+		defer m.updateMutex.Unlock()
+		return m.pendingVersion
+	}
+	require.Eventually(t, func() bool { return pendingVersion() != nil }, 5*time.Second, 10*time.Millisecond,
+		"suppressing the announcement must not drop the pending install")
+	assert.Equal(t, "1.0.1", pendingVersion().String())
+
 	ver, _ := waitForUpdateEvent(sub, 300*time.Millisecond)
 	assert.Empty(t, ver, "the enforced prompt must be suppressed too")
-
-	m.updateMutex.Lock()
-	pending := m.pendingVersion
-	m.updateMutex.Unlock()
-	require.NotNil(t, pending, "suppressing the announcement must not drop the pending install")
-	assert.Equal(t, "1.0.1", pending.String())
 }
 
 func TestNotificationsDisabled_ReEnabledAtRuntime(t *testing.T) {
