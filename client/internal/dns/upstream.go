@@ -446,7 +446,8 @@ func (u *upstreamResolverBase) tryRaceStaggered(ctx context.Context, r *dns.Msg,
 			inFlight--
 			answered[a.idx] = true
 			if a.failure == nil {
-				a.res.failures = append(failures, u.unansweredFailures(group, started, answered, stagger)...)
+				failures = append(failures, u.unansweredFailures(group, started, answered, stagger)...)
+				a.res.failures = failures
 				return a.res
 			}
 			failures = append(failures, *a.failure)
@@ -469,9 +470,6 @@ func (u *upstreamResolverBase) unansweredFailures(group upstreamRace, started []
 			continue
 		}
 		reason := fmt.Sprintf("no reply after %v", elapsed.Truncate(time.Millisecond))
-		if peerInfo := u.debugUpstreamTimeout(group[idx]); peerInfo != "" {
-			reason += " " + peerInfo
-		}
 		failures = append(failures, upstreamFailure{upstream: group[idx], reason: reason})
 	}
 	return failures
