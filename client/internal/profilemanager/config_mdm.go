@@ -38,6 +38,12 @@ func MDMConflicts(input ConfigInput, policy *mdm.Policy) []string {
 		mdm.ConflictInt64(mdm.KeyWireguardPort, port),
 		mdm.ConflictBool(mdm.KeyEnableLocalMetrics, input.LocalMetricsEnabled),
 		mdm.ConflictStringPtr(mdm.KeyLocalMetricsAddress, input.LocalMetricsAddress),
+		mdm.ConflictBool(mdm.KeyDisableDNS, input.DisableDNS),
+		mdm.ConflictBool(mdm.KeyDisableIPv6, input.DisableIPv6),
+		mdm.ConflictBool(mdm.KeyDisableFirewall, input.DisableFirewall),
+		mdm.ConflictBool(mdm.KeyBlockLANAccess, input.BlockLANAccess),
+		mdm.ConflictBool(mdm.KeyDisableNotifications, input.DisableNotifications),
+		mdm.ConflictBool(mdm.KeyNetworkMonitor, input.NetworkMonitor),
 	})
 }
 

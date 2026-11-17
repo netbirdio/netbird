@@ -404,3 +404,47 @@ func TestSetConfig_MDMEmpty_NoEnforcement(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 }
+
+func TestSetConfig_MDMReject_NetworkBoolKeys(t *testing.T) {
+	s, ctx, profName, username, _ := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
+		mdm.KeyDisableDNS:           true,
+		mdm.KeyDisableIPv6:          true,
+		mdm.KeyDisableFirewall:      true,
+		mdm.KeyBlockLANAccess:       true,
+		mdm.KeyDisableNotifications: true,
+		mdm.KeyNetworkMonitor:       false,
+	}))
+
+	off, on := false, true
+	_, err := s.SetConfig(ctx, &proto.SetConfigRequest{
+		ProfileName:          profName,
+		Username:             username,
+		DisableDns:           &off,
+		DisableIpv6:          &off,
+		DisableFirewall:      &off,
+		BlockLanAccess:       &off,
+		DisableNotifications: &off,
+		NetworkMonitor:       &on,
+	})
+
+	v := extractViolation(t, err)
+	assert.ElementsMatch(t, []string{
+		mdm.KeyDisableDNS, mdm.KeyDisableIPv6, mdm.KeyDisableFirewall,
+		mdm.KeyBlockLANAccess, mdm.KeyDisableNotifications, mdm.KeyNetworkMonitor,
+	}, v.GetFields(), "every divergent network key must be reported")
+}
+
+func TestLoginRequestMDMConflicts_NetworkBoolKeys(t *testing.T) {
+	policy := mdm.NewPolicy(map[string]any{
+		mdm.KeyDisableDNS:     true,
+		mdm.KeyNetworkMonitor: false,
+	})
+	off, on := false, true
+
+	assert.Empty(t, loginRequestMDMConflicts(&proto.LoginRequest{DisableDns: &on, NetworkMonitor: &off}, policy),
+		"values equal to the enforced ones are an echo")
+	assert.Equal(t, []string{mdm.KeyDisableDNS, mdm.KeyNetworkMonitor},
+		loginRequestMDMConflicts(&proto.LoginRequest{DisableDns: &off, NetworkMonitor: &on}, policy),
+		"divergent values must be reported")
+}

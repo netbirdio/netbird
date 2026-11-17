@@ -38,6 +38,13 @@ var allKeys = []string{
 	KeyBundleUploadURL,
 	KeyAllowGroups,
 	KeyExtraIFaceBlackList,
+	KeyDisableDNS,
+	KeyDisableIPv6,
+	KeyDisableFirewall,
+	KeyBlockLANAccess,
+	KeyDisableNotifications,
+	KeyNetworkMonitor,
+	KeyDisableIPv6Discovery,
 }
 
 // canonicalKey maps the lowercase form of a managed-config value name to

@@ -1009,6 +1009,18 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 	}
 
 	config.applyMDMExtraIFaceBlackList(policy)
+	config.applyMDMNetworkOverrides(policy)
+}
+
+// applyMDMNetworkOverrides applies the network and daemon override keys.
+func (config *Config) applyMDMNetworkOverrides(policy *mdm.Policy) {
+	applyMDMBool(policy, mdm.KeyDisableDNS, func(v bool) { config.DisableDNS = v })
+	applyMDMBool(policy, mdm.KeyDisableIPv6, func(v bool) { config.DisableIPv6 = v })
+	applyMDMBool(policy, mdm.KeyDisableFirewall, func(v bool) { config.DisableFirewall = v })
+	applyMDMBool(policy, mdm.KeyBlockLANAccess, func(v bool) { config.BlockLANAccess = v })
+	applyMDMBool(policy, mdm.KeyDisableNotifications, func(v bool) { config.DisableNotifications = &v })
+	applyMDMBool(policy, mdm.KeyNetworkMonitor, func(v bool) { config.NetworkMonitor = &v })
+	applyMDMBool(policy, mdm.KeyDisableIPv6Discovery, func(v bool) { config.DisableIPv6Discovery = v })
 }
 
 // logMDMApplied logs the application of a single MDM-managed key. Values for

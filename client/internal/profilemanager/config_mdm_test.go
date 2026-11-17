@@ -431,3 +431,100 @@ func countOf(list []string, item string) int {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+func TestApply_MDMNetworkBoolKeysOverrideOnDiskValue(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "config.json")
+
+	// The profile file holds the opposite of every value MDM is about to
+	// enforce, so each assertion proves the override and not a default.
+	configWithMDM(t, ConfigInput{
+		ConfigPath:           tmp,
+		DisableDNS:           boolPtr(false),
+		DisableIPv6:          boolPtr(false),
+		DisableFirewall:      boolPtr(false),
+		BlockLANAccess:       boolPtr(false),
+		DisableNotifications: boolPtr(true),
+		NetworkMonitor:       boolPtr(true),
+	}, mdm.NewPolicy(nil))
+	before, err := os.ReadFile(tmp)
+	require.NoError(t, err)
+
+	cfg := configWithMDM(t, ConfigInput{ConfigPath: tmp}, mdm.NewPolicy(map[string]any{
+		mdm.KeyDisableDNS:           true,
+		mdm.KeyDisableIPv6:          "yes",
+		mdm.KeyDisableFirewall:      int64(1),
+		mdm.KeyBlockLANAccess:       true,
+		mdm.KeyDisableNotifications: false,
+		mdm.KeyNetworkMonitor:       "off",
+		mdm.KeyDisableIPv6Discovery: true,
+	}))
+
+	assert.True(t, cfg.DisableDNS, "disableDNS")
+	assert.True(t, cfg.DisableIPv6, "disableIPv6 from a string literal")
+	assert.True(t, cfg.DisableFirewall, "disableFirewall from a REG_DWORD")
+	assert.True(t, cfg.BlockLANAccess, "blockLANAccess")
+	require.NotNil(t, cfg.DisableNotifications)
+	assert.False(t, *cfg.DisableNotifications, "disableNotifications")
+	require.NotNil(t, cfg.NetworkMonitor)
+	assert.False(t, *cfg.NetworkMonitor, "networkMonitor")
+	assert.True(t, cfg.DisableIPv6Discovery, "disableIPv6Discovery")
+
+	after, err := os.ReadFile(tmp)
+	require.NoError(t, err)
+	assert.Equal(t, string(before), string(after), "MDM values must not reach the profile file")
+}
+
+func TestApply_MDMNetworkBoolKeys_UnparseableValueKeepsProfileValue(t *testing.T) {
+	cfg := configWithMDM(t, ConfigInput{
+		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
+		DisableDNS: boolPtr(true),
+	}, mdm.NewPolicy(map[string]any{
+		mdm.KeyDisableDNS: "maybe",
+	}))
+
+	assert.True(t, cfg.DisableDNS, "an unparseable bool must not flip the profile value")
+	assert.True(t, cfg.Policy().HasKey(mdm.KeyDisableDNS), "the key stays managed so user writes are still rejected")
+}
+
+func TestMDMConflicts_NetworkBoolKeys(t *testing.T) {
+	policy := mdm.NewPolicy(map[string]any{
+		mdm.KeyDisableDNS:           true,
+		mdm.KeyDisableIPv6:          true,
+		mdm.KeyDisableFirewall:      true,
+		mdm.KeyBlockLANAccess:       true,
+		mdm.KeyDisableNotifications: true,
+		mdm.KeyNetworkMonitor:       false,
+	})
+
+	tests := []struct {
+		name  string
+		input ConfigInput
+		want  []string
+	}{
+		{name: "unset", input: ConfigInput{}, want: nil},
+		{name: "echo", input: ConfigInput{
+			DisableDNS:           boolPtr(true),
+			DisableIPv6:          boolPtr(true),
+			DisableFirewall:      boolPtr(true),
+			BlockLANAccess:       boolPtr(true),
+			DisableNotifications: boolPtr(true),
+			NetworkMonitor:       boolPtr(false),
+		}, want: nil},
+		{name: "all divergent", input: ConfigInput{
+			DisableDNS:           boolPtr(false),
+			DisableIPv6:          boolPtr(false),
+			DisableFirewall:      boolPtr(false),
+			BlockLANAccess:       boolPtr(false),
+			DisableNotifications: boolPtr(false),
+			NetworkMonitor:       boolPtr(true),
+		}, want: []string{
+			mdm.KeyDisableDNS, mdm.KeyDisableIPv6, mdm.KeyDisableFirewall,
+			mdm.KeyBlockLANAccess, mdm.KeyDisableNotifications, mdm.KeyNetworkMonitor,
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, MDMConflicts(tc.input, policy), "conflicting keys")
+		})
+	}
+}

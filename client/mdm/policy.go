@@ -98,6 +98,18 @@ const (
 	// keep their entries, so a device can still exclude its own interfaces.
 	// Read as a list or a comma-separated string.
 	KeyExtraIFaceBlackList = "extraIFaceBlackList"
+
+	// Network and daemon overrides: each replaces the matching Config field
+	// and rejects a user write that diverges from it.
+	KeyDisableDNS           = "disableDNS"
+	KeyDisableIPv6          = "disableIPv6"
+	KeyDisableFirewall      = "disableFirewall"
+	KeyBlockLANAccess       = "blockLANAccess"
+	KeyDisableNotifications = "disableNotifications"
+	KeyNetworkMonitor       = "networkMonitor"
+	// KeyDisableIPv6Discovery has no RPC or CLI surface, so it is never
+	// rejected; it only overrides the value in the profile file.
+	KeyDisableIPv6Discovery = "disableIPv6Discovery"
 )
 
 // Split-tunnel mode literals (KeySplitTunnelMode values).

@@ -179,6 +179,12 @@ func mdmManagedFieldConflicts(msg *proto.SetConfigRequest, policy *mdm.Policy) [
 		mdm.ConflictInt64(mdm.KeyWireguardPort, msg.WireguardPort),
 		mdm.ConflictBool(mdm.KeyEnableLocalMetrics, msg.EnableLocalMetrics),
 		mdm.ConflictStringPtr(mdm.KeyLocalMetricsAddress, msg.LocalMetricsAddress),
+		mdm.ConflictBool(mdm.KeyDisableDNS, msg.DisableDns),
+		mdm.ConflictBool(mdm.KeyDisableIPv6, msg.DisableIpv6),
+		mdm.ConflictBool(mdm.KeyDisableFirewall, msg.DisableFirewall),
+		mdm.ConflictBool(mdm.KeyBlockLANAccess, msg.BlockLanAccess),
+		mdm.ConflictBool(mdm.KeyDisableNotifications, msg.DisableNotifications),
+		mdm.ConflictBool(mdm.KeyNetworkMonitor, msg.NetworkMonitor),
 	})
 }
 
@@ -219,6 +225,12 @@ func loginRequestMDMConflicts(msg *proto.LoginRequest, policy *mdm.Policy) []str
 		mdm.ConflictInt64(mdm.KeyWireguardPort, msg.WireguardPort),
 		mdm.ConflictBool(mdm.KeyEnableLocalMetrics, msg.EnableLocalMetrics),
 		mdm.ConflictStringPtr(mdm.KeyLocalMetricsAddress, msg.LocalMetricsAddress),
+		mdm.ConflictBool(mdm.KeyDisableDNS, msg.DisableDns),
+		mdm.ConflictBool(mdm.KeyDisableIPv6, msg.DisableIpv6),
+		mdm.ConflictBool(mdm.KeyDisableFirewall, msg.DisableFirewall),
+		mdm.ConflictBool(mdm.KeyBlockLANAccess, msg.BlockLanAccess),
+		mdm.ConflictBool(mdm.KeyDisableNotifications, msg.DisableNotifications),
+		mdm.ConflictBool(mdm.KeyNetworkMonitor, msg.NetworkMonitor),
 	})
 }
 
