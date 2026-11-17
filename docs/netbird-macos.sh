@@ -76,6 +76,17 @@ rosenpassEnabled="$NULL"
 rosenpassPermissive="$NULL"
 wireguardPort='51820'
 extraIFaceBlackList="$NULL"                # comma-separated interface name prefixes, added to the built-in list
+disableDNS="$NULL"
+disableIPv6="$NULL"
+disableFirewall="$NULL"
+blockLANAccess="$NULL"
+disableNotifications="$NULL"
+networkMonitor="$NULL"
+disableIPv6Discovery="$NULL"
+interfaceName="$NULL"                      # macOS: utun followed by a number, e.g. utun100
+mtu="$NULL"                                # 576-8192
+dnsRouteInterval="$NULL"                   # duration such as 1m or 1m30s
+natExternalIPs="$NULL"                     # comma-separated external-IP[/internal-IP or /interface]
 splitTunnelMode="$NULL"                    # "allow" or "disallow", Android-only at the daemon level
 splitTunnelApps="$NULL"                    # comma-separated app IDs, Android-only
 ##############################################################################
@@ -211,6 +222,17 @@ main() {
   is_set "$rosenpassPermissive"       && emit_bool    rosenpassPermissive       "$rosenpassPermissive"
   is_set "$wireguardPort"             && emit_int     wireguardPort             "$wireguardPort"
   is_set "$extraIFaceBlackList"       && emit_string  extraIFaceBlackList       "$extraIFaceBlackList"
+  is_set "$disableDNS"                && emit_bool    disableDNS                "$disableDNS"
+  is_set "$disableIPv6"               && emit_bool    disableIPv6               "$disableIPv6"
+  is_set "$disableFirewall"           && emit_bool    disableFirewall           "$disableFirewall"
+  is_set "$blockLANAccess"            && emit_bool    blockLANAccess            "$blockLANAccess"
+  is_set "$disableNotifications"      && emit_bool    disableNotifications      "$disableNotifications"
+  is_set "$networkMonitor"            && emit_bool    networkMonitor            "$networkMonitor"
+  is_set "$disableIPv6Discovery"      && emit_bool    disableIPv6Discovery      "$disableIPv6Discovery"
+  is_set "$interfaceName"             && emit_string  interfaceName             "$interfaceName"
+  is_set "$mtu"                       && emit_int     mtu                       "$mtu"
+  is_set "$dnsRouteInterval"          && emit_string  dnsRouteInterval          "$dnsRouteInterval"
+  is_set "$natExternalIPs"            && emit_string  natExternalIPs            "$natExternalIPs"
   is_set "$splitTunnelMode"           && emit_string  splitTunnelMode           "$splitTunnelMode"
   is_set "$splitTunnelApps"           && emit_string  splitTunnelApps           "$splitTunnelApps"
 

@@ -171,6 +171,49 @@
                                 <string>com.acme.app1,com.acme.app2</string>
                                 -->
 
+                                <!-- ===== Network and daemon overrides =====
+                                     Each replaces the device's own value and rejects a change to it.
+                                     interfaceName      : macOS needs utun followed by a number.
+                                     mtu                : 576-8192.
+                                     dnsRouteInterval   : a duration such as 30s, 1m or 1m30s.
+                                     natExternalIPs     : array or comma-separated string of
+                                                          external-IP[/internal-IP or /interface].
+                                     An invalid value is ignored and the device keeps its own. -->
+                                <!--
+                                <key>disableDNS</key>
+                                <false/>
+
+                                <key>disableIPv6</key>
+                                <false/>
+
+                                <key>disableFirewall</key>
+                                <false/>
+
+                                <key>blockLANAccess</key>
+                                <true/>
+
+                                <key>disableNotifications</key>
+                                <false/>
+
+                                <key>networkMonitor</key>
+                                <true/>
+
+                                <key>disableIPv6Discovery</key>
+                                <false/>
+
+                                <key>interfaceName</key>
+                                <string>utun100</string>
+
+                                <key>mtu</key>
+                                <integer>1280</integer>
+
+                                <key>dnsRouteInterval</key>
+                                <string>1m</string>
+
+                                <key>natExternalIPs</key>
+                                <string>203.0.113.7/10.0.0.5</string>
+                                -->
+
                                 <!-- ===== UI / kill switches (bool) ===== -->
                                 <!--
                                 <key>disableUpdateSettings</key>

@@ -61,6 +61,39 @@
       <string id="ExtraIFaceBlackList_Name">Extra interface blacklist</string>
       <string id="ExtraIFaceBlackList_Help">Interface name prefixes whose local addresses NetBird never offers as peer connection candidates, comma-separated. Matching is a case-sensitive name prefix with no wildcards: "vEthernet" excludes every Hyper-V and WSL adapter, so keep entries specific. The entries are added to the built-in list and to the device's own --extra-iface-blacklist entries, never replace them, and are not written to the device configuration. Only local candidates are filtered: traffic to the Relay, Signal and Management services, and to peers reached through a public address, still follows the operating system routing table.</string>
 
+      <string id="DisableDNS_Name">Disable DNS</string>
+      <string id="DisableDNS_Help">When enabled, the client does not configure DNS settings on this device. Disabled forces DNS management on. Equivalent to --disable-dns.</string>
+
+      <string id="DisableIPv6_Name">Disable IPv6 overlay</string>
+      <string id="DisableIPv6_Help">When enabled, the client does not request or use an IPv6 overlay address. Disabled lets it use one when the account provides it. Equivalent to --disable-ipv6.</string>
+
+      <string id="DisableFirewall_Name">Disable firewall management</string>
+      <string id="DisableFirewall_Help">When enabled, the client does not modify firewall rules on this device. Disabled forces firewall management on. Equivalent to --disable-firewall.</string>
+
+      <string id="BlockLANAccess_Name">Block LAN access</string>
+      <string id="BlockLANAccess_Help">When enabled, peers that use this device as a router or exit node cannot reach its local network. Equivalent to --block-lan-access.</string>
+
+      <string id="DisableNotifications_Name">Disable notifications</string>
+      <string id="DisableNotifications_Help">When enabled, the NetBird desktop app shows no notifications. Disabled forces them on.</string>
+
+      <string id="NetworkMonitor_Name">Network monitor</string>
+      <string id="NetworkMonitor_Help">When enabled, the client reconnects when the device's network changes. Disabled turns the monitor off. Equivalent to --network-monitor.</string>
+
+      <string id="DisableIPv6Discovery_Name">Disable IPv6 candidate discovery</string>
+      <string id="DisableIPv6Discovery_Help">When enabled, peer connections are negotiated over IPv4 only: no IPv6 connection candidates are gathered or used. It does not change the IPv6 overlay address.</string>
+
+      <string id="MTU_Name">MTU</string>
+      <string id="MTU_Help">MTU of the NetBird network interface. Allowed range: 576-8192. Equivalent to --mtu.</string>
+
+      <string id="InterfaceName_Name">Interface name</string>
+      <string id="InterfaceName_Help">Name of the NetBird network interface. On macOS it must be utun followed by a number, for example utun100; an invalid name is ignored and the previous name is kept. Equivalent to --interface-name.</string>
+
+      <string id="DNSRouteInterval_Name">DNS route update interval</string>
+      <string id="DNSRouteInterval_Help">How often routes for domain-based networks are refreshed, as a duration such as 30s, 1m or 1m30s. A value that is not a positive duration is ignored. Equivalent to --dns-router-interval.</string>
+
+      <string id="NATExternalIPs_Name">External IP mappings</string>
+      <string id="NATExternalIPs_Help">Public addresses to offer as connection candidates when the device sits behind a static NAT, comma-separated. Each entry is an external IP, optionally followed by /internal-IP or /interface, for example 203.0.113.7/10.0.0.5. Replaces the device's own --external-ip-map value. Invalid entries are skipped by the client.</string>
+
       <string id="SplitTunnel_Name">Split tunnel</string>
       <string id="SplitTunnel_Help">Restrict the NetBird tunnel to or from a chosen list of application package names. Choose either the allow mode (only the listed apps route through NetBird) or the disallow mode (the listed apps bypass NetBird; everything else routes through). The mode is mutually exclusive — only one can be active at a time. Android-only at the daemon level; Windows/macOS/iOS clients ignore this policy.</string>
       <string id="AllowGroups_Name">Restrict the daemon sockets</string>
@@ -113,6 +146,28 @@
       <presentation id="ExtraIFaceBlackList_Pres">
         <textBox refId="ExtraIFaceBlackList_Text">
           <label>Interface name prefixes (comma-separated):</label>
+        </textBox>
+      </presentation>
+
+      <presentation id="MTU_Pres">
+        <decimalTextBox refId="MTU_Decimal" defaultValue="1280">MTU:</decimalTextBox>
+      </presentation>
+
+      <presentation id="InterfaceName_Pres">
+        <textBox refId="InterfaceName_Text">
+          <label>Interface name:</label>
+        </textBox>
+      </presentation>
+
+      <presentation id="DNSRouteInterval_Pres">
+        <textBox refId="DNSRouteInterval_Text">
+          <label>Interval (e.g. 1m30s):</label>
+        </textBox>
+      </presentation>
+
+      <presentation id="NATExternalIPs_Pres">
+        <textBox refId="NATExternalIPs_Text">
+          <label>Mappings (comma-separated):</label>
         </textBox>
       </presentation>
 
