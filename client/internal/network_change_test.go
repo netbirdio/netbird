@@ -118,7 +118,7 @@ func TestWaitRelayBack(t *testing.T) {
 	)
 
 	t.Run("relay swept then reconnected", func(t *testing.T) {
-		// ready, ready, dropped by the sweep, dropped, then back.
+		// Ready for two polls, swept for the next two, then back.
 		var calls atomic.Int32
 		ready := func() bool {
 			n := calls.Add(1)
