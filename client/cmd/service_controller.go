@@ -212,6 +212,7 @@ func (p *program) serve(daemonListener, jsonListener *socketListener) error {
 	}
 
 	serverInstance := server.New(p.ctx, util.FindFirstLogPath(logFiles), configPath, profilesDisabled, updateSettingsDisabled, captureEnabled, networksDisabled)
+	serverInstance.SetUpdateNotificationsDisabled(updateNotificationsDisabled)
 	p.authzGate.SetState(serverInstance)
 	if err := serverInstance.Start(); err != nil {
 		return fmt.Errorf("start daemon: %w", err)

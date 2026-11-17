@@ -42,6 +42,8 @@ type serviceParams struct {
 	// AllowGroupIDs holds what those values resolved to at install time, in
 	// kind:value form. This is what the installed service actually enforces.
 	AllowGroupIDs []string `json:"allow_group_ids,omitempty"`
+	// DisableUpdateNotifications persists --disable-update-notifications.
+	DisableUpdateNotifications bool `json:"disable_update_notifications,omitempty"`
 }
 
 // serviceParamsPath returns the path to the service params file.
@@ -121,6 +123,7 @@ func currentServiceParams() *serviceParams {
 		AllowGroups:           allowGroups,
 		AllowGroupIDs:         resolvedAllowGroups,
 	}
+	params.DisableUpdateNotifications = updateNotificationsDisabled
 
 	if len(serviceEnvVars) > 0 {
 		parsed, err := parseServiceEnvVars(serviceEnvVars)
@@ -196,6 +199,10 @@ func applyServiceParams(cmd *cobra.Command, params *serviceParams) {
 
 	if !serviceCmd.PersistentFlags().Changed("disable-update-settings") {
 		updateSettingsDisabled = params.DisableUpdateSettings
+	}
+
+	if !serviceCmd.PersistentFlags().Changed("disable-update-notifications") {
+		updateNotificationsDisabled = params.DisableUpdateNotifications
 	}
 
 	if !serviceCmd.PersistentFlags().Changed("enable-capture") {

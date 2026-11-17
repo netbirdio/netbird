@@ -267,6 +267,56 @@ func TestApplyServiceParams_BooleanRevertToFalse(t *testing.T) {
 	assert.False(t, enableJSONSocket, "saved false should override current true")
 }
 
+func TestServiceParams_UpdateNotificationsRoundTrip(t *testing.T) {
+	orig := updateNotificationsDisabled
+	t.Cleanup(func() { updateNotificationsDisabled = orig })
+
+	// Installing with the flag must persist it and pass it to the service.
+	updateNotificationsDisabled = true
+	assert.True(t, currentServiceParams().DisableUpdateNotifications, "install must persist the flag")
+	assert.Contains(t, buildServiceArguments(), "--disable-update-notifications", "the service must be started with the flag")
+
+	// Without it, nothing is persisted or passed.
+	updateNotificationsDisabled = false
+	assert.False(t, currentServiceParams().DisableUpdateNotifications)
+	assert.NotContains(t, buildServiceArguments(), "--disable-update-notifications")
+
+	// A later reconfigure that does not mention the flag restores the saved value.
+	serviceCmd.PersistentFlags().VisitAll(func(f *pflag.Flag) { f.Changed = false })
+	cmd := &cobra.Command{}
+	cmd.Flags().StringSlice("service-env", nil, "")
+	applyServiceParams(cmd, &serviceParams{DisableUpdateNotifications: true})
+	assert.True(t, updateNotificationsDisabled, "saved true must be restored when the flag is not passed")
+
+	// An explicit flag on the command line wins over the saved value.
+	require.NoError(t, serviceCmd.PersistentFlags().Set("disable-update-notifications", "false"))
+	t.Cleanup(func() { serviceCmd.PersistentFlags().VisitAll(func(f *pflag.Flag) { f.Changed = false }) })
+	applyServiceParams(cmd, &serviceParams{DisableUpdateNotifications: true})
+	assert.False(t, updateNotificationsDisabled, "an explicit flag must override the saved value")
+}
+
+// service.json is the serviceParams struct marshalled as JSON, so the tags are
+// the file format. This pins the key, its omission when false, and that a file
+// written by an older release, which has no such key, still loads as false.
+func TestServiceParams_UpdateNotificationsFileFormat(t *testing.T) {
+	data, err := json.Marshal(&serviceParams{DisableUpdateNotifications: true})
+	require.NoError(t, err)
+	assert.Contains(t, string(data), `"disable_update_notifications":true`)
+
+	var loaded serviceParams
+	require.NoError(t, json.Unmarshal(data, &loaded))
+	assert.True(t, loaded.DisableUpdateNotifications, "the saved flag must read back as true")
+
+	data, err = json.Marshal(&serviceParams{})
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "disable_update_notifications", "false is omitted from the file")
+
+	var legacy serviceParams
+	require.NoError(t, json.Unmarshal([]byte(`{"log_level":"info","daemon_addr":"unix:///var/run/netbird.sock","disable_update_settings":true}`), &legacy))
+	assert.False(t, legacy.DisableUpdateNotifications, "a file without the key must not enable the flag")
+	assert.True(t, legacy.DisableUpdateSettings, "the older keys in the same file must still load")
+}
+
 func TestApplyServiceParams_ClearManagementURL(t *testing.T) {
 	origManagementURL := managementURL
 	t.Cleanup(func() { managementURL = origManagementURL })
@@ -623,20 +673,21 @@ func findFuncDecl(file *ast.File, name string) *ast.FuncDecl {
 // names used in buildServiceArguments and applyServiceParams.
 func fieldToGlobalVar(field string) string {
 	m := map[string]string{
-		"LogLevel":              "logLevel",
-		"DaemonAddr":            "daemonAddr",
-		"JSONSocket":            "jsonSocket",
-		"ManagementURL":         "managementURL",
-		"ConfigPath":            "configPath",
-		"LogFiles":              "logFiles",
-		"DisableProfiles":       "profilesDisabled",
-		"DisableUpdateSettings": "updateSettingsDisabled",
-		"EnableCapture":         "captureEnabled",
-		"DisableNetworks":       "networksDisabled",
-		"EnableJSONSocket":      "enableJSONSocket",
-		"ServiceEnvVars":        "serviceEnvVars",
-		"AllowGroups":           "allowGroups",
-		"AllowGroupIDs":         "resolvedAllowGroups",
+		"LogLevel":                   "logLevel",
+		"DaemonAddr":                 "daemonAddr",
+		"JSONSocket":                 "jsonSocket",
+		"ManagementURL":              "managementURL",
+		"ConfigPath":                 "configPath",
+		"LogFiles":                   "logFiles",
+		"DisableProfiles":            "profilesDisabled",
+		"DisableUpdateSettings":      "updateSettingsDisabled",
+		"DisableUpdateNotifications": "updateNotificationsDisabled",
+		"EnableCapture":              "captureEnabled",
+		"DisableNetworks":            "networksDisabled",
+		"EnableJSONSocket":           "enableJSONSocket",
+		"ServiceEnvVars":             "serviceEnvVars",
+		"AllowGroups":                "allowGroups",
+		"AllowGroupIDs":              "resolvedAllowGroups",
 	}
 	if v, ok := m[field]; ok {
 		return v

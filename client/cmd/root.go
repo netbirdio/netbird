@@ -89,6 +89,10 @@ var (
 	localMetricsEnabled    bool
 	localMetricsAddr       string
 
+	// updateNotificationsDisabled hides new-version announcements. An MDM
+	// policy value overrides it.
+	updateNotificationsDisabled bool
+
 	rootCmd = &cobra.Command{
 		Use:          "netbird",
 		Short:        "",

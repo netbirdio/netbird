@@ -59,6 +59,10 @@ func buildServiceArguments() []string {
 		args = append(args, "--disable-update-settings")
 	}
 
+	if updateNotificationsDisabled {
+		args = append(args, "--disable-update-notifications")
+	}
+
 	if captureEnabled {
 		args = append(args, "--enable-capture")
 	}

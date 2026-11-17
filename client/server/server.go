@@ -146,6 +146,9 @@ type Server struct {
 	// activeCapture is the session currently installed on the engine; guarded by s.mutex.
 	activeCapture    *capture.Session
 	networksDisabled bool
+	// updateNotificationsDisabled is the install-time default for hiding
+	// new-version announcements; an MDM policy value overrides it. Guarded by s.mutex.
+	updateNotificationsDisabled bool
 
 	sleepHandler *sleephandler.SleepHandler
 
@@ -2892,21 +2895,34 @@ func (s *Server) checkUpdateSettingsDisabled() bool {
 	return s.updateSettingsDisabled
 }
 
-// checkUpdateNotificationsDisabled reports whether the active MDM policy
-// suppresses new-version announcements. It reads the live policy on every call
-// so a policy reload takes effect without restarting the update manager. It is
+// SetUpdateNotificationsDisabled sets the install-time default for hiding
+// new-version announcements. A value in the MDM policy overrides it, in either
+// direction.
+func (s *Server) SetUpdateNotificationsDisabled(disabled bool) {
+	s.mutex.Lock()
+	s.updateNotificationsDisabled = disabled
+	s.mutex.Unlock()
+}
+
+// checkUpdateNotificationsDisabled reports whether new-version announcements
+// are suppressed. The MDM policy wins when it carries the key, otherwise the
+// install-time default applies. It reads the live policy on every call so a
+// policy reload takes effect without restarting the update manager. It is
 // called from the update manager's goroutine, so it takes s.mutex itself and
 // must not be called with s.mutex held.
 func (s *Server) checkUpdateNotificationsDisabled() bool {
 	s.mutex.Lock()
 	cfg := s.config
+	def := s.updateNotificationsDisabled
 	s.mutex.Unlock()
 
 	if cfg == nil {
-		return false
+		return def
 	}
-	disabled, ok := cfg.Policy().GetBool(mdm.KeyDisableUpdateNotifications)
-	return ok && disabled
+	if disabled, ok := cfg.Policy().GetBool(mdm.KeyDisableUpdateNotifications); ok {
+		return disabled
+	}
+	return def
 }
 
 func (s *Server) startUpdateManagerForGUI() {
