@@ -59,9 +59,11 @@ func (m *managerImpl) fillAllowances(ctx context.Context, accountID, userID stri
 }
 
 // providerAllowance builds one provider's allowance from its applicable
-// policies. An uncapped policy wins selection outright and books nothing
-// against policy windows, so once one applies the policy caps no longer bind
-// and only the account rules are listed.
+// policies. Only the policy the selector would pick is listed, since that is
+// the one the caller's next request is booked against. An uncapped policy
+// wins selection outright and books nothing against policy windows, so once
+// one applies only the account rules are listed. When every policy is
+// exhausted the first in selection order is listed, marked exhausted.
 func providerAllowance(in PolicySelectionInput, candidates []*types.Policy, cache consumptionCache, now time.Time, ruleLimits []types.AllowanceLimit) *types.ProviderAllowance {
 	a := &types.ProviderAllowance{Limits: append([]types.AllowanceLimit(nil), ruleLimits...)}
 
@@ -76,19 +78,23 @@ func providerAllowance(in PolicySelectionInput, candidates []*types.Policy, cach
 		return a
 	}
 
-	for _, p := range candidates {
-		attr := lowestIntersect(p.SourceGroups, in.GroupIDs)
-		usages := append(
-			tokenCapUsages(cache, in.AccountID, in.UserID, attr, p.Limits.TokenLimit, now),
-			budgetCapUsages(cache, in.AccountID, in.UserID, attr, p.Limits.BudgetLimit, now)...,
-		)
-		for _, u := range usages {
-			a.Limits = append(a.Limits, allowanceLimit(types.AllowanceSourcePolicy, p.ID, p.Name, u))
+	scored, _, _ := scoreCandidates(in, candidates, cache, now)
+	if len(scored) == 0 {
+		a.Exhausted = true
+		for _, p := range candidates {
+			scored = append(scored, candidate{policy: p})
 		}
 	}
+	sortCandidates(scored)
 
-	if scored, _, _ := scoreCandidates(in, candidates, cache, now); len(scored) == 0 {
-		a.Exhausted = true
+	p := scored[0].policy
+	attr := lowestIntersect(p.SourceGroups, in.GroupIDs)
+	usages := append(
+		tokenCapUsages(cache, in.AccountID, in.UserID, attr, p.Limits.TokenLimit, now),
+		budgetCapUsages(cache, in.AccountID, in.UserID, attr, p.Limits.BudgetLimit, now)...,
+	)
+	for _, u := range usages {
+		a.Limits = append(a.Limits, allowanceLimit(types.AllowanceSourcePolicy, p.ID, p.Name, u))
 	}
 	return a
 }
