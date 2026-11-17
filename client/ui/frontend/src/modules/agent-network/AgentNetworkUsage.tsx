@@ -91,17 +91,10 @@ export const AgentNetworkUsageView = ({ info, error, loading = false, onRefresh 
                     "flex h-12 shrink-0 items-center gap-2 border-b border-nb-gray-910 ps-6 pe-3"
                 }
             >
-                <h2
-                    className={
-                        "shrink-0 text-xs font-semibold tracking-wider text-nb-gray-400 uppercase"
-                    }
-                >
+                <h2 className={"text-xs font-semibold tracking-wider text-nb-gray-400 uppercase"}>
                     {t("agentNetwork.usage.title")}
                 </h2>
-                <TruncatedText
-                    text={info.userEmail}
-                    className={"min-w-0 flex-1 truncate text-xs text-nb-gray-400"}
-                />
+                <span className={"flex-1"} />
                 {onRefresh && <RefreshButton loading={loading} onRefresh={onRefresh} />}
             </div>
             <ScrollArea.Root dir={dir} type={"auto"} className={"min-h-0 flex-1 overflow-hidden"}>
@@ -248,87 +241,127 @@ const ProviderSection = ({ provider, now }: { provider: AgentNetworkProvider; no
                 <p className={"mt-1 text-xs text-nb-gray-400"}>{t("agentNetwork.noLimits")}</p>
             )}
             {provider.limits.length > 0 && (
-                <ul className={"mt-3 flex flex-col gap-4"}>
-                    {provider.limits.map((l, i) => (
-                        <LimitRow
-                            key={`${l.source}:${l.sourceId}:${l.unit}:${l.scope}:${i}`}
-                            limit={l}
+                <div className={"mt-3 grid grid-cols-2"}>
+                    {UNITS.map((unit, i) => (
+                        <LimitHalf
+                            key={unit}
+                            unit={unit}
+                            limit={tightest(provider.limits, unit)}
                             now={now}
+                            className={i === 0 ? "pe-4" : "border-s border-nb-gray-910 ps-4"}
                         />
                     ))}
-                </ul>
+                </div>
             )}
         </section>
     );
 };
 
-const LimitRow = ({ limit, now }: { limit: AgentNetworkLimit; now: Date }) => {
+const UNITS = ["tokens", "usd"] as const;
+type Unit = (typeof UNITS)[number];
+
+// Every cap of a unit binds, so the one closest to running out is the one that
+// stops the user first. Ties go to the smaller cap.
+const tightest = (limits: AgentNetworkLimit[], unit: Unit): AgentNetworkLimit | null => {
+    const ratio = (l: AgentNetworkLimit) => (l.cap > 0 ? l.used / l.cap : 1);
+    return (
+        limits
+            .filter((l) => l.unit === unit)
+            .sort((a, b) => ratio(b) - ratio(a) || a.cap - a.used - (b.cap - b.used))[0] ?? null
+    );
+};
+
+type HalfProps = { unit: Unit; limit: AgentNetworkLimit | null; now: Date; className?: string };
+
+// One unit's allowance. A unit without a cap is unlimited and gets no bar.
+const LimitHalf = ({ unit, limit, now, className }: HalfProps) => {
     const { t, i18n } = useTranslation();
     const lang = i18n.language;
+    const label = t(unit === "usd" ? "agentNetwork.limit.spend" : "agentNetwork.limit.tokens");
+
+    if (!limit) {
+        return (
+            <div className={cn("flex min-w-0 items-baseline gap-2 text-xs", className)}>
+                <span className={"min-w-0 flex-1 truncate text-nb-gray-200"}>{label}</span>
+                <span className={"shrink-0 text-nb-gray-400"}>
+                    {t("agentNetwork.limit.unlimited")}
+                </span>
+            </div>
+        );
+    }
+
     const ratio = limit.cap > 0 ? Math.min(limit.used / limit.cap, 1) : 1;
     const percent = Math.round(ratio * 100);
-
-    const sourceLabel =
+    const exact = t(
+        unit === "usd" ? "agentNetwork.limit.usedOfCapUsd" : "agentNetwork.limit.usedOfCapTokens",
+        {
+            used: formatAmount(unit, limit.used, lang, false),
+            cap: formatAmount(unit, limit.cap, lang, false),
+        },
+    );
+    const source =
         limit.source === "account_rule"
             ? t("agentNetwork.limit.accountRule", { name: limit.sourceName || limit.sourceId })
             : t("agentNetwork.limit.policy", { name: limit.sourceName || limit.sourceId });
-    const scopeLabel =
+    const scope =
         limit.scope === "group"
             ? t("agentNetwork.limit.group", { name: limit.groupName || limit.groupId })
             : t("agentNetwork.limit.you");
-    const usedOfCap = (compact: boolean) =>
-        t(
-            limit.unit === "usd"
-                ? "agentNetwork.limit.usedOfCapUsd"
-                : "agentNetwork.limit.usedOfCapTokens",
-            {
-                used: formatAmount(limit.unit, limit.used, lang, compact),
-                cap: formatAmount(limit.unit, limit.cap, lang, compact),
-            },
-        );
-    const exact = usedOfCap(false);
-    const amount = (
-        <span className={"shrink-0 text-nb-gray-300 tabular-nums"}>
-            {usedOfCap(true)} · {formatPercent(ratio, lang)}
-        </span>
-    );
+    const used = t("agentNetwork.limit.used", {
+        used: formatAmount(unit, limit.used, lang, true),
+    });
+    const resets = limit.resetsAt ? new Date(limit.resetsAt) : null;
 
     return (
-        <li className={"min-w-0"}>
-            <div className={"flex items-baseline gap-3 text-xs"}>
-                <TruncatedText
-                    text={sourceLabel}
-                    className={"min-w-0 flex-1 truncate text-nb-gray-200"}
-                />
-                {limit.unit === "usd" ? amount : <Tooltip content={exact}>{amount}</Tooltip>}
-            </div>
-            <div
-                role={"progressbar"}
-                aria-label={`${sourceLabel} · ${scopeLabel}`}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={percent}
-                aria-valuetext={exact}
-                className={"mt-1.5 h-1.5 overflow-hidden rounded-full bg-nb-gray-900"}
+        <div className={cn("min-w-0 text-xs", className)}>
+            <Tooltip
+                content={
+                    <span className={"block max-w-[260px] leading-snug"}>
+                        <span className={"block tabular-nums"}>{exact}</span>
+                        <span className={"block break-words"}>{source}</span>
+                        <span className={"block break-words"}>{scope}</span>
+                    </span>
+                }
             >
-                <div
-                    className={cn("h-full rounded-full transition-all", barColor(ratio))}
-                    style={{ width: `${percent}%` }}
-                />
-            </div>
-            <div className={"mt-1.5 flex items-baseline gap-3 text-xs text-nb-gray-400"}>
-                <TruncatedText text={scopeLabel} className={"min-w-0 flex-1 truncate"} />
-                {limit.resetsAt && (
-                    <Tooltip content={formatAt(new Date(limit.resetsAt), lang)}>
-                        <span className={"shrink-0"}>
-                            {t("agentNetwork.limit.resets", {
-                                relative: formatUntil(new Date(limit.resetsAt), now, lang),
-                            })}
+                <div>
+                    <div className={"flex items-baseline gap-2"}>
+                        <span className={"min-w-0 flex-1 truncate text-nb-gray-200"}>{label}</span>
+                        <span className={"shrink-0 text-nb-gray-300 tabular-nums"}>
+                            {formatAmount(unit, limit.cap, lang, true)}
                         </span>
-                    </Tooltip>
+                    </div>
+                    <div
+                        role={"progressbar"}
+                        aria-label={label}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={percent}
+                        aria-valuetext={exact}
+                        className={"mt-1.5 h-1.5 overflow-hidden rounded-full bg-nb-gray-900"}
+                    >
+                        <div
+                            className={cn("h-full rounded-full transition-all", barColor(ratio))}
+                            style={{ width: `${percent}%` }}
+                        />
+                    </div>
+                </div>
+            </Tooltip>
+            <p className={"mt-1.5 truncate text-nb-gray-400 tabular-nums"}>
+                {used}
+                {resets && (
+                    <>
+                        {" · "}
+                        <Tooltip content={formatUntil(resets, now, lang)}>
+                            <span>
+                                {t("agentNetwork.limit.resets", {
+                                    when: formatReset(resets, now, lang),
+                                })}
+                            </span>
+                        </Tooltip>
+                    </>
                 )}
-            </div>
-        </li>
+            </p>
+        </div>
     );
 };
 
@@ -357,11 +390,22 @@ const formatAmount = (unit: string, value: number, lang: string, compact: boolea
     ).format(value);
 };
 
-const formatPercent = (ratio: number, lang: string): string =>
-    new Intl.NumberFormat(lang, { style: "percent", maximumFractionDigits: 0 }).format(ratio);
-
-const formatAt = (at: Date, lang: string): string =>
-    new Intl.DateTimeFormat(lang, { dateStyle: "medium", timeStyle: "short" }).format(at);
+// The clock time today, the weekday within a week, the date beyond, so nobody
+// has to add hours to the current time.
+const formatReset = (at: Date, now: Date, lang: string): string => {
+    const days = (at.getTime() - now.getTime()) / 86_400_000;
+    if (at.toDateString() === now.toDateString()) {
+        return new Intl.DateTimeFormat(lang, { timeStyle: "short" }).format(at);
+    }
+    if (days < 7) {
+        return new Intl.DateTimeFormat(lang, {
+            weekday: "short",
+            hour: "numeric",
+            minute: "2-digit",
+        }).format(at);
+    }
+    return new Intl.DateTimeFormat(lang, { day: "numeric", month: "short" }).format(at);
+};
 
 // Largest whole unit, localized by the platform ("in 42 minutes", "dans 3 jours").
 const formatUntil = (at: Date, now: Date, lang: string): string => {
