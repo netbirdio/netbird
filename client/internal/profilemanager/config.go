@@ -952,22 +952,12 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 		return
 	}
 
-	// Helper: log the application of a single MDM-managed key. Values for
-	// keys in mdm.SecretKeys are redacted.
-	logApplied := func(key string, displayValue any) {
-		if _, secret := mdm.SecretKeys[key]; secret {
-			log.Infof("MDM override %s = ********** (secret)", key)
-			return
-		}
-		log.Infof("MDM override %s = %v", key, displayValue)
-	}
-
 	if v, ok := policy.GetString(mdm.KeyManagementURL); ok {
 		if u, err := parseURL("Management URL", v); err != nil {
 			log.Warnf("MDM management URL %q invalid: %v; keeping previous value", v, err)
 		} else {
 			config.ManagementURL = u
-			logApplied(mdm.KeyManagementURL, u.String())
+			logMDMApplied(mdm.KeyManagementURL, u.String())
 		}
 	}
 
@@ -976,39 +966,25 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 		// through a manifest by mistake.
 		if !isPreSharedKeyHidden(&v) {
 			config.PreSharedKey = v
-			logApplied(mdm.KeyPreSharedKey, "")
+			logMDMApplied(mdm.KeyPreSharedKey, "")
 		}
 	}
 
-	// applyBool collapses the per-key "read + set + log" boilerplate
-	// for every plain bool MDM key into a single helper. Keeps the
-	// outer function's cognitive complexity below SonarCube's
-	// threshold; functional behaviour is identical to the inlined
-	// branches it replaces.
-	applyBool := func(key string, setter func(bool)) {
-		v, ok := policy.GetBool(key)
-		if !ok {
-			return
-		}
-		setter(v)
-		logApplied(key, v)
-	}
-
-	applyBool(mdm.KeyAllowServerSSH, func(v bool) { bv := v; config.ServerSSHAllowed = &bv })
-	applyBool(mdm.KeyRemoteJobsAllowed, func(v bool) { bv := v; config.RemoteJobsAllowed = &bv })
-	applyBool(mdm.KeyAllowServerVNC, func(v bool) { bv := v; config.ServerVNCAllowed = &bv })
-	applyBool(mdm.KeyDisableVNCApproval, func(v bool) { bv := v; config.DisableVNCApproval = &bv })
-	applyBool(mdm.KeyDisableClientRoutes, func(v bool) { config.DisableClientRoutes = v })
-	applyBool(mdm.KeyDisableServerRoutes, func(v bool) { config.DisableServerRoutes = v })
-	applyBool(mdm.KeyBlockInbound, func(v bool) { config.BlockInbound = v })
-	applyBool(mdm.KeyDisableAutoConnect, func(v bool) { config.DisableAutoConnect = v })
-	applyBool(mdm.KeyRosenpassEnabled, func(v bool) { config.RosenpassEnabled = v })
-	applyBool(mdm.KeyRosenpassPermissive, func(v bool) { config.RosenpassPermissive = v })
-	applyBool(mdm.KeyEnableLocalMetrics, func(v bool) { config.LocalMetricsEnabled = v })
+	applyMDMBool(policy, mdm.KeyAllowServerSSH, func(v bool) { bv := v; config.ServerSSHAllowed = &bv })
+	applyMDMBool(policy, mdm.KeyRemoteJobsAllowed, func(v bool) { bv := v; config.RemoteJobsAllowed = &bv })
+	applyMDMBool(policy, mdm.KeyAllowServerVNC, func(v bool) { bv := v; config.ServerVNCAllowed = &bv })
+	applyMDMBool(policy, mdm.KeyDisableVNCApproval, func(v bool) { bv := v; config.DisableVNCApproval = &bv })
+	applyMDMBool(policy, mdm.KeyDisableClientRoutes, func(v bool) { config.DisableClientRoutes = v })
+	applyMDMBool(policy, mdm.KeyDisableServerRoutes, func(v bool) { config.DisableServerRoutes = v })
+	applyMDMBool(policy, mdm.KeyBlockInbound, func(v bool) { config.BlockInbound = v })
+	applyMDMBool(policy, mdm.KeyDisableAutoConnect, func(v bool) { config.DisableAutoConnect = v })
+	applyMDMBool(policy, mdm.KeyRosenpassEnabled, func(v bool) { config.RosenpassEnabled = v })
+	applyMDMBool(policy, mdm.KeyRosenpassPermissive, func(v bool) { config.RosenpassPermissive = v })
+	applyMDMBool(policy, mdm.KeyEnableLocalMetrics, func(v bool) { config.LocalMetricsEnabled = v })
 
 	if v, ok := policy.GetString(mdm.KeyLocalMetricsAddress); ok {
 		config.LocalMetricsAddress = v
-		logApplied(mdm.KeyLocalMetricsAddress, v)
+		logMDMApplied(mdm.KeyLocalMetricsAddress, v)
 	}
 
 	if v, ok := policy.GetInt(mdm.KeyWireguardPort); ok {
@@ -1017,7 +993,7 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 		// engine binding to an unusable port if the admin pushes garbage.
 		if v >= 1 && v <= 65535 {
 			config.WgPort = int(v)
-			logApplied(mdm.KeyWireguardPort, v)
+			logMDMApplied(mdm.KeyWireguardPort, v)
 		} else {
 			log.Warnf("MDM wireguard port %d out of range [1,65535]; keeping previous value", v)
 		}
@@ -1029,10 +1005,31 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 			state = "on"
 		}
 		config.LazyConnection = state
-		logApplied(mdm.KeyLazyConnection, state)
+		logMDMApplied(mdm.KeyLazyConnection, state)
 	}
 
 	config.applyMDMExtraIFaceBlackList(policy)
+}
+
+// logMDMApplied logs the application of a single MDM-managed key. Values for
+// keys in mdm.SecretKeys are redacted.
+func logMDMApplied(key string, displayValue any) {
+	if _, secret := mdm.SecretKeys[key]; secret {
+		log.Infof("MDM override %s = ********** (secret)", key)
+		return
+	}
+	log.Infof("MDM override %s = %v", key, displayValue)
+}
+
+// applyMDMBool collapses the per-key "read + set + log" boilerplate for a
+// plain bool MDM key, keeping the appliers below Sonar's complexity threshold.
+func applyMDMBool(policy *mdm.Policy, key string, setter func(bool)) {
+	v, ok := policy.GetBool(key)
+	if !ok {
+		return
+	}
+	setter(v)
+	logMDMApplied(key, v)
 }
 
 // applyMDMExtraIFaceBlackList appends the MDM interface prefixes missing from
