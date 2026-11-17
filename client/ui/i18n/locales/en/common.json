@@ -1980,67 +1980,55 @@
         "description": "When a limit's window starts over. {when} is a localized time or date like '15:00', 'Sun 14:00' or '19 Nov'; keep it."
     },
     "agentNetwork.harness.title": {
-        "message": "Coding agents",
-        "description": "Heading of the section in the Agent Networks tab that lists coding agents (Claude Code, Codex, OpenCode, Pi) NetBird can configure."
+        "message": "Connect your agent",
+        "description": "Heading of the section in the Agent Networks tab that lists coding agents (Claude Code, Codex, OpenCode, Pi) NetBird can connect."
     },
     "agentNetwork.harness.description": {
-        "message": "Send a coding agent on this computer through Agent Networks. NetBird backs up the agent's config first.",
-        "description": "Text under the 'Coding agents' heading."
+        "message": "Point a coding agent on this computer at Agent Networks. No provider API key is needed.",
+        "description": "Text under the 'Connect your agent' heading."
     },
     "agentNetwork.harness.loadError": {
-        "message": "Couldn't load the coding agents.",
-        "description": "Shown in the 'Coding agents' section when the list could not be loaded. A 'Try again' button and the technical error follow."
+        "message": "Couldn't load the agents.",
+        "description": "Shown in the 'Connect your agent' section when the list could not be loaded. A 'Try again' button and the technical error follow."
     },
     "agentNetwork.harness.status.configured": {
-        "message": "Configured",
-        "description": "Badge on a coding agent row: NetBird's settings are in place."
+        "message": "Connected",
+        "description": "Badge on a coding agent row: the agent sends its requests through Agent Networks."
     },
     "agentNetwork.harness.status.edited": {
         "message": "Edited",
-        "description": "Badge on a coding agent row: NetBird set it up, but the settings were changed afterwards or the file can no longer be read."
+        "description": "Badge on a coding agent row: NetBird connected it, but the settings were changed afterwards or the file can no longer be read."
     },
     "agentNetwork.harness.configure": {
-        "message": "Set Up",
-        "description": "Button on a coding agent row that opens the setup dialog."
+        "message": "Connect",
+        "description": "Button on a coding agent row that opens the connect dialog."
     },
     "agentNetwork.harness.reconfigure": {
         "message": "Change",
-        "description": "Button on a configured coding agent row that opens the setup dialog to pick another provider or model."
+        "description": "Button on a connected coding agent row that opens the dialog to pick another provider or model."
     },
     "agentNetwork.harness.undo": {
-        "message": "Undo",
-        "description": "Button on a configured coding agent row that restores the settings NetBird replaced."
+        "message": "Disconnect",
+        "description": "Button on a connected coding agent row that restores the settings NetBird replaced."
     },
     "agentNetwork.harness.noProvider": {
         "message": "None of your providers works with this agent.",
-        "description": "Tooltip on the disabled Set Up button of a coding agent when no provider the user may use speaks an API the agent supports."
-    },
-    "agentNetwork.harness.applied": {
-        "message": "Configured for Agent Networks.",
-        "description": "Shown on a coding agent row after setup succeeded."
-    },
-    "agentNetwork.harness.undone": {
-        "message": "Your previous settings are back.",
-        "description": "Shown on a coding agent row after Undo succeeded."
+        "description": "Tooltip on the disabled Connect button of a coding agent when no provider the user may use speaks an API the agent supports."
     },
     "agentNetwork.harness.kept": {
-        "message": "Left alone because you changed them: {keys}",
-        "description": "Shown after Undo when some settings were edited by the user since NetBird wrote them. {keys} is a comma-separated list of setting names; keep it."
-    },
-    "agentNetwork.harness.backup": {
-        "message": "Backup: {path}",
-        "description": "Shown after a setup or undo, one line per backup file written. {path} is a file name; keep it."
+        "message": "Disconnected. Kept your own changes to: {keys}",
+        "description": "Shown on a coding agent row after Disconnect when some settings were left in place because the user changed them after connecting. {keys} is a comma-separated list of setting names; keep it."
     },
     "agentNetwork.harness.dialogTitle": {
-        "message": "Set Up {name}",
-        "description": "Title of the coding agent setup dialog. {name} is the agent name such as 'Claude Code'; keep it."
+        "message": "Connect {name}",
+        "description": "Title of the connect dialog. {name} is the coding agent, e.g. Claude Code; keep it."
     },
     "agentNetwork.harness.dialogDescription.claudeCode": {
-        "message": "Claude Code will send its requests to Agent Networks instead of your claude.ai login. Your login stays saved. Nothing is written until you confirm.",
+        "message": "Claude Code will send its requests to Agent Networks instead of your claude.ai login. Your login stays saved. NetBird backs up your config first, so Disconnect puts everything back.",
         "description": "Text under the title of the Claude Code setup dialog. Keep 'Claude Code' and 'claude.ai' verbatim."
     },
     "agentNetwork.harness.dialogDescription.generic": {
-        "message": "{name} will send its requests to Agent Networks. Nothing is written until you confirm.",
+        "message": "{name} will send its requests to Agent Networks. NetBird backs up your config first, so Disconnect puts everything back.",
         "description": "Text under the title of the setup dialog for agents other than Claude Code. {name} is the agent name; keep it."
     },
     "agentNetwork.harness.provider": {
@@ -2068,11 +2056,11 @@
         "description": "Shown while the setup dialog computes the preview."
     },
     "agentNetwork.harness.alreadySetUp": {
-        "message": "Already set up with these choices.",
-        "description": "Shown in the setup dialog when nothing would change."
+        "message": "Already connected with these choices.",
+        "description": "Shown in the connect dialog when nothing would change."
     },
     "agentNetwork.harness.conflict": {
-        "message": "Settings marked 'Not set by NetBird' will be replaced. Undo puts them back.",
+        "message": "Settings marked 'Not set by NetBird' will be replaced. Disconnect puts them back.",
         "description": "Warning line under the preview in the setup dialog when existing settings would be overwritten. Keep 'Not set by NetBird' the same as the badge."
     },
     "agentNetwork.harness.notOurs": {
@@ -2092,15 +2080,15 @@
         "description": "Shown in the preview for a setting that does not exist."
     },
     "agentNetwork.harness.unparseable": {
-        "message": "NetBird can't edit {file} without losing comments or formatting. Add these settings by hand:",
-        "description": "Shown in the setup dialog when a config file can't be rewritten safely, above the text to paste. {file} is a file path; keep it."
+        "message": "NetBird can't edit this file without losing its comments or formatting. Add these settings by hand:",
+        "description": "Shown in the connect dialog when a config file can't be rewritten safely, above the file path and the text to paste."
     },
     "agentNetwork.harness.apply": {
-        "message": "Set Up",
-        "description": "Confirm button of the setup dialog."
+        "message": "Connect",
+        "description": "Confirm button of the connect dialog."
     },
     "agentNetwork.harness.replaceAndApply": {
-        "message": "Replace and Set Up",
-        "description": "Confirm button of the setup dialog when existing settings will be overwritten."
+        "message": "Replace and Connect",
+        "description": "Confirm button of the connect dialog when existing settings will be overwritten."
     }
 }

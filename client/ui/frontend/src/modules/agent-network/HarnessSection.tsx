@@ -1,19 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Skeleton from "react-loading-skeleton";
-import { CheckIcon, SquareTerminalIcon } from "lucide-react";
 import { AgentNetwork as AgentNetworkSvc } from "@bindings/services";
-import type { AgentNetworkHarness, HarnessPlan } from "@bindings/services/models.js";
+import type { AgentNetworkHarness } from "@bindings/services/models.js";
 import { Badge } from "@/components/Badge";
 import { Button } from "@/components/buttons/Button";
-import { CopyToClipboard } from "@/components/CopyToClipboard";
 import { Tooltip } from "@/components/Tooltip";
-import { TruncatedText } from "@/components/TruncatedText";
 import { HelpText } from "@/components/typography/HelpText";
 import { formatErrorMessage } from "@/lib/errors";
+import { HarnessIcon } from "./HarnessIcon";
 import { HarnessSetupDialog } from "./HarnessSetupDialog";
 
-type Outcome = { harness: string; kind: "applied" | "undone"; plan: HarnessPlan };
+// Settings a disconnect left in place because the user changed them after setup.
+type Kept = { harness: string; keys: string[] };
 
 // Lists the coding agents NetBird can point at Agent Networks. The setup engine
 // runs in the UI process, so it edits this user's own config files.
@@ -33,7 +32,7 @@ export const HarnessSection = ({ refreshKey }: SectionProps) => {
     const [error, setError] = useState<string | null>(null);
     const [editing, setEditing] = useState<AgentNetworkHarness | null>(null);
     const [undoing, setUndoing] = useState<string | null>(null);
-    const [outcome, setOutcome] = useState<Outcome | null>(null);
+    const [kept, setKept] = useState<Kept | null>(null);
 
     const load = useCallback(async () => {
         try {
@@ -50,10 +49,11 @@ export const HarnessSection = ({ refreshKey }: SectionProps) => {
 
     const undo = async (h: AgentNetworkHarness) => {
         setUndoing(h.id);
-        setOutcome(null);
+        setKept(null);
         try {
             const plan = await AgentNetworkSvc.UndoHarness(h.id);
-            setOutcome({ harness: h.id, kind: "undone", plan });
+            const keys = plan.changes.filter((c) => c.action === "keep").map((c) => c.key);
+            if (keys.length > 0) setKept({ harness: h.id, keys });
         } catch (e: unknown) {
             setError(formatErrorMessage(e));
         } finally {
@@ -105,9 +105,9 @@ export const HarnessSection = ({ refreshKey }: SectionProps) => {
                             key={h.id}
                             harness={h}
                             undoing={undoing === h.id}
-                            outcome={outcome?.harness === h.id ? outcome : null}
+                            kept={kept?.harness === h.id ? kept.keys : null}
                             onConfigure={() => {
-                                setOutcome(null);
+                                setKept(null);
                                 setEditing(h);
                             }}
                             onUndo={() => void undo(h)}
@@ -118,8 +118,7 @@ export const HarnessSection = ({ refreshKey }: SectionProps) => {
             <HarnessSetupDialog
                 harness={editing}
                 onOpenChange={(open) => !open && setEditing(null)}
-                onApplied={(plan) => {
-                    if (editing) setOutcome({ harness: editing.id, kind: "applied", plan });
+                onApplied={() => {
                     setEditing(null);
                     void load();
                 }}
@@ -136,7 +135,6 @@ const ListSkeleton = () => {
                 <li key={i} className={ROW_CLASS}>
                     <div className={"flex-1"}>
                         <Skeleton width={110} height={14} />
-                        <Skeleton width={220} height={10} />
                     </div>
                     <Skeleton width={64} height={30} />
                 </li>
@@ -148,12 +146,12 @@ const ListSkeleton = () => {
 type RowProps = {
     harness: AgentNetworkHarness;
     undoing: boolean;
-    outcome: Outcome | null;
+    kept: string[] | null;
     onConfigure: () => void;
     onUndo: () => void;
 };
 
-const HarnessRow = ({ harness, undoing, outcome, onConfigure, onUndo }: RowProps) => {
+const HarnessRow = ({ harness, undoing, kept, onConfigure, onUndo }: RowProps) => {
     const { t } = useTranslation();
     const configured = harness.status !== "not_configured";
     const usable = harness.providers.length > 0;
@@ -174,24 +172,19 @@ const HarnessRow = ({ harness, undoing, outcome, onConfigure, onUndo }: RowProps
 
     return (
         <li aria-label={harness.name} className={ROW_CLASS}>
-            <div className={"flex min-w-0 flex-1 items-start gap-2 leading-tight"}>
-                <SquareTerminalIcon
-                    size={15}
-                    aria-hidden={"true"}
-                    className={"mt-0.5 shrink-0 text-nb-gray-200"}
-                />
-                <div className={"flex min-w-0 flex-1 flex-col items-start gap-0.5"}>
-                    <div className={"flex max-w-full min-w-0 items-center gap-2"}>
-                        <h3 className={"truncate text-sm font-medium text-nb-gray-100"}>
-                            {harness.name}
-                        </h3>
-                        <StatusBadge status={harness.status} />
-                    </div>
-                    {harness.files.map((file) => (
-                        <PathLine key={file} path={file} />
-                    ))}
-                    {outcome && <OutcomeNote outcome={outcome} />}
+            <div className={"flex min-w-0 flex-1 flex-col gap-1"}>
+                <div className={"flex min-w-0 items-center gap-2"}>
+                    <HarnessIcon harness={harness.id} className={"shrink-0 text-nb-gray-200"} />
+                    <h3 className={"truncate text-sm font-medium text-nb-gray-100"}>
+                        {harness.name}
+                    </h3>
+                    <StatusBadge status={harness.status} />
                 </div>
+                {kept && (
+                    <p role={"status"} className={"text-xs break-words text-nb-gray-300"}>
+                        {t("agentNetwork.harness.kept", { keys: kept.join(", ") })}
+                    </p>
+                )}
             </div>
             <div className={"flex shrink-0 items-center gap-1.5"}>
                 {configured && (
@@ -224,25 +217,7 @@ const HarnessRow = ({ harness, undoing, outcome, onConfigure, onUndo }: RowProps
     );
 };
 
-// A file path the user can read in full on hover and copy with a click.
-const PathLine = ({ path }: { path: string }) => (
-    <CopyToClipboard message={path} className={"max-w-full min-w-0"}>
-        <TruncatedText
-            text={path}
-            tooltipContent={<FullPath path={path} />}
-            dir={"ltr"}
-            className={"block truncate font-mono text-xs text-nb-gray-400"}
-        />
-    </CopyToClipboard>
-);
-
-const FullPath = ({ path }: { path: string }) => (
-    <span dir={"ltr"} className={"block max-w-[420px] font-mono break-all"}>
-        {path}
-    </span>
-);
-
-// Only the states worth a second look get a badge; "not set up" is the default.
+// Only the states worth a second look get a badge; "not connected" is the default.
 const StatusBadge = ({ status }: { status: string }) => {
     const { t } = useTranslation();
     switch (status) {
@@ -254,41 +229,3 @@ const StatusBadge = ({ status }: { status: string }) => {
             return null;
     }
 };
-
-const OutcomeNote = ({ outcome }: { outcome: Outcome }) => {
-    const { t } = useTranslation();
-    const kept = outcome.plan.changes.filter((c) => c.action === "keep").map((c) => c.key);
-    return (
-        <div
-            role={"status"}
-            className={"mt-1 flex max-w-full min-w-0 flex-col items-start gap-0.5 text-xs"}
-        >
-            <p className={"flex items-center gap-1.5 text-nb-gray-200"}>
-                <CheckIcon
-                    size={12}
-                    aria-hidden={"true"}
-                    className={"shrink-0 text-green-600 dark:text-green-400"}
-                />
-                {outcome.kind === "applied"
-                    ? t("agentNetwork.harness.applied")
-                    : t("agentNetwork.harness.undone")}
-            </p>
-            {kept.length > 0 && (
-                <p className={"text-nb-gray-300"}>
-                    {t("agentNetwork.harness.kept", { keys: kept.join(", ") })}
-                </p>
-            )}
-            {outcome.plan.backups.map((b) => (
-                <CopyToClipboard key={b} message={b} className={"max-w-full min-w-0"}>
-                    <Tooltip content={<FullPath path={b} />}>
-                        <span className={"block truncate text-nb-gray-400"}>
-                            {t("agentNetwork.harness.backup", { path: fileName(b) })}
-                        </span>
-                    </Tooltip>
-                </CopyToClipboard>
-            ))}
-        </div>
-    );
-};
-
-const fileName = (path: string): string => path.split(/[\\/]/).pop() || path;

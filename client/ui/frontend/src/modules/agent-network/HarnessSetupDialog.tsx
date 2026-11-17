@@ -24,7 +24,7 @@ const PLAN_DEBOUNCE_MS = 300;
 type Props = {
     harness: AgentNetworkHarness | null;
     onOpenChange: (open: boolean) => void;
-    onApplied: (plan: HarnessPlan) => void;
+    onApplied: () => void;
 };
 
 export const HarnessSetupDialog = ({ harness, onOpenChange, onApplied }: Props) => {
@@ -52,7 +52,7 @@ export const HarnessSetupDialog = ({ harness, onOpenChange, onApplied }: Props) 
 type FormProps = {
     harness: AgentNetworkHarness;
     onCancel: () => void;
-    onApplied: (plan: HarnessPlan) => void;
+    onApplied: () => void;
 };
 
 // The preview the dialog shows, tagged with the request it answers so a plan
@@ -110,7 +110,8 @@ const SetupForm = ({ harness, onCancel, onApplied }: FormProps) => {
         setApplyError(null);
         try {
             // The user saw the conflicting keys in the preview; confirming replaces them.
-            onApplied(await AgentNetworkSvc.ApplyHarness(req, plan.conflict));
+            await AgentNetworkSvc.ApplyHarness(req, plan.conflict);
+            onApplied();
         } catch (e: unknown) {
             setApplyError(formatErrorMessage(e));
         } finally {
@@ -281,11 +282,18 @@ const Preview = ({
         return (
             <div className={"flex flex-col gap-2"}>
                 <p role={"status"} className={WARNING_CLASS}>
-                    {t("agentNetwork.harness.unparseable", { file: plan.unparseable })}
+                    {t("agentNetwork.harness.unparseable")}
                 </p>
                 {plan.snippets.map((s) => (
-                    <div key={s.file} className={"flex flex-col gap-1"}>
-                        <div className={"flex items-center gap-2"}>
+                    <div
+                        key={s.file}
+                        className={"min-w-0 overflow-hidden rounded-md border border-nb-gray-900"}
+                    >
+                        <div
+                            className={
+                                "flex items-center gap-2 border-b border-nb-gray-900 bg-nb-gray-920 py-1 ps-3 pe-1"
+                            }
+                        >
                             <TruncatedText
                                 text={s.file}
                                 dir={"ltr"}
@@ -293,14 +301,18 @@ const Preview = ({
                                     "min-w-0 flex-1 truncate font-mono text-xs text-nb-gray-300"
                                 }
                             />
-                            <Button variant={"secondary"} size={"xs"} copy={s.content}>
-                                {t("common.copy")}
-                            </Button>
+                            <Button
+                                variant={"ghost"}
+                                size={"xs"}
+                                className={"h-7 px-2 py-0 text-nb-gray-300 shadow-none"}
+                                copy={s.content}
+                                aria-label={t("common.copy")}
+                            />
                         </div>
                         <pre
                             dir={"ltr"}
                             className={
-                                "max-h-48 overflow-auto rounded-md bg-nb-gray-930 p-3 font-mono text-xs text-nb-gray-200 select-text"
+                                "max-h-48 overflow-auto bg-nb-gray-930 p-3 font-mono text-xs text-nb-gray-200 select-text"
                             }
                         >
                             {s.content}
@@ -370,25 +382,21 @@ const ChangeRow = ({ change }: { change: HarnessChange }) => {
                     </Badge>
                 )}
             </div>
+            {/* Values wrap in full: the old one is what the user is about to lose. */}
             <div
-                className={"mt-0.5 flex min-w-0 gap-1.5 font-mono text-xs text-nb-gray-400"}
+                className={
+                    "mt-0.5 flex flex-wrap gap-x-1.5 font-mono text-xs break-all text-nb-gray-400"
+                }
                 dir={"ltr"}
             >
-                {/* The old value gives way first, so the new one stays readable. */}
-                <TruncatedText
-                    text={value(change.before)}
-                    dir={"ltr"}
-                    className={"min-w-0 truncate"}
-                />
+                <span>{value(change.before)}</span>
                 {change.action !== "keep" && (
-                    <>
-                        <span aria-hidden={"true"}>→</span>
-                        <TruncatedText
-                            text={value(change.after)}
-                            dir={"ltr"}
-                            className={"max-w-[calc(100%-6rem)] shrink-0 truncate text-nb-gray-200"}
-                        />
-                    </>
+                    <span className={"text-nb-gray-200"}>
+                        <span aria-hidden={"true"} className={"text-nb-gray-400"}>
+                            →{" "}
+                        </span>
+                        {value(change.after)}
+                    </span>
                 )}
             </div>
         </li>
