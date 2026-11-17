@@ -181,15 +181,13 @@ func writeAgentNetworkProviders(w io.Writer, resp *proto.GetAgentNetworkInfoResp
 
 func writeAgentNetworkLimits(w io.Writer, limits []*proto.AgentNetworkLimit, now time.Time) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "  LIMIT\tAPPLIES TO\tUSED / CAP\tREMAINING\tRESETS")
+	fmt.Fprintln(tw, "  USED / CAP\tREMAINING\tRESETS")
 	for _, l := range limits {
 		remaining := l.GetCap() - l.GetUsed()
 		if remaining < 0 {
 			remaining = 0
 		}
-		fmt.Fprintf(tw, "  %s\t%s\t%s / %s\t%s\t%s\n",
-			limitSourceLabel(l),
-			limitScopeLabel(l),
+		fmt.Fprintf(tw, "  %s / %s\t%s\t%s\n",
 			formatLimitAmount(l.GetUnit(), l.GetUsed(), false),
 			formatLimitAmount(l.GetUnit(), l.GetCap(), true),
 			formatLimitAmount(l.GetUnit(), remaining, true),
@@ -197,28 +195,6 @@ func writeAgentNetworkLimits(w io.Writer, limits []*proto.AgentNetworkLimit, now
 		)
 	}
 	_ = tw.Flush()
-}
-
-func limitSourceLabel(l *proto.AgentNetworkLimit) string {
-	name := l.GetSourceName()
-	if name == "" {
-		name = l.GetSourceId()
-	}
-	if l.GetSource() == proto.AgentNetworkLimit_ACCOUNT_RULE {
-		return fmt.Sprintf("account rule %q", name)
-	}
-	return fmt.Sprintf("policy %q", name)
-}
-
-func limitScopeLabel(l *proto.AgentNetworkLimit) string {
-	if l.GetScope() != proto.AgentNetworkLimit_GROUP {
-		return "you"
-	}
-	name := l.GetGroupName()
-	if name == "" {
-		name = l.GetGroupId()
-	}
-	return "group " + name
 }
 
 func formatLimitAmount(unit proto.AgentNetworkLimit_Unit, v float64, withUnit bool) string {

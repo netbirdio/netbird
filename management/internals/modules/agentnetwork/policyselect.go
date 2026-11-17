@@ -505,13 +505,20 @@ func scoreOne(
 // counts are carried as float64 so token and USD caps share one shape.
 type capUsage struct {
 	unit          types.AllowanceUnit
-	scope         types.AllowanceScope
-	groupID       string
+	scope         capScope
 	cap           float64
 	used          float64
 	windowSeconds int64
 	windowStart   time.Time
 }
+
+// capScope is whose consumption a cap counts.
+type capScope string
+
+const (
+	capScopeUser  capScope = "user"
+	capScopeGroup capScope = "group"
+)
 
 func (u capUsage) exhausted() bool { return u.used >= u.cap }
 
@@ -524,19 +531,19 @@ func tokenCapUsages(cache consumptionCache, accountID, userID, attrGroup string,
 	}
 	windowStart := types.WindowStart(now, tl.WindowSeconds)
 	var out []capUsage
-	add := func(scope types.AllowanceScope, kind types.ConsumptionDimension, dimID, groupID string, limit int64) {
+	add := func(scope capScope, kind types.ConsumptionDimension, dimID string, limit int64) {
 		row := cache.get(accountID, kind, dimID, tl.WindowSeconds, windowStart)
 		out = append(out, capUsage{
-			unit: types.AllowanceUnitTokens, scope: scope, groupID: groupID,
+			unit: types.AllowanceUnitTokens, scope: scope,
 			cap: float64(limit), used: float64(row.TokensInput + row.TokensOutput),
 			windowSeconds: tl.WindowSeconds, windowStart: windowStart,
 		})
 	}
 	if tl.UserCap > 0 && userID != "" {
-		add(types.AllowanceScopeUser, types.DimensionUser, userID, "", tl.UserCap)
+		add(capScopeUser, types.DimensionUser, userID, tl.UserCap)
 	}
 	if tl.GroupCap > 0 && attrGroup != "" {
-		add(types.AllowanceScopeGroup, types.DimensionGroup, attrGroup, attrGroup, tl.GroupCap)
+		add(capScopeGroup, types.DimensionGroup, attrGroup, tl.GroupCap)
 	}
 	return out
 }
@@ -548,19 +555,19 @@ func budgetCapUsages(cache consumptionCache, accountID, userID, attrGroup string
 	}
 	windowStart := types.WindowStart(now, bl.WindowSeconds)
 	var out []capUsage
-	add := func(scope types.AllowanceScope, kind types.ConsumptionDimension, dimID, groupID string, limit float64) {
+	add := func(scope capScope, kind types.ConsumptionDimension, dimID string, limit float64) {
 		row := cache.get(accountID, kind, dimID, bl.WindowSeconds, windowStart)
 		out = append(out, capUsage{
-			unit: types.AllowanceUnitUSD, scope: scope, groupID: groupID,
+			unit: types.AllowanceUnitUSD, scope: scope,
 			cap: limit, used: row.CostUSD,
 			windowSeconds: bl.WindowSeconds, windowStart: windowStart,
 		})
 	}
 	if bl.UserCapUsd > 0 && userID != "" {
-		add(types.AllowanceScopeUser, types.DimensionUser, userID, "", bl.UserCapUsd)
+		add(capScopeUser, types.DimensionUser, userID, bl.UserCapUsd)
 	}
 	if bl.GroupCapUsd > 0 && attrGroup != "" {
-		add(types.AllowanceScopeGroup, types.DimensionGroup, attrGroup, attrGroup, bl.GroupCapUsd)
+		add(capScopeGroup, types.DimensionGroup, attrGroup, bl.GroupCapUsd)
 	}
 	return out
 }

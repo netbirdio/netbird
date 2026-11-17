@@ -41,15 +41,12 @@ func usageFixture() *proto.GetAgentNetworkInfoResponse {
 				Models: []string{"gpt-5.4"},
 				Limits: []*proto.AgentNetworkLimit{
 					{
-						Source: proto.AgentNetworkLimit_ACCOUNT_RULE, SourceId: "rule-1", SourceName: "Monthly spend",
-						Unit: proto.AgentNetworkLimit_USD, Scope: proto.AgentNetworkLimit_USER,
-						Cap: 50, Used: 12.345, ResetsAt: timestamppb.New(month.Add(30 * 24 * time.Hour)),
+						Unit: proto.AgentNetworkLimit_USD,
+						Cap:  50, Used: 12.345, ResetsAt: timestamppb.New(month.Add(30 * 24 * time.Hour)),
 					},
 					{
-						Source: proto.AgentNetworkLimit_POLICY, SourceId: "pol-1", SourceName: "Engineers",
-						Unit: proto.AgentNetworkLimit_TOKENS, Scope: proto.AgentNetworkLimit_GROUP,
-						GroupId: "grp-eng", GroupName: "Engineering",
-						Cap: 1_000_000, Used: 250_500, ResetsAt: timestamppb.New(hour.Add(time.Hour)),
+						Unit: proto.AgentNetworkLimit_TOKENS,
+						Cap:  1_000_000, Used: 250_500, ResetsAt: timestamppb.New(hour.Add(time.Hour)),
 					},
 				},
 			},
@@ -57,9 +54,8 @@ func usageFixture() *proto.GetAgentNetworkInfoResponse {
 				Id: "prov-bedrock", Name: "Bedrock prod", CatalogId: "bedrock",
 				Exhausted: true,
 				Limits: []*proto.AgentNetworkLimit{{
-					Source: proto.AgentNetworkLimit_POLICY, SourceId: "pol-2", SourceName: "Interns",
-					Unit: proto.AgentNetworkLimit_TOKENS, Scope: proto.AgentNetworkLimit_USER,
-					Cap: 1000, Used: 1200, ResetsAt: timestamppb.New(hour.Add(time.Hour)),
+					Unit: proto.AgentNetworkLimit_TOKENS,
+					Cap:  1000, Used: 1200, ResetsAt: timestamppb.New(hour.Add(time.Hour)),
 				}},
 			},
 		},

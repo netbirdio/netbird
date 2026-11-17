@@ -39,19 +39,12 @@ type AgentNetworkProvider struct {
 	Limits           []AgentNetworkLimit `json:"limits"`
 }
 
-// AgentNetworkLimit is one cap that binds the user. Source is "policy" or
-// "account_rule", Unit "tokens" or "usd", Scope "user" or "group".
+// AgentNetworkLimit is one cap that binds the user. Unit is "tokens" or "usd".
 type AgentNetworkLimit struct {
-	Source     string  `json:"source"`
-	SourceID   string  `json:"sourceId"`
-	SourceName string  `json:"sourceName"`
-	Unit       string  `json:"unit"`
-	Scope      string  `json:"scope"`
-	GroupID    string  `json:"groupId"`
-	GroupName  string  `json:"groupName"`
-	Cap        float64 `json:"cap"`
-	Used       float64 `json:"used"`
-	ResetsAt   string  `json:"resetsAt"`
+	Unit     string  `json:"unit"`
+	Cap      float64 `json:"cap"`
+	Used     float64 `json:"used"`
+	ResetsAt string  `json:"resetsAt"`
 }
 
 // AgentNetwork is the Wails-facing Agent Networks service.
@@ -116,16 +109,10 @@ func agentNetworkInfoFromProto(resp *proto.GetAgentNetworkInfoResponse) AgentNet
 		}
 		for _, l := range p.GetLimits() {
 			provider.Limits = append(provider.Limits, AgentNetworkLimit{
-				Source:     strings.ToLower(l.GetSource().String()),
-				SourceID:   l.GetSourceId(),
-				SourceName: l.GetSourceName(),
-				Unit:       strings.ToLower(l.GetUnit().String()),
-				Scope:      strings.ToLower(l.GetScope().String()),
-				GroupID:    l.GetGroupId(),
-				GroupName:  l.GetGroupName(),
-				Cap:        l.GetCap(),
-				Used:       l.GetUsed(),
-				ResetsAt:   formatTimestamp(l.GetResetsAt()),
+				Unit:     strings.ToLower(l.GetUnit().String()),
+				Cap:      l.GetCap(),
+				Used:     l.GetUsed(),
+				ResetsAt: formatTimestamp(l.GetResetsAt()),
 			})
 		}
 		out.Providers = append(out.Providers, provider)
