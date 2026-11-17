@@ -2999,7 +2999,12 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 	s.guardedConfigMu.Lock()
 	defer s.guardedConfigMu.Unlock()
 
-	stored, err := s.storedLoginConfig(callerCtx, activeProf, msg)
+	// The gate approved this profile, so the check and the write both use it.
+	target, err := s.targetProfile(callerCtx)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	stored, err := s.storedProfileConfig(target)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -3033,11 +3038,7 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 
 	switched := false
 	if msg.ProfileName != nil {
-		resolved, err := s.targetProfile(callerCtx)
-		if err != nil {
-			return nil, nil, false, err
-		}
-		switched, err = s.switchProfileIfNeeded(resolved, activeProf)
+		switched, err = s.switchProfileIfNeeded(target, activeProf)
 		if err != nil {
 			return nil, nil, false, fmt.Errorf("switch profile: %w", err)
 		}
@@ -3051,6 +3052,11 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 	activeProf, err = s.profileManager.GetActiveProfileState()
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("active profile state: %w", err)
+	}
+	// SwitchProfile and Up do not hold guardedConfigMu, so the active profile can
+	// have moved off the target.
+	if !s.isActiveProfile(activeProf, target) {
+		return nil, nil, false, gstatus.Error(codes.Aborted, "the active profile changed during login, try again")
 	}
 
 	if err := s.persistLoginOverrides(activeProf, msg); err != nil {

@@ -6,10 +6,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 )
@@ -129,4 +131,46 @@ func TestLogin_RefusedChangeLeavesAnInProgressLoginAlone(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, codes.PermissionDenied, gstatus.Code(err), "want a privilege refusal, got %v", err)
 	require.False(t, cancelled, "the refused login cancelled the login already in progress")
+}
+
+// A login that names no profile is approved for the profile active when the gate
+// ran. A switch that lands before the write must not redirect the write to the
+// newly active profile, which neither the gate nor the privilege check looked at.
+func TestLogin_SwitchMidRequestDoesNotRedirectTheWrite(t *testing.T) {
+	s, _, _, username, cfgPath := setupServerWithProfile(t)
+	s.rootCtx = internal.CtxInitState(context.Background())
+	s.isLoginRequiredFn = func(context.Context) (bool, error) { return false, nil }
+
+	// Another user's profile that runs the SSH server.
+	victim := "victim"
+	victimPath := filepath.Join(profilemanager.DefaultConfigPathDir, victim+".json")
+	victimOwner := privilegedIdentity()
+	_, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
+		ConfigPath:       victimPath,
+		ManagementURL:    "https://api.netbird.io:443",
+		ServerSSHAllowed: boolPtr(true),
+		Owner:            &victimOwner,
+	})
+	require.NoError(t, err)
+
+	// The victim switches to their profile after the caller's first check.
+	afterLoginPreCheck = func() {
+		require.NoError(t, s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
+			ID:       profilemanager.ID(victim),
+			Username: username,
+		}))
+	}
+	t.Cleanup(func() { afterLoginPreCheck = nil })
+
+	_, err = s.Login(withTarget(userCtx(), cfgPath), &proto.LoginRequest{
+		Username:      &username,
+		ManagementUrl: "https://mgmt.attacker.example:443",
+	})
+	require.Error(t, err)
+	require.Equal(t, codes.Aborted, gstatus.Code(err), "want a retryable refusal, got %v", err)
+
+	stored, err := profilemanager.GetExistingConfig(victimPath)
+	require.NoError(t, err)
+	require.Equal(t, "https://api.netbird.io:443", stored.ManagementURL.String(),
+		"the login wrote to a profile the gate never approved")
 }
