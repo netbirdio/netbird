@@ -38,12 +38,14 @@ export function SettingsGeneral() {
             <SectionGroup title={t("settings.general.section.general")}>
                 <LanguagePicker />
                 <ThemePicker />
-                <FancyToggleSwitch
-                    value={!config.disableNotifications}
-                    onChange={(v) => setField("disableNotifications", !v)}
-                    label={t("settings.general.notifications.label")}
-                    helpText={t("settings.general.notifications.help")}
-                />
+                {!mdm.disableNotifications && (
+                    <FancyToggleSwitch
+                        value={!config.disableNotifications}
+                        onChange={(v) => setField("disableNotifications", !v)}
+                        label={t("settings.general.notifications.label")}
+                        helpText={t("settings.general.notifications.help")}
+                    />
+                )}
                 {!mdm.disableAutoConnect && !features.disableUpdateSettings && (
                     <FancyToggleSwitch
                         value={!config.disableAutoConnect}

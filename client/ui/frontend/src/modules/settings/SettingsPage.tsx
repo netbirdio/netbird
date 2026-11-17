@@ -9,8 +9,8 @@ import { VerticalTabs } from "@/components/VerticalTabs.tsx";
 import { SettingsNavigation } from "@/modules/settings/SettingsNavigation.tsx";
 import { AutostartSettingsProvider, SettingsProvider } from "@/contexts/SettingsContext.tsx";
 import { SettingsGeneral } from "@/modules/settings/SettingsGeneral.tsx";
-import { SettingsNetwork } from "@/modules/settings/SettingsNetwork.tsx";
-import { SettingsSecurity } from "@/modules/settings/SettingsSecurity.tsx";
+import { SettingsNetwork, networkTabHasControls } from "@/modules/settings/SettingsNetwork.tsx";
+import { SettingsSecurity, securityTabHasControls } from "@/modules/settings/SettingsSecurity.tsx";
 import { ProfilesTab } from "@/modules/profiles/ProfilesTab.tsx";
 import { SettingsSSH } from "@/modules/settings/SettingsSSH.tsx";
 import { SettingsVNC } from "@/modules/settings/SettingsVNC.tsx";
@@ -74,8 +74,8 @@ export const SettingsPage = () => {
         const editable = !features.disableUpdateSettings;
         const visibility: Record<Tab, boolean> = {
             [Tab.General]: true,
-            [Tab.Network]: editable,
-            [Tab.Security]: editable,
+            [Tab.Network]: editable && networkTabHasControls(mdm),
+            [Tab.Security]: editable && securityTabHasControls(mdm),
             [Tab.Profiles]: !features.disableProfiles,
             [Tab.SSH]: mdm.allowServerSSH ?? editable,
             [Tab.VNC]: mdm.allowServerVNC ?? editable,
