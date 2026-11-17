@@ -2822,6 +2822,56 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 	require.Error(t, err, "expecting to fail when providing PeerLoginExpiration more than 180 days")
 }
 
+func TestDefaultAccountManager_UpdateAccountSettings_OmittedExtraSkipsIntegration(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	ctrl := gomock.NewController(t)
+	settingsMock := settings.NewMockManager(ctrl)
+	settingsMock.EXPECT().
+		GetExtraSettings(gomock.Any(), gomock.Any()).
+		Return(&types.ExtraSettings{}, nil).
+		AnyTimes()
+	settingsMock.EXPECT().
+		GetSettings(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&types.Settings{Extra: &types.ExtraSettings{
+			FlowEnabled:             true,
+			UserEmailMappingEnabled: true,
+		}}, nil).
+		AnyTimes()
+	var calls []*types.ExtraSettings
+	settingsMock.EXPECT().
+		UpdateExtraSettings(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _ string, extra *types.ExtraSettings) (bool, error) {
+			calls = append(calls, extra)
+			return false, nil
+		}).
+		AnyTimes()
+	manager.settingsManager = settingsMock
+
+	returned, err := manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
+		PeerLoginExpiration:        time.Hour,
+		PeerLoginExpirationEnabled: false,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, calls, "integration extra settings must not be written when the update omits extra")
+	require.NotNil(t, returned.Extra, "returned settings must carry extra")
+	assert.True(t, returned.Extra.FlowEnabled, "returned settings must report the integration flow state")
+	assert.True(t, returned.Extra.UserEmailMappingEnabled, "returned settings must report the integration email mapping state")
+
+	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
+		PeerLoginExpiration:        time.Hour,
+		PeerLoginExpirationEnabled: false,
+		Extra:                      &types.ExtraSettings{FlowEnabled: true},
+	})
+	require.NoError(t, err)
+	require.Len(t, calls, 1, "integration extra settings must be written when the update supplies extra")
+	assert.True(t, calls[0].FlowEnabled)
+}
+
 func TestDefaultAccountManager_UpdateAccountSettings_PeerApproval(t *testing.T) {
 	manager, _, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 

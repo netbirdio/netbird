@@ -10,6 +10,7 @@ package mdm
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -95,6 +96,13 @@ const (
 	// Daemon-only: NOT stored on Config. Detection and management-driven
 	// installs are unaffected.
 	KeyDisableUpdateNotifications = "disableUpdateNotifications"
+
+	// KeyExtraIFaceBlackList adds interface name prefixes to the blacklist
+	// used for connection candidate discovery. Additive, unlike every other
+	// key: the defaults, the profile file and the --extra-iface-blacklist flag
+	// keep their entries, so a device can still exclude its own interfaces.
+	// Read as a list or a comma-separated string.
+	KeyExtraIFaceBlackList = "extraIFaceBlackList"
 )
 
 // Split-tunnel mode literals (KeySplitTunnelMode values).
@@ -343,6 +351,20 @@ func (p *Policy) GetStringSlice(key string) ([]string, bool) {
 		return []string{t}, true
 	}
 	return nil, false
+}
+
+// SplitList flattens comma-separated values into trimmed, non-empty, unique
+// entries, since one managed-configuration string can carry a whole list.
+func SplitList(values []string) []string {
+	var entries []string
+	for _, value := range values {
+		for _, entry := range strings.Split(value, ",") {
+			if entry = strings.TrimSpace(entry); entry != "" && !slices.Contains(entries, entry) {
+				entries = append(entries, entry)
+			}
+		}
+	}
+	return entries
 }
 
 // sortedKeys returns the keys of m as a deterministic, lexicographically

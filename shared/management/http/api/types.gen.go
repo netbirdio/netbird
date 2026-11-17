@@ -1640,6 +1640,9 @@ type AccountExtraSettings struct {
 
 	// UserApprovalRequired Enables manual approval for new users joining via domain matching. When enabled, users are blocked with pending approval status until explicitly approved by an admin.
 	UserApprovalRequired bool `json:"user_approval_required"`
+
+	// UserEmailMappingEnabled (Cloud only) Enables resolving user IDs to email addresses in streamed activity and network traffic events.
+	UserEmailMappingEnabled *bool `json:"user_email_mapping_enabled,omitempty"`
 }
 
 // AccountOnboarding defines model for AccountOnboarding.

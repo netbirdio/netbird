@@ -52,7 +52,6 @@ var (
 	noBrowser          bool
 	showQR             bool
 	profileName        string
-	configPath         string
 
 	upCmd = &cobra.Command{
 		Use:   "up",
@@ -63,7 +62,11 @@ var (
 )
 
 func init() {
-	upCmd.PersistentFlags().BoolVarP(&foregroundMode, "foreground-mode", "F", false, "start service in foreground")
+	addLoginFlags(upCmd)
+	upCmd.PersistentFlags().BoolVarP(&foregroundMode, "foreground-mode", "F", false, "start service in foreground. Use --config to override the default profile file location")
+	// Only applies to foreground mode, the daemon takes it from the service commands.
+	upCmd.PersistentFlags().StringVarP(&configPath, configFlag, "c", "", "Overrides the default profile file location in foreground mode")
+	_ = upCmd.PersistentFlags().MarkHidden(configFlag)
 	upCmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, iface.WgInterfaceDefault, "WireGuard interface name")
 	upCmd.PersistentFlags().Uint16Var(&wireguardPort, wireguardPortFlag, iface.DefaultWgPort, "WireGuard interface listening port")
 	upCmd.PersistentFlags().Uint16Var(&mtu, mtuFlag, iface.DefaultMTU, "Set MTU (Maximum Transmission Unit) for the WireGuard interface")
@@ -85,14 +88,10 @@ func init() {
 	upCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
 	upCmd.PersistentFlags().BoolVar(&showQR, showQRFlag, false, showQRDesc)
 	upCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
-	upCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) NetBird config file location. ")
 
 }
 
 func upFunc(cmd *cobra.Command, args []string) error {
-	SetFlagsFromEnvVars(rootCmd)
-	SetFlagsFromEnvVars(cmd)
-
 	cmd.SetOut(cmd.OutOrStdout())
 
 	err := util.InitLog(logLevel, util.LogConsole)
@@ -192,7 +191,6 @@ func createProfile(ctx context.Context, profileName, username string) (profilema
 }
 
 func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) error {
-	// override the default profile filepath if provided
 	if configPath != "" {
 		_ = profilemanager.NewServiceManager(configPath)
 	}
@@ -270,9 +268,8 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 }
 
 func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile, profileSwitched bool) error {
-	// Check if deprecated config flag is set and show warning
-	if cmd.Flag("config").Changed && configPath != "" {
-		cmd.PrintErrf("Warning: Config flag is deprecated on up command, it should be set as a service argument with $NB_CONFIG environment or with \"-config\" flag; netbird service reconfigure --service-env=\"NB_CONFIG=<file_path>\" or netbird service run --config=<file_path>\n")
+	if cmd.Flags().Changed(configFlag) && configPath != "" {
+		cmd.PrintErrf("Warning: --config only applies with --foreground-mode and is ignored. Set the daemon profile location with: netbird service reconfigure --config <file_path>\n")
 	}
 
 	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
@@ -525,7 +522,7 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 	if cmd.Flag(networkMonitorFlag).Changed {
 		req.NetworkMonitor = &networkMonitor
 	}
-	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
+	if cmd.Flags().Changed(preSharedKeyFlag) {
 		req.OptionalPreSharedKey = &preSharedKey
 	}
 	if cmd.Flag(disableAutoConnectFlag).Changed {
@@ -644,7 +641,7 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 		ic.NetworkMonitor = &networkMonitor
 	}
 
-	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
+	if cmd.Flags().Changed(preSharedKeyFlag) {
 		ic.PreSharedKey = &preSharedKey
 	}
 
@@ -742,7 +739,7 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 		CleanDNSLabels:      dnsLabels != nil && len(dnsLabels) == 0,
 	}
 
-	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
+	if cmd.Flags().Changed(preSharedKeyFlag) {
 		loginRequest.OptionalPreSharedKey = &preSharedKey
 	}
 
