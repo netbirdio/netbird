@@ -176,6 +176,11 @@ type raceResult struct {
 	failures []upstreamFailure
 }
 
+type upstreamAttempt struct {
+	res     raceResult
+	failure *upstreamFailure
+}
+
 // contextWithDNSProtocol stores the inbound DNS protocol ("udp" or "tcp") in context.
 func contextWithDNSProtocol(ctx context.Context, network string) context.Context {
 	return context.WithValue(ctx, dnsProtocolKey{}, network)
@@ -394,11 +399,6 @@ func (u *upstreamResolverBase) tryRace(ctx context.Context, r *dns.Msg, group up
 		return res
 	}
 	return raceResult{failures: failures}
-}
-
-type upstreamAttempt struct {
-	res     raceResult
-	failure *upstreamFailure
 }
 
 // tryRaceStaggered queries the upstreams of a group in order, starting the
