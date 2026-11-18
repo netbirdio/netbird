@@ -307,10 +307,11 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 	}
 
 	// TODO: optimize to only reload reverse proxies that are affected by the resource update instead of all of them
+	reloadCtx := context.WithoutCancel(ctx)
 	go func() {
-		err := m.serviceManager.ReloadAllServicesForAccount(ctx, resource.AccountID)
+		err := m.serviceManager.ReloadAllServicesForAccount(reloadCtx, resource.AccountID)
 		if err != nil {
-			log.WithContext(ctx).Warnf("failed to reload all proxies for account: %v", err)
+			log.WithContext(reloadCtx).Warnf("failed to reload all proxies for account: %v", err)
 		}
 	}()
 
