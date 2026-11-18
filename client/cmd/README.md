@@ -55,7 +55,7 @@ func init() {
 ## Add an env var (no flag)
 
 - The name starts with `NB_` and lives in a constant.
-- Parse booleans with `strconv.ParseBool` and log the variable name and parse error, without the value.
+- Parse booleans with `strconv.ParseBool` and, on error, log only the variable name and a generic invalid-boolean message; never log the raw parse error because it includes the value.
 - Read it where it is used. The daemon only sees it through `netbird service install --service-env`.
 - Prefer MDM over env vars.
 
