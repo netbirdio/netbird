@@ -6,32 +6,38 @@ import "encoding/json"
 // fields hold the enforced value (nil pointer = not managed), boolean
 // fields report that the key is managed.
 type Fields struct {
-	ManagementURL            string `json:"managementURL"`
-	PreSharedKey             bool   `json:"preSharedKey"`
-	WireguardPort            bool   `json:"wireguardPort"`
-	RosenpassEnabled         bool   `json:"rosenpassEnabled"`
-	RosenpassPermissive      bool   `json:"rosenpassPermissive"`
-	DisableClientRoutes      bool   `json:"disableClientRoutes"`
-	DisableServerRoutes      bool   `json:"disableServerRoutes"`
-	AllowServerSSH           *bool  `json:"allowServerSSH"`
-	AllowServerVNC           *bool  `json:"allowServerVNC"`
-	DisableVNCApproval       bool   `json:"disableVNCApproval"`
-	DisableAutoConnect       bool   `json:"disableAutoConnect"`
-	DisableAutostart         bool   `json:"disableAutostart"`
-	BlockInbound             bool   `json:"blockInbound"`
-	DisableMetricsCollection bool   `json:"disableMetricsCollection"`
-	SplitTunnelMode          bool   `json:"splitTunnelMode"`
-	SplitTunnelApps          bool   `json:"splitTunnelApps"`
-	RemoteJobsAllowed        bool   `json:"allowRemoteJobs"`
-	DisableAdvancedView      *bool  `json:"disableAdvancedView"`
-	InterfaceName            bool   `json:"interfaceName"`
-	MTU                      bool   `json:"mtu"`
-	DisableDNS               bool   `json:"disableDNS"`
-	DisableIPv6              bool   `json:"disableIPv6"`
-	DisableFirewall          bool   `json:"disableFirewall"`
-	BlockLANAccess           bool   `json:"blockLANAccess"`
-	DisableNotifications     bool   `json:"disableNotifications"`
-	NetworkMonitor           bool   `json:"networkMonitor"`
+	ManagementURL                 string `json:"managementURL"`
+	PreSharedKey                  bool   `json:"preSharedKey"`
+	WireguardPort                 bool   `json:"wireguardPort"`
+	RosenpassEnabled              bool   `json:"rosenpassEnabled"`
+	RosenpassPermissive           bool   `json:"rosenpassPermissive"`
+	DisableClientRoutes           bool   `json:"disableClientRoutes"`
+	DisableServerRoutes           bool   `json:"disableServerRoutes"`
+	AllowServerSSH                *bool  `json:"allowServerSSH"`
+	AllowServerVNC                *bool  `json:"allowServerVNC"`
+	DisableVNCApproval            bool   `json:"disableVNCApproval"`
+	DisableAutoConnect            bool   `json:"disableAutoConnect"`
+	DisableAutostart              bool   `json:"disableAutostart"`
+	BlockInbound                  bool   `json:"blockInbound"`
+	DisableMetricsCollection      bool   `json:"disableMetricsCollection"`
+	SplitTunnelMode               bool   `json:"splitTunnelMode"`
+	SplitTunnelApps               bool   `json:"splitTunnelApps"`
+	RemoteJobsAllowed             bool   `json:"allowRemoteJobs"`
+	DisableAdvancedView           *bool  `json:"disableAdvancedView"`
+	InterfaceName                 bool   `json:"interfaceName"`
+	MTU                           bool   `json:"mtu"`
+	DisableDNS                    bool   `json:"disableDNS"`
+	DisableIPv6                   bool   `json:"disableIPv6"`
+	DisableFirewall               bool   `json:"disableFirewall"`
+	BlockLANAccess                bool   `json:"blockLANAccess"`
+	DisableNotifications          bool   `json:"disableNotifications"`
+	NetworkMonitor                bool   `json:"networkMonitor"`
+	EnableSSHRoot                 bool   `json:"enableSSHRoot"`
+	EnableSSHSFTP                 bool   `json:"enableSSHSFTP"`
+	EnableSSHLocalPortForwarding  bool   `json:"enableSSHLocalPortForwarding"`
+	EnableSSHRemotePortForwarding bool   `json:"enableSSHRemotePortForwarding"`
+	DisableSSHAuth                bool   `json:"disableSSHAuth"`
+	SSHJWTCacheTTL                bool   `json:"sshJWTCacheTTL"`
 }
 
 // Features carries the feature gates a UI must honor.
@@ -81,6 +87,12 @@ func BuildRestrictions(policy *Policy) Restrictions {
 	r.MDM.BlockLANAccess = policy.HasKey(KeyBlockLANAccess)
 	r.MDM.DisableNotifications = policy.HasKey(KeyDisableNotifications)
 	r.MDM.NetworkMonitor = policy.HasKey(KeyNetworkMonitor)
+	r.MDM.EnableSSHRoot = policy.HasKey(KeyEnableSSHRoot)
+	r.MDM.EnableSSHSFTP = policy.HasKey(KeyEnableSSHSFTP)
+	r.MDM.EnableSSHLocalPortForwarding = policy.HasKey(KeyEnableSSHLocalPortForwarding)
+	r.MDM.EnableSSHRemotePortForwarding = policy.HasKey(KeyEnableSSHRemotePortForwarding)
+	r.MDM.DisableSSHAuth = policy.HasKey(KeyDisableSSHAuth)
+	r.MDM.SSHJWTCacheTTL = policy.HasKey(KeySSHJWTCacheTTL)
 	if v, ok := policy.GetBool(KeyAllowServerSSH); ok {
 		r.MDM.AllowServerSSH = &v
 	}

@@ -15,12 +15,14 @@ import {
     SquareTerminalIcon,
     UserCircleIcon,
 } from "lucide-react";
+import { sshTabHasControls } from "@/modules/settings/SettingsSSH.tsx";
 
 export const SettingsNavigation = () => {
     const { t } = useTranslation();
     const { updateAvailable } = useClientVersion();
     const { mdm, features } = useRestrictions();
-    const showSsh = mdm.allowServerSSH ?? !features.disableUpdateSettings;
+    const showSsh =
+        (mdm.allowServerSSH ?? !features.disableUpdateSettings) && sshTabHasControls(mdm);
     const showVnc = mdm.allowServerVNC ?? !features.disableUpdateSettings;
 
     const aboutAdornment = updateAvailable ? (

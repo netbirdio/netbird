@@ -70,3 +70,21 @@ func TestBuildRestrictions_NetworkKeysUnmanaged(t *testing.T) {
 	assert.False(t, r.MDM.DisableDNS, "an unmanaged key must leave its toggle editable")
 	assert.False(t, r.MDM.MTU, "an unmanaged key must leave its field editable")
 }
+
+func TestBuildRestrictions_SSHKeys(t *testing.T) {
+	r := BuildRestrictions(NewPolicy(map[string]any{
+		KeyEnableSSHRoot:                 false,
+		KeyEnableSSHSFTP:                 true,
+		KeyEnableSSHLocalPortForwarding:  true,
+		KeyEnableSSHRemotePortForwarding: false,
+		KeyDisableSSHAuth:                false,
+		KeySSHJWTCacheTTL:                int64(0),
+	}))
+
+	assert.True(t, r.MDM.EnableSSHRoot, "managed whatever its value")
+	assert.True(t, r.MDM.EnableSSHSFTP, "enableSSHSFTP")
+	assert.True(t, r.MDM.EnableSSHLocalPortForwarding, "enableSSHLocalPortForwarding")
+	assert.True(t, r.MDM.EnableSSHRemotePortForwarding, "enableSSHRemotePortForwarding")
+	assert.True(t, r.MDM.DisableSSHAuth, "disableSSHAuth")
+	assert.True(t, r.MDM.SSHJWTCacheTTL, "sshJWTCacheTTL")
+}
