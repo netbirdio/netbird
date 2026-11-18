@@ -222,7 +222,7 @@ func TestRequirePrivilegeForConfigChange_SSHFlags(t *testing.T) {
 			if tt.privileged {
 				ctx = rootCtx()
 			}
-			err := requirePrivilegeForConfigChange(ctx, tt.stored, tt.change)
+			err := requirePrivilegeForConfigChange(ctx, tt.stored, nil, tt.change)
 			if tt.wantDeny {
 				assertDenied(t, err)
 				return
@@ -318,7 +318,7 @@ func TestRequirePrivilegeForConfigChange_LocalMetrics(t *testing.T) {
 			if tt.privileged {
 				ctx = rootCtx()
 			}
-			err := requirePrivilegeForConfigChange(ctx, tt.stored, tt.change)
+			err := requirePrivilegeForConfigChange(ctx, tt.stored, nil, tt.change)
 			if tt.wantDeny {
 				assertDenied(t, err)
 				return
@@ -406,7 +406,7 @@ func TestRequirePrivilegeForConfigChange_ManagementURL(t *testing.T) {
 			if tt.privileged {
 				ctx = rootCtx()
 			}
-			err := requirePrivilegeForConfigChange(ctx, tt.stored, privilegedConfigChange{managementURL: tt.requested})
+			err := requirePrivilegeForConfigChange(ctx, tt.stored, nil, privilegedConfigChange{managementURL: tt.requested})
 			if tt.wantDeny {
 				assertDenied(t, err)
 				return
@@ -420,7 +420,7 @@ func TestRequirePrivilegeForConfigChange_ManagementURL(t *testing.T) {
 // state on a TCP daemon socket, where no peer credentials exist.
 func TestRequirePrivilegeForConfigChange_UnidentifiedCallerIsRefused(t *testing.T) {
 	err := requirePrivilegeForConfigChange(noIdentityCtx(),
-		&profilemanager.Config{ServerSSHAllowed: boolPtr(false)},
+		&profilemanager.Config{ServerSSHAllowed: boolPtr(false)}, nil,
 		privilegedConfigChange{serverSSHAllowed: boolPtr(true)})
 	assertDenied(t, err)
 
@@ -541,7 +541,7 @@ func TestRequirePrivilegeForConfigChange_UnblockInbound(t *testing.T) {
 			if tt.privileged {
 				ctx = rootCtx()
 			}
-			err := requirePrivilegeForConfigChange(ctx, tt.stored, tt.change)
+			err := requirePrivilegeForConfigChange(ctx, tt.stored, nil, tt.change)
 			if tt.wantDeny {
 				assertDenied(t, err)
 				return

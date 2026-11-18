@@ -254,6 +254,14 @@ func (config *Config) ApplyMDMPolicy(policy *mdm.Policy) {
 	config.applyMDMPolicy(policy)
 }
 
+// WithMDMPolicy returns a copy of the Config with the policy applied on top,
+// leaving the receiver as it was read. Nil stays nil.
+func (config *Config) WithMDMPolicy(policy *mdm.Policy) *Config {
+	enforced := config.clone()
+	enforced.ApplyMDMPolicy(policy)
+	return enforced
+}
+
 // Policy returns the MDM policy applied to this Config. Returns a non-nil
 // empty Policy when MDM enforcement is inactive; callers can always invoke
 // HasKey / ManagedKeys / IsEmpty without a nil check.

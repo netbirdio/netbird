@@ -581,7 +581,7 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 		return nil, err
 	}
 
-	if err := requirePrivilegeForConfigChange(callerCtx, stored, privilegedChangeFromSetConfig(msg)); err != nil {
+	if err := requirePrivilegeForConfigChange(callerCtx, stored, policy, privilegedChangeFromSetConfig(msg)); err != nil {
 		return nil, err
 	}
 
@@ -731,7 +731,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 
 	// Privilege gate: same restrictions as SetConfig, since LoginRequest can carry
 	// the same fields.
-	if err := requirePrivilegeForConfigChange(callerCtx, stored, privilegedChangeFromLogin(msg)); err != nil {
+	if err := requirePrivilegeForConfigChange(callerCtx, stored, policy, privilegedChangeFromLogin(msg)); err != nil {
 		return nil, err
 	}
 
@@ -1326,15 +1326,10 @@ func (s *Server) storedLoginConfig(ctx context.Context, activeProf *profilemanag
 	return s.storedProfileConfig(resolved)
 }
 
-// storedConfigAtPath reads a profile config file with the MDM policy applied on
-// top, yielding nil when the file does not exist yet.
-//
-// The overlay matters because the privilege gates have to reason about the
-// config the engine will actually run. An MDM policy that enables a
-// remote-access server leaves the on-disk value off, so without it the guards
-// read a host publishing its console as one running nothing, and let an
-// unprivileged caller repoint the management identity that decides who may
-// connect to it.
+// storedConfigAtPath reads a profile config file as written, without the MDM
+// policy, yielding nil when the file does not exist yet. The privilege gate
+// lays the policy on top itself, so it can check both the file and the config
+// the engine runs.
 //
 // Reading it has no side effect: profilemanager.GetExistingConfig does not
 // write, so a request that the gates go on to refuse leaves the profile file as
@@ -1351,7 +1346,6 @@ func (s *Server) storedConfigAtPath(path string) (*profilemanager.Config, error)
 	if err != nil {
 		return nil, fmt.Errorf("read profile config: %w", err)
 	}
-	cfg.ApplyMDMPolicy(s.mdmLoader.Load())
 	return cfg, nil
 }
 
@@ -3099,7 +3093,7 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 	if err != nil {
 		return nil, nil, false, err
 	}
-	if err := requirePrivilegeForConfigChange(callerCtx, stored, privilegedChangeFromLogin(msg)); err != nil {
+	if err := requirePrivilegeForConfigChange(callerCtx, stored, s.mdmLoader.Load(), privilegedChangeFromLogin(msg)); err != nil {
 		return nil, nil, false, err
 	}
 
