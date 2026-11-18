@@ -40,6 +40,10 @@ services:
   signal:
     <<: *default
     image: netbirdio/signal:$NETBIRD_SIGNAL_TAG
+    environment:
+    # Must equal the Management relay secret, or Signal cannot verify the
+    # signed phases and mobile clients get the stock stream.
+    - NB_ALIGNED_HEARTBEAT_SECRET=$NETBIRD_RELAY_AUTH_SECRET
     depends_on:
           - dashboard
     volumes:
