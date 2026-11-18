@@ -359,6 +359,12 @@ term_write_all_terms(netbird_t)
 allow netbird_t systemd_logind_sessions_t:dir list_dir_perms;
 allow netbird_t systemd_logind_sessions_t:file read_file_perms;
 
+# Daemon IPC callers at the console are found through the seats and sessions logind
+# reports over D-Bus
+optional_policy(`
+	systemd_dbus_chat_logind(netbird_t)
+')
+
 ########################################
 #
 # Debug bundle
