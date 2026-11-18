@@ -98,10 +98,16 @@ func fallbackMissingWorkingDir(logger *log.Entry, execCmd *exec.Cmd) {
 	if execCmd.Dir == "" {
 		return
 	}
-	if _, err := os.Stat(execCmd.Dir); err != nil {
+	info, err := os.Stat(execCmd.Dir)
+	switch {
+	case err != nil:
 		logger.Warnf("working directory %s unavailable, starting in /: %v", execCmd.Dir, err)
-		execCmd.Dir = "/"
+	case !info.IsDir():
+		logger.Warnf("working directory %s is not a directory, starting in /", execCmd.Dir)
+	default:
+		return
 	}
+	execCmd.Dir = "/"
 }
 
 // executeCommand executes the command and handles I/O and exit codes

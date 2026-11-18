@@ -5,6 +5,7 @@ package server
 import (
 	"context"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sync"
@@ -20,6 +21,8 @@ func TestFallbackMissingWorkingDir(t *testing.T) {
 	logger := log.NewEntry(log.New())
 	existing := t.TempDir()
 	missing := filepath.Join(existing, "not-created-yet")
+	file := filepath.Join(existing, "a-file")
+	require.NoError(t, os.WriteFile(file, nil, 0o600))
 
 	tests := []struct {
 		name string
@@ -28,6 +31,7 @@ func TestFallbackMissingWorkingDir(t *testing.T) {
 	}{
 		{name: "an existing directory is kept", dir: existing, want: existing},
 		{name: "a missing directory falls back to the root", dir: missing, want: "/"},
+		{name: "a file in place of the directory falls back to the root", dir: file, want: "/"},
 		{name: "no directory is left to the command", dir: "", want: ""},
 	}
 
