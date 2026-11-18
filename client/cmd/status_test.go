@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,7 +38,8 @@ func TestStatusTableFlagExclusive(t *testing.T) {
 			require.NoError(t, statusCmd.Flags().Set("table", "true"))
 			require.NoError(t, statusCmd.Flags().Set(other, "true"))
 
-			assert.Error(t, statusCmd.ValidateFlagGroups(), "--table with --%s must be rejected", other)
+			_, err := resolveStatusOutput()
+			assert.Error(t, err, "--table with --%s must be rejected", other)
 		})
 	}
 
@@ -45,7 +47,9 @@ func TestStatusTableFlagExclusive(t *testing.T) {
 		resetStatusFlags(t)
 		require.NoError(t, statusCmd.Flags().Set("table", "true"))
 
-		assert.NoError(t, statusCmd.ValidateFlagGroups())
+		got, err := resolveStatusOutput()
+		require.NoError(t, err)
+		assert.Equal(t, outputTable, got, "resolved output")
 	})
 }
 
@@ -56,9 +60,30 @@ func TestStatusOutputFlagExclusiveWithLegacyFlags(t *testing.T) {
 			require.NoError(t, statusCmd.Flags().Set(outputFlagName, "json"))
 			require.NoError(t, statusCmd.Flags().Set(legacy, "true"))
 
-			assert.Error(t, statusCmd.ValidateFlagGroups(), "--output with --%s must be rejected", legacy)
+			_, err := resolveStatusOutput()
+			assert.Error(t, err, "--output with --%s must be rejected", legacy)
 		})
 	}
+}
+
+// A format flag set to false by an NB_* variable does not select a format, so it
+// must not conflict with --output on the command line.
+func TestStatusOutputIgnoresDisabledLegacyFlagFromEnv(t *testing.T) {
+	resetStatusFlags(t)
+	for _, name := range []string{"NB_OUTPUT", "WT_OUTPUT", "WT_JSON"} {
+		t.Setenv(name, "")
+		require.NoError(t, os.Unsetenv(name))
+	}
+	t.Setenv("NB_JSON", "false")
+
+	require.NoError(t, statusCmd.ParseFlags([]string{"-o", "detail"}))
+	SetFlagsFromEnvVars(statusCmd)
+	require.True(t, statusCmd.Flags().Changed("json"), "the environment must mark --json as set")
+
+	require.NoError(t, statusCmd.ValidateFlagGroups())
+	got, err := resolveStatusOutput()
+	require.NoError(t, err)
+	assert.Equal(t, outputDetail, got, "resolved output")
 }
 
 func TestLegacyOutputFlagsAreHiddenNotDeprecated(t *testing.T) {

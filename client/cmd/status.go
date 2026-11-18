@@ -71,7 +71,6 @@ func init() {
 	addLegacyOutputFlag(&yamlFlag, outputYAML, "y")
 	addLegacyOutputFlag(&ipv4Flag, outputIPv4, "4")
 	addLegacyOutputFlag(&ipv6Flag, outputIPv6, "6")
-	statusCmd.MarkFlagsMutuallyExclusive(outputFlagName, "detail", "table", "json", "yaml", "ipv4", "ipv6")
 	statusCmd.PersistentFlags().StringSliceVarP(&ipsFilter, "filter-by-ips", "I", []string{}, "filters the peers in the detail, table, json and yaml output by a list of one or more IPs (v4 or v6), e.g., --filter-by-ips 100.64.0.100,fd00::1")
 	statusCmd.PersistentFlags().StringSliceVarP(&prefixNamesFilter, "filter-by-names", "N", []string{}, "filters the peers in the detail, table, json and yaml output by a list of one or more peer FQDN or hostnames, e.g., --filter-by-names peer-a,peer-b.netbird.cloud")
 	statusCmd.PersistentFlags().StringVarP(&statusFilter, "filter-by-status", "S", "", "filters the peers in the detail, table, json and yaml output by connection status (idle|connecting|connected), e.g., --filter-by-status connected")
@@ -291,39 +290,52 @@ func addLegacyOutputFlag(p *bool, output statusOutput, shorthand string) {
 // resolveStatusOutput returns the format chosen by --output or a hidden
 // format flag. Without either, a filter selects detail.
 func resolveStatusOutput() (statusOutput, error) {
-	output := statusOutput(strings.ToLower(outputFlag))
-	if output == outputSummary {
-		output = legacyStatusOutput()
+	// Not a cobra flag group, which would count a format flag set to false by
+	// an NB_* variable as a second selection.
+	selected := enabledLegacyOutputs()
+	var flags []string
+	for _, output := range selected {
+		flags = append(flags, "--"+string(output))
 	}
 
-	if output != outputSummary && !slices.Contains(statusOutputs, output) {
-		return "", fmt.Errorf("unknown output %q, must be one of: %s", outputFlag, strings.Join(statusOutputNames(), ", "))
+	if outputFlag != "" {
+		output := statusOutput(strings.ToLower(outputFlag))
+		if !slices.Contains(statusOutputs, output) {
+			return "", fmt.Errorf("unknown output %q, must be one of: %s", outputFlag, strings.Join(statusOutputNames(), ", "))
+		}
+		selected = append(selected, output)
+		flags = append(flags, fmt.Sprintf("--%s %s", outputFlagName, outputFlag))
 	}
 
-	if output == outputSummary && hasStatusFilters() {
+	switch {
+	case len(selected) > 1:
+		return "", fmt.Errorf("only one output format can be set, got: %s", strings.Join(flags, ", "))
+	case len(selected) == 1:
+		return selected[0], nil
+	case hasStatusFilters():
 		return outputDetail, nil
+	default:
+		return outputSummary, nil
 	}
-
-	return output, nil
 }
 
-func legacyStatusOutput() statusOutput {
-	switch {
-	case detailFlag:
-		return outputDetail
-	case tableFlag:
-		return outputTable
-	case jsonFlag:
-		return outputJSON
-	case yamlFlag:
-		return outputYAML
-	case ipv4Flag:
-		return outputIPv4
-	case ipv6Flag:
-		return outputIPv6
-	default:
-		return outputSummary
+// enabledLegacyOutputs returns the formats whose hidden flag is true.
+func enabledLegacyOutputs() []statusOutput {
+	legacy := map[statusOutput]bool{
+		outputDetail: detailFlag,
+		outputTable:  tableFlag,
+		outputJSON:   jsonFlag,
+		outputYAML:   yamlFlag,
+		outputIPv4:   ipv4Flag,
+		outputIPv6:   ipv6Flag,
 	}
+	var enabled []statusOutput
+	for _, output := range statusOutputs {
+		if legacy[output] {
+			enabled = append(enabled, output)
+		}
+	}
+	return enabled
 }
 
 func hasStatusFilters() bool {
