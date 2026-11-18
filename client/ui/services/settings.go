@@ -214,6 +214,11 @@ func (s *Settings) SetConfig(ctx context.Context, p SetConfigParams) (SaveOutcom
 		DisableSSHAuth:                p.DisableSSHAuth,
 		SshJWTCacheTTL:                p.SSHJWTCacheTTL,
 	}
+	stored, err := cli.GetConfig(ctx, &proto.GetConfigRequest{ProfileName: p.ProfileName, Username: p.Username})
+	if err != nil {
+		return SaveOutcome{}, s.classifier.classify(err)
+	}
+	dropMDMManagedFields(req, stored.GetMDMManagedFields())
 	if _, err := cli.SetConfig(ctx, req); err != nil {
 		if privilegeRefused(err) {
 			return s.setConfigElevated(ctx, p, req, err)
@@ -387,6 +392,43 @@ func changedFlag(requested *bool, stored bool) *bool {
 		return nil
 	}
 	return requested
+}
+
+// mdmRequestFields clears, per MDM key, the SetConfigRequest field that key
+// enforces.
+var mdmRequestFields = map[string]func(*proto.SetConfigRequest){
+	mdm.KeyManagementURL:        func(r *proto.SetConfigRequest) { r.ManagementUrl = "" },
+	mdm.KeyPreSharedKey:         func(r *proto.SetConfigRequest) { r.OptionalPreSharedKey = nil },
+	mdm.KeyWireguardPort:        func(r *proto.SetConfigRequest) { r.WireguardPort = nil },
+	mdm.KeyRosenpassEnabled:     func(r *proto.SetConfigRequest) { r.RosenpassEnabled = nil },
+	mdm.KeyRosenpassPermissive:  func(r *proto.SetConfigRequest) { r.RosenpassPermissive = nil },
+	mdm.KeyDisableClientRoutes:  func(r *proto.SetConfigRequest) { r.DisableClientRoutes = nil },
+	mdm.KeyDisableServerRoutes:  func(r *proto.SetConfigRequest) { r.DisableServerRoutes = nil },
+	mdm.KeyAllowServerSSH:       func(r *proto.SetConfigRequest) { r.ServerSSHAllowed = nil },
+	mdm.KeyDisableAutoConnect:   func(r *proto.SetConfigRequest) { r.DisableAutoConnect = nil },
+	mdm.KeyBlockInbound:         func(r *proto.SetConfigRequest) { r.BlockInbound = nil },
+	mdm.KeyRemoteJobsAllowed:    func(r *proto.SetConfigRequest) { r.RemoteJobsAllowed = nil },
+	mdm.KeyAllowServerVNC:       func(r *proto.SetConfigRequest) { r.ServerVNCAllowed = nil },
+	mdm.KeyDisableVNCApproval:   func(r *proto.SetConfigRequest) { r.DisableVNCApproval = nil },
+	mdm.KeyInterfaceName:        func(r *proto.SetConfigRequest) { r.InterfaceName = nil },
+	mdm.KeyMTU:                  func(r *proto.SetConfigRequest) { r.Mtu = nil },
+	mdm.KeyDisableDNS:           func(r *proto.SetConfigRequest) { r.DisableDns = nil },
+	mdm.KeyDisableIPv6:          func(r *proto.SetConfigRequest) { r.DisableIpv6 = nil },
+	mdm.KeyDisableFirewall:      func(r *proto.SetConfigRequest) { r.DisableFirewall = nil },
+	mdm.KeyBlockLANAccess:       func(r *proto.SetConfigRequest) { r.BlockLanAccess = nil },
+	mdm.KeyDisableNotifications: func(r *proto.SetConfigRequest) { r.DisableNotifications = nil },
+	mdm.KeyNetworkMonitor:       func(r *proto.SetConfigRequest) { r.NetworkMonitor = nil },
+}
+
+// dropMDMManagedFields leaves the MDM-enforced fields out of a settings save.
+// The form hands them back with the enforced value although the user never
+// touched them, and the daemon would persist them as the user's own choice.
+func dropMDMManagedFields(req *proto.SetConfigRequest, managed []string) {
+	for _, key := range managed {
+		if drop, ok := mdmRequestFields[key]; ok {
+			drop(req)
+		}
+	}
 }
 
 func applyMDMRestrictions(mdm *MDMFields, cfgResp *proto.GetConfigResponse) {
