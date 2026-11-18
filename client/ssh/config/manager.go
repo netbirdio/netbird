@@ -193,6 +193,7 @@ func (m *Manager) buildPeerConfig(allHostPatterns []string) (string, error) {
 	hostList := strings.Join(deduplicatedPatterns, ",")
 	config := fmt.Sprintf("Match host \"%s\" exec \"%s ssh detect %%h %%p\"\n", hostList, execPath)
 	config += "    PasswordAuthentication no\n"
+	config += "    KbdInteractiveAuthentication no\n"
 	config += "    ChallengeResponseAuthentication no\n"
 	config += "    PubkeyAuthentication no\n"
 	config += "    BatchMode no\n"

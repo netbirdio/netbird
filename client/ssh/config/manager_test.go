@@ -150,8 +150,9 @@ func TestManager_MatchHostFormat(t *testing.T) {
 
 // The ProxyCommand terminates the SSH session locally and authenticates to the peer with
 // a token of its own, so the OpenSSH client must never offer a password or key. The
-// options are spelled out as "no" so the generated file shows that, and only options
-// that every OpenSSH release accepts are used (KbdInteractiveAuthentication is 8.7+).
+// options are spelled out as "no" so the generated file shows that. Before OpenSSH 8.7
+// KbdInteractiveAuthentication and ChallengeResponseAuthentication are separate client
+// options, so both are set.
 func TestManager_ClientAuthMethodsDisabled(t *testing.T) {
 	tempDir := t.TempDir()
 	manager := &Manager{
@@ -170,6 +171,7 @@ func TestManager_ClientAuthMethodsDisabled(t *testing.T) {
 
 	for _, line := range []string{
 		"    PasswordAuthentication no\n",
+		"    KbdInteractiveAuthentication no\n",
 		"    ChallengeResponseAuthentication no\n",
 		"    PubkeyAuthentication no\n",
 	} {
@@ -178,7 +180,6 @@ func TestManager_ClientAuthMethodsDisabled(t *testing.T) {
 
 	assert.NotContains(t, configStr, "Authentication yes", "no auth method should be enabled")
 	assert.NotContains(t, configStr, "PreferredAuthentications", "auth method preference is not needed")
-	assert.NotContains(t, configStr, "KbdInteractiveAuthentication", "option is unknown to OpenSSH before 8.7")
 }
 
 func TestManager_HostPatternInjection(t *testing.T) {
