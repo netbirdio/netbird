@@ -552,9 +552,14 @@ func (p *Peer) FQDN(dnsDomain string) string {
 func (p *Peer) EventMeta(dnsDomain string) map[string]any {
 	meta := map[string]any{"name": p.Name, "fqdn": p.FQDN(dnsDomain), "ip": p.IP, "created_at": p.CreatedAt,
 		"location_city_name": p.Location.CityName, "location_country_code": p.Location.CountryCode,
-		"location_geo_name_id": p.Location.GeoNameID, "location_connection_ip": p.Location.ConnectionIP}
+		"location_geo_name_id": p.Location.GeoNameID, "location_connection_ip": p.Location.ConnectionIP,
+		"serial_number": p.Meta.SystemSerialNumber, "os": p.Meta.OS, "os_version": p.Meta.OSVersion,
+		"hostname": p.Meta.Hostname}
 	if p.IPv6.IsValid() {
 		meta["ipv6"] = p.IPv6.String()
+	}
+	if p.UserID != "" {
+		meta["user_id"] = p.UserID
 	}
 	return meta
 }

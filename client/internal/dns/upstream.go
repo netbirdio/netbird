@@ -13,9 +13,10 @@
 //	        └── []netip.AddrPort           // primary, fallback, ...
 //
 // Each source nameserver group contributes one upstreamRace. Within a race
-// upstreams are tried in order: the next is used only on failure (timeout,
-// SERVFAIL, REFUSED, no response). NXDOMAIN is a valid answer and stops
-// the walk. When more than one race exists, ServeDNS fans out one
+// upstreams are started in order: the next starts on failure (SERVFAIL,
+// REFUSED, no response, error) or when the previous one's share of the race
+// budget passes, while slower queries keep waiting. NXDOMAIN is a valid answer
+// and stops the walk. When more than one race exists, ServeDNS fans out one
 // goroutine per race and returns the first valid answer, cancelling the
 // rest. A handler with a single race skips the fan-out.
 //
@@ -98,11 +99,10 @@ const (
 	// payload from the tunnel MTU.
 	ipUDPHeaderSize = 60 + 8
 
-	// raceMaxTotalTimeout caps the combined time spent walking all upstreams
-	// within one race, so a slow primary can't eat the whole race budget.
+	// raceMaxTotalTimeout caps the time spent on all upstreams within one race.
 	raceMaxTotalTimeout = 5 * time.Second
 	// raceMinPerUpstreamTimeout is the floor applied when dividing
-	// raceMaxTotalTimeout across upstreams within a race.
+	// raceMaxTotalTimeout into the delay before the next upstream starts.
 	raceMinPerUpstreamTimeout = 2 * time.Second
 )
 
@@ -174,6 +174,12 @@ type raceResult struct {
 	protocol string
 	ede      string
 	failures []upstreamFailure
+}
+
+type upstreamAttempt struct {
+	idx     int
+	res     raceResult
+	failure *upstreamFailure
 }
 
 // contextWithDNSProtocol stores the inbound DNS protocol ("udp" or "tcp") in context.
@@ -374,16 +380,8 @@ func (u *upstreamResolverBase) raceAll(ctx context.Context, w dns.ResponseWriter
 }
 
 func (u *upstreamResolverBase) tryRace(ctx context.Context, r *dns.Msg, group upstreamRace) raceResult {
-	timeout := u.upstreamTimeout
 	if len(group) > 1 {
-		// Cap the whole walk at raceMaxTotalTimeout: per-upstream timeouts
-		// still honor raceMinPerUpstreamTimeout as a floor for correctness
-		// on slow links, but the outer context ensures the combined walk
-		// cannot exceed the cap regardless of group size.
-		timeout = max(raceMaxTotalTimeout/time.Duration(len(group)), raceMinPerUpstreamTimeout)
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, raceMaxTotalTimeout)
-		defer cancel()
+		return u.tryRaceStaggered(ctx, r, group)
 	}
 
 	var failures []upstreamFailure
@@ -392,10 +390,8 @@ func (u *upstreamResolverBase) tryRace(ctx context.Context, r *dns.Msg, group up
 			return raceResult{failures: failures}
 		}
 		// Clone the request per attempt: the exchange path mutates EDNS0
-		// options in-place, so reusing the same *dns.Msg across sequential
-		// upstreams would carry those mutations (e.g. a reduced UDP size)
-		// into the next attempt.
-		res, failure := u.queryUpstream(ctx, r.Copy(), upstream, timeout)
+		// options in-place.
+		res, failure := u.queryUpstream(ctx, r.Copy(), upstream, u.upstreamTimeout)
 		if failure != nil {
 			failures = append(failures, *failure)
 			continue
@@ -404,6 +400,79 @@ func (u *upstreamResolverBase) tryRace(ctx context.Context, r *dns.Msg, group up
 		return res
 	}
 	return raceResult{failures: failures}
+}
+
+// tryRaceStaggered queries the upstreams of a group in order, starting the
+// next one when the previous fails or its share of raceMaxTotalTimeout passes.
+// Earlier queries keep waiting until the race deadline, so on a link whose RTT
+// exceeds the per-upstream share a late reply is still used. The first valid
+// answer wins and the remaining queries are cancelled.
+func (u *upstreamResolverBase) tryRaceStaggered(ctx context.Context, r *dns.Msg, group upstreamRace) raceResult {
+	ctx, cancel := context.WithTimeout(ctx, raceMaxTotalTimeout)
+	defer cancel()
+	stagger := max(raceMaxTotalTimeout/time.Duration(len(group)), raceMinPerUpstreamTimeout)
+
+	// Buffered so queries cancelled after a win never block on send.
+	attempts := make(chan upstreamAttempt, len(group))
+	timer := time.NewTimer(stagger)
+	defer timer.Stop()
+
+	started := make([]time.Time, 0, len(group))
+	answered := make([]bool, len(group))
+	next, inFlight := 0, 0
+	startNext := func() {
+		if next >= len(group) || ctx.Err() != nil {
+			return
+		}
+		idx, upstream := next, group[next]
+		// Clone before launching: the exchange path mutates EDNS0 options
+		// in-place and r is shared with sibling goroutines.
+		msg := r.Copy()
+		started = append(started, time.Now())
+		go func() {
+			res, failure := u.queryUpstream(ctx, msg, upstream, raceMaxTotalTimeout)
+			attempts <- upstreamAttempt{idx: idx, res: res, failure: failure}
+		}()
+		next++
+		inFlight++
+		timer.Reset(stagger)
+	}
+
+	startNext()
+	var failures []upstreamFailure
+	for inFlight > 0 {
+		select {
+		case a := <-attempts:
+			inFlight--
+			answered[a.idx] = true
+			if a.failure == nil {
+				failures = append(failures, u.unansweredFailures(group, started, answered, stagger)...)
+				a.res.failures = failures
+				return a.res
+			}
+			failures = append(failures, *a.failure)
+			startNext()
+		case <-timer.C:
+			startNext()
+		}
+	}
+	return raceResult{failures: failures}
+}
+
+// unansweredFailures reports the upstreams still waiting when another one wins.
+// Their queries end as canceled and are never read, so without this a dead
+// primary leaves no trace in the log.
+func (u *upstreamResolverBase) unansweredFailures(group upstreamRace, started []time.Time, answered []bool, stagger time.Duration) []upstreamFailure {
+	var failures []upstreamFailure
+	for idx, start := range started {
+		elapsed := time.Since(start)
+		if answered[idx] || elapsed < stagger {
+			continue
+		}
+		reason := fmt.Sprintf("no reply after %v", elapsed.Truncate(time.Millisecond))
+		failures = append(failures, upstreamFailure{upstream: group[idx], reason: reason})
+	}
+	return failures
 }
 
 func (u *upstreamResolverBase) queryUpstream(parentCtx context.Context, r *dns.Msg, upstream netip.AddrPort, timeout time.Duration) (raceResult, *upstreamFailure) {

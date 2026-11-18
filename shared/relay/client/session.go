@@ -46,7 +46,7 @@ type session struct {
 	done chan struct{}
 }
 
-func newSession(c *Client, conn net.Conn, instanceURL *RelayAddr, transport string) *session {
+func newSession(c *Client, conn net.Conn, instanceURL *RelayAddr, transport string, maxMsgSize int) *session {
 	s := &session{
 		client:            c,
 		log:               c.log.WithField("relay", instanceURL.String()),
@@ -58,7 +58,7 @@ func newSession(c *Client, conn net.Conn, instanceURL *RelayAddr, transport stri
 		earlyMsgs:         newEarlyMsgBuffer(),
 		done:              make(chan struct{}),
 	}
-	s.stateSubscription = NewPeersStateSubscription(s.log, conn, s.closeConnsByPeerID)
+	s.stateSubscription = NewPeersStateSubscription(s.log, conn, maxMsgSize, s.closeConnsByPeerID)
 	s.hc = healthcheck.NewReceiver(s.log)
 	return s
 }

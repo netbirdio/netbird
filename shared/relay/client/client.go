@@ -151,6 +151,10 @@ type transportConn interface {
 	Protocol() string
 }
 
+type sizedConn interface {
+	MaxMessageSize() int
+}
+
 // NetEvents is the OS network event view the relay consumes: availability
 // gating for the reconnect guard and dial registration for the network change
 // sweep.
@@ -372,6 +376,7 @@ func (c *Client) connect(ctx context.Context) (*session, error) {
 	if tc, ok := conn.(transportConn); ok {
 		transport = tc.Protocol()
 	}
+	maxMsgSize := maxMessageSize(conn)
 
 	conn, err := dial.WrapConn(conn)
 	if err != nil {
@@ -387,7 +392,7 @@ func (c *Client) connect(ctx context.Context) (*session, error) {
 		return nil, err
 	}
 
-	return newSession(c, conn, instanceURL, transport), nil
+	return newSession(c, conn, instanceURL, transport, maxMsgSize), nil
 }
 
 // dialRaceDirect dials c.serverIP, preserving the original FQDN as the TLS ServerName for SNI.
@@ -540,4 +545,11 @@ func extractIPLiteral(s string) netip.Addr {
 		return netip.Addr{}
 	}
 	return ip.Unmap()
+}
+
+func maxMessageSize(conn net.Conn) int {
+	if sc, ok := conn.(sizedConn); ok {
+		return sc.MaxMessageSize()
+	}
+	return messages.MaxMessageSize
 }

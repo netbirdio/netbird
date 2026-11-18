@@ -265,14 +265,29 @@ func (r *family) installFilterRule(
 		specs = append(specs, destExp...)
 		specs = append(specs, matchSpecs...)
 
+		// The redirect mark tells FORWARD that the input ACL accepts a
+		// packet DNAT diverted there, so only an accept counterpart sets
+		// it. A drop counterpart drops new traffic before DNAT can divert
+		// it to FORWARD, where a route ACL could accept it. Established
+		// and related packets are exempt, as INPUT accepts them ahead of
+		// the ACL chain.
 		var mangleSpecs []string
 		if !isRoute {
 			mangleSpecs = slices.Clone(specs)
 			mangleSpecs = append(mangleSpecs,
 				"-i", r.wgIface.Name(),
 				"-m", "addrtype", "--dst-type", "LOCAL",
-				"-j", "MARK", "--set-xmark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected),
 			)
+			if action == firewall.ActionDrop {
+				mangleSpecs = append(mangleSpecs,
+					"-m", "conntrack", "!", "--ctstate", "RELATED,ESTABLISHED",
+					"-j", "DROP",
+				)
+			} else {
+				mangleSpecs = append(mangleSpecs,
+					"-j", "MARK", "--set-xmark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected),
+				)
+			}
 		}
 
 		specs = append(specs, "-j", actionToStr(action))
@@ -285,11 +300,23 @@ func (r *family) installFilterRule(
 			return nil, fmt.Errorf("install filter rule on %s: %w", chain, err)
 		}
 
-		// The mangle redirect-mark rule is best effort: the filter rule itself
-		// is what enforces the ACL, so a mangle failure must not undo it. Drop
-		// the spec so teardown does not try to remove a rule that was not added.
 		if mangleSpecs != nil {
-			if err := r.iptablesClient.Append(tableMangle, chainRTPre, mangleSpecs...); err != nil {
+			err := r.insertMangleRule(action, mangleSpecs)
+			switch {
+			case err == nil:
+			case action == firewall.ActionDrop:
+				// Without the drop counterpart, DNAT'd traffic bypasses the
+				// drop on the forward path. Fail the rule like a failed
+				// filter rule.
+				installed = append(installed, filterSpecs{specs: specs})
+				r.removeFilterSpecs(chain, installed)
+				r.dropSourceMatch(destExp)
+				return nil, fmt.Errorf("install mangle rule on %s: %w", chainRTPre, err)
+			default:
+				// The accept counterpart is best effort: the filter rule itself
+				// is what enforces the ACL, so a mangle failure must not undo it.
+				// Drop the spec so teardown does not try to remove a rule that
+				// was not added.
 				log.Errorf("add mangle rule: %v", err)
 				mangleSpecs = nil
 			}
@@ -321,6 +348,17 @@ func (r *family) insertFilterRule(chain string, action firewall.Action, specs []
 		return r.iptablesClient.Insert(tableFilter, chain, pos, specs...)
 	}
 	return r.iptablesClient.Append(tableFilter, chain, specs...)
+}
+
+// insertMangleRule writes the prerouting counterpart of a peer ACL rule
+// into the redirect-mark chain. Drop counterparts are inserted at
+// position 1, mirroring the drop-before-accept order of the input
+// chain; accept counterparts are appended.
+func (r *family) insertMangleRule(action firewall.Action, specs []string) error {
+	if action == firewall.ActionDrop {
+		return r.iptablesClient.Insert(tableMangle, chainRTPre, 1, specs...)
+	}
+	return r.iptablesClient.Append(tableMangle, chainRTPre, specs...)
 }
 
 // removeFilterSpecs deletes the already-installed rules of a partially

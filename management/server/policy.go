@@ -51,6 +51,10 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 	var unchanged bool
 	var snap *affectedpeers.Snapshot
 	var change affectedpeers.Change
+	reason := types.UpdateReason{Resource: types.UpdateResourcePolicy, Operation: types.UpdateOperationCreate}
+	if isUpdate {
+		reason.Operation = types.UpdateOperationUpdate
+	}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		existingPolicy, err = validatePolicy(ctx, transaction, accountID, policy)
@@ -102,7 +106,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 		return policy, nil
 	}
 
-	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change, reason)
 
 	return policy, nil
 }
@@ -145,7 +149,7 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 
 	am.StoreEvent(ctx, userID, policyID, accountID, activity.PolicyRemoved, policy.EventMeta())
 
-	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change, types.UpdateReason{Resource: types.UpdateResourcePolicy, Operation: types.UpdateOperationDelete})
 
 	return nil
 }
