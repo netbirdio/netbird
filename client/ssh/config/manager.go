@@ -192,9 +192,9 @@ func (m *Manager) buildPeerConfig(allHostPatterns []string) (string, error) {
 
 	hostList := strings.Join(deduplicatedPatterns, ",")
 	config := fmt.Sprintf("Match host \"%s\" exec \"%s ssh detect %%h %%p\"\n", hostList, execPath)
-	config += "    PreferredAuthentications password,publickey,keyboard-interactive\n"
-	config += "    PasswordAuthentication yes\n"
-	config += "    PubkeyAuthentication yes\n"
+	config += "    PasswordAuthentication no\n"
+	config += "    ChallengeResponseAuthentication no\n"
+	config += "    PubkeyAuthentication no\n"
 	config += "    BatchMode no\n"
 	config += fmt.Sprintf("    ProxyCommand %s ssh proxy %%h %%p\n", execPath)
 	config += "    StrictHostKeyChecking no\n"
