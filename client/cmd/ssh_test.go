@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"os"
 	"testing"
 
 	"github.com/spf13/pflag"
@@ -23,12 +24,26 @@ func parseSSHCommandLine(t *testing.T, args []string) error {
 		f.Changed = false
 	})
 	host = ""
+	hostUser = ""
 	command = ""
 
 	if err := sshCmd.ParseFlags(args); err != nil {
 		return err
 	}
 	return sshCmd.ValidateArgs(sshCmd.Flags().Args())
+}
+
+// runSSHPreRun mirrors what cobra does between argument validation and
+// sshFn: it runs the root PersistentPreRunE, then resolves the SSH user.
+func runSSHPreRun(t *testing.T, args []string) {
+	t.Helper()
+
+	savedDaemonAddr := daemonAddr
+	t.Cleanup(func() { daemonAddr = savedDaemonAddr })
+
+	require.NoError(t, parseSSHCommandLine(t, args))
+	require.NoError(t, rootCmd.PersistentPreRunE(sshCmd, sshCmd.Flags().Args()))
+	username = resolveSSHUsername()
 }
 
 func TestSSHCommand_FlagParsing(t *testing.T) {
@@ -95,7 +110,7 @@ func TestSSHCommand_FlagParsing(t *testing.T) {
 			require.NoError(t, err, "SSH args validation should succeed for valid input")
 			assert.Equal(t, tt.expectedHost, host, "host mismatch")
 			if tt.expectedUser != "" {
-				assert.Equal(t, tt.expectedUser, username, "username mismatch")
+				assert.Equal(t, tt.expectedUser, resolveSSHUsername(), "username mismatch")
 			}
 			assert.Equal(t, tt.expectedPort, port, "port mismatch")
 			assert.Equal(t, tt.expectedCmd, command, "command mismatch")
@@ -716,7 +731,7 @@ func TestSSHCommand_DeprecatedLoginFlag(t *testing.T) {
 
 			// An empty --login falls back to the invoking user, which differs per host.
 			if tt.expectedUser != "" {
-				assert.Equal(t, tt.expectedUser, username, "resolved username")
+				assert.Equal(t, tt.expectedUser, resolveSSHUsername(), "resolved username")
 			}
 			if tt.expectWarn {
 				assert.Contains(t, out.String(), "Flag --login has been deprecated, use --user instead\n", "deprecation notice")
@@ -764,5 +779,63 @@ func TestSSHCommand_FlagsNotInheritedBySubcommands(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEqual(t, sshCmd, c, "subcommand %s should exist", sub)
 		assert.Nil(t, c.InheritedFlags().Lookup("port"), "%s should not inherit --port", sub)
+	}
+}
+
+func TestSSHCommand_UsernameAfterEnvVars(t *testing.T) {
+	// The root PersistentPreRunE applies NB_* env vars after argument
+	// validation, so the user must be resolved after it runs.
+	tests := []struct {
+		name         string
+		env          map[string]string
+		args         []string
+		expectedUser string
+	}{
+		{
+			name:         "NB_LOGIN is used when nothing else is set",
+			env:          map[string]string{"NB_LOGIN": "alice"},
+			args:         []string{"hostname"},
+			expectedUser: "alice",
+		},
+		{
+			name:         "NB_USER beats user@host",
+			env:          map[string]string{"NB_USER": "bob"},
+			args:         []string{"carol@hostname"},
+			expectedUser: "bob",
+		},
+		{
+			name:         "NB_USER beats NB_LOGIN",
+			env:          map[string]string{"NB_USER": "bob", "NB_LOGIN": "alice"},
+			args:         []string{"hostname"},
+			expectedUser: "bob",
+		},
+		{
+			name:         "NB_LOGIN beats user@host",
+			env:          map[string]string{"NB_LOGIN": "alice"},
+			args:         []string{"carol@hostname"},
+			expectedUser: "alice",
+		},
+		{
+			name:         "user@host without env vars",
+			args:         []string{"carol@hostname"},
+			expectedUser: "carol",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, key := range []string{"NB_USER", "WT_USER", "NB_LOGIN", "WT_LOGIN"} {
+				t.Setenv(key, "")
+				require.NoError(t, os.Unsetenv(key))
+			}
+			for key, value := range tt.env {
+				t.Setenv(key, value)
+			}
+
+			runSSHPreRun(t, tt.args)
+
+			assert.Equal(t, tt.expectedUser, username, "resolved SSH user")
+			assert.Equal(t, "hostname", host, "host mismatch")
+		})
 	}
 }

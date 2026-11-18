@@ -43,6 +43,7 @@ var (
 	port                  int
 	username              string
 	host                  string
+	hostUser              string
 	command               string
 	localForwards         []string
 	remoteForwards        []string
@@ -121,6 +122,10 @@ Unlike OpenSSH, -l sets the NetBird log level and -o sets the known_hosts file. 
 func sshFn(cmd *cobra.Command, args []string) error {
 	cmd.SetOut(cmd.OutOrStdout())
 
+	// Resolved here because the root PersistentPreRunE applies NB_* env vars after
+	// argument validation.
+	username = resolveSSHUsername()
+
 	logOutput := "console"
 	if firstLogFile := util.FindFirstLogPath(logFiles); firstLogFile != "" && firstLogFile != defaultLogFile {
 		logOutput = firstLogFile
@@ -182,15 +187,34 @@ func getBoolEnvOrDefault(flagName string, defaultValue bool) bool {
 	return defaultValue
 }
 
-// validateSSHArgs resolves the host, user and remote command from the
-// arguments left after flag parsing.
+// validateSSHArgs parses the host and remote command from the arguments left
+// after flag parsing.
 func validateSSHArgs(_ *cobra.Command, args []string) error {
 	host = ""
+	hostUser = ""
 	command = ""
-	if username == "" {
-		username = sshLogin
-	}
 	return parseHostnameAndCommand(args)
+}
+
+// resolveSSHUsername returns the SSH user from --user, --login, user@host or the
+// invoking account, in that order.
+func resolveSSHUsername() string {
+	switch {
+	case username != "":
+		return username
+	case sshLogin != "":
+		return sshLogin
+	case hostUser != "":
+		return hostUser
+	}
+
+	if sudoUser := os.Getenv("SUDO_USER"); sudoUser != "" {
+		return sudoUser
+	}
+	if currentUser, err := user.Current(); err == nil {
+		return currentUser.Username
+	}
+	return "root"
 }
 
 func parseHostnameAndCommand(args []string) error {
@@ -204,22 +228,10 @@ func parseHostnameAndCommand(args []string) error {
 		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 			return errors.New("invalid user@host format")
 		}
-		if username == "" {
-			username = parts[0]
-		}
+		hostUser = parts[0]
 		host = parts[1]
 	} else {
 		host = arg
-	}
-
-	if username == "" {
-		if sudoUser := os.Getenv("SUDO_USER"); sudoUser != "" {
-			username = sudoUser
-		} else if currentUser, err := user.Current(); err == nil {
-			username = currentUser.Username
-		} else {
-			username = "root"
-		}
 	}
 
 	// Everything after hostname becomes the command
