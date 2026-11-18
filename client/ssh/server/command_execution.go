@@ -90,15 +90,16 @@ func (s *Server) createCommand(logger *log.Entry, privilegeResult PrivilegeCheck
 	return cmd, func() {}, nil
 }
 
-// fallbackMissingWorkingDir starts the command in / when its working directory does not
-// exist, as the home directory of a user that PAM creates at the first login does not yet.
-// A failed chdir would otherwise end the session before login or su run their PAM session.
+// fallbackMissingWorkingDir starts the command in / when its working directory cannot be
+// used, such as the home directory of a user that PAM creates at the first login. A failed
+// chdir would otherwise end the session before login or su run their PAM session. Like
+// OpenSSH, any error falls back rather than refusing the session.
 func fallbackMissingWorkingDir(logger *log.Entry, execCmd *exec.Cmd) {
 	if execCmd.Dir == "" {
 		return
 	}
 	if _, err := os.Stat(execCmd.Dir); err != nil {
-		logger.Warnf("working directory does not exist: %s (%v)", execCmd.Dir, err)
+		logger.Warnf("working directory %s unavailable, starting in /: %v", execCmd.Dir, err)
 		execCmd.Dir = "/"
 	}
 }
