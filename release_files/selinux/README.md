@@ -73,7 +73,7 @@ Everything else, by feature:
 | Netflow | Netlink netfilter socket for conntrack events, `nf_conntrack_acct` |
 | Netstack | `netbird_wg_runtime_t` and a loopback SOCKS5 listener |
 | Posture checks | `getattr` on executables, read `/proc` of other domains, read the certificate store in `netbird_etc_t`, `tpm_device_t` |
-| SSH sessions | `su` into `unconfined_t` for users mapped to `unconfined_u`, the `netbird_ssh_t` helper into the domains of confined users, `login` into `local_login_t`, ptys (`netbird_devpts_t`, `ptmx_t`), `passwd_file_t`, SSSD and systemd-userdbd lookups, search of `user_home_dir_t` (needs `netbird_read_user_home`) |
+| SSH sessions | `su` into `unconfined_t` for users mapped to `unconfined_u`, the `netbird_ssh_t` helper into the domains of confined users, `login` into `local_login_t`, ptys (`netbird_devpts_t`, `ptmx_t`), `passwd_file_t`, SSSD and systemd-userdbd lookups, search of `user_home_dir_t` (needs `netbird_read_user_home`), and the kernel query for the contexts sshd could reach for a user (`selinux_compute_user_contexts`, default contexts) |
 | SSH session teardown | `signal` and `sigkill` on `unconfined_t` and on confined user domains (`unpriv_userdomain`) |
 | Debug bundle | Execute the firewall tools, files in `netbird_tmp_t`, upload over HTTPS, journal and log reads (`netbird_debug_bundle`) |
 | Ports | Bind unreserved UDP ports, connect to any TCP port. Binding unreserved TCP ports needs `netbird_bind_all_ports` |
@@ -106,7 +106,9 @@ To make only the daemon permissive while collecting denials, run
   because its interface cannot sit inside a boolean.
 - Sessions of users mapped to a confined SELinux user get the context SELinux assigns
   them at login. While SELinux enforces, users mapped to an administrator SELinux user such
-  as `sysadm_u` are refused, as with sshd unless `ssh_sysadm_login` is on.
+  as `sysadm_u` are refused, as with sshd unless `ssh_sysadm_login` is on. Interactive
+  sessions go through `login`, which would reach that role from its own domain, so the
+  daemon asks for the contexts sshd could reach and refuses the session first.
 - When SELinux is permissive, a session whose context cannot be resolved is started
   anyway and a warning is logged. When it is enforcing, the session is refused. Hosts
   that have the SELinux file system but no policy files, such as containers, are left

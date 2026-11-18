@@ -273,3 +273,39 @@ func TestNeedsContext_GroupsUnresolved(t *testing.T) {
 	assert.True(t, l.needsContext("vma", nil, errors.New("nss unavailable")),
 		"an unresolved group list must not fall through to su")
 }
+
+func TestCheckLogin(t *testing.T) {
+	seusers := "adm:sysadm_u:s0\nselu:user_u:s0\nroot:unconfined_u:s0\n__default__:unconfined_u:s0\n"
+	// The kernel leaves sysadm_r out of what sshd can reach while ssh_sysadm_login is off.
+	sysadmOff := []string{"sysadm_u:system_r:nx_server_t:s0"}
+	sysadmOn := []string{"sysadm_u:sysadm_r:sysadm_t:s0", "sysadm_u:system_r:nx_server_t:s0"}
+
+	tests := []struct {
+		name      string
+		username  string
+		reachable []string
+		groupsErr error
+		enforcing bool
+		wantErr   bool
+	}{
+		{name: "sysadm_u is refused while sshd cannot reach its role", username: "adm", reachable: sysadmOff, enforcing: true, wantErr: true},
+		{name: "sysadm_u is allowed once ssh_sysadm_login lets sshd reach it", username: "adm", reachable: sysadmOn, enforcing: true},
+		{name: "a permissive host lets the login continue as sshd does", username: "adm", reachable: sysadmOff, enforcing: false},
+		{name: "a confined user with a reachable context is allowed", username: "selu", reachable: []string{"user_u:user_r:user_t:s0"}, enforcing: true},
+		{name: "an unconfined user is allowed", username: "root", reachable: []string{"unconfined_u:unconfined_r:unconfined_t:s0"}, enforcing: true},
+		{name: "an unresolved group list is refused on an enforcing host", username: "selu", reachable: []string{"user_u:user_r:user_t:s0"}, groupsErr: errors.New("nss unavailable"), enforcing: true, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := newTestLookup(t, seusers, testDefaultContexts, nil, tt.reachable)
+			err := l.checkLogin(tt.username, nil, tt.groupsErr, tt.enforcing)
+			if tt.wantErr {
+				require.Error(t, err, "the session must be refused")
+				assert.ErrorIs(t, err, errSessionContextRefused, "the refusal must be distinguishable from a missing login command")
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}

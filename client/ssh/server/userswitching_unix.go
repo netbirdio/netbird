@@ -61,8 +61,17 @@ func isFullyNumeric(username string) bool {
 	return true
 }
 
+// errSessionContextRefused marks a session refused because the SELinux policy does not let
+// the user log in over SSH.
+var errSessionContextRefused = errors.New("SELinux policy does not allow the session")
+
 // createPtyLoginCommand creates a Pty command using login for privileged processes
 func (s *Server) createPtyLoginCommand(localUser *user.User, ptyReq ssh.Pty, session ssh.Session) (*exec.Cmd, error) {
+	groups, groupsErr := localGroupNames(localUser)
+	if err := checkLoginContext(localUser.Username, groups, groupsErr); err != nil {
+		return nil, err
+	}
+
 	loginPath, args, err := s.getLoginCmd(localUser.Username, session.RemoteAddr())
 	if err != nil {
 		return nil, fmt.Errorf("get login command: %w", err)

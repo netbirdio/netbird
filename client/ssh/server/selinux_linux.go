@@ -79,16 +79,26 @@ func failClosedOnGroupError() bool {
 // where sshd also lets the login continue. While enforcing, a failed lookup is an error,
 // and so is a group list that could not be resolved, as it may hold a group mapping.
 func sessionExecContext(username string, groups []string, groupsErr error) (string, error) {
-	if !selinuxEnabled() {
+	l := activeSELinuxLookup()
+	if l == nil {
 		return "", nil
+	}
+	return l.resolveSessionContext(username, groups, groupsErr, selinuxEnforcing())
+}
+
+// activeSELinuxLookup returns the lookup of the host, or nil when SELinux is disabled or the
+// host has no policy to look up, as in a container on an SELinux host.
+func activeSELinuxLookup() *selinuxLookup {
+	if !selinuxEnabled() {
+		return nil
 	}
 
 	l := newSELinuxLookup()
 	if !l.hasPolicy() {
 		log.Debugf("SELinux is enabled but %s has no policy, not setting a session context", l.rootDir)
-		return "", nil
+		return nil
 	}
-	return l.resolveSessionContext(username, groups, groupsErr, selinuxEnforcing())
+	return l
 }
 
 func (l *selinuxLookup) resolveSessionContext(username string, groups []string, groupsErr error, enforcing bool) (string, error) {
@@ -105,6 +115,26 @@ func (l *selinuxLookup) resolveSessionContext(username string, groups []string, 
 		return "", nil
 	}
 	return ctx, err
+}
+
+// checkLoginContext refuses an interactive session of a user that sshd would not let in.
+// The session is started through login, whose PAM stack picks the context starting from the
+// local login domain, which may reach SELinux users that sshd cannot (sysadm_u without
+// ssh_sysadm_login). The context is left to login: only the refusal is decided here, with
+// the lookup the command sessions use.
+func checkLoginContext(username string, groups []string, groupsErr error) error {
+	l := activeSELinuxLookup()
+	if l == nil {
+		return nil
+	}
+	return l.checkLogin(username, groups, groupsErr, selinuxEnforcing())
+}
+
+func (l *selinuxLookup) checkLogin(username string, groups []string, groupsErr error, enforcing bool) error {
+	if _, err := l.resolveSessionContext(username, groups, groupsErr, enforcing); err != nil {
+		return fmt.Errorf("%w: %w", errSessionContextRefused, err)
+	}
+	return nil
 }
 
 // needsSessionContext reports whether sessions of username must be started through the

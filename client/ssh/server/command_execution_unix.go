@@ -177,6 +177,9 @@ func (s *Server) handlePtyLogin(logger *log.Entry, session ssh.Session, privileg
 	if err != nil {
 		logger.Errorf("Pty command creation failed: %v", err)
 		errorMsg := "User switching failed - login command not available\r\n"
+		if errors.Is(err, errSessionContextRefused) {
+			errorMsg = "User switching failed - the SELinux policy does not allow this user to log in over SSH\r\n"
+		}
 		if _, writeErr := fmt.Fprint(session.Stderr(), errorMsg); writeErr != nil {
 			logger.Debugf(errWriteSession, writeErr)
 		}

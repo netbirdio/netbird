@@ -402,10 +402,13 @@ allow netbird_t netbird_devpts_t:chr_file { rw_chr_file_perms setattr_chr_file_p
 logging_send_audit_msgs(netbird_t)
 
 # Which SELinux user a login name maps to decides whether su or the session helper starts
-# the session
+# the session, and whether an interactive login is allowed at all: the contexts sshd could
+# reach for the user are asked from the kernel and the default contexts are read
 selinux_get_fs_mount(netbird_t)
 selinux_get_enforce_mode(netbird_t)
+selinux_compute_user_contexts(netbird_t)
 seutil_read_config(netbird_t)
+seutil_read_default_contexts(netbird_t)
 
 tunable_policy(`netbird_bind_all_ports',`
 	corenet_tcp_bind_all_unreserved_ports(netbird_t)
