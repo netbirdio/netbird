@@ -500,3 +500,49 @@ func TestSetConfigRequestMDMConflicts_NetworkValueKeys(t *testing.T) {
 		})
 	}
 }
+
+func TestSetConfig_MDMReject_SSHKeys(t *testing.T) {
+	s, ctx, profName, username, _ := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
+		mdm.KeyEnableSSHRoot:                 false,
+		mdm.KeyEnableSSHSFTP:                 false,
+		mdm.KeyEnableSSHLocalPortForwarding:  false,
+		mdm.KeyEnableSSHRemotePortForwarding: false,
+		mdm.KeyDisableSSHAuth:                false,
+		mdm.KeySSHJWTCacheTTL:                int64(0),
+	}))
+
+	on := true
+	ttl := int32(60)
+	_, err := s.SetConfig(ctx, &proto.SetConfigRequest{
+		ProfileName:                   profName,
+		Username:                      username,
+		EnableSSHRoot:                 &on,
+		EnableSSHSFTP:                 &on,
+		EnableSSHLocalPortForwarding:  &on,
+		EnableSSHRemotePortForwarding: &on,
+		DisableSSHAuth:                &on,
+		SshJWTCacheTTL:                &ttl,
+	})
+
+	v := extractViolation(t, err)
+	assert.ElementsMatch(t, []string{
+		mdm.KeyEnableSSHRoot, mdm.KeyEnableSSHSFTP, mdm.KeyEnableSSHLocalPortForwarding,
+		mdm.KeyEnableSSHRemotePortForwarding, mdm.KeyDisableSSHAuth, mdm.KeySSHJWTCacheTTL,
+	}, v.GetFields(), "every divergent SSH key must be reported")
+}
+
+func TestLoginRequestMDMConflicts_SSHKeys(t *testing.T) {
+	policy := mdm.NewPolicy(map[string]any{
+		mdm.KeyDisableSSHAuth: false,
+		mdm.KeySSHJWTCacheTTL: int64(3600),
+	})
+	off, on := false, true
+	same, other := int32(3600), int32(60)
+
+	assert.Empty(t, loginRequestMDMConflicts(&proto.LoginRequest{DisableSSHAuth: &off, SshJWTCacheTTL: &same}, policy),
+		"values equal to the enforced ones are an echo")
+	assert.Equal(t, []string{mdm.KeyDisableSSHAuth, mdm.KeySSHJWTCacheTTL},
+		loginRequestMDMConflicts(&proto.LoginRequest{DisableSSHAuth: &on, SshJWTCacheTTL: &other}, policy),
+		"divergent values must be reported")
+}

@@ -49,6 +49,12 @@ var allKeys = []string{
 	KeyMTU,
 	KeyDNSRouteInterval,
 	KeyNATExternalIPs,
+	KeyEnableSSHRoot,
+	KeyEnableSSHSFTP,
+	KeyEnableSSHLocalPortForwarding,
+	KeyEnableSSHRemotePortForwarding,
+	KeyDisableSSHAuth,
+	KeySSHJWTCacheTTL,
 }
 
 // canonicalKey maps the lowercase form of a managed-config value name to

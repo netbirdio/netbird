@@ -29,6 +29,11 @@ func MDMConflicts(input ConfigInput, policy *mdm.Policy) []string {
 		v := int64(*input.MTU)
 		mtu = &v
 	}
+	var sshJWTCacheTTL *int64
+	if input.SSHJWTCacheTTL != nil {
+		v := int64(*input.SSHJWTCacheTTL)
+		sshJWTCacheTTL = &v
+	}
 	return mdm.ResolveConflicts(policy, []mdm.ConflictCheck{
 		mdm.ConflictURL(mdm.KeyManagementURL, input.ManagementURL),
 		mdm.ConflictStringPtr(mdm.KeyPreSharedKey, pskGot),
@@ -53,6 +58,12 @@ func MDMConflicts(input ConfigInput, policy *mdm.Policy) []string {
 		mdm.ConflictInt64(mdm.KeyMTU, mtu),
 		mdm.ConflictDuration(mdm.KeyDNSRouteInterval, input.DNSRouteInterval),
 		mdm.ConflictStringSlice(mdm.KeyNATExternalIPs, input.NATExternalIPs),
+		mdm.ConflictBool(mdm.KeyEnableSSHRoot, input.EnableSSHRoot),
+		mdm.ConflictBool(mdm.KeyEnableSSHSFTP, input.EnableSSHSFTP),
+		mdm.ConflictBool(mdm.KeyEnableSSHLocalPortForwarding, input.EnableSSHLocalPortForwarding),
+		mdm.ConflictBool(mdm.KeyEnableSSHRemotePortForwarding, input.EnableSSHRemotePortForwarding),
+		mdm.ConflictBool(mdm.KeyDisableSSHAuth, input.DisableSSHAuth),
+		mdm.ConflictInt64(mdm.KeySSHJWTCacheTTL, sshJWTCacheTTL),
 	})
 }
 

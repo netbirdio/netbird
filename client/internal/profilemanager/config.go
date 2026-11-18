@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net"
 	"net/url"
 	"os"
@@ -1022,6 +1023,7 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 
 	config.applyMDMExtraIFaceBlackList(policy)
 	config.applyMDMNetworkOverrides(policy)
+	config.applyMDMSSHOverrides(policy)
 }
 
 // applyMDMNetworkOverrides applies the network and daemon override keys.
@@ -1038,6 +1040,35 @@ func (config *Config) applyMDMNetworkOverrides(policy *mdm.Policy) {
 	config.applyMDMMTU(policy)
 	config.applyMDMDNSRouteInterval(policy)
 	config.applyMDMNATExternalIPs(policy)
+}
+
+// applyMDMSSHOverrides applies the keys that shape the NetBird SSH server.
+func (config *Config) applyMDMSSHOverrides(policy *mdm.Policy) {
+	applyMDMBool(policy, mdm.KeyEnableSSHRoot, func(v bool) { config.EnableSSHRoot = &v })
+	applyMDMBool(policy, mdm.KeyEnableSSHSFTP, func(v bool) { config.EnableSSHSFTP = &v })
+	applyMDMBool(policy, mdm.KeyEnableSSHLocalPortForwarding, func(v bool) { config.EnableSSHLocalPortForwarding = &v })
+	applyMDMBool(policy, mdm.KeyEnableSSHRemotePortForwarding, func(v bool) { config.EnableSSHRemotePortForwarding = &v })
+	applyMDMBool(policy, mdm.KeyDisableSSHAuth, func(v bool) {
+		config.DisableSSHAuth = &v
+		if v {
+			log.Warnf("MDM %s is on: the SSH server lets in any peer the access policy allows, with no user login", mdm.KeyDisableSSHAuth)
+		}
+	})
+	config.applyMDMSSHJWTCacheTTL(policy)
+}
+
+func (config *Config) applyMDMSSHJWTCacheTTL(policy *mdm.Policy) {
+	v, ok := policy.GetInt(mdm.KeySSHJWTCacheTTL)
+	if !ok {
+		return
+	}
+	if v < 0 || v > math.MaxInt32 {
+		log.Warnf("MDM %s %d out of range [0,%d]; keeping previous value", mdm.KeySSHJWTCacheTTL, v, math.MaxInt32)
+		return
+	}
+	ttl := int(v)
+	config.SSHJWTCacheTTL = &ttl
+	logMDMApplied(mdm.KeySSHJWTCacheTTL, ttl)
 }
 
 // applyMDMInterfaceName enforces the interface name. A value the platform

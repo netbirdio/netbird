@@ -60,7 +60,30 @@ func TestSetConfig_ValueMatchingMDMStillNeedsPrivilege(t *testing.T) {
 		Username:         username,
 		ServerSSHAllowed: boolPtr(true),
 	})
-	require.Error(t, err, "enabling the SSH server needs privilege with or without MDM")
+	assertDenied(t, err)
 
 	assert.Equal(t, false, readProfileFile(t, cfgPath)["ServerSSHAllowed"], "a refused value must not be persisted")
+}
+
+// Root login and unauthenticated SSH stay privileged changes when the policy
+// enforces them: matching the policy does not make an unprivileged caller
+// entitled to persist them.
+func TestSetConfig_PrivilegedSSHValueMatchingMDMStillNeedsPrivilege(t *testing.T) {
+	for _, tc := range []struct {
+		key string
+		set func(*proto.SetConfigRequest)
+	}{
+		{mdm.KeyEnableSSHRoot, func(r *proto.SetConfigRequest) { r.EnableSSHRoot = boolPtr(true) }},
+		{mdm.KeyDisableSSHAuth, func(r *proto.SetConfigRequest) { r.DisableSSHAuth = boolPtr(true) }},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			s, _, profName, username, cfgPath := setupServerWithProfile(t)
+			withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{tc.key: true}))
+
+			req := &proto.SetConfigRequest{ProfileName: profName, Username: username}
+			tc.set(req)
+			_, err := s.SetConfig(withTarget(userCtx(), cfgPath), req)
+			assertDenied(t, err)
+		})
+	}
 }

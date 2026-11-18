@@ -661,3 +661,102 @@ func TestIsUtunName(t *testing.T) {
 		assert.Equal(t, want, isUtunName(name), "isUtunName(%q)", name)
 	}
 }
+
+func TestApply_MDMSSHKeysOverrideOnDiskValue(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "config.json")
+
+	// The profile file holds the opposite of every value MDM is about to
+	// enforce, so each assertion proves the override and not a default.
+	configWithMDM(t, ConfigInput{
+		ConfigPath:                    tmp,
+		EnableSSHRoot:                 boolPtr(false),
+		EnableSSHSFTP:                 boolPtr(false),
+		EnableSSHLocalPortForwarding:  boolPtr(false),
+		EnableSSHRemotePortForwarding: boolPtr(true),
+		DisableSSHAuth:                boolPtr(false),
+		SSHJWTCacheTTL:                intPtr(0),
+	}, mdm.NewPolicy(nil))
+	before, err := os.ReadFile(tmp)
+	require.NoError(t, err)
+
+	cfg := configWithMDM(t, ConfigInput{ConfigPath: tmp}, mdm.NewPolicy(map[string]any{
+		mdm.KeyEnableSSHRoot:                 true,
+		mdm.KeyEnableSSHSFTP:                 "yes",
+		mdm.KeyEnableSSHLocalPortForwarding:  int64(1),
+		mdm.KeyEnableSSHRemotePortForwarding: false,
+		mdm.KeyDisableSSHAuth:                true,
+		mdm.KeySSHJWTCacheTTL:                int64(3600),
+	}))
+
+	require.NotNil(t, cfg.EnableSSHRoot)
+	assert.True(t, *cfg.EnableSSHRoot, "enableSSHRoot")
+	require.NotNil(t, cfg.EnableSSHSFTP)
+	assert.True(t, *cfg.EnableSSHSFTP, "enableSSHSFTP from a string literal")
+	require.NotNil(t, cfg.EnableSSHLocalPortForwarding)
+	assert.True(t, *cfg.EnableSSHLocalPortForwarding, "enableSSHLocalPortForwarding from a REG_DWORD")
+	require.NotNil(t, cfg.EnableSSHRemotePortForwarding)
+	assert.False(t, *cfg.EnableSSHRemotePortForwarding, "enableSSHRemotePortForwarding")
+	require.NotNil(t, cfg.DisableSSHAuth)
+	assert.True(t, *cfg.DisableSSHAuth, "disableSSHAuth")
+	require.NotNil(t, cfg.SSHJWTCacheTTL)
+	assert.Equal(t, 3600, *cfg.SSHJWTCacheTTL, "sshJWTCacheTTL")
+
+	after, err := os.ReadFile(tmp)
+	require.NoError(t, err)
+	assert.Equal(t, string(before), string(after), "MDM values must not reach the profile file")
+}
+
+func TestApply_MDMSSHJWTCacheTTL_OutOfRangeKeepsProfileValue(t *testing.T) {
+	for _, v := range []int64{-1, 1 << 40} {
+		cfg := configWithMDM(t, ConfigInput{
+			ConfigPath:     filepath.Join(t.TempDir(), "config.json"),
+			SSHJWTCacheTTL: intPtr(600),
+		}, mdm.NewPolicy(map[string]any{mdm.KeySSHJWTCacheTTL: v}))
+
+		require.NotNil(t, cfg.SSHJWTCacheTTL)
+		assert.Equal(t, 600, *cfg.SSHJWTCacheTTL, "TTL %d must be skipped", v)
+	}
+}
+
+func TestMDMConflicts_SSHKeys(t *testing.T) {
+	policy := mdm.NewPolicy(map[string]any{
+		mdm.KeyEnableSSHRoot:                 true,
+		mdm.KeyEnableSSHSFTP:                 true,
+		mdm.KeyEnableSSHLocalPortForwarding:  true,
+		mdm.KeyEnableSSHRemotePortForwarding: false,
+		mdm.KeyDisableSSHAuth:                false,
+		mdm.KeySSHJWTCacheTTL:                int64(3600),
+	})
+
+	tests := []struct {
+		name  string
+		input ConfigInput
+		want  []string
+	}{
+		{name: "unset", input: ConfigInput{}, want: nil},
+		{name: "echo", input: ConfigInput{
+			EnableSSHRoot:                 boolPtr(true),
+			EnableSSHSFTP:                 boolPtr(true),
+			EnableSSHLocalPortForwarding:  boolPtr(true),
+			EnableSSHRemotePortForwarding: boolPtr(false),
+			DisableSSHAuth:                boolPtr(false),
+			SSHJWTCacheTTL:                intPtr(3600),
+		}, want: nil},
+		{name: "all divergent", input: ConfigInput{
+			EnableSSHRoot:                 boolPtr(false),
+			EnableSSHSFTP:                 boolPtr(false),
+			EnableSSHLocalPortForwarding:  boolPtr(false),
+			EnableSSHRemotePortForwarding: boolPtr(true),
+			DisableSSHAuth:                boolPtr(true),
+			SSHJWTCacheTTL:                intPtr(60),
+		}, want: []string{
+			mdm.KeyEnableSSHRoot, mdm.KeyEnableSSHSFTP, mdm.KeyEnableSSHLocalPortForwarding,
+			mdm.KeyEnableSSHRemotePortForwarding, mdm.KeyDisableSSHAuth, mdm.KeySSHJWTCacheTTL,
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, MDMConflicts(tc.input, policy), "conflicting keys")
+		})
+	}
+}

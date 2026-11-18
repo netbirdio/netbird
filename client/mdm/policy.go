@@ -117,6 +117,15 @@ const (
 	KeyDNSRouteInterval = "dnsRouteInterval"
 	// KeyNATExternalIPs is read as a list or a comma-separated string.
 	KeyNATExternalIPs = "natExternalIPs"
+
+	// SSH server overrides: they shape the server allowServerSSH turns on.
+	KeyEnableSSHRoot                 = "enableSSHRoot"
+	KeyEnableSSHSFTP                 = "enableSSHSFTP"
+	KeyEnableSSHLocalPortForwarding  = "enableSSHLocalPortForwarding"
+	KeyEnableSSHRemotePortForwarding = "enableSSHRemotePortForwarding"
+	KeyDisableSSHAuth                = "disableSSHAuth"
+	// KeySSHJWTCacheTTL is in seconds; 0 disables the cache.
+	KeySSHJWTCacheTTL = "sshJWTCacheTTL"
 )
 
 // Split-tunnel mode literals (KeySplitTunnelMode values).
