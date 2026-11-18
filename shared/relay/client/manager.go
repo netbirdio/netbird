@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
 	"sync"
@@ -17,6 +18,8 @@ var (
 	keepUnusedServerTime = 5 * time.Second
 
 	ErrRelayClientNotConnected = fmt.Errorf("relay client not connected")
+
+	errForeignSessionEnded = errors.New("foreign relay session ended")
 )
 
 // RelayTrack hold the relay clients for the foreign relay servers.
@@ -25,6 +28,7 @@ var (
 type RelayTrack struct {
 	sync.RWMutex
 	relayClient *Client
+	session     *session
 	err         error
 	created     time.Time
 	// ready is closed once the dial started by openConnVia finishes (relayClient
@@ -298,12 +302,20 @@ func (m *Manager) UpdateToken(token *relayAuth.Token) error {
 }
 
 func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string, serverIP netip.Addr) (*Conn, error) {
+	conn, err := m.openConnViaTrack(ctx, serverAddress, peerKey, serverIP)
+	if !errors.Is(err, errForeignSessionEnded) {
+		return conn, err
+	}
+	return m.openConnViaTrack(ctx, serverAddress, peerKey, serverIP)
+}
+
+func (m *Manager) openConnViaTrack(ctx context.Context, serverAddress, peerKey string, serverIP netip.Addr) (*Conn, error) {
 	// check if already has a connection to the desired relay server
 	m.relayClientsMutex.RLock()
 	rt, ok := m.relayClients[serverAddress]
 	m.relayClientsMutex.RUnlock()
 	if ok {
-		return m.openConnOnTrack(ctx, rt, peerKey)
+		return m.openConnOnTrack(ctx, serverAddress, rt, peerKey)
 	}
 
 	// if not, establish a new connection but check it again (because changed the lock type) before starting the
@@ -312,7 +324,7 @@ func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string
 	rt, ok = m.relayClients[serverAddress]
 	if ok {
 		m.relayClientsMutex.Unlock()
-		return m.openConnOnTrack(ctx, rt, peerKey)
+		return m.openConnOnTrack(ctx, serverAddress, rt, peerKey)
 	}
 
 	// Publish the track and release the map lock BEFORE dialing, so the dial does
@@ -336,14 +348,14 @@ func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string
 	}
 	m.publishForeignSession(serverAddress, rt, s)
 
-	return m.openConnOnTrack(ctx, rt, peerKey)
+	return m.openConnOnTrack(ctx, serverAddress, rt, peerKey)
 }
 
 // openConnOnTrack opens a peer connection through an existing relay track,
 // waiting for the dial started by another openConnVia call to finish. It waits
 // on rt.ready rather than the track lock, so it neither holds nor contends the
 // track lock across the dial.
-func (m *Manager) openConnOnTrack(ctx context.Context, rt *RelayTrack, peerKey string) (*Conn, error) {
+func (m *Manager) openConnOnTrack(ctx context.Context, serverAddress string, rt *RelayTrack, peerKey string) (*Conn, error) {
 	select {
 	case <-rt.ready:
 	case <-ctx.Done():
@@ -360,6 +372,7 @@ func (m *Manager) openConnOnTrack(ctx context.Context, rt *RelayTrack, peerKey s
 		return nil, ErrRelayClientNotConnected
 	}
 	relayClient := rt.relayClient
+	s := rt.session
 	rt.opening++
 	rt.Unlock()
 
@@ -368,6 +381,11 @@ func (m *Manager) openConnOnTrack(ctx context.Context, rt *RelayTrack, peerKey s
 		rt.opening--
 		rt.Unlock()
 	}()
+
+	if s != nil && s.isClosed() {
+		m.removeForeignTrack(serverAddress, rt)
+		return nil, errForeignSessionEnded
+	}
 
 	return relayClient.OpenConn(ctx, peerKey)
 }
@@ -385,6 +403,7 @@ func (m *Manager) onServerConnected() {
 func (m *Manager) publishForeignSession(serverAddress string, rt *RelayTrack, s *session) {
 	rt.Lock()
 	rt.relayClient = s.client
+	rt.session = s
 	rt.Unlock()
 	close(rt.ready)
 

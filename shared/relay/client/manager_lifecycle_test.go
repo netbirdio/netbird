@@ -483,6 +483,41 @@ func TestForeignSessionEndRemovesTrack(t *testing.T) {
 	}
 }
 
+func TestOpenConnReplacesEndedForeignTrack(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	bob := serveManager(t, ctx, startRelayServer(t), "bob")
+	alice := NewManager(ctx, toURL(startRelayServer(t)), "alice", iface.DefaultMTU)
+	alice.cleanupInterval = time.Hour
+	require.NoError(t, alice.Serve(), "serve manager of alice")
+
+	bobsRelay, _, err := bob.RelayInstanceAddress()
+	require.NoError(t, err, "bob's relay address")
+
+	foreign := NewClient(bobsRelay, alice.tokenStore, alice.peerID, alice.mtu)
+	s, err := foreign.ConnectSession(ctx)
+	require.NoError(t, err, "connect to the foreign relay")
+	dropSession(t, s)
+
+	// Published without its watcher, the way OpenConn finds a track whose
+	// session ended but whose eviction has not run yet.
+	stale := NewRelayTrack()
+	stale.relayClient = foreign
+	stale.session = s
+	close(stale.ready)
+	alice.relayClientsMutex.Lock()
+	alice.relayClients[bobsRelay] = stale
+	alice.relayClientsMutex.Unlock()
+
+	_, err = alice.OpenConn(ctx, bobsRelay, "bob", netip.Addr{})
+	require.NoError(t, err, "OpenConn must redial instead of failing on the ended track")
+
+	fresh := foreignTrack(t, alice, bobsRelay)
+	assert.NotSame(t, stale, fresh, "the ended track must be replaced")
+	assert.True(t, trackSession(t, fresh).client.Ready(), "the replacement track must hold a live session")
+}
+
 func startRelayServer(t *testing.T) server.ListenerConfig {
 	t.Helper()
 

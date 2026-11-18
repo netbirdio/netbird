@@ -60,6 +60,10 @@ func TestServerPicker_ClosesLosingSessions(t *testing.T) {
 	require.NoError(t, err, "pick a server")
 
 	require.Eventually(t, func() bool {
+		return proxies[0].acceptedConns() == 1 && proxies[1].acceptedConns() == 1
+	}, lifecycleTestTimeout, 5*time.Millisecond, "both candidates must connect before the losing session is checked")
+
+	require.Eventually(t, func() bool {
 		return proxies[0].liveConns()+proxies[1].liveConns() == 1
 	}, lifecycleTestTimeout, 5*time.Millisecond, "the picker must close every session it did not hand over")
 

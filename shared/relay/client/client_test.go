@@ -667,6 +667,7 @@ func TestSessionEndObservedAfterDrop(t *testing.T) {
 	// The ended session is torn down once more, the way a late cleanup of the
 	// old connection would do it after the client has already reconnected.
 	require.NoError(t, first.Close(true))
+	relayClient.DetachSession(first)
 
 	assert.False(t, second.isClosed(), "tearing down the old session must not end the new one")
 	assert.Same(t, second, relayClient.currentSession(), "the new session must stay the client's current one")
