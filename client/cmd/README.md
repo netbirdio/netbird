@@ -1,6 +1,6 @@
 # Adding CLI commands, flags and environment variables
 
-New CLI or service flags are a high-risk area, the following sections sets a guide for developers adding a new CLI command, flags and env environment variables (daemon or client side).
+New CLI or service flags are a high-risk area. The following sections provide a guide for developers adding CLI commands, flags, and environment variables on the daemon or client side.
 
 ## Pick the kind
 
