@@ -161,6 +161,8 @@ type OutputOverview struct {
 	LazyConnectionEnabled bool                       `json:"lazyConnectionEnabled" yaml:"lazyConnectionEnabled"`
 	ProfileName           string                     `json:"profileName" yaml:"profileName"`
 	SSHServerState        SSHServerStateOutput       `json:"sshServer" yaml:"sshServer"`
+	// AlignedHeartbeat is nil on clients that do not ask for the aligned heartbeat.
+	AlignedHeartbeat *AlignedHeartbeatOutput `json:"alignedHeartbeat,omitempty" yaml:"alignedHeartbeat,omitempty"`
 	// SessionExpiresAt is the absolute UTC instant at which the peer's SSO
 	// session expires. nil when the peer is not SSO-tracked or login
 	// expiration is disabled. Pointer (rather than zero-value time.Time) so
@@ -210,6 +212,7 @@ func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, opts ConvertO
 		LazyConnectionEnabled: pbFullStatus.GetLazyConnectionEnabled(),
 		ProfileName:           opts.ProfileName,
 		SSHServerState:        sshServerOverview,
+		AlignedHeartbeat:      mapAlignedHeartbeat(pbFullStatus.GetAlignedHeartbeat()),
 	}
 	if !opts.SessionExpiresAt.IsZero() {
 		t := opts.SessionExpiresAt
@@ -633,7 +636,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		sessionExpiryString,
 		peersCountString,
 	)
-	return summary
+	return summary + o.alignedHeartbeatSummary()
 }
 
 // FullDetailSummary returns a full detailed summary with peer details and events.
@@ -647,10 +650,12 @@ func (o *OutputOverview) FullDetailSummary() string {
 			"%s\n"+
 			"Events:"+
 			"%s\n"+
+			"%s"+
 			"%s",
 		parsedPeersString,
 		parsedEventsString,
 		summary,
+		o.alignedHeartbeatDetail(),
 	)
 }
 
@@ -662,6 +667,7 @@ func ToProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 		Peers:           []*proto.PeerState{},
 	}
 
+	pbFullStatus.AlignedHeartbeat = peer.AlignedHeartbeatToProto(fullStatus.AlignedHeartbeat)
 	pbFullStatus.ManagementState.URL = fullStatus.ManagementState.URL
 	pbFullStatus.ManagementState.Connected = fullStatus.ManagementState.Connected
 	if err := fullStatus.ManagementState.Error; err != nil {
@@ -1028,6 +1034,7 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *OutputOverview) {
 	}
 
 	overview.FQDN = a.AnonymizeDomain(overview.FQDN)
+	anonymizeAlignedHeartbeat(a, overview.AlignedHeartbeat)
 
 	for i, event := range overview.Events {
 		overview.Events[i].Message = a.AnonymizeString(event.Message)

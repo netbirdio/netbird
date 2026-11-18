@@ -486,6 +486,10 @@ message FullStatus {
   // on it to know when to re-fetch ListNetworks via the push stream, instead
   // of polling on every status snapshot.
   uint64 networksRevision = 11;
+
+  // alignedHeartbeat is the aligned heartbeat state of a mobile client, unset
+  // on clients that do not ask for the aligned heartbeat.
+  AlignedHeartbeatState alignedHeartbeat = 12;
 }
 
 // Networks
@@ -1105,3 +1109,43 @@ message StartBundleCaptureRequest {
 message StartBundleCaptureResponse {}
 message StopBundleCaptureRequest {}
 message StopBundleCaptureResponse {}
+
+// AlignedHeartbeatState holds the aligned heartbeat state of each stream and
+// the latest phase corrections, oldest first.
+message AlignedHeartbeatState {
+  repeated AlignedHeartbeatStream streams = 1;
+  repeated AlignedHeartbeatCorrection corrections = 2;
+}
+
+// AlignedHeartbeatStream is the aligned heartbeat state of one Management,
+// Signal or relay stream.
+message AlignedHeartbeatStream {
+  // service is management, signal or relay.
+  string service = 1;
+  string address = 2;
+  // level is aligned or stock.
+  string level = 3;
+  uint32 periodSeconds = 4;
+  uint32 phaseMillis = 5;
+  google.protobuf.Timestamp lastHeartbeat = 6;
+  AlignedHeartbeatCorrection lastCorrection = 7;
+  // correctionBlocked is set when the client stopped asking for corrections
+  // because the server did not apply several in a row.
+  bool correctionBlocked = 8;
+  uint32 blockedInRow = 9;
+  // clampHits counts the corrections of the service the server did not apply
+  // in full.
+  uint32 clampHits = 10;
+}
+
+// AlignedHeartbeatCorrection is one phase correction the client asked for.
+message AlignedHeartbeatCorrection {
+  string service = 1;
+  string address = 2;
+  google.protobuf.Timestamp time = 3;
+  int64 offsetMillis = 4;
+  uint32 fromPhaseMillis = 5;
+  uint32 wantedPhaseMillis = 6;
+  // result is pending, applied, clamped, ignored or unknown.
+  string result = 7;
+}
