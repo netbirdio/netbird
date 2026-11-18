@@ -15,7 +15,7 @@ func TestValidation(t *testing.T) {
 }
 
 func TestVersionFromConfig(t *testing.T) {
-	assert.Equal(t, DefaultSyncMessageVersion, SyncMessageVersionFromConfig(nil))
+	assert.Equal(t, HighestSyncMessageVersion, SyncMessageVersionFromConfig(nil))
 	assert.Equal(t, Base, SyncMessageVersionFromConfig(toIntPtr(0)))
 	assert.Equal(t, ComponentNetworkMap, SyncMessageVersionFromConfig(toIntPtr(1)))
 	assert.Equal(t, DefaultSyncMessageVersion, SyncMessageVersionFromConfig(toIntPtr(-1)))

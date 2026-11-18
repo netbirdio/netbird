@@ -33,7 +33,7 @@ func ValidateSyncMessageVersion(v *int) error {
 // the assumption is ValidateSyncMessageVersion() has been called before using SyncMessageVersionFromConfig()
 func SyncMessageVersionFromConfig(v *int) SyncMessageVersion {
 	if v == nil {
-		return DefaultSyncMessageVersion
+		return HighestSyncMessageVersion
 	}
 	if *v < 0 || *v > int(HighestSyncMessageVersion) {
 		return Base
