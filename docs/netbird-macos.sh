@@ -87,6 +87,12 @@ interfaceName="$NULL"                      # macOS: utun followed by a number, e
 mtu="$NULL"                                # 576-8192
 dnsRouteInterval="$NULL"                   # duration such as 1m or 1m30s
 natExternalIPs="$NULL"                     # comma-separated external-IP[/internal-IP or /interface]
+enableSSHRoot="$NULL"
+enableSSHSFTP="$NULL"
+enableSSHLocalPortForwarding="$NULL"
+enableSSHRemotePortForwarding="$NULL"
+disableSSHAuth="$NULL"                     # no user login on the SSH server, automation hosts only
+sshJWTCacheTTL="$NULL"                     # seconds, 0 disables the cache
 splitTunnelMode="$NULL"                    # "allow" or "disallow", Android-only at the daemon level
 splitTunnelApps="$NULL"                    # comma-separated app IDs, Android-only
 ##############################################################################
@@ -233,6 +239,12 @@ main() {
   is_set "$mtu"                       && emit_int     mtu                       "$mtu"
   is_set "$dnsRouteInterval"          && emit_string  dnsRouteInterval          "$dnsRouteInterval"
   is_set "$natExternalIPs"            && emit_string  natExternalIPs            "$natExternalIPs"
+  is_set "$enableSSHRoot"             && emit_bool    enableSSHRoot             "$enableSSHRoot"
+  is_set "$enableSSHSFTP"             && emit_bool    enableSSHSFTP             "$enableSSHSFTP"
+  is_set "$enableSSHLocalPortForwarding" && emit_bool enableSSHLocalPortForwarding "$enableSSHLocalPortForwarding"
+  is_set "$enableSSHRemotePortForwarding" && emit_bool enableSSHRemotePortForwarding "$enableSSHRemotePortForwarding"
+  is_set "$disableSSHAuth"            && emit_bool    disableSSHAuth            "$disableSSHAuth"
+  is_set "$sshJWTCacheTTL"            && emit_int     sshJWTCacheTTL            "$sshJWTCacheTTL"
   is_set "$splitTunnelMode"           && emit_string  splitTunnelMode           "$splitTunnelMode"
   is_set "$splitTunnelApps"           && emit_string  splitTunnelApps           "$splitTunnelApps"
 

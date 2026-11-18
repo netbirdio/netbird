@@ -168,6 +168,32 @@
     <string>203.0.113.7/10.0.0.5</string>
     -->
 
+    <!-- ===== SSH server =====
+         Each replaces the device's own value and rejects a change to it.
+         They shape the server allowServerSSH turns on.
+         disableSSHAuth     : lets in any peer the access policy allows,
+                              with no user login. Automation hosts only.
+         sshJWTCacheTTL     : seconds; 0 disables the cache. -->
+    <!--
+    <key>enableSSHRoot</key>
+    <false/>
+
+    <key>enableSSHSFTP</key>
+    <false/>
+
+    <key>enableSSHLocalPortForwarding</key>
+    <false/>
+
+    <key>enableSSHRemotePortForwarding</key>
+    <false/>
+
+    <key>disableSSHAuth</key>
+    <false/>
+
+    <key>sshJWTCacheTTL</key>
+    <integer>0</integer>
+    -->
+
     <!-- ===== UI / lockdown kill switches =====
          disableUpdateSettings   : block every config change from UI and CLI
                                    on this device (Settings view stays

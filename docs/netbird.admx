@@ -361,6 +361,80 @@
       </elements>
     </policy>
 
+    <policy name="EnableSSHRoot"
+            class="Machine"
+            displayName="$(string.EnableSSHRoot_Name)"
+            explainText="$(string.EnableSSHRoot_Help)"
+            key="Software\Policies\NetBird"
+            valueName="EnableSSHRoot">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="EnableSSHSFTP"
+            class="Machine"
+            displayName="$(string.EnableSSHSFTP_Name)"
+            explainText="$(string.EnableSSHSFTP_Help)"
+            key="Software\Policies\NetBird"
+            valueName="EnableSSHSFTP">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="EnableSSHLocalPortForwarding"
+            class="Machine"
+            displayName="$(string.EnableSSHLocalPortForwarding_Name)"
+            explainText="$(string.EnableSSHLocalPortForwarding_Help)"
+            key="Software\Policies\NetBird"
+            valueName="EnableSSHLocalPortForwarding">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="EnableSSHRemotePortForwarding"
+            class="Machine"
+            displayName="$(string.EnableSSHRemotePortForwarding_Name)"
+            explainText="$(string.EnableSSHRemotePortForwarding_Help)"
+            key="Software\Policies\NetBird"
+            valueName="EnableSSHRemotePortForwarding">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="DisableSSHAuth"
+            class="Machine"
+            displayName="$(string.DisableSSHAuth_Name)"
+            explainText="$(string.DisableSSHAuth_Help)"
+            key="Software\Policies\NetBird"
+            valueName="DisableSSHAuth">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="SSHJWTCacheTTL"
+            class="Machine"
+            displayName="$(string.SSHJWTCacheTTL_Name)"
+            explainText="$(string.SSHJWTCacheTTL_Help)"
+            key="Software\Policies\NetBird"
+            presentation="$(presentation.SSHJWTCacheTTL_Pres)">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <elements>
+        <decimal id="SSHJWTCacheTTL_Decimal" valueName="SSHJWTCacheTTL"
+                 minValue="0" maxValue="2147483647" required="true" />
+      </elements>
+    </policy>
+
     <policy name="SplitTunnel"
             class="Machine"
             displayName="$(string.SplitTunnel_Name)"
