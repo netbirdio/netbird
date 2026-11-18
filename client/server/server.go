@@ -778,6 +778,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	}
 	if current == nil || *current != *activeProf {
 		s.mutex.Unlock()
+		log.Warnf("login for profile %s aborted: %s", activeProf.ID, errActiveProfileChanged)
 		return nil, gstatus.Error(codes.Aborted, errActiveProfileChanged)
 	}
 	s.config = config
