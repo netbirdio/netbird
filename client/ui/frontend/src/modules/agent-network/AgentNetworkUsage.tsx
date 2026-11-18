@@ -258,14 +258,13 @@ const ProviderSection = ({ provider, now }: { provider: AgentNetworkProvider; no
                 <p className={"mt-1 text-xs text-nb-gray-400"}>{t("agentNetwork.noLimits")}</p>
             )}
             {provider.limits.length > 0 && (
-                <div className={"mt-3 grid grid-cols-2"}>
-                    {UNITS.map((unit, i) => (
-                        <LimitHalf
+                <div className={"mt-3 flex flex-col gap-3"}>
+                    {UNITS.map((unit) => (
+                        <LimitRow
                             key={unit}
                             unit={unit}
                             limit={tightest(provider.limits, unit)}
                             now={now}
-                            className={i === 0 ? "pe-4" : "border-s border-nb-gray-910 ps-4"}
                         />
                     ))}
                 </div>
@@ -288,17 +287,17 @@ const tightest = (limits: AgentNetworkLimit[], unit: Unit): AgentNetworkLimit | 
     );
 };
 
-type HalfProps = { unit: Unit; limit: AgentNetworkLimit | null; now: Date; className?: string };
+type RowProps = { unit: Unit; limit: AgentNetworkLimit | null; now: Date };
 
 // One unit's allowance. A unit without a cap is unlimited and gets no bar.
-const LimitHalf = ({ unit, limit, now, className }: HalfProps) => {
+const LimitRow = ({ unit, limit, now }: RowProps) => {
     const { t, i18n } = useTranslation();
     const lang = i18n.language;
     const label = t(unit === "usd" ? "agentNetwork.limit.spend" : "agentNetwork.limit.tokens");
 
     if (!limit) {
         return (
-            <div className={cn("flex min-w-0 items-baseline gap-2 text-xs", className)}>
+            <div className={"flex min-w-0 items-baseline gap-2 text-xs"}>
                 <span className={"min-w-0 flex-1 truncate text-nb-gray-200"}>{label}</span>
                 <span className={"shrink-0 text-nb-gray-400"}>
                     {t("agentNetwork.limit.unlimited")}
@@ -322,7 +321,7 @@ const LimitHalf = ({ unit, limit, now, className }: HalfProps) => {
     const resets = limit.resetsAt ? new Date(limit.resetsAt) : null;
 
     return (
-        <div className={cn("min-w-0 text-xs", className)}>
+        <div className={"min-w-0 text-xs"}>
             <div className={"flex items-baseline gap-2"}>
                 <span className={"min-w-0 flex-1 truncate text-nb-gray-200"}>{label}</span>
                 <span className={"shrink-0 text-nb-gray-300 tabular-nums"}>
