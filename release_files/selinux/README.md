@@ -69,6 +69,7 @@ Everything else, by feature:
 | Firewall | Transition to `iptables_t` for iptables, ip6tables, nft, ipset and the `*-save` tools, netlink netfilter socket |
 | firewalld | D-Bus to firewalld, and `firewall-cmd` (a `bin_t` python script) as the fallback |
 | DNS | Write `net_conf_t` (resolv.conf), bind `dns_port_t`, D-Bus to systemd-resolved and NetworkManager |
+| Daemon IPC authorization | D-Bus to systemd-logind for the seats and sessions that tell whether a caller is at the console |
 | Kernel settings | Read and write `sysctl_net_t` (forwarding, rp_filter, conntrack accounting) |
 | Netflow | Netlink netfilter socket for conntrack events, `nf_conntrack_acct` |
 | Netstack | `netbird_wg_runtime_t` and a loopback SOCKS5 listener |
