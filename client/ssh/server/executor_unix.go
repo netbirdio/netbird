@@ -229,11 +229,7 @@ func (pd *PrivilegeDropper) ExecuteWithPrivilegeDrop(ctx context.Context, config
 		os.Exit(ExitCodePrivilegeDropFail)
 	}
 
-	if config.WorkingDir != "" {
-		if err := os.Chdir(config.WorkingDir); err != nil {
-			log.Debugf("failed to change to working directory %s, continuing with current directory: %v", config.WorkingDir, err)
-		}
-	}
+	enterWorkingDir(config.WorkingDir)
 
 	var execCmd *exec.Cmd
 	if config.Command == "" {
@@ -288,4 +284,20 @@ func (pd *PrivilegeDropper) validatePrivileges(uid, gid uint32) error {
 
 	// Root can drop to any user (including root itself)
 	return nil
+}
+
+// enterWorkingDir changes to dir, or to / when dir cannot be entered, such as a home
+// directory PAM has not created yet, so the shell never starts in the daemon's directory.
+func enterWorkingDir(dir string) {
+	if dir == "" {
+		return
+	}
+	err := os.Chdir(dir)
+	if err == nil {
+		return
+	}
+	log.Warnf("working directory %s unavailable, starting in /: %v", dir, err)
+	if err := os.Chdir("/"); err != nil {
+		log.Warnf("failed to change to /: %v", err)
+	}
 }
