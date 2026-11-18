@@ -2,6 +2,7 @@ package resources
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -311,7 +312,7 @@ func Test_UpdateResourceSuccessfully(t *testing.T) {
 	require.Equal(t, types.NetworkResourceType("subnet"), updatedResource.Type)
 }
 
-func Test_UpdateResourceReloadsServicesWithUncanceledContext(t *testing.T) {
+func Test_UpdateResourceReloadsServicesDetachedFromRequest(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	accountID := "testAccountId"
 	resource := &types.NetworkResource{
@@ -331,15 +332,30 @@ func Test_UpdateResourceReloadsServicesWithUncanceledContext(t *testing.T) {
 	reloadErr := make(chan error, 1)
 	serviceManager.EXPECT().ReloadAllServicesForAccount(gomock.Any(), accountID).DoAndReturn(func(reloadCtx context.Context, _ string) error {
 		<-requestDone
+		if _, ok := reloadCtx.Deadline(); !ok {
+			reloadErr <- errors.New("reload context has no deadline")
+			return nil
+		}
 		reloadErr <- reloadCtx.Err()
 		return nil
 	})
 	manager := NewManager(store, permissions.NewManager(store), groups.NewManagerMock(), &mock_server.MockAccountManager{}, serviceManager)
 
-	_, err = manager.UpdateResource(ctx, "testAdminId", resource)
-	cancel()
-	close(requestDone)
-	require.NoError(t, err)
+	updateErr := make(chan error, 1)
+	go func() {
+		_, err := manager.UpdateResource(ctx, "testAdminId", resource)
+		updateErr <- err
+	}()
+
+	select {
+	case err := <-updateErr:
+		cancel()
+		close(requestDone)
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		close(requestDone)
+		t.Fatal("UpdateResource blocked on the services reload")
+	}
 
 	select {
 	case err := <-reloadErr:
