@@ -3010,6 +3010,10 @@ var afterLoginPrepared func()
 // of this is reached; this one exists because that check is not synchronized
 // against a concurrent privileged request that enables the SSH server, and a
 // caller refused here must not have cancelled or switched anything either.
+//
+// The exception is a SwitchProfile or Up that moves the active profile off the
+// target. That login is refused with codes.Aborted after the cancel and its own
+// switch.
 func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.LoginRequest, activeProf *profilemanager.ActiveProfileState) (context.Context, *profilemanager.ActiveProfileState, bool, error) {
 	if afterLoginPreCheck != nil {
 		afterLoginPreCheck()
