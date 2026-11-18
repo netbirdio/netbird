@@ -68,6 +68,7 @@ const (
 	// refusal the caller has to act on.
 	errUpdateSettingsDisabled = "update settings are disabled, you cannot use this feature without update settings enabled"
 	errNetworksDisabled       = "network selection is disabled by the administrator"
+	errActiveProfileChanged   = "the active profile changed during login, try again"
 )
 
 var ErrServiceNotUp = errors.New("service is not up")
@@ -764,7 +765,21 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		log.Errorf("failed to get active profile config: %v", err)
 		return nil, fmt.Errorf("failed to get active profile config: %w", err)
 	}
+	if afterLoginPrepared != nil {
+		afterLoginPrepared()
+	}
 	s.mutex.Lock()
+	// SwitchProfile and Up install their own config under s.mutex. If one ran
+	// since the check, its config must stay.
+	current, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		s.mutex.Unlock()
+		return nil, fmt.Errorf("active profile state: %w", err)
+	}
+	if current == nil || *current != *activeProf {
+		s.mutex.Unlock()
+		return nil, gstatus.Error(codes.Aborted, errActiveProfileChanged)
+	}
 	s.config = config
 	if switched {
 		s.jwtCache.clear()
@@ -2981,6 +2996,10 @@ func sendTerminalNotification() error {
 // between Login's first privilege check and the authoritative one.
 var afterLoginPreCheck func()
 
+// afterLoginPrepared is a seam for tests to run a concurrent profile switch
+// between Login's active profile check and installing its config.
+var afterLoginPrepared func()
+
 // authorizeAndPrepareLogin makes the authoritative privilege decision for a login
 // and, when it passes, carries out every state change that decision authorizes:
 // cancelling an login already in progress, switching to the requested profile, and
@@ -3056,7 +3075,7 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 	// SwitchProfile and Up do not hold guardedConfigMu, so the active profile can
 	// have moved off the target.
 	if !s.isActiveProfile(activeProf, target) {
-		return nil, nil, false, gstatus.Error(codes.Aborted, "the active profile changed during login, try again")
+		return nil, nil, false, gstatus.Error(codes.Aborted, errActiveProfileChanged)
 	}
 
 	if err := s.persistLoginOverrides(activeProf, msg); err != nil {
