@@ -74,7 +74,7 @@ Every new flag must be checked against the existing flags of its command. A comb
 - Mention the rule in the help text, for example "Cannot be used with --setup-key".
 - `markFlagRequires` can't be used when the required value may already be saved (`up` settings, `service reconfigure`). Check those in `RunE` after loading the saved values.
 - When the rule depends on a flag's value rather than whether it is set, check it in `RunE`.
-- Groups and requirements are checked after env vars are applied, so a value set through the environment counts.
+- Groups and requirements are checked after env vars are applied. An environment value satisfies a required flag. An environment-set flag does not trigger its own requirement, because `validateFlagRequirements` checks only flags set on the command line.
 
 ## Before opening the PR
 
