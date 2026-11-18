@@ -295,8 +295,15 @@ Once the container is built, you can start developing within the dev container. 
 
 To start NetBird, execute:
 ```
-cd client
-CGO_ENABLED=0 go build .
+./client/build.sh
+```
+
+The build script uses the newest NetBird package version visible through DNF,
+then falls back to the installed RPM version and finally `development`. Override
+the detected version when reproducing a release build:
+
+```
+NETBIRD_VERSION=0.81.3 ./client/build.sh
 ```
 
 > Windows clients have a Wireguard driver requirement. You can download the wintun driver from https://www.wintun.net/builds/wintun-0.14.1.zip, after decompressing, you can copy the file `windtun\bin\ARCH\wintun.dll` to the same path as your binary file or to `C:\Windows\System32\wintun.dll`.

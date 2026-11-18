@@ -23,8 +23,7 @@ func UpdateStaticInfoAsync() {
 	// do nothing
 }
 
-// GetInfo retrieves and parses the system information
-func GetInfo(ctx context.Context) *Info {
+func getInfo(ctx context.Context) *Info {
 	out := _getInfo()
 	for strings.Contains(out, "broken pipe") {
 		out = _getInfo()

@@ -1,6 +1,6 @@
 # build & run locally with:
-#   cd "$(git rev-parse --show-toplevel)"
-#   CGO_ENABLED=0 go build -o netbird ./client
+#   ./client/build.sh
+#   NETBIRD_VERSION=0.81.3 ./client/build.sh
 #   sudo podman build -t localhost/netbird:latest -f client/Dockerfile --ignorefile .dockerignore-client .
 #   sudo podman run --rm -it --cap-add={BPF,NET_ADMIN,NET_RAW} localhost/netbird:latest
 
