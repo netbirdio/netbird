@@ -40,6 +40,7 @@ func (r *family) AddNatRule(pair firewall.RouterPair) error {
 
 	inverse := firewall.GetInversePair(pair)
 	var natExprs, inverseExprs []expr.Any
+	withInverse := pair.Masquerade && !pair.DisableOutboundMasquerade
 	if pair.Masquerade {
 		var err error
 		natExprs, err = r.natRuleExprs(pair)
@@ -48,11 +49,15 @@ func (r *family) AddNatRule(pair firewall.RouterPair) error {
 			return fmt.Errorf("build nat rule: %w", err)
 		}
 
-		inverseExprs, err = r.natRuleExprs(inverse)
-		if err != nil {
-			r.dropNetworkMatch(legacyExprs)
-			r.dropNetworkMatch(natExprs)
-			return fmt.Errorf("build inverse nat rule: %w", err)
+		// The inverse (resource -> client) masquerade is suppressed when the route
+		// governs that direction by policy, so the client sees the real source IP.
+		if withInverse {
+			inverseExprs, err = r.natRuleExprs(inverse)
+			if err != nil {
+				r.dropNetworkMatch(legacyExprs)
+				r.dropNetworkMatch(natExprs)
+				return fmt.Errorf("build inverse nat rule: %w", err)
+			}
 		}
 	}
 
@@ -61,7 +66,9 @@ func (r *family) AddNatRule(pair firewall.RouterPair) error {
 	}
 	if pair.Masquerade {
 		r.queueNatRule(pair, natExprs)
-		r.queueNatRule(inverse, inverseExprs)
+		if withInverse {
+			r.queueNatRule(inverse, inverseExprs)
+		}
 	}
 
 	if err := r.conn.Flush(); err != nil {

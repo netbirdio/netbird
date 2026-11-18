@@ -1366,8 +1366,9 @@ func (a *Account) getNetworkResources(networkID string) []*resourceTypes.Network
 }
 
 // GetPoliciesForNetworkResource retrieves the list of policies that apply to a specific network resource.
-// A policy is deemed applicable if its destination groups include any of the given network resource groups
-// or if its destination resource explicitly matches the provided resource.
+// A policy is applicable if any rule references the resource on either side: as a destination
+// (client -> resource) or as a source (resource -> client), by group membership or by an explicit
+// source/destination resource match.
 func (a *Account) GetPoliciesForNetworkResource(resourceId string) []*Policy {
 	var resourceAppliedPolicies []*Policy
 
@@ -1383,21 +1384,43 @@ func (a *Account) GetPoliciesForNetworkResource(resourceId string) []*Policy {
 				continue
 			}
 
-			if rule.DestinationResource.ID == resourceId {
+			if ruleReferencesResource(rule.Destinations, rule.DestinationResource, resourceId, networkResourceGroups) ||
+				ruleReferencesResource(rule.Sources, rule.SourceResource, resourceId, networkResourceGroups) {
 				resourceAppliedPolicies = append(resourceAppliedPolicies, policy)
 				break
-			}
-
-			for _, group := range networkResourceGroups {
-				if slices.Contains(rule.Destinations, group.ID) {
-					resourceAppliedPolicies = append(resourceAppliedPolicies, policy)
-					break
-				}
 			}
 		}
 	}
 
 	return resourceAppliedPolicies
+}
+
+// resourceIsPolicySource reports whether the network resource acts as the source
+// (resource -> client direction) in the given policy.
+func (a *Account) resourceIsPolicySource(resourceID string, resourceGroups []*Group, policy *Policy) bool {
+	for _, rule := range policy.Rules {
+		if rule == nil || !rule.Enabled {
+			continue
+		}
+		if ruleReferencesResource(rule.Sources, rule.SourceResource, resourceID, resourceGroups) {
+			return true
+		}
+	}
+	return false
+}
+
+// ruleReferencesResource reports whether one side of a rule (its groups plus its
+// explicit resource) references the given network resource.
+func ruleReferencesResource(groups []string, resource Resource, resourceId string, resourceGroups []*Group) bool {
+	if resource.ID == resourceId {
+		return true
+	}
+	for _, group := range resourceGroups {
+		if slices.Contains(groups, group.ID) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Account) GetPoliciesAppliedInNetwork(networkID string) []string {

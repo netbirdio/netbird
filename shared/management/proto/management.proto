@@ -618,6 +618,11 @@ message Route {
   repeated string Domains = 8;
   bool keepRoute = 9;
   bool skipAutoApply = 10;
+
+  // disableOutboundMasquerade suppresses the inverse (resource -> client)
+  // masquerade on the routing peer so the destination client sees the real
+  // resource source IP. Set when a resource -> client policy is in effect.
+  bool disableOutboundMasquerade = 11;
 }
 
 // DNSConfig represents a dns.Update
@@ -781,6 +786,12 @@ message RouteFirewallRule {
 
   // RouteID is the ID of the route that this rule belongs to
   string RouteID = 10;
+
+  // resourceIsSource reports that the routed resource is the source of the
+  // traffic and sourceRanges carries the destination peer ranges. When set the
+  // client builds the rule with the resource network as source and the peer
+  // ranges as destination (resource -> client direction).
+  bool resourceIsSource = 11;
 }
 
 // ForwardingRule is unused; the ingress port-forwarding feature was discontinued.

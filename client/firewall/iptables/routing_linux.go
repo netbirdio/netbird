@@ -27,8 +27,12 @@ func (r *family) AddNatRule(pair firewall.RouterPair) error {
 			return fmt.Errorf("add nat rule: %w", err)
 		}
 
-		if err := r.addNatRule(firewall.GetInversePair(pair)); err != nil {
-			return fmt.Errorf("add inverse nat rule: %w", err)
+		// The inverse (resource -> client) masquerade is suppressed when the route
+		// governs that direction by policy, so the client sees the real source IP.
+		if !pair.DisableOutboundMasquerade {
+			if err := r.addNatRule(firewall.GetInversePair(pair)); err != nil {
+				return fmt.Errorf("add inverse nat rule: %w", err)
+			}
 		}
 	}
 

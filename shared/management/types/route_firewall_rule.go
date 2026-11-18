@@ -1,6 +1,8 @@
 package types
 
 import (
+	"slices"
+
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
@@ -36,6 +38,11 @@ type RouteFirewallRule struct {
 
 	// isDynamic indicates whether the rule is for DNS routing
 	IsDynamic bool
+
+	// ResourceIsSource reports that the routed resource is the source of the
+	// traffic and SourceRanges carries the destination peer ranges
+	// (resource -> client direction).
+	ResourceIsSource bool
 }
 
 func (r *RouteFirewallRule) Equal(other *RouteFirewallRule) bool {
@@ -58,6 +65,12 @@ func (r *RouteFirewallRule) Equal(other *RouteFirewallRule) bool {
 		return false
 	}
 	if r.IsDynamic != other.IsDynamic {
+		return false
+	}
+	if r.ResourceIsSource != other.ResourceIsSource {
+		return false
+	}
+	if !slices.Equal(r.SourceRanges, other.SourceRanges) {
 		return false
 	}
 	return true

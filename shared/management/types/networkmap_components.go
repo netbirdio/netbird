@@ -36,6 +36,12 @@ type NetworkMapComponents struct {
 	RoutersMap          map[string]map[string]*nmdata.NetworkRouter
 	NetworkResources    []*nmdata.NetworkResource
 
+	// ResourceSourcePolicies maps a network resource ID to the set of policy IDs
+	// in which the resource acts as the SOURCE (resource -> client direction). A
+	// subset of ResourcePoliciesMap, computed at account level where group
+	// membership is available.
+	ResourceSourcePolicies map[string]map[string]struct{}
+
 	GroupIDToUserIDs   map[string][]string
 	AllowedUserIDs     map[string]struct{}
 	PostureFailedPeers map[string]map[string]struct{}
@@ -101,6 +107,37 @@ func (c *NetworkMapComponents) GetGroupInfo(groupID string) *nmdata.Group {
 	return c.Groups[groupID]
 }
 
+// resourceHasReverseDirection reports whether any applicable policy allows the
+// resource -> client direction: the resource is a source, or a rule is
+// bidirectional. It gates suppression of the inverse masquerade on the route.
+func (c *NetworkMapComponents) resourceHasReverseDirection(resourceID string) bool {
+	for _, policy := range c.ResourcePoliciesMap[resourceID] {
+		if policy == nil || !policy.Enabled {
+			continue
+		}
+		if c.resourceIsPolicySource(resourceID, policy.ID) {
+			return true
+		}
+		for _, rule := range policy.Rules {
+			if rule != nil && rule.Enabled && rule.Bidirectional {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// resourceIsPolicySource reports whether the network resource acts as the source
+// (resource -> client direction) in the given policy.
+func (c *NetworkMapComponents) resourceIsPolicySource(resourceID, policyID string) bool {
+	pols, ok := c.ResourceSourcePolicies[resourceID]
+	if !ok {
+		return false
+	}
+	_, found := pols[policyID]
+	return found
+}
+
 func (c *NetworkMapComponents) IsPeerInGroup(peerID, groupID string) bool {
 	group := c.GetGroupInfo(groupID)
 	if group == nil {
@@ -148,6 +185,10 @@ func (c *NetworkMapComponents) Calculate(ctx context.Context) *NetworkMap {
 	peerGroups := c.GetPeerGroups(targetPeerID)
 
 	aclPeers, firewallRules, authorizedUsers, sshEnabled := c.getPeerConnectionResources(targetPeerID)
+
+	// Input-chain rules letting this peer accept connections initiated by a
+	// network resource (resource -> client).
+	firewallRules = append(firewallRules, c.getResourceSourceInboundRules(c.GetPeerInfo(targetPeerID))...)
 
 	peersToConnect, expiredPeers := c.filterPeersByLoginExpiration(aclPeers)
 
@@ -655,7 +696,7 @@ func (c *NetworkMapComponents) getPeerRoutesFirewallRules(ctx context.Context, p
 
 		for _, accessGroup := range r.AccessControlGroups {
 			policies := c.getAllRoutePoliciesFromGroups([]string{accessGroup})
-			rules := c.getRouteFirewallRules(ctx, peerID, policies, r, distributionPeers, includeIPv6)
+			rules := c.getRouteFirewallRules(ctx, peerID, "", policies, r, distributionPeers, includeIPv6)
 			routesFirewallRules = append(routesFirewallRules, rules...)
 		}
 	}
@@ -735,7 +776,12 @@ func (c *NetworkMapComponents) getAllRoutePoliciesFromGroups(accessControlGroups
 	return routePolicies
 }
 
-func (c *NetworkMapComponents) getRouteFirewallRules(ctx context.Context, peerID string, policies []*nmdata.Policy, route *nmdata.Route, distributionPeers map[string]struct{}, includeIPv6 bool) []*RouteFirewallRule {
+// getRouteFirewallRules builds the forward-chain rules for a route. For a plain
+// route (resourceID empty) it emits the existing client -> network direction. For
+// a network resource it emits the client -> resource direction when the resource
+// is a destination, and the resource -> client direction (ResourceIsSource) when
+// the resource is a source. A bidirectional rule emits both.
+func (c *NetworkMapComponents) getRouteFirewallRules(ctx context.Context, peerID, resourceID string, policies []*nmdata.Policy, route *nmdata.Route, distributionPeers map[string]struct{}, includeIPv6 bool) []*RouteFirewallRule {
 	var fwRules []*RouteFirewallRule
 	for _, policy := range policies {
 		if policy == nil || !policy.Enabled {
@@ -747,17 +793,53 @@ func (c *NetworkMapComponents) getRouteFirewallRules(ctx context.Context, peerID
 				continue
 			}
 
-			rulePeers := c.getRulePeers(rule, policy.SourcePostureChecks, peerID, distributionPeers)
-			rules := GenerateRouteFirewallRules(ctx, route, rule, rulePeers, FirewallRuleDirectionIN, includeIPv6)
-			fwRules = append(fwRules, rules...)
+			resourceIsSrc := resourceID != "" && c.resourceIsPolicySource(resourceID, policy.ID)
+
+			// Forward (client -> resource / peer -> network). Clients are the
+			// policy sources, or the destinations when the resource is a source
+			// and the rule is bidirectional. Skipped when the resource is purely
+			// a source.
+			if resourceID == "" || !resourceIsSrc || rule.Bidirectional {
+				var fwdPeers []*nmdata.Peer
+				if resourceIsSrc {
+					fwdPeers = c.getRulePeers(rule, true, nil, peerID, distributionPeers)
+				} else {
+					fwdPeers = c.getRulePeers(rule, false, policy.SourcePostureChecks, peerID, distributionPeers)
+				}
+				fwRules = append(fwRules, generateRouteFirewallRules(ctx, route, rule, fwdPeers, false, includeIPv6)...)
+			}
+
+			// Reverse (resource -> client) applies to network resources only.
+			// Clients are the policy destinations when the resource is a source,
+			// or the policy sources for a bidirectional destination resource.
+			if resourceID != "" && (resourceIsSrc || rule.Bidirectional) {
+				var revPeers []*nmdata.Peer
+				if resourceIsSrc {
+					revPeers = c.getRulePeers(rule, true, nil, peerID, distributionPeers)
+				} else {
+					revPeers = c.getRulePeers(rule, false, policy.SourcePostureChecks, peerID, distributionPeers)
+				}
+				fwRules = append(fwRules, generateRouteFirewallRules(ctx, route, rule, revPeers, true, includeIPv6)...)
+			}
 		}
 	}
 	return fwRules
 }
 
-func (c *NetworkMapComponents) getRulePeers(rule *nmdata.PolicyRule, postureChecks []string, peerID string, distributionPeers map[string]struct{}) []*nmdata.Peer {
+// getRulePeers collects the distribution peers referenced on one side of a rule.
+// fromDestinations selects the destination side (resource -> client); otherwise
+// the source side (client -> resource). Posture checks are applied as passed; the
+// caller passes nil for the destination side, where the initiator is the resource.
+func (c *NetworkMapComponents) getRulePeers(rule *nmdata.PolicyRule, fromDestinations bool, postureChecks []string, peerID string, distributionPeers map[string]struct{}) []*nmdata.Peer {
+	groups := rule.Sources
+	resource := rule.SourceResource
+	if fromDestinations {
+		groups = rule.Destinations
+		resource = rule.DestinationResource
+	}
+
 	distPeersWithPolicy := make(map[string]struct{})
-	for _, id := range rule.Sources {
+	for _, id := range groups {
 		group := c.GetGroupInfo(id)
 		if group == nil {
 			continue
@@ -774,11 +856,11 @@ func (c *NetworkMapComponents) getRulePeers(rule *nmdata.PolicyRule, postureChec
 			}
 		}
 	}
-	if rule.SourceResource.Type == string(ResourceTypePeer) && rule.SourceResource.ID != "" {
-		_, distPeer := distributionPeers[rule.SourceResource.ID]
-		_, valid := c.Peers[rule.SourceResource.ID]
-		if distPeer && valid && c.ValidatePostureChecksOnPeer(rule.SourceResource.ID, postureChecks) {
-			distPeersWithPolicy[rule.SourceResource.ID] = struct{}{}
+	if resource.Type == string(ResourceTypePeer) && resource.ID != "" {
+		_, distPeer := distributionPeers[resource.ID]
+		_, valid := c.Peers[resource.ID]
+		if distPeer && valid && c.ValidatePostureChecksOnPeer(resource.ID, postureChecks) {
+			distPeersWithPolicy[resource.ID] = struct{}{}
 		}
 	}
 
@@ -833,15 +915,25 @@ func (c *NetworkMapComponents) processResourcePolicies(
 		if policy == nil || !policy.Enabled || len(policy.Rules) == 0 || policy.Rules[0] == nil {
 			continue
 		}
-		peers := c.getResourcePolicyPeers(policy)
+		// The peers that need the resource route are on the side opposite the
+		// resource: the policy sources (client -> resource) or, when the resource
+		// is a source, the policy destinations (resource -> client). A source
+		// resource has no posture (the initiator is the resource, not a peer).
+		isSource := c.resourceIsPolicySource(resource.ID, policy.ID)
+		postureChecks := policy.SourcePostureChecks
+		if isSource {
+			postureChecks = nil
+		}
+
+		peers := c.getResourcePolicyPeers(policy, isSource)
 		if addSourcePeers {
-			for _, pID := range c.getPostureValidPeers(peers, policy.SourcePostureChecks) {
+			for _, pID := range c.getPostureValidPeers(peers, postureChecks) {
 				allSourcePeers[pID] = struct{}{}
 			}
 			continue
 		}
 
-		if slices.Contains(peers, peerID) && c.ValidatePostureChecksOnPeer(peerID, policy.SourcePostureChecks) {
+		if slices.Contains(peers, peerID) && c.ValidatePostureChecksOnPeer(peerID, postureChecks) {
 			for peerId, router := range networkRoutingPeers {
 				routes = append(routes, c.getNetworkResourcesRoutes(resource, peerId, router)...)
 			}
@@ -852,7 +944,16 @@ func (c *NetworkMapComponents) processResourcePolicies(
 	return routes
 }
 
-func (c *NetworkMapComponents) getResourcePolicyPeers(policy *nmdata.Policy) []string {
+// getResourcePolicyPeers returns the client peers of a resource policy: the policy
+// sources for a destination resource, or the policy destinations when the resource
+// is a source (resource -> client).
+func (c *NetworkMapComponents) getResourcePolicyPeers(policy *nmdata.Policy, resourceIsSource bool) []string {
+	if resourceIsSource {
+		if policy.Rules[0].DestinationResource.Type == string(ResourceTypePeer) && policy.Rules[0].DestinationResource.ID != "" {
+			return []string{policy.Rules[0].DestinationResource.ID}
+		}
+		return c.getUniquePeerIDsFromGroupsIDs(policy.DestinationGroups())
+	}
 	if policy.Rules[0].SourceResource.Type == string(ResourceTypePeer) && policy.Rules[0].SourceResource.ID != "" {
 		return []string{policy.Rules[0].SourceResource.ID}
 	}
@@ -875,16 +976,17 @@ func (c *NetworkMapComponents) getNetworkResourcesRoutes(resource *nmdata.Networ
 
 func (c *NetworkMapComponents) networkResourceToRoute(resource *nmdata.NetworkResource, peer *nmdata.Peer, router *nmdata.NetworkRouter) *nmdata.Route {
 	r := &nmdata.Route{
-		ID:          resource.ID + ":" + peer.ID,
-		AccountID:   resource.AccountID,
-		Peer:        peer.Key,
-		PeerID:      peer.ID,
-		Metric:      router.Metric,
-		Masquerade:  router.Masquerade,
-		Enabled:     resource.Enabled,
-		KeepRoute:   true,
-		NetID:       resource.Name,
-		Description: resource.Description,
+		ID:                        resource.ID + ":" + peer.ID,
+		AccountID:                 resource.AccountID,
+		Peer:                      peer.Key,
+		PeerID:                    peer.ID,
+		Metric:                    router.Metric,
+		Masquerade:                router.Masquerade,
+		DisableOutboundMasquerade: c.resourceHasReverseDirection(resource.ID),
+		Enabled:                   resource.Enabled,
+		KeepRoute:                 true,
+		NetID:                     resource.Name,
+		Description:               resource.Description,
 	}
 
 	if resource.Type == string(ResourceTypeHost) || resource.Type == string(ResourceTypeSubnet) {
@@ -933,9 +1035,9 @@ func (c *NetworkMapComponents) getPeerNetworkResourceFirewallRules(ctx context.C
 
 		resourceID := string(r.GetResourceID())
 		resourcePolicies := c.ResourcePoliciesMap[resourceID]
-		distributionPeers := c.getPoliciesSourcePeers(resourcePolicies)
+		distributionPeers := c.getPoliciesDistributionPeers(resourcePolicies)
 
-		rules := c.getRouteFirewallRules(ctx, peerID, resourcePolicies, r, distributionPeers, includeIPv6)
+		rules := c.getRouteFirewallRules(ctx, peerID, resourceID, resourcePolicies, r, distributionPeers, includeIPv6)
 		for _, rule := range rules {
 			if len(rule.SourceRanges) > 0 {
 				routesFirewallRules = append(routesFirewallRules, rule)
@@ -946,8 +1048,125 @@ func (c *NetworkMapComponents) getPeerNetworkResourceFirewallRules(ctx context.C
 	return routesFirewallRules
 }
 
-func (c *NetworkMapComponents) getPoliciesSourcePeers(policies []*nmdata.Policy) map[string]struct{} {
-	sourcePeers := make(map[string]struct{})
+// getResourceSourceInboundRules builds the input-chain rules that let the target
+// peer accept connections initiated by a network resource (resource -> client).
+// The source is the resource CIDR. Only host/subnet resources are supported;
+// domain resources resolve dynamically and cannot be a stable source.
+func (c *NetworkMapComponents) getResourceSourceInboundRules(targetPeer *nmdata.Peer) []*FirewallRule {
+	if targetPeer == nil {
+		return nil
+	}
+
+	var rules []*FirewallRule
+	seen := make(map[string]struct{})
+
+	for _, resource := range c.NetworkResources {
+		if resource == nil || !resource.Enabled {
+			continue
+		}
+		if resource.Type != string(ResourceTypeHost) && resource.Type != string(ResourceTypeSubnet) {
+			continue
+		}
+		if !resource.Prefix.IsValid() {
+			continue
+		}
+
+		for _, policy := range c.ResourcePoliciesMap[resource.ID] {
+			if policy == nil || !policy.Enabled {
+				continue
+			}
+			onSource := c.resourceIsPolicySource(resource.ID, policy.ID)
+
+			for _, rule := range policy.Rules {
+				if rule == nil || !rule.Enabled {
+					continue
+				}
+				// The resource reaches the target only when it acts as a source
+				// (a source rule, or a bidirectional one).
+				if !onSource && !rule.Bidirectional {
+					continue
+				}
+				// The receiving clients sit opposite the resource: the rule
+				// destinations when the resource is a source, otherwise the sources.
+				if !c.peerInRuleSide(targetPeer.ID, rule, onSource) {
+					continue
+				}
+
+				protocol := rule.Protocol
+				if protocol == string(PolicyRuleProtocolNetbirdSSH) {
+					protocol = string(PolicyRuleProtocolTCP)
+				}
+				base := FirewallRule{
+					PolicyID:     rule.ID,
+					Direction:    FirewallRuleDirectionIN,
+					Action:       rule.Action,
+					Protocol:     protocol,
+					SourcePrefix: resource.Prefix.Masked(),
+				}
+
+				expanded := []*FirewallRule{&base}
+				if len(rule.Ports) > 0 || len(rule.PortRanges) > 0 {
+					expanded = ExpandPortsAndRanges(base, rule, targetPeer)
+				}
+				for _, fr := range expanded {
+					key := fr.SourcePrefix.String() + fr.Protocol + fr.Action + fr.Port +
+						strconv.Itoa(int(fr.PortRange.Start)) + "-" + strconv.Itoa(int(fr.PortRange.End))
+					if _, ok := seen[key]; ok {
+						continue
+					}
+					seen[key] = struct{}{}
+					rules = append(rules, fr)
+				}
+			}
+		}
+	}
+
+	return rules
+}
+
+// peerInRuleSide reports whether the peer is referenced on one side of a rule:
+// the destinations when sideDestinations is true, otherwise the sources.
+func (c *NetworkMapComponents) peerInRuleSide(peerID string, rule *nmdata.PolicyRule, sideDestinations bool) bool {
+	groups := rule.Sources
+	resource := rule.SourceResource
+	if sideDestinations {
+		groups = rule.Destinations
+		resource = rule.DestinationResource
+	}
+
+	if resource.Type == string(ResourceTypePeer) && resource.ID == peerID {
+		return true
+	}
+	for _, gid := range groups {
+		if c.IsPeerInGroup(peerID, gid) {
+			return true
+		}
+	}
+	return false
+}
+
+// getPoliciesDistributionPeers gathers the candidate peers for a resource's route
+// firewall rules from both sides of every rule. getRulePeers later intersects this
+// set with the correct side per direction. Both sides are needed because the
+// client peers live on the source side (client -> resource) or the destination
+// side (resource -> client).
+func (c *NetworkMapComponents) getPoliciesDistributionPeers(policies []*nmdata.Policy) map[string]struct{} {
+	distPeers := make(map[string]struct{})
+
+	collect := func(groups []string, resource nmdata.Resource) {
+		for _, groupID := range groups {
+			group := c.GetGroupInfo(groupID)
+			if group == nil {
+				continue
+			}
+			for _, peer := range group.Peers {
+				distPeers[peer] = struct{}{}
+			}
+		}
+		if resource.Type == string(ResourceTypePeer) && resource.ID != "" {
+			distPeers[resource.ID] = struct{}{}
+		}
+	}
 
 	for _, policy := range policies {
 		if policy == nil {
@@ -957,24 +1176,12 @@ func (c *NetworkMapComponents) getPoliciesSourcePeers(policies []*nmdata.Policy)
 			if rule == nil {
 				continue
 			}
-			for _, sourceGroup := range rule.Sources {
-				group := c.GetGroupInfo(sourceGroup)
-				if group == nil {
-					continue
-				}
-
-				for _, peer := range group.Peers {
-					sourcePeers[peer] = struct{}{}
-				}
-			}
-
-			if rule.SourceResource.Type == string(ResourceTypePeer) && rule.SourceResource.ID != "" {
-				sourcePeers[rule.SourceResource.ID] = struct{}{}
-			}
+			collect(rule.Sources, rule.SourceResource)
+			collect(rule.Destinations, rule.DestinationResource)
 		}
 	}
 
-	return sourcePeers
+	return distPeers
 }
 
 func (c *NetworkMapComponents) addNetworksRoutingPeers(

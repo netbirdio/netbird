@@ -38,6 +38,9 @@ type Route struct {
 	Groups              []string
 	AccessControlGroups []string
 	SkipAutoApply       bool
+	// DisableOutboundMasquerade suppresses the inverse (resource -> client)
+	// masquerade so the destination client sees the real resource source IP.
+	DisableOutboundMasquerade bool
 }
 
 func (r *Route) Equal(other *Route) bool {
@@ -62,7 +65,8 @@ func (r *Route) Equal(other *Route) bool {
 		slices.Equal(r.Groups, other.Groups) &&
 		slices.Equal(r.PeerGroups, other.PeerGroups) &&
 		slices.Equal(r.AccessControlGroups, other.AccessControlGroups) &&
-		other.SkipAutoApply == r.SkipAutoApply
+		other.SkipAutoApply == r.SkipAutoApply &&
+		other.DisableOutboundMasquerade == r.DisableOutboundMasquerade
 }
 
 func (r *Route) IsDynamic() bool {

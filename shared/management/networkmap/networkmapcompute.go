@@ -1,6 +1,8 @@
 package networkmap
 
 import (
+	"slices"
+
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/types"
 )
@@ -46,6 +48,7 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 		CustomZoneDomain:              peersCustomZone.Domain,
 		NameServerGroups:              make([]*nmdata.NameServerGroup, 0),
 		ResourcePoliciesMap:           make(map[string][]*nmdata.Policy),
+		ResourceSourcePolicies:        make(map[string]map[string]struct{}),
 		RoutersMap:                    make(map[string]map[string]*nmdata.NetworkRouter),
 		NetworkResources:              make([]*nmdata.NetworkResource, 0),
 		PostureFailedPeers:            make(map[string]map[string]struct{}, len(nmd.PostureChecks)),
@@ -85,7 +88,7 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 		}
 	}
 
-	seenSourcePolicies := make(map[*nmdata.Policy]struct{})
+	seenClientSides := make(map[clientSide]struct{})
 	var sourceFailures []map[string]map[string]struct{}
 	for _, resource := range nmd.NetworkResources {
 		if resource == nil || !resource.Enabled {
@@ -106,33 +109,51 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 			}
 		}
 
+		resourceGroups := nmd.getNetworkResourceGroups(resource.ID)
+
 		for _, policy := range policies {
 			if policy == nil || !policy.Enabled || len(policy.Rules) == 0 || policy.Rules[0] == nil {
 				continue
 			}
+
+			// The client side is opposite the resource: for a destination resource
+			// (client -> resource) the clients are the policy sources; for a source
+			// resource (resource -> client) they are the policy destinations. Source
+			// resources have no posture (the initiator is the resource, not a peer).
+			isSource := resourceIsPolicySource(resource.ID, resourceGroups, policy)
+			clientGroups := policy.SourceGroups()
+			clientResource := policy.Rules[0].SourceResource
+			clientPostureChecks := policy.SourcePostureChecks
+			if isSource {
+				clientGroups = policy.DestinationGroups()
+				clientResource = policy.Rules[0].DestinationResource
+				clientPostureChecks = nil
+			}
+
 			if addSourcePeers {
-				if _, seen := seenSourcePolicies[policy]; !seen {
-					seenSourcePolicies[policy] = struct{}{}
-					sources := nmd.resourcePolicySources(policy)
-					nmd.mergeSourcePeers(components, sources)
-					sourceFailures = append(sourceFailures, sources.failed)
+				key := clientSide{policy: policy, resourceIsSource: isSource}
+				if _, seen := seenClientSides[key]; !seen {
+					seenClientSides[key] = struct{}{}
+					clients := nmd.resourcePolicyClients(policy, isSource)
+					nmd.mergeSourcePeers(components, clients)
+					sourceFailures = append(sourceFailures, clients.failed)
 				}
 			} else {
-				peerInSources := false
-				if policy.Rules[0].SourceResource.Type == string(types.ResourceTypePeer) && policy.Rules[0].SourceResource.ID != "" {
-					peerInSources = policy.Rules[0].SourceResource.ID == peerID
+				peerIsClient := false
+				if clientResource.Type == string(types.ResourceTypePeer) && clientResource.ID != "" {
+					peerIsClient = clientResource.ID == peerID
 				} else {
-					for _, groupID := range policy.SourceGroups() {
+					for _, groupID := range clientGroups {
 						if _, ok := peerGroups[groupID]; ok {
-							peerInSources = true
+							peerIsClient = true
 							break
 						}
 					}
 				}
-				if !peerInSources {
+				if !peerIsClient {
 					continue
 				}
-				isValid, pname := nmd.validatePostureChecksOnPeerGetFailed(policy.SourcePostureChecks, peerID)
+				isValid, pname := nmd.validatePostureChecksOnPeerGetFailed(clientPostureChecks, peerID)
 				if !isValid && len(pname) > 0 {
 					if _, ok := components.PostureFailedPeers[pname]; !ok {
 						components.PostureFailedPeers[pname] = make(map[string]struct{})
@@ -141,6 +162,13 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 					continue
 				}
 				addSourcePeers = true
+			}
+
+			if isSource {
+				if components.ResourceSourcePolicies[resource.ID] == nil {
+					components.ResourceSourcePolicies[resource.ID] = make(map[string]struct{})
+				}
+				components.ResourceSourcePolicies[resource.ID][policy.ID] = struct{}{}
 			}
 
 			for _, rule := range policy.Rules {
@@ -193,6 +221,39 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 	nmd.collectPostureFailedPeers(components, sourceFailures)
 
 	return components
+}
+
+// getNetworkResourceGroups returns the IDs of the groups that contain the network resource.
+func (nmd *NetworkMapData) getNetworkResourceGroups(resourceID string) []string {
+	return nmd.admissions().resourceGroups[resourceID]
+}
+
+// resourceIsPolicySource reports whether the network resource acts as the source
+// (resource -> client direction) in the given policy.
+func resourceIsPolicySource(resourceID string, resourceGroups []string, policy *nmdata.Policy) bool {
+	for _, rule := range policy.Rules {
+		if rule == nil || !rule.Enabled {
+			continue
+		}
+		if ruleReferencesResource(rule.Sources, rule.SourceResource, resourceID, resourceGroups) {
+			return true
+		}
+	}
+	return false
+}
+
+// ruleReferencesResource reports whether one side of a rule (its groups plus its
+// explicit resource) references the given network resource.
+func ruleReferencesResource(groups []string, resource nmdata.Resource, resourceID string, resourceGroups []string) bool {
+	if resource.ID == resourceID {
+		return true
+	}
+	for _, groupID := range resourceGroups {
+		if slices.Contains(groups, groupID) {
+			return true
+		}
+	}
+	return false
 }
 
 func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(

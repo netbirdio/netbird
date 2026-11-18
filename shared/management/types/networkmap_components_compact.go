@@ -21,14 +21,15 @@ type NetworkMapComponentsCompact struct {
 	PeerIndexes       []int
 	RouterPeerIndexes []int
 
-	Groups              map[string]*GroupCompact
-	AllPolicies         []*nmdata.Policy
-	PolicyIndexes       []int
-	ResourcePoliciesMap map[string][]int
-	Routes              []*nmdata.Route
-	NameServerGroups    []*nmdata.NameServerGroup
-	AllDNSRecords       []nmdata.SimpleRecord
-	AccountZones        []nmdata.CustomZone
+	Groups                 map[string]*GroupCompact
+	AllPolicies            []*nmdata.Policy
+	PolicyIndexes          []int
+	ResourcePoliciesMap    map[string][]int
+	ResourceSourcePolicies map[string][]string
+	Routes                 []*nmdata.Route
+	NameServerGroups       []*nmdata.NameServerGroup
+	AllDNSRecords          []nmdata.SimpleRecord
+	AccountZones           []nmdata.CustomZone
 
 	RoutersMap       map[string]map[string]*nmdata.NetworkRouter
 	NetworkResources []*nmdata.NetworkResource
@@ -127,14 +128,15 @@ func (c *NetworkMapComponents) ToCompact() *NetworkMapComponentsCompact {
 		PeerIndexes:       peerIndexes,
 		RouterPeerIndexes: routerPeerIndexes,
 
-		Groups:              groups,
-		AllPolicies:         allPolicies,
-		PolicyIndexes:       policyIndexes,
-		ResourcePoliciesMap: resourcePoliciesMap,
-		Routes:              c.Routes,
-		NameServerGroups:    c.NameServerGroups,
-		AllDNSRecords:       c.AllDNSRecords,
-		AccountZones:        c.AccountZones,
+		Groups:                 groups,
+		AllPolicies:            allPolicies,
+		PolicyIndexes:          policyIndexes,
+		ResourcePoliciesMap:    resourcePoliciesMap,
+		ResourceSourcePolicies: resourceSourcePoliciesToCompact(c.ResourceSourcePolicies),
+		Routes:                 c.Routes,
+		NameServerGroups:       c.NameServerGroups,
+		AllDNSRecords:          c.AllDNSRecords,
+		AccountZones:           c.AccountZones,
 
 		RoutersMap:       c.RoutersMap,
 		NetworkResources: c.NetworkResources,
@@ -214,12 +216,40 @@ func (c *NetworkMapComponentsCompact) ToFull() *NetworkMapComponents {
 		AllDNSRecords:    c.AllDNSRecords,
 		AccountZones:     c.AccountZones,
 
-		ResourcePoliciesMap: resourcePoliciesMap,
-		RoutersMap:          c.RoutersMap,
-		NetworkResources:    c.NetworkResources,
+		ResourcePoliciesMap:    resourcePoliciesMap,
+		ResourceSourcePolicies: resourceSourcePoliciesFromCompact(c.ResourceSourcePolicies),
+		RoutersMap:             c.RoutersMap,
+		NetworkResources:       c.NetworkResources,
 
 		GroupIDToUserIDs:   c.GroupIDToUserIDs,
 		AllowedUserIDs:     c.AllowedUserIDs,
 		PostureFailedPeers: c.PostureFailedPeers,
 	}
+}
+
+func resourceSourcePoliciesToCompact(in map[string]map[string]struct{}) map[string][]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(in))
+	for resID, policyIDs := range in {
+		ids := make([]string, 0, len(policyIDs))
+		for policyID := range policyIDs {
+			ids = append(ids, policyID)
+		}
+		out[resID] = ids
+	}
+	return out
+}
+
+func resourceSourcePoliciesFromCompact(in map[string][]string) map[string]map[string]struct{} {
+	out := make(map[string]map[string]struct{}, len(in))
+	for resID, policyIDs := range in {
+		set := make(map[string]struct{}, len(policyIDs))
+		for _, policyID := range policyIDs {
+			set[policyID] = struct{}{}
+		}
+		out[resID] = set
+	}
+	return out
 }

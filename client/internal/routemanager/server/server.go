@@ -166,11 +166,12 @@ func routeToRouterPair(route *route.Route, useNewDNSRoute bool) firewall.RouterP
 	}
 
 	return firewall.RouterPair{
-		ID:          route.ID,
-		Source:      source,
-		Destination: destination,
-		Masquerade:  route.Masquerade,
-		Dynamic:     route.IsDynamic(),
+		ID:                        route.ID,
+		Source:                    source,
+		Destination:               destination,
+		Masquerade:                route.Masquerade,
+		DisableOutboundMasquerade: route.DisableOutboundMasquerade,
+		Dynamic:                   route.IsDynamic(),
 	}
 }
 

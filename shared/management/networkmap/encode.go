@@ -40,16 +40,17 @@ func ToProtocolRoutes(routes []*nmdata.Route) []*proto.Route {
 // ToProtocolRoute converts one typed route to its proto form.
 func ToProtocolRoute(route *nmdata.Route) *proto.Route {
 	return &proto.Route{
-		ID:            string(route.ID),
-		NetID:         string(route.NetID),
-		Network:       route.Network.String(),
-		Domains:       route.Domains.ToPunycodeList(),
-		NetworkType:   int64(route.NetworkType),
-		Peer:          route.Peer,
-		Metric:        int64(route.Metric),
-		Masquerade:    route.Masquerade,
-		KeepRoute:     route.KeepRoute,
-		SkipAutoApply: route.SkipAutoApply,
+		ID:                        string(route.ID),
+		NetID:                     string(route.NetID),
+		Network:                   route.Network.String(),
+		Domains:                   route.Domains.ToPunycodeList(),
+		NetworkType:               int64(route.NetworkType),
+		Peer:                      route.Peer,
+		Metric:                    int64(route.Metric),
+		Masquerade:                route.Masquerade,
+		KeepRoute:                 route.KeepRoute,
+		SkipAutoApply:             route.SkipAutoApply,
+		DisableOutboundMasquerade: route.DisableOutboundMasquerade,
 	}
 }
 
@@ -62,6 +63,13 @@ func ToProtocolFirewallRules(rules []*types.FirewallRule, includeIPv6, useSource
 	result := make([]*proto.FirewallRule, 0, len(rules))
 	for i := range rules {
 		rule := rules[i]
+
+		if rule.SourcePrefix.IsValid() {
+			if fwRule := toProtocolPrefixSourceRule(rule, includeIPv6, useSourcePrefixes); fwRule != nil {
+				result = append(result, fwRule)
+			}
+			continue
+		}
 
 		fwRule := &proto.FirewallRule{
 			PolicyID:  []byte(rule.PolicyID),
@@ -83,6 +91,38 @@ func ToProtocolFirewallRules(rules []*types.FirewallRule, includeIPv6, useSource
 		result = append(result, fwRule)
 	}
 	return result
+}
+
+// toProtocolPrefixSourceRule encodes a rule whose source is a CIDR prefix (a
+// network resource acting as a source). It is only representable via the compact
+// SourcePrefixes field, so it is dropped for clients that cannot read them and for
+// a v6 source when the peer has no IPv6.
+func toProtocolPrefixSourceRule(rule *types.FirewallRule, includeIPv6, useSourcePrefixes bool) *proto.FirewallRule {
+	if !useSourcePrefixes {
+		return nil
+	}
+	prefix := rule.SourcePrefix.Masked()
+	if prefix.Addr().Is6() && !includeIPv6 {
+		return nil
+	}
+	encoded, err := netiputil.EncodePrefix(prefix)
+	if err != nil {
+		log.Warnf("encode source prefix %s: %v", prefix, err)
+		return nil
+	}
+
+	fwRule := &proto.FirewallRule{
+		PolicyID:       []byte(rule.PolicyID),
+		Direction:      GetProtoDirection(rule.Direction),
+		Action:         GetProtoAction(rule.Action),
+		Protocol:       GetProtoProtocol(rule.Protocol),
+		Port:           rule.Port,
+		SourcePrefixes: [][]byte{encoded},
+	}
+	if ShouldUsePortRange(fwRule) {
+		fwRule.PortInfo = rule.PortRange.ToProto()
+	}
+	return fwRule
 }
 
 // populateSourcePrefixes sets SourcePrefixes on fwRule and returns any
@@ -179,15 +219,16 @@ func ToProtocolRoutesFirewallRules(rules []*types.RouteFirewallRule) []*proto.Ro
 	for i := range rules {
 		rule := rules[i]
 		result[i] = &proto.RouteFirewallRule{
-			SourceRanges: rule.SourceRanges,
-			Action:       GetProtoAction(rule.Action),
-			Destination:  rule.Destination,
-			Protocol:     GetProtoProtocol(rule.Protocol),
-			PortInfo:     GetProtoPortInfo(rule),
-			IsDynamic:    rule.IsDynamic,
-			Domains:      rule.Domains.ToPunycodeList(),
-			PolicyID:     []byte(rule.PolicyID),
-			RouteID:      string(rule.RouteID),
+			SourceRanges:     rule.SourceRanges,
+			Action:           GetProtoAction(rule.Action),
+			Destination:      rule.Destination,
+			Protocol:         GetProtoProtocol(rule.Protocol),
+			PortInfo:         GetProtoPortInfo(rule),
+			IsDynamic:        rule.IsDynamic,
+			Domains:          rule.Domains.ToPunycodeList(),
+			PolicyID:         []byte(rule.PolicyID),
+			RouteID:          string(rule.RouteID),
+			ResourceIsSource: rule.ResourceIsSource,
 		}
 	}
 	return result

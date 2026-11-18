@@ -3,6 +3,7 @@ package types
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"reflect"
 	"strconv"
 	"strings"
@@ -14,7 +15,11 @@ import (
 )
 
 const (
-	FirewallRuleDirectionIN  = 0
+	FirewallRuleDirectionIN = 0
+	// FirewallRuleDirectionOUT is legacy: it produced outbound rules on source
+	// clients for the old stateless firewall. Modern clients are stateful and do
+	// not need them. New directions (e.g. resource -> client) are not modeled via
+	// OUT; they use dedicated rules instead.
 	FirewallRuleDirectionOUT = 1
 )
 
@@ -40,6 +45,11 @@ type FirewallRule struct {
 
 	// PortRange represents the range of ports for a firewall rule
 	PortRange RulePortRange
+
+	// SourcePrefix is a CIDR source used instead of PeerIP when the source is a
+	// network resource (resource -> client). It is encoded into the proto
+	// SourcePrefixes field and requires a client that supports source prefixes.
+	SourcePrefix netip.Prefix
 }
 
 // Equal checks if two firewall rules are equal.
@@ -52,6 +62,13 @@ func (r *FirewallRule) Equal(other *FirewallRule) bool {
 // For dynamic routes (domain-based), separate v4 and v6 rules are generated
 // so the routing peer's forwarding chain allows both address families.
 func GenerateRouteFirewallRules(ctx context.Context, route *nmdata.Route, rule *nmdata.PolicyRule, groupPeers []*nmdata.Peer, direction int, includeIPv6 bool) []*RouteFirewallRule {
+	return generateRouteFirewallRules(ctx, route, rule, groupPeers, false, includeIPv6)
+}
+
+// generateRouteFirewallRules is GenerateRouteFirewallRules with the traffic
+// direction made explicit. With resourceIsSource the routed resource initiates
+// the traffic and groupPeers are the destination peers (resource -> client).
+func generateRouteFirewallRules(ctx context.Context, route *nmdata.Route, rule *nmdata.PolicyRule, groupPeers []*nmdata.Peer, resourceIsSource bool, includeIPv6 bool) []*RouteFirewallRule {
 	rulesExists := make(map[string]struct{})
 	rules := make([]*RouteFirewallRule, 0)
 
@@ -64,21 +81,23 @@ func GenerateRouteFirewallRules(ctx context.Context, route *nmdata.Route, rule *
 		return rules
 	}
 
-	// Pick sources matching the destination family
+	// Pick sources matching the destination family. For resource -> client these
+	// ranges are the destination peers; the client swaps source and destination.
 	sourceRanges := v4Sources
 	if isV6Route {
 		sourceRanges = v6Sources
 	}
 
 	baseRule := RouteFirewallRule{
-		PolicyID:     rule.PolicyID,
-		RouteID:      nbroute.ID(route.ID),
-		SourceRanges: sourceRanges,
-		Action:       rule.Action,
-		Destination:  route.Network.String(),
-		Protocol:     rule.Protocol,
-		Domains:      route.Domains,
-		IsDynamic:    route.IsDynamic(),
+		PolicyID:         rule.PolicyID,
+		RouteID:          nbroute.ID(route.ID),
+		SourceRanges:     sourceRanges,
+		Action:           rule.Action,
+		Destination:      route.Network.String(),
+		Protocol:         rule.Protocol,
+		Domains:          route.Domains,
+		IsDynamic:        route.IsDynamic(),
+		ResourceIsSource: resourceIsSource,
 	}
 
 	if len(rule.Ports) == 0 {
@@ -178,5 +197,5 @@ func generateRulesWithPorts(ctx context.Context, baseRule RouteFirewallRule, rul
 
 // generateRuleIDBase generates the base rule ID for checking duplicates.
 func generateRuleIDBase(rule *nmdata.PolicyRule, baseRule RouteFirewallRule) string {
-	return rule.ID + strings.Join(baseRule.SourceRanges, ",") + strconv.Itoa(FirewallRuleDirectionIN) + baseRule.Protocol + baseRule.Action
+	return rule.ID + strings.Join(baseRule.SourceRanges, ",") + strconv.FormatBool(baseRule.ResourceIsSource) + baseRule.Protocol + baseRule.Action
 }

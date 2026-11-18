@@ -71,6 +71,29 @@ func (p *Policy) SourceGroups() []string {
 	return groupIDs
 }
 
+// DestinationGroups returns all unique destination groups referenced in the policy's rules.
+func (p *Policy) DestinationGroups() []string {
+	if len(p.Rules) == 1 && p.Rules[0] != nil {
+		return p.Rules[0].Destinations
+	}
+	groups := make(map[string]struct{}, len(p.Rules))
+	for _, rule := range p.Rules {
+		if rule == nil {
+			continue
+		}
+		for _, destination := range rule.Destinations {
+			groups[destination] = struct{}{}
+		}
+	}
+
+	groupIDs := make([]string, 0, len(groups))
+	for groupID := range groups {
+		groupIDs = append(groupIDs, groupID)
+	}
+
+	return groupIDs
+}
+
 // PolicyRuleImpliesLegacySSH is the twin-typed sibling of types.PolicyRuleImpliesLegacySSH.
 func PolicyRuleImpliesLegacySSH(rule *PolicyRule) bool {
 	return rule.Protocol == policyRuleProtocolALL ||

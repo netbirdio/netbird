@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"slices"
 	"strconv"
 	"time"
 
@@ -32,24 +31,25 @@ func DecodeEnvelope(ctx context.Context, env *proto.NetworkMapEnvelope) (*types.
 	}
 
 	c := &types.NetworkMapComponents{
-		PeerID:              "", // engine fills its own peer id from PeerConfig
-		Network:             decodeAccountNetwork(full.Network),
-		AccountSettings:     decodeAccountSettings(full.AccountSettings),
-		CustomZoneDomain:    full.CustomZoneDomain,
-		Peers:               make(map[string]*nmdata.Peer, len(full.Peers)),
-		Groups:              make(map[string]*nmdata.Group, len(full.Groups)),
-		Policies:            make([]*nmdata.Policy, 0, len(full.Policies)),
-		Routes:              make([]*nmdata.Route, 0, len(full.Routes)),
-		NameServerGroups:    make([]*nmdata.NameServerGroup, 0, len(full.NameserverGroups)),
-		AllDNSRecords:       decodeSimpleRecords(full.AllDnsRecords),
-		AccountZones:        decodeCustomZones(full.AccountZones),
-		ResourcePoliciesMap: make(map[string][]*nmdata.Policy),
-		RoutersMap:          make(map[string]map[string]*nmdata.NetworkRouter),
-		NetworkResources:    make([]*nmdata.NetworkResource, 0, len(full.NetworkResources)),
-		RouterPeers:         make(map[string]*nmdata.Peer),
-		AllowedUserIDs:      stringSliceToSet(full.AllowedUserIds),
-		PostureFailedPeers:  make(map[string]map[string]struct{}, len(full.PostureFailedPeers)),
-		GroupIDToUserIDs:    make(map[string][]string, len(full.GroupIdToUserIds)),
+		PeerID:                 "", // engine fills its own peer id from PeerConfig
+		Network:                decodeAccountNetwork(full.Network),
+		AccountSettings:        decodeAccountSettings(full.AccountSettings),
+		CustomZoneDomain:       full.CustomZoneDomain,
+		Peers:                  make(map[string]*nmdata.Peer, len(full.Peers)),
+		Groups:                 make(map[string]*nmdata.Group, len(full.Groups)),
+		Policies:               make([]*nmdata.Policy, 0, len(full.Policies)),
+		Routes:                 make([]*nmdata.Route, 0, len(full.Routes)),
+		NameServerGroups:       make([]*nmdata.NameServerGroup, 0, len(full.NameserverGroups)),
+		AllDNSRecords:          decodeSimpleRecords(full.AllDnsRecords),
+		AccountZones:           decodeCustomZones(full.AccountZones),
+		ResourcePoliciesMap:    make(map[string][]*nmdata.Policy),
+		ResourceSourcePolicies: make(map[string]map[string]struct{}),
+		RoutersMap:             make(map[string]map[string]*nmdata.NetworkRouter),
+		NetworkResources:       make([]*nmdata.NetworkResource, 0, len(full.NetworkResources)),
+		RouterPeers:            make(map[string]*nmdata.Peer),
+		AllowedUserIDs:         stringSliceToSet(full.AllowedUserIds),
+		PostureFailedPeers:     make(map[string]map[string]struct{}, len(full.PostureFailedPeers)),
+		GroupIDToUserIDs:       make(map[string][]string, len(full.GroupIdToUserIds)),
 	}
 
 	if full.DnsSettings != nil {
@@ -208,13 +208,25 @@ func DecodeEnvelope(ctx context.Context, env *proto.NetworkMapEnvelope) (*types.
 		}
 	}
 
-	// Phase 8: rebuild resource_policies_map
+	// Phase 8: rebuild resource_policies_map and the subset of policies in which
+	// the resource is the source (resource -> client)
 	for _, r := range c.NetworkResources {
 		policies := policiesForNetworkResource(r.ID, c.Policies, c.Groups)
 		if len(policies) == 0 {
 			continue
 		}
 		c.ResourcePoliciesMap[r.ID] = policies
+
+		resourceGroups := networkResourceGroups(r.ID, c.Groups)
+		for _, p := range policies {
+			if !resourceIsPolicySource(r.ID, resourceGroups, p) {
+				continue
+			}
+			if c.ResourceSourcePolicies[r.ID] == nil {
+				c.ResourceSourcePolicies[r.ID] = make(map[string]struct{})
+			}
+			c.ResourceSourcePolicies[r.ID][p.ID] = struct{}{}
+		}
 	}
 
 	// Phase 9: group_id_to_user_ids — wire keys are seq ids, synth to strings.
@@ -264,25 +276,23 @@ func networkResourceGroups(resourceId string, groups map[string]*nmdata.Group) [
 	return toret
 }
 
+// policiesForNetworkResource returns the enabled policies that reference the
+// resource on either side: as a destination (client -> resource) or as a source
+// (resource -> client).
 func policiesForNetworkResource(resourceId string, allPolicies []*nmdata.Policy, groups map[string]*nmdata.Group) []*nmdata.Policy {
 	var toret []*nmdata.Policy
 
-	networkResourceGroups := networkResourceGroups(resourceId, groups)
+	resourceGroups := networkResourceGroups(resourceId, groups)
 	for _, p := range allPolicies {
 		if p == nil || !p.Enabled || len(p.Rules) == 0 {
 			continue
 		}
 
 		// there's always only one rule in each policy
-		if p.Rules[0].DestinationResource.ID == resourceId {
+		rule := p.Rules[0]
+		if ruleReferencesResource(rule.Destinations, rule.DestinationResource, resourceId, resourceGroups) ||
+			ruleReferencesResource(rule.Sources, rule.SourceResource, resourceId, resourceGroups) {
 			toret = append(toret, p)
-			continue
-		}
-		for _, groupId := range networkResourceGroups {
-			if slices.Contains(p.Rules[0].Destinations, groupId) {
-				toret = append(toret, p)
-				break
-			}
 		}
 	}
 

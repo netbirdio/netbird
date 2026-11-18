@@ -12,6 +12,9 @@ type RouterPair struct {
 	Destination Network
 	Masquerade  bool
 	Inverse     bool
+	// DisableOutboundMasquerade suppresses the inverse (outbound, resource ->
+	// client) masquerade rule so the destination client sees the real source IP.
+	DisableOutboundMasquerade bool
 	// Dynamic indicates the route is domain-based. NAT rules for dynamic
 	// routes are duplicated to the v6 table so that resolved AAAA records
 	// are masqueraded correctly.
@@ -22,11 +25,12 @@ func GetInversePair(pair RouterPair) RouterPair {
 	return RouterPair{
 		ID: pair.ID,
 		// invert Source/Destination
-		Source:      pair.Destination,
-		Destination: pair.Source,
-		Masquerade:  pair.Masquerade,
-		Inverse:     true,
-		Dynamic:     pair.Dynamic,
+		Source:                    pair.Destination,
+		Destination:               pair.Source,
+		Masquerade:                pair.Masquerade,
+		Inverse:                   true,
+		DisableOutboundMasquerade: pair.DisableOutboundMasquerade,
+		Dynamic:                   pair.Dynamic,
 	}
 }
 

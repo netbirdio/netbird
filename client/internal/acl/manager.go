@@ -423,18 +423,32 @@ func (d *DefaultManager) applyRouteACL(rule *mgmProto.RouteFirewallRule, dynamic
 		return nil, ErrSourceRangesEmpty
 	}
 
-	var sources []netip.Prefix
+	peerRanges := make([]netip.Prefix, 0, len(rule.SourceRanges))
 	for _, sourceRange := range rule.SourceRanges {
 		source, err := netip.ParsePrefix(sourceRange)
 		if err != nil {
 			return nil, fmt.Errorf("parse source range: %w", err)
 		}
-		sources = append(sources, firewall.UnmapPrefix(source))
+		peerRanges = append(peerRanges, firewall.UnmapPrefix(source))
 	}
 
-	destination, err := determineDestination(rule, dynamicResolver, sources)
+	resourceNet, err := determineDestination(rule, dynamicResolver, peerRanges)
 	if err != nil {
 		return nil, fmt.Errorf("determine destination: %w", err)
+	}
+
+	// Default direction is client -> resource: the peer ranges are the source and
+	// the resource network is the destination. For resource -> client the routed
+	// resource is the source and the peer ranges become the destination set. Only
+	// prefix (host/subnet) resources can act as a source; a domain set cannot.
+	sources := peerRanges
+	destination := resourceNet
+	if rule.ResourceIsSource {
+		if !resourceNet.IsPrefix() {
+			return nil, fmt.Errorf("resource-source rule requires a prefix resource")
+		}
+		sources = []netip.Prefix{resourceNet.Prefix}
+		destination = firewall.Network{Set: firewall.NewPrefixSet(peerRanges)}
 	}
 
 	protocol, err := ConvertToFirewallProtocol(rule.Protocol)

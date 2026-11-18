@@ -113,6 +113,9 @@ type Route struct {
 	AccessControlGroups []string `gorm:"serializer:json"`
 	// SkipAutoApply indicates if this exit node route (0.0.0.0/0) should skip auto-application for client routing
 	SkipAutoApply bool
+	// DisableOutboundMasquerade suppresses the inverse (resource -> client)
+	// masquerade so the destination client sees the real resource source IP.
+	DisableOutboundMasquerade bool `gorm:"-"`
 }
 
 // EventMeta returns activity event meta related to the route
@@ -127,24 +130,25 @@ func (r *Route) EventMeta() map[string]any {
 // Copy copies a route object
 func (r *Route) Copy() *Route {
 	route := &Route{
-		ID:                  r.ID,
-		AccountID:           r.AccountID,
-		PublicID:            r.PublicID,
-		Description:         r.Description,
-		NetID:               r.NetID,
-		Network:             r.Network,
-		Domains:             slices.Clone(r.Domains),
-		KeepRoute:           r.KeepRoute,
-		NetworkType:         r.NetworkType,
-		Peer:                r.Peer,
-		PeerID:              r.PeerID,
-		PeerGroups:          slices.Clone(r.PeerGroups),
-		Metric:              r.Metric,
-		Masquerade:          r.Masquerade,
-		Enabled:             r.Enabled,
-		Groups:              slices.Clone(r.Groups),
-		AccessControlGroups: slices.Clone(r.AccessControlGroups),
-		SkipAutoApply:       r.SkipAutoApply,
+		ID:                        r.ID,
+		AccountID:                 r.AccountID,
+		PublicID:                  r.PublicID,
+		Description:               r.Description,
+		NetID:                     r.NetID,
+		Network:                   r.Network,
+		Domains:                   slices.Clone(r.Domains),
+		KeepRoute:                 r.KeepRoute,
+		NetworkType:               r.NetworkType,
+		Peer:                      r.Peer,
+		PeerID:                    r.PeerID,
+		PeerGroups:                slices.Clone(r.PeerGroups),
+		Metric:                    r.Metric,
+		Masquerade:                r.Masquerade,
+		Enabled:                   r.Enabled,
+		Groups:                    slices.Clone(r.Groups),
+		AccessControlGroups:       slices.Clone(r.AccessControlGroups),
+		SkipAutoApply:             r.SkipAutoApply,
+		DisableOutboundMasquerade: r.DisableOutboundMasquerade,
 	}
 	return route
 }
@@ -172,7 +176,8 @@ func (r *Route) Equal(other *Route) bool {
 		slices.Equal(r.Groups, other.Groups) &&
 		slices.Equal(r.PeerGroups, other.PeerGroups) &&
 		slices.Equal(r.AccessControlGroups, other.AccessControlGroups) &&
-		other.SkipAutoApply == r.SkipAutoApply
+		other.SkipAutoApply == r.SkipAutoApply &&
+		other.DisableOutboundMasquerade == r.DisableOutboundMasquerade
 }
 
 // IsDynamic returns if the route is dynamic, i.e. has domains

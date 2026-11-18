@@ -59,3 +59,28 @@ func TestResourceCompactLegacyWireFormat(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, legacy, encoded)
 }
+
+// A client rebuilds resource policies from the wire policies and groups. A
+// policy that references the resource only as its source must be found, and the
+// destination-side match must keep working.
+func TestPoliciesForNetworkResource_BothSides(t *testing.T) {
+	groups := map[string]*nmdata.Group{
+		"g-res":     {ID: "g-res", PublicID: "g-res", Resources: []nmdata.Resource{{ID: "res-1", Type: "subnet"}}},
+		"g-clients": {ID: "g-clients", PublicID: "g-clients"},
+	}
+	asSource := &nmdata.Policy{ID: "as-source", Enabled: true, Rules: []*nmdata.PolicyRule{{
+		Enabled: true, Sources: []string{"g-res"}, Destinations: []string{"g-clients"},
+	}}}
+	asDestination := &nmdata.Policy{ID: "as-destination", Enabled: true, Rules: []*nmdata.PolicyRule{{
+		Enabled: true, Sources: []string{"g-clients"}, Destinations: []string{"g-res"},
+	}}}
+	unrelated := &nmdata.Policy{ID: "unrelated", Enabled: true, Rules: []*nmdata.PolicyRule{{
+		Enabled: true, Sources: []string{"g-clients"}, Destinations: []string{"g-clients"},
+	}}}
+
+	got := policiesForNetworkResource("res-1", []*nmdata.Policy{asSource, asDestination, unrelated}, groups)
+
+	assert.ElementsMatch(t, []*nmdata.Policy{asSource, asDestination}, got)
+	assert.True(t, resourceIsPolicySource("res-1", networkResourceGroups("res-1", groups), asSource))
+	assert.False(t, resourceIsPolicySource("res-1", networkResourceGroups("res-1", groups), asDestination))
+}

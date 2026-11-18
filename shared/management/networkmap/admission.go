@@ -17,15 +17,27 @@ type admissionCache struct {
 	policies map[*nmdata.Policy]*policyAdmission
 	verdicts map[string]*postureVerdicts
 
+	// resourceGroups maps a network resource ID to the IDs of the groups holding it.
+	resourceGroups map[string][]string
+
 	ruleFailuresOnce sync.Once
 	ruleFailures     map[string]map[string]struct{}
 }
 
 // policyAdmission holds the admissions of one policy: the union of its source sides,
-// used by the network resource loop, and the sides of each rule, in rule order.
+// used by the network resource loop, the union of its destination sides, used when
+// the resource is the source of the policy, and the sides of each rule, in rule order.
 type policyAdmission struct {
-	sources admittedPeers
-	rules   []ruleAdmission
+	sources      admittedPeers
+	destinations admittedPeers
+	rules        []ruleAdmission
+}
+
+// clientSide identifies the client side of a resource policy: the policy sources when
+// the resource is a destination, or the policy destinations when it is a source.
+type clientSide struct {
+	policy           *nmdata.Policy
+	resourceIsSource bool
 }
 
 type ruleAdmission struct {
@@ -55,6 +67,15 @@ func (nmd *NetworkMapData) admissions() *admissionCache {
 		c := &admissionCache{
 			policies: make(map[*nmdata.Policy]*policyAdmission, len(nmd.Policies)),
 			verdicts: make(map[string]*postureVerdicts, len(nmd.PostureChecks)),
+		}
+		c.resourceGroups = make(map[string][]string)
+		for id, group := range nmd.Groups {
+			if group == nil {
+				continue
+			}
+			for _, res := range group.Resources {
+				c.resourceGroups[res.ID] = append(c.resourceGroups[res.ID], id)
+			}
 		}
 		for _, policy := range nmd.Policies {
 			c.addPolicy(policy)
@@ -107,6 +128,29 @@ func (nmd *NetworkMapData) resourcePolicySources(policy *nmdata.Policy) *admitte
 		var admitted []string
 		for _, pid := range nmd.getUniquePeerIDsFromGroupsIDs(policy.SourceGroups()) {
 			if nmd.admitPolicyPeer(pid, policy.SourcePostureChecks, failed) {
+				admitted = append(admitted, pid)
+			}
+		}
+		return admitted
+	})
+}
+
+// resourcePolicyClients returns the admitted client peers of a resource policy: the
+// sources when the resource is a destination (client -> resource), or the destinations
+// when it is a source (resource -> client). A source resource has no posture checks,
+// since the initiator is the resource and not a peer.
+func (nmd *NetworkMapData) resourcePolicyClients(policy *nmdata.Policy, resourceIsSource bool) *admittedPeers {
+	if !resourceIsSource {
+		return nmd.resourcePolicySources(policy)
+	}
+	pa := nmd.admissions().policies[policy]
+	return pa.destinations.fill(func(failed *map[string]map[string]struct{}) []string {
+		if resource := policy.Rules[0].DestinationResource; isPeerResource(resource) {
+			return nmd.getPeerFromResource(resource, nil, failed)
+		}
+		var admitted []string
+		for _, pid := range nmd.getUniquePeerIDsFromGroupsIDs(policy.DestinationGroups()) {
+			if nmd.admitPolicyPeer(pid, nil, failed) {
 				admitted = append(admitted, pid)
 			}
 		}
