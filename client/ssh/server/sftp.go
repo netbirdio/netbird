@@ -43,7 +43,7 @@ func (s *Server) sftpSubsystemHandler(sess ssh.Session) {
 	}
 
 	result := s.CheckPrivileges(PrivilegeCheckRequest{
-		RequestedUsername:         sess.User(),
+		RequestedUsername:         sessionUser(sess),
 		FeatureSupportsUserSwitch: true,
 		FeatureName:               FeatureSFTP,
 	})

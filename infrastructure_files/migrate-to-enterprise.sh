@@ -229,10 +229,28 @@ detect_relay_auth_secret() {
     secret=$(yq eval '.server.relays.secret // ""' "$CONFIG_YAML_HOST")
   fi
   if [[ -z "$secret" ]] || [[ "$secret" == "null" ]]; then
-    secret=$(yq eval '.server.authSecret // ""' "$CONFIG_YAML_HOST")
+    secret=$(detect_server_secret NB_AUTH_SECRET '.server.authSecret')
   fi
 
   printf '%s' "$secret"
+}
+
+# A non-empty variable overrides config.yaml, the same way the server reads it.
+detect_server_secret() {
+  local value
+  value=$(combined_service_env "$1")
+  if [[ -z "$value" ]]; then
+    value=$(yq eval "$2 // \"\"" "$CONFIG_YAML_HOST")
+  fi
+  printf '%s' "$value"
+}
+
+# `compose config` re-escapes a literal $ as $$ on the way out, so undo that
+# to get the value the container actually receives.
+combined_service_env() {
+  $DOCKER_COMPOSE_COMMAND config 2>/dev/null | name="$1" yq eval "
+    .services[\"$COMBINED_SERVICE\"].environment[env(name)] // \"\"
+  " - 2>/dev/null | sed 's/\$\$/$/g'
 }
 
 # The engine is a config.yaml-only setting — there is no env override for it
@@ -254,12 +272,12 @@ detect_store_dsn() {
 # config.yaml is where a combined deployment carries its DSN; this only covers
 # hand-rolled installs that keep it in the environment instead.
 detect_store_dsn_from_compose() {
-  # `compose config` re-escapes a literal $ as $$ on the way out, so undo that
-  # to get the value the container actually receives.
-  $DOCKER_COMPOSE_COMMAND config 2>/dev/null | yq eval "
-    .services[\"$COMBINED_SERVICE\"].environment.NB_STORE_ENGINE_POSTGRES_DSN //
-    .services[\"$COMBINED_SERVICE\"].environment.NETBIRD_STORE_ENGINE_POSTGRES_DSN // \"\"
-  " - 2>/dev/null | sed 's/\$\$/$/g'
+  local dsn
+  dsn=$(combined_service_env NB_STORE_ENGINE_POSTGRES_DSN)
+  if [[ -z "$dsn" ]]; then
+    dsn=$(combined_service_env NETBIRD_STORE_ENGINE_POSTGRES_DSN)
+  fi
+  printf '%s' "$dsn"
 }
 
 # Reads either DSN form: "host=db ..." or "postgres://user:pass@db:5432/name".
@@ -963,7 +981,7 @@ init_migration() {
       NB_FLOW_AUTH_SECRET=$(detect_relay_auth_secret)
       if [[ -z "$NB_FLOW_AUTH_SECRET" ]] || [[ "$NB_FLOW_AUTH_SECRET" == "null" ]]; then
         echo "Could not resolve the Relay auth secret from $CONFIG_YAML_HOST." > /dev/stderr
-        echo "Set server.relays.secret for external Relays or server.authSecret for the local Relay." > /dev/stderr
+        echo "Set server.relays.secret for external Relays or server.authSecret (or NB_AUTH_SECRET) for the local Relay." > /dev/stderr
         exit 1
       fi
 
@@ -974,10 +992,10 @@ init_migration() {
       # Strip protocol + port to leave just the hostname for the Traefik Host() rule.
       NETBIRD_HOSTNAME=$(echo "$NETBIRD_DOMAIN" | sed -E 's,^https?://,,' | sed 's,:.*,,' | sed 's,/.*,,')
 
-      # We need the encryption key from the existing config.yaml for the enricher
-      NETBIRD_ENCRYPTION_KEY=$(yq eval '.server.store.encryptionKey // ""' "$CONFIG_YAML_HOST")
+      # We need the server's store encryption key for the enricher
+      NETBIRD_ENCRYPTION_KEY=$(detect_server_secret NB_STORE_ENCRYPTION_KEY '.server.store.encryptionKey')
       if [[ -z "$NETBIRD_ENCRYPTION_KEY" ]] || [[ "$NETBIRD_ENCRYPTION_KEY" == "null" ]]; then
-        echo "Could not read server.store.encryptionKey from $CONFIG_YAML_HOST." > /dev/stderr
+        echo "Could not read server.store.encryptionKey from $CONFIG_YAML_HOST or NB_STORE_ENCRYPTION_KEY." > /dev/stderr
         exit 1
       fi
 
@@ -1024,12 +1042,26 @@ init_migration() {
   check_stale_postgres_volume
 }
 
+# restart: unless-stopped brings a crashed server straight back, so any restart
+# of the freshly recreated container counts as an exit.
+combined_server_exited() {
+  local state
+  state=$(docker inspect "$(combined_container_id)" --format '{{.State.Status}} {{.RestartCount}}' 2>/dev/null) || return 1
+  [[ "$state" != "running 0" ]]
+}
+
 wait_for_license_verdict() {
   local counter=0
   local logs=""
 
   echo -n "Waiting for the server to validate the license"
   while [[ $counter -lt 60 ]]; do
+
+    if combined_server_exited; then
+      echo " server exited. Recent logs:"
+      $DOCKER_COMPOSE_COMMAND logs --no-color --tail=20 "$COMBINED_SERVICE" || true
+      exit 1
+    fi
 
     logs=$($DOCKER_COMPOSE_COMMAND logs --no-color --tail=all "$COMBINED_SERVICE" 2>/dev/null || true)
 

@@ -14,6 +14,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/roles"
@@ -2351,4 +2352,25 @@ func TestUser_Operations_WithEmbeddedIDP(t *testing.T) {
 		assert.Error(t, err, "Creating user with duplicate email should fail")
 		t.Logf("Duplicate email error: %v", err)
 	})
+}
+
+func TestDefaultAccountManager_UserMutations_BumpNetworkSerial(t *testing.T) {
+	manager, _, account, _, _, _ := setupNetworkMapTest(t)
+
+	account, err := manager.Store.GetAccount(context.Background(), account.Id)
+	require.NoError(t, err)
+	account.Users["regular-user"] = types.NewRegularUser("regular-user", "", "")
+	require.NoError(t, manager.Store.SaveAccount(context.Background(), account))
+
+	ctx := nbcontext.WithRole(context.Background(), string(types.UserRoleOwner))
+
+	before := networkSerial(t, manager, account.Id)
+	_, err = manager.SaveUser(ctx, account.Id, userID, &types.User{Id: "regular-user", Role: types.UserRoleUser, Blocked: true})
+	require.NoError(t, err)
+	afterSave := networkSerial(t, manager, account.Id)
+	assert.Greater(t, afterSave, before, "SaveUser must bump the serial")
+
+	_, err = manager.deleteRegularUser(ctx, account.Id, userID, &types.UserInfo{ID: "regular-user"})
+	require.NoError(t, err)
+	assert.Greater(t, networkSerial(t, manager, account.Id), afterSave, "deleteRegularUser must bump the serial")
 }

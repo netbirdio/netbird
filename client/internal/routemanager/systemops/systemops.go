@@ -120,3 +120,11 @@ func (r *SysOps) isOwnAddress(addr netip.Addr) bool {
 	wgAddr := r.wgInterface.Address()
 	return wgAddr.Network.Contains(addr) || (wgAddr.IPv6Net.IsValid() && wgAddr.IPv6Net.Contains(addr))
 }
+
+// RefreshUnderlay points NetBird's own traffic at the current physical
+// default after the underlay moved. Only macOS keeps per-interface state from
+// setup, a scoped default and the interface it binds sockets to; elsewhere
+// there is nothing to refresh.
+func (r *SysOps) RefreshUnderlay(advancedRouting bool) error {
+	return r.refreshUnderlay(advancedRouting)
+}

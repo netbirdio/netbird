@@ -1,13 +1,10 @@
 package iface
 
 import (
-	wgdevice "golang.zx2c4.com/wireguard/device"
-
-	"golang.zx2c4.com/wireguard/tun/netstack"
-
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 type WGTunDevice interface {
@@ -19,8 +16,8 @@ type WGTunDevice interface {
 	DeviceName() string
 	Close() error
 	FilteredDevice() *device.FilteredDevice
-	Device() *wgdevice.Device
-	GetNet() *netstack.Net
+	Device() *wgbackend.Device
+	GetNet() *wgbackend.NetstackNet
 	RenewTun(fd int) error
 	GetICEBind() device.EndpointManager
 }

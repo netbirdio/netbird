@@ -18,11 +18,9 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-multierror"
-	"github.com/pion/ice/v4"
+	"github.com/netbirdio/ice/v4"
 	"github.com/pion/stun/v3"
 	log "github.com/sirupsen/logrus"
-	wgdevice "golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/anonymize"
@@ -36,6 +34,7 @@ import (
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/certproof"
 	"github.com/netbirdio/netbird/client/internal/debug"
@@ -245,7 +244,7 @@ type Engine struct {
 	// wgInterface. Reaching the device through wgInterface requires
 	// syncMsgMux, which handleSync holds while it adds and removes peers;
 	// SetPerformance must stay reachable exactly when that work is stuck.
-	wgDevice atomic.Pointer[wgdevice.Device]
+	wgDevice atomic.Pointer[wgbackend.Device]
 
 	udpMux *udpmux.UniversalUDPMuxDefault
 
@@ -2483,20 +2482,30 @@ func (e *Engine) startNetworkMonitor() {
 	}
 
 	e.networkMonitor = networkmonitor.New()
+	var watch recoveryWatch
+	loop := underlayLoop{
+		listen: e.networkMonitor.Listen,
+		decide: func(change networkmonitor.Change) underlayAction {
+			return decideUnderlayAction(change, e.netMgr != nil)
+		},
+		redial:  e.redialOnUnderlayChange,
+		restart: e.triggerClientRestart,
+		armWatch: func() {
+			watchCtx := watch.replace(e.ctx)
+			e.shutdownWg.Add(1)
+			go e.watchControlPlaneRecovery(watchCtx, controlPlaneReadiness(e.statusRecorder, e.signal, e.relayManager))
+			if relay := e.relayManager; relay != nil && relay.HasRelayAddress() {
+				e.shutdownWg.Add(1)
+				go e.moveMarkedPeersWhenRelayBack(watchCtx, relay.Ready)
+			}
+		},
+		stopWatch:    watch.stop,
+		availability: networkAvailability{mgr: e.netMgr},
+	}
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
-		if err := e.networkMonitor.Listen(e.ctx); err != nil {
-			if errors.Is(err, context.Canceled) {
-				log.Infof("network monitor stopped")
-				return
-			}
-			log.Errorf("network monitor error: %v", err)
-			return
-		}
-
-		log.Infof("Network monitor: detected network change, triggering client restart")
-		e.triggerClientRestart()
+		loop.run(e.ctx)
 	}()
 }
 
@@ -2703,7 +2712,7 @@ func (e *Engine) stopDNSForwarder() {
 	e.dnsForwardMgr = nil
 }
 
-func (e *Engine) GetNet() (*netstack.Net, error) {
+func (e *Engine) GetNet() (*wgbackend.NetstackNet, error) {
 	e.syncMsgMux.Lock()
 	intf := e.wgInterface
 	e.syncMsgMux.Unlock()

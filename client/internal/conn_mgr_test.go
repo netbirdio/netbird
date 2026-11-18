@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
@@ -226,4 +228,67 @@ func TestToExcludedLazyPeers(t *testing.T) {
 			}
 		})
 	}
+}
+
+// recordingLazyWGIface keeps the set of peers a ConnMgr leaves on the interface.
+type recordingLazyWGIface struct {
+	mockLazyWGIface
+	mu    sync.Mutex
+	peers map[string]struct{}
+}
+
+func (r *recordingLazyWGIface) UpdatePeer(key string, _ []netip.Prefix, _ time.Duration, _ *net.UDPAddr, _ *wgtypes.Key) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.peers == nil {
+		r.peers = map[string]struct{}{}
+	}
+	r.peers[key] = struct{}{}
+	return nil
+}
+
+func (r *recordingLazyWGIface) RemovePeer(key string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.peers, key)
+	return nil
+}
+
+func (r *recordingLazyWGIface) has(key string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, ok := r.peers[key]
+	return ok
+}
+
+// An idle lazy peer sits on the interface through its activity listener without its
+// connection ever having been opened, so closing the connection does not remove it.
+// Removing the peer from the network map has to take it off the interface anyway.
+func TestConnMgr_RemovePeerConnRemovesIdleLazyPeer(t *testing.T) {
+	t.Setenv(lazyconn.EnvLazyConn, "on")
+
+	const key = "idle-peer"
+	iface := &recordingLazyWGIface{}
+	connMgr := NewConnMgr(&EngineConfig{}, peer.NewRecorder("https://mgm"), peerstore.NewConnStore(), iface)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	connMgr.Start(ctx)
+	t.Cleanup(connMgr.Close)
+
+	conn, err := peer.NewConn(peer.ConnConfig{
+		Key:          key,
+		LocalKey:     "local",
+		AgentVersion: "development",
+		WgConfig: peer.WgConfig{
+			AllowedIps: []netip.Prefix{netip.MustParsePrefix("100.64.0.1/32")},
+		},
+	}, peer.ServiceDependencies{})
+	require.NoError(t, err)
+
+	connMgr.AddPeerConn(ctx, key, conn, false)
+	require.True(t, iface.has(key), "the idle lazy peer should be on the interface through its listener")
+
+	connMgr.RemovePeerConn(key)
+	assert.False(t, iface.has(key), "a peer removed from the network map must not stay on the interface")
 }

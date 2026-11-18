@@ -10,9 +10,9 @@ import (
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
 	nbDomain "github.com/netbirdio/netbird/shared/management/domain"
-
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
@@ -107,6 +107,23 @@ func (n *NetworkResource) Copy() *NetworkResource {
 		GroupIDs:    n.GroupIDs,
 		Enabled:     n.Enabled,
 	}
+}
+
+func (n *NetworkResource) Equal(other *NetworkResource) bool {
+	if n == nil || other == nil {
+		return n == other
+	}
+
+	return n.ID == other.ID &&
+		n.NetworkID == other.NetworkID &&
+		n.AccountID == other.AccountID &&
+		n.Name == other.Name &&
+		n.Description == other.Description &&
+		n.Type == other.Type &&
+		n.Domain == other.Domain &&
+		n.Prefix == other.Prefix &&
+		n.Enabled == other.Enabled &&
+		util.ElementsMatch(n.GroupIDs, other.GroupIDs)
 }
 
 func (n *NetworkResource) ToRoute(peer *nbpeer.Peer, router *routerTypes.NetworkRouter) *route.Route {

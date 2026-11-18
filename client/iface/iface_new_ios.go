@@ -15,6 +15,7 @@ func NewWGIFace(opts WGIFaceOpts) (*WGIface, error) {
 	wgIFace := &WGIface{
 		tun:            device.NewTunDevice(opts.IFaceName, opts.Address, opts.WGPort, opts.WGPrivKey, opts.MTU, iceBind, opts.MobileArgs.TunFd),
 		userspaceBind:  true,
+		tunOwnedByOS:   true,
 		wgProxyFactory: wgproxy.NewUSPFactory(iceBind, opts.MTU),
 	}
 	return wgIFace, nil

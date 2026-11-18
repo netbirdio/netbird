@@ -5,7 +5,8 @@ import (
 	"net"
 
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/tun/netstack"
+
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 type Dialer interface {
@@ -13,10 +14,10 @@ type Dialer interface {
 }
 
 type NSDialer struct {
-	net *netstack.Net
+	net *wgbackend.NetstackNet
 }
 
-func NewNSDialer(net *netstack.Net) *NSDialer {
+func NewNSDialer(net *wgbackend.NetstackNet) *NSDialer {
 	return &NSDialer{
 		net: net,
 	}

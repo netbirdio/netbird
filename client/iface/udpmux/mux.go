@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/pion/ice/v4"
+	"github.com/netbirdio/ice/v4"
 	"github.com/pion/logging"
 	"github.com/pion/stun/v3"
 	"github.com/pion/transport/v3"
