@@ -87,9 +87,34 @@ func TestIdentityIsPrivileged(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "Windows elevated",
-			id:   Identity{known: true, SID: "S-1-5-21-1927267129-3959769253-3036563910-1001", Elevated: true},
+			name: "Windows elevated administrator",
+			id: Identity{
+				known: true, SID: "S-1-5-21-1927267129-3959769253-3036563910-1001",
+				Elevated: true, Groups: []string{sidAdministrators},
+			},
 			want: true,
+		},
+		// A service started by the SCM gets an elevated token without being an
+		// administrator, so elevation alone must not confer privilege.
+		{
+			name: "Windows elevated token without Administrators",
+			id:   Identity{known: true, SID: "S-1-5-21-1927267129-3959769253-3036563910-1001", Elevated: true},
+			want: false,
+		},
+		{
+			name: "Elevated local service windows",
+			id:   Identity{known: true, SID: sidLocalService, Elevated: true},
+			want: false,
+		},
+		{
+			name: "Elevated network service windows",
+			id:   Identity{known: true, SID: sidNetworkService, Elevated: true},
+			want: false,
+		},
+		{
+			name: "Elevated virtual service account windows",
+			id:   Identity{known: true, SID: "S-1-5-80-1234567890-1-2-3-4", Elevated: true},
+			want: false,
 		},
 		{
 			name: "Admin group windows",
