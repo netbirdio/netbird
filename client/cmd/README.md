@@ -19,7 +19,7 @@ A command is a verb (`netbird expose`). Group related commands under a parent no
 
 MDM > env vars (both local and flag) > flag > profile > management > default.
 
-- Every flag gets an env var automatically, so don't add a separate env var for a flag. But not all env vars have a flag.
+- Flags on commands under `rootCmd` get an `NB_` (or legacy `WT_`) environment variable automatically; standalone updater flags do not, so wire those explicitly if needed.
 - A feature that exposes the device (SSH, remote jobs, routes) is enabled by management. Local layers and MDM can only switch it off, never on by themselves.
 - Don't add new exceptions to this order (lazy connections is the only one).
 
