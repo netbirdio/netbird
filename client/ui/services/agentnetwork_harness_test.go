@@ -231,34 +231,49 @@ func TestPlanUnparseableFileGivesSnippet(t *testing.T) {
 }
 
 func TestPlanRejectsBadRequests(t *testing.T) {
+	// A case without a state runs against the fixture's OK response, so the
+	// request checks themselves are reached.
 	cases := map[string]struct {
-		req   HarnessSetup
-		state proto.GetAgentNetworkInfoResponse_State
+		req     HarnessSetup
+		state   proto.GetAgentNetworkInfoResponse_State
+		wantErr string
 	}{
-		"unknown harness":        {req: HarnessSetup{Harness: "cursor", Provider: "p-anthropic"}},
-		"unknown provider":       {req: HarnessSetup{Harness: "claude-code", Provider: "p-nope"}},
-		"incompatible provider":  {req: HarnessSetup{Harness: "codex", Provider: "p-anthropic"}},
-		"model not allowed":      {req: HarnessSetup{Harness: "claude-code", Provider: "p-anthropic", Model: "gpt-5.5"}},
-		"vertex without project": {req: HarnessSetup{Harness: "claude-code", Provider: "p-vertex"}},
-		"no user": {
-			req:   HarnessSetup{Harness: "claude-code", Provider: "p-anthropic"},
-			state: proto.GetAgentNetworkInfoResponse_NO_USER,
+		"unknown harness": {
+			req:     HarnessSetup{Harness: "cursor", Provider: "p-anthropic"},
+			wantErr: `unknown harness "cursor"`,
+		},
+		"unknown provider": {
+			req:     HarnessSetup{Harness: "claude-code", Provider: "p-nope"},
+			wantErr: `provider "p-nope" is not available to this peer`,
+		},
+		"incompatible provider": {
+			req:     HarnessSetup{Harness: "codex", Provider: "p-anthropic"},
+			wantErr: `Codex cannot use provider "Anthropic"`,
+		},
+		"model not allowed": {
+			req:     HarnessSetup{Harness: "claude-code", Provider: "p-anthropic", Model: "gpt-5.5"},
+			wantErr: `model "gpt-5.5" is not allowed on Anthropic`,
+		},
+		"vertex without project": {
+			req:     HarnessSetup{Harness: "claude-code", Provider: "p-vertex"},
+			wantErr: "missing value for vertex_project",
 		},
 		"server too old": {
-			req:   HarnessSetup{Harness: "claude-code", Provider: "p-anthropic"},
-			state: proto.GetAgentNetworkInfoResponse_MANAGEMENT_UNSUPPORTED,
+			req:     HarnessSetup{Harness: "claude-code", Provider: "p-anthropic"},
+			state:   proto.GetAgentNetworkInfoResponse_MANAGEMENT_UNSUPPORTED,
+			wantErr: "agent networks are not available: management_unsupported",
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			h := newHarnessHost(t)
-			if tc.state != proto.GetAgentNetworkInfoResponse_OK {
+			if tc.state != proto.GetAgentNetworkInfoResponse_STATE_UNSPECIFIED {
 				h.daemon.info.State = tc.state
 			}
 			_, err := h.svc.PlanHarness(context.Background(), tc.req)
-			assert.Error(t, err)
+			assert.ErrorContains(t, err, tc.wantErr, "plan")
 			_, err = h.svc.ApplyHarness(context.Background(), tc.req, true)
-			assert.Error(t, err)
+			assert.ErrorContains(t, err, tc.wantErr, "apply")
 			_, statErr := os.Stat(h.claudeSettings())
 			assert.ErrorIs(t, statErr, os.ErrNotExist, "nothing is written")
 		})
