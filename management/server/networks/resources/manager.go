@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
@@ -22,6 +23,9 @@ import (
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
+
+// serviceReloadTimeout bounds the background reload of an account's reverse proxy services after a resource update.
+const serviceReloadTimeout = time.Minute
 
 type Manager interface {
 	GetAllResourcesInNetwork(ctx context.Context, accountID, userID, networkID string) ([]*types.NetworkResource, error)
@@ -307,10 +311,12 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 	}
 
 	// TODO: optimize to only reload reverse proxies that are affected by the resource update instead of all of them
+	reloadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), serviceReloadTimeout)
 	go func() {
-		err := m.serviceManager.ReloadAllServicesForAccount(ctx, resource.AccountID)
+		defer cancel()
+		err := m.serviceManager.ReloadAllServicesForAccount(reloadCtx, resource.AccountID)
 		if err != nil {
-			log.WithContext(ctx).Warnf("failed to reload all proxies for account: %v", err)
+			log.WithContext(reloadCtx).Warnf("failed to reload all proxies for account: %v", err)
 		}
 	}()
 

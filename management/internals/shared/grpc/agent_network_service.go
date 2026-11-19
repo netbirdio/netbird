@@ -59,7 +59,6 @@ func (s *Server) GetAgentNetworkInfo(ctx context.Context, req *proto.EncryptedMe
 
 var agentNetworkStateToProto = map[types.PeerAgentNetworkState]proto.GetAgentNetworkInfoResponse_State{
 	types.PeerAgentNetworkOK:          proto.GetAgentNetworkInfoResponse_OK,
-	types.PeerAgentNetworkNoUser:      proto.GetAgentNetworkInfoResponse_NO_USER,
 	types.PeerAgentNetworkNotEnabled:  proto.GetAgentNetworkInfoResponse_NOT_ENABLED,
 	types.PeerAgentNetworkUserBlocked: proto.GetAgentNetworkInfoResponse_USER_BLOCKED,
 }
