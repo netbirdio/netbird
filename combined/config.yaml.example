@@ -29,11 +29,11 @@ server:
   # therefore not limited.
   #
   # Keys of peers can be the relay identity ("sha-..." printed in relay logs)
-  # or the peer WireGuard public key. Values accept bps/kbps/mbps/gbps (bits)
-  # or b/s/kb/s/mb/s (bytes); empty or "unlimited" means no limit.
+  # or the peer WireGuard public key. Values are bit rates (bps, kbps, mbps,
+  # gbps); empty or "unlimited" means no limit.
   # relayRateLimits:
   #   enabled: true
-  #   default: "50mbps"       # fallback for peers without an explicit entry
+  #   default: "50mbps"       # applies to each peer without an explicit entry
   #   peers:
   #     "sha-abc123...": "10mbps"
   #     "peer-wireguard-public-key=": "20mbps"

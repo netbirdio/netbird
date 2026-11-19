@@ -123,8 +123,8 @@ type RelayConfig struct {
 
 // RelayRateLimitsConfig contains the embedded relay forwarding limits.
 // Keys of Peers are destination peers: either the relay identity ("sha-...")
-// or the peer WireGuard public key. Values accept units such as 50mbps,
-// 6.25MB/s or a bare byte-per-second number; empty means unlimited.
+// or the peer WireGuard public key. Values are bit rates such as 50mbps; empty
+// or "unlimited" means no limit.
 type RelayRateLimitsConfig struct {
 	Enabled bool              `yaml:"enabled"`
 	Default string            `yaml:"default"`

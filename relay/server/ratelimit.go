@@ -3,9 +3,9 @@ package server
 import (
 	"encoding/base64"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
-	"time"
 
 	"golang.org/x/time/rate"
 
@@ -13,109 +13,97 @@ import (
 )
 
 const (
-	// minBurstBytes is the smallest token bucket size we accept. It must stay
-	// comfortably above messages.MaxMessageSize so a single relayed datagram
-	// can always be admitted by rate.Limiter.WaitN.
+	// minBurstBytes keeps the bucket above messages.MaxMessageSize so a single
+	// relayed datagram always fits.
 	minBurstBytes = 16 << 10
-	// maxBurstBytes caps the bucket so a very high configured rate does not
-	// allow large bursts above what a single WireGuard datagram needs.
+	// maxBurstBytes caps the bucket at high rates, where one second of budget
+	// would let several megabytes through at line rate.
 	maxBurstBytes = 8 << 20
-
-	// rateLimitWaitTimeout bounds how long a sender waits for budget before the
-	// message is dropped. It stays well below the relay healthcheck timeout
-	// (default interval + 10s) so a throttled peer is not disconnected.
-	rateLimitWaitTimeout = 2 * time.Second
 )
 
 // RateLimitConfig describes optional bandwidth limits applied when the relay
-// forwards transport traffic to a destination peer. Limits are expressed as
-// bytes or bits per second and are keyed by the destination peer relay ID
-// (either its "sha-..." relay identity or its WireGuard public key, which is
-// hashed with the same scheme the client uses).
+// forwards transport traffic to a destination peer. Limits are bit rates such
+// as "50mbps", keyed by the destination peer relay ID (either its "sha-..."
+// relay identity or its WireGuard public key, which is hashed with the same
+// scheme the client uses).
 //
 // When Enabled is false all limits are ignored and forwarding is unlimited.
 // The zero value therefore keeps the previous behaviour.
 type RateLimitConfig struct {
 	Enabled bool
-	// Default applies to every destination peer that has no explicit entry.
-	// Empty or "unlimited" means no limit.
+	// Default gives every destination peer without an explicit entry its own
+	// budget. Empty or "unlimited" means no limit.
 	Default string
 	// Peers maps a destination peer to its limit, overriding Default.
+	// "unlimited" exempts the peer from Default.
 	Peers map[string]string
 }
 
-// limiterSet resolves a limiter per destination peer. A nil limiter means the
-// destination is not limited.
+// limiterSet resolves the limiter for traffic forwarded to a destination peer.
 type limiterSet struct {
-	def   *rate.Limiter
+	def rate.Limit
+	// peers holds the explicit entries; a nil limiter marks an unlimited peer.
 	peers map[messages.PeerID]*rate.Limiter
 }
 
 func newLimiterSet(cfg RateLimitConfig) (*limiterSet, error) {
-	s := &limiterSet{peers: make(map[messages.PeerID]*rate.Limiter, len(cfg.Peers))}
+	s := &limiterSet{def: rate.Inf}
 	if !cfg.Enabled {
 		return s, nil
 	}
 
-	def, err := newLimiter(cfg.Default)
+	def, err := parseRate(cfg.Default)
 	if err != nil {
 		return nil, fmt.Errorf("invalid default rate limit %q: %w", cfg.Default, err)
 	}
 	s.def = def
 
+	s.peers = make(map[messages.PeerID]*rate.Limiter, len(cfg.Peers))
 	for key, spec := range cfg.Peers {
 		id, err := parsePeerIDKey(key)
 		if err != nil {
 			return nil, fmt.Errorf("invalid rate limit peer key %q: %w", key, err)
 		}
-		l, err := newLimiter(spec)
+		limit, err := parseRate(spec)
 		if err != nil {
 			return nil, fmt.Errorf("invalid rate limit for peer %q: %w", key, err)
 		}
-		if l != nil {
-			s.peers[id] = l
-		}
+		s.peers[id] = newLimiter(limit)
 	}
 
 	return s, nil
 }
 
-// forDst returns the limiter that applies to the given destination peer, or
-// nil when the destination is unlimited.
-func (s *limiterSet) forDst(id messages.PeerID) *rate.Limiter {
+// forPeer returns the limiter for traffic forwarded to the given peer, or nil
+// when the peer is unlimited. Explicit entries keep their budget across
+// reconnects; the default starts a fresh budget for every connection.
+func (s *limiterSet) forPeer(id messages.PeerID) *rate.Limiter {
 	if s == nil {
 		return nil
 	}
 	if l, ok := s.peers[id]; ok {
 		return l
 	}
-	return s.def
+	return newLimiter(s.def)
 }
 
-func newLimiter(spec string) (*rate.Limiter, error) {
-	lim, err := parseRate(spec)
-	if err != nil {
-		return nil, err
-	}
-	if lim == rate.Inf || lim <= 0 {
-		return nil, nil
+// newLimiter returns nil for rate.Inf. The bucket holds one second of traffic,
+// bounded by minBurstBytes and maxBurstBytes.
+func newLimiter(limit rate.Limit) *rate.Limiter {
+	if limit == rate.Inf {
+		return nil
 	}
 
-	burst := int(lim)
-	if burst < minBurstBytes {
-		burst = minBurstBytes
+	burst := maxBurstBytes
+	if limit < maxBurstBytes {
+		burst = max(int(limit), minBurstBytes)
 	}
-	if burst > maxBurstBytes {
-		burst = maxBurstBytes
-	}
-	return rate.NewLimiter(lim, burst), nil
+	return rate.NewLimiter(limit, burst)
 }
 
-// parseRate converts a human readable rate into bytes per second. Supported
-// forms are "unlimited"/"off"/"0"/"" for no limit, a bare number interpreted as
-// bytes per second, and a number followed by one of the units bps, kbps, mbps,
-// gbps (bits), b/s, kb/s, mb/s, gb/s, byte/s (bytes). Matching is
-// case-insensitive and a "/s" suffix is optional for the bit units.
+// parseRate converts a bit rate with a bps, kbps, mbps or gbps unit into bytes
+// per second. Matching is case-insensitive. "", "0", "off", "none" and
+// "unlimited" mean no limit.
 func parseRate(spec string) (rate.Limit, error) {
 	s := strings.ToLower(strings.TrimSpace(spec))
 	switch s {
@@ -125,53 +113,30 @@ func parseRate(spec string) (rate.Limit, error) {
 
 	units := []struct {
 		suffix string
-		mul    float64
+		bits   float64
 	}{
-		{"gbps", 1e9 / 8},
-		{"gbit/s", 1e9 / 8},
-		{"gb/s", 1e9},
-		{"mbps", 1e6 / 8},
-		{"mbit/s", 1e6 / 8},
-		{"mb/s", 1e6},
-		{"kbps", 1e3 / 8},
-		{"kbit/s", 1e3 / 8},
-		{"kb/s", 1e3},
-		{"bps", 1 / 8.0},
-		{"bit/s", 1 / 8.0},
-		{"bytes/s", 1},
-		{"byte/s", 1},
-		{"b/s", 1},
+		{"gbps", 1e9},
+		{"mbps", 1e6},
+		{"kbps", 1e3},
+		{"bps", 1},
 	}
 
 	for _, u := range units {
-		if !strings.HasSuffix(s, u.suffix) {
+		num, ok := strings.CutSuffix(s, u.suffix)
+		if !ok {
 			continue
 		}
-		raw := strings.TrimSpace(strings.TrimSuffix(s, u.suffix))
-		v, err := strconv.ParseFloat(raw, 64)
-		if err != nil {
-			return 0, fmt.Errorf("cannot parse %q: %w", spec, err)
-		}
-		if v < 0 {
-			return 0, fmt.Errorf("rate must not be negative: %q", spec)
+		v, err := strconv.ParseFloat(strings.TrimSpace(num), 64)
+		if err != nil || v < 0 || math.IsNaN(v) || math.IsInf(v, 0) {
+			return 0, fmt.Errorf("cannot parse %q: expected a non-negative number before %s", spec, u.suffix)
 		}
 		if v == 0 {
 			return rate.Inf, nil
 		}
-		return rate.Limit(v * u.mul), nil
+		return rate.Limit(v * u.bits / 8), nil
 	}
 
-	v, err := strconv.ParseFloat(s, 64)
-	if err != nil {
-		return 0, fmt.Errorf("cannot parse %q: expected a number with an optional unit such as 50mbps", spec)
-	}
-	if v < 0 {
-		return 0, fmt.Errorf("rate must not be negative: %q", spec)
-	}
-	if v == 0 {
-		return rate.Inf, nil
-	}
-	return rate.Limit(v), nil
+	return 0, fmt.Errorf("cannot parse %q: expected a number followed by bps, kbps, mbps or gbps", spec)
 }
 
 // parsePeerIDKey accepts either the relay peer identity ("sha-" followed by the
@@ -179,19 +144,17 @@ func parseRate(spec string) (rate.Limit, error) {
 // with messages.HashID before connecting to the relay.
 func parsePeerIDKey(key string) (messages.PeerID, error) {
 	k := strings.TrimSpace(key)
-	if k == "" {
-		return messages.PeerID{}, fmt.Errorf("empty peer key")
-	}
-	if !strings.HasPrefix(k, "sha-") {
-		return messages.HashID(k), nil
-	}
+	encoded, isRelayID := strings.CutPrefix(k, "sha-")
 
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(k, "sha-"))
+	raw, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		return messages.PeerID{}, fmt.Errorf("invalid base64 relay id: %w", err)
+		return messages.PeerID{}, fmt.Errorf("invalid base64: %w", err)
 	}
 	if len(raw) != 32 {
-		return messages.PeerID{}, fmt.Errorf("invalid relay id length %d, expected 32 bytes", len(raw))
+		return messages.PeerID{}, fmt.Errorf("invalid length %d, expected 32 bytes", len(raw))
+	}
+	if !isRelayID {
+		return messages.HashID(k), nil
 	}
 
 	var id messages.PeerID

@@ -170,7 +170,7 @@ func (r *Relay) Accept(conn listener.Conn) {
 	}
 	r.metrics.RecordAuthenticationTime(time.Since(acceptTime))
 
-	peer := NewPeer(r.metrics, *peerID, h.selectedVersion, conn, r.store, r.notifier, r.limiters)
+	peer := NewPeer(r.metrics, *peerID, h.selectedVersion, conn, r.store, r.notifier, r.limiters.forPeer(*peerID))
 	peer.log.Infof("peer connected from: %s, advertised protocol version: %d, selected: %d", conn.RemoteAddr(), h.advertisedVersion, h.selectedVersion)
 	storeTime := time.Now()
 	if isReconnection := r.store.AddPeer(peer); isReconnection {

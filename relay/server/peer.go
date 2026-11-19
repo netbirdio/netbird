@@ -8,6 +8,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/time/rate"
 
 	"github.com/netbirdio/netbird/relay/metrics"
 	"github.com/netbirdio/netbird/relay/server/listener"
@@ -34,8 +35,8 @@ type Peer struct {
 	store    *store.Store
 	notifier *store.PeerNotifier
 
-	// limiters optionally caps the rate the relay forwards to destination peers.
-	limiters *limiterSet
+	// limiter caps the rate the relay forwards to this peer; nil means unlimited.
+	limiter *rate.Limiter
 
 	ctx       context.Context
 	ctxCancel context.CancelFunc
@@ -47,7 +48,7 @@ type Peer struct {
 }
 
 // NewPeer creates a new Peer instance and prepare custom logging
-func NewPeer(metrics *metrics.Metrics, id messages.PeerID, version messages.ProtocolVersion, conn listener.Conn, store *store.Store, notifier *store.PeerNotifier, limiters *limiterSet) *Peer {
+func NewPeer(metrics *metrics.Metrics, id messages.PeerID, version messages.ProtocolVersion, conn listener.Conn, store *store.Store, notifier *store.PeerNotifier, limiter *rate.Limiter) *Peer {
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &Peer{
 		metrics:   metrics,
@@ -58,7 +59,7 @@ func NewPeer(metrics *metrics.Metrics, id messages.PeerID, version messages.Prot
 		conn:      conn,
 		store:     store,
 		notifier:  notifier,
-		limiters:  limiters,
+		limiter:   limiter,
 		ctx:       ctx,
 		ctxCancel: cancel,
 	}
@@ -243,8 +244,11 @@ func (p *Peer) handleTransportMsg(msg []byte) {
 		return
 	}
 
-	if !p.waitRateLimit(dp.id, len(msg)) {
-		p.log.Debugf("rate limited transport message to: %s", dp.String())
+	// Drop rather than wait: this runs in the sender's read loop, where waiting would
+	// also hold back its traffic to other peers and its healthcheck responses. Relayed
+	// payloads are datagrams, so the sender recovers as from packet loss.
+	if dp.limiter != nil && !dp.limiter.AllowN(time.Now(), len(msg)) {
+		p.log.Tracef("rate limit exceeded, drop transport message to: %s", dp)
 		return
 	}
 
@@ -254,24 +258,6 @@ func (p *Peer) handleTransportMsg(msg []byte) {
 		return
 	}
 	p.metrics.TransferBytesSent.Add(p.ctx, int64(n))
-}
-
-// waitRateLimit blocks until the destination peer has budget for size bytes, or
-// returns false when the wait timed out. Dropping a single transport message is
-// safe: relayed payloads are individual WireGuard datagrams, so the sender sees
-// it as packet loss and recovers on its own.
-func (p *Peer) waitRateLimit(dst messages.PeerID, size int) bool {
-	lim := p.limiters.forDst(dst)
-	if lim == nil {
-		return true
-	}
-
-	ctx, cancel := context.WithTimeout(p.ctx, rateLimitWaitTimeout)
-	defer cancel()
-	if err := lim.WaitN(ctx, size); err != nil {
-		return false
-	}
-	return true
 }
 
 func (p *Peer) handleSubscribePeerState(msg []byte) {
