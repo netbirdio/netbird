@@ -60,7 +60,7 @@ jobs:
           USE_BIN_INSTALL: true
           SKIP_UI_APP: false
           XDG_CURRENT_DESKTOP: none
-          GITHUB_TOKEN: ${{ secrets.RO_API_CALLER_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: sh -x release_files/install.sh 2>&1 | tee install.log
 
       - name: check cli binary
