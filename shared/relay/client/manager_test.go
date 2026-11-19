@@ -377,7 +377,7 @@ func TestAutoReconnect(t *testing.T) {
 
 	t.Log("closing client relay connection")
 	// todo figure out moc server
-	_ = clientAlice.relayClient.currentSession().conn.Close()
+	_ = clientAlice.relayClient.CurrentSession().conn.Close()
 	t.Log("start test reading")
 	_, err = conn.Read(make([]byte, 1))
 	if err == nil {
@@ -468,7 +468,7 @@ func TestConnContextCancelledOnServerDisconnect(t *testing.T) {
 	default:
 	}
 
-	_ = mgr.relayClient.currentSession().conn.Close()
+	_ = mgr.relayClient.CurrentSession().conn.Close()
 
 	select {
 	case <-relayedConn.Context().Done():

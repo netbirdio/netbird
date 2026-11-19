@@ -294,7 +294,7 @@ func TestHomeSessionDroppedWhileAdoptionIsBlocked(t *testing.T) {
 
 	var second *session
 	reconnected := assert.Eventually(t, func() bool {
-		second = home.currentSession()
+		second = home.CurrentSession()
 		return second != nil
 	}, lifecycleTestTimeout, 5*time.Millisecond, "the quick reconnect did not establish a new session")
 	if reconnected {
@@ -555,7 +555,7 @@ func homeSession(t *testing.T, m *Manager) *session {
 	m.relayClientMu.RUnlock()
 	require.NotNil(t, home, "the manager has no home relay client")
 
-	s := home.currentSession()
+	s := home.CurrentSession()
 	require.NotNil(t, s, "the home relay client has no session")
 	return s
 }
@@ -569,7 +569,7 @@ func nextHomeSession(t *testing.T, m *Manager, prev *session) *session {
 		home := m.relayClient
 		m.relayClientMu.RUnlock()
 
-		next = home.currentSession()
+		next = home.CurrentSession()
 		return next != nil && next != prev
 	}, lifecycleTestTimeout, 5*time.Millisecond, "the manager did not establish a new home session")
 	return next
@@ -593,7 +593,7 @@ func trackSession(t *testing.T, rt *RelayTrack) *session {
 	rt.RUnlock()
 	require.NotNil(t, relayClient, "the foreign relay track has no client")
 
-	s := relayClient.currentSession()
+	s := relayClient.CurrentSession()
 	require.NotNil(t, s, "the foreign relay client has no session")
 	return s
 }

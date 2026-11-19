@@ -518,9 +518,9 @@ func (m *Manager) cleanUpUnusedRelays() {
 }
 
 func relayConnState(c *Client) RelayConnState {
-	addr, err := c.ServerInstanceURL()
-	if err != nil {
-		return RelayConnState{URL: c.connectionURL, Err: err}
+	s := c.CurrentSession()
+	if s == nil {
+		return RelayConnState{URL: c.connectionURL, Err: fmt.Errorf("relay connection is not established")}
 	}
-	return RelayConnState{URL: addr, Transport: c.Transport()}
+	return RelayConnState{URL: s.instanceURL.String(), Transport: s.transport}
 }

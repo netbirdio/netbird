@@ -553,7 +553,7 @@ func TestCloseRelayConn(t *testing.T) {
 		t.Errorf("failed to bind channel: %s", err)
 	}
 
-	_ = clientAlice.currentSession().conn.Close()
+	_ = clientAlice.CurrentSession().conn.Close()
 
 	_, err = conn.Read(make([]byte, 1))
 	if err == nil {
@@ -602,7 +602,7 @@ func TestCloseByServer(t *testing.T) {
 		}
 	}()
 
-	s := relayClient.currentSession()
+	s := relayClient.CurrentSession()
 
 	err = srv1.Shutdown(ctx)
 	if err != nil {
@@ -670,7 +670,7 @@ func TestSessionEndObservedAfterDrop(t *testing.T) {
 	relayClient.DetachSession(first)
 
 	assert.False(t, second.isClosed(), "tearing down the old session must not end the new one")
-	assert.Same(t, second, relayClient.currentSession(), "the new session must stay the client's current one")
+	assert.Same(t, second, relayClient.CurrentSession(), "the new session must stay the client's current one")
 	assert.True(t, relayClient.Ready(), "client must stay ready on the new session")
 }
 

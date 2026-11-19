@@ -193,16 +193,6 @@ type Client struct {
 	netEvents NetEvents
 }
 
-// Transport returns the negotiated relay transport of the current connection,
-// or an empty string when not connected.
-func (c *Client) Transport() string {
-	s := c.currentSession()
-	if s == nil {
-		return ""
-	}
-	return s.transport
-}
-
 // SetTransportFallback wires the shared datagram-transport fallback tracker.
 func (c *Client) SetTransportFallback(tf *transportFallback) {
 	c.transportFallback = tf
@@ -253,7 +243,7 @@ func (c *Client) Connect(ctx context.Context) error {
 // todo: what should happen if call with the same peerID with multiple times?
 func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (*Conn, error) {
 	c.connectMu.Lock()
-	s := c.currentSession()
+	s := c.CurrentSession()
 	c.connectMu.Unlock()
 	if s == nil {
 		return nil, fmt.Errorf("relay connection is not established")
@@ -263,7 +253,7 @@ func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (*Conn, error) 
 
 // ServerInstanceURL returns the address of the relay server. It could change after the close and reopen the connection.
 func (c *Client) ServerInstanceURL() (string, error) {
-	s := c.currentSession()
+	s := c.CurrentSession()
 	if s == nil {
 		return "", fmt.Errorf("relay connection is not established")
 	}
@@ -272,18 +262,18 @@ func (c *Client) ServerInstanceURL() (string, error) {
 
 // HasConns returns true if there are connections.
 func (c *Client) HasConns() bool {
-	s := c.currentSession()
+	s := c.CurrentSession()
 	return s != nil && s.HasConns()
 }
 
 func (c *Client) Ready() bool {
-	return c.currentSession() != nil
+	return c.CurrentSession() != nil
 }
 
 // Close closes the connection to the relay server and all connections to other peers.
 func (c *Client) Close() error {
 	c.connectMu.Lock()
-	s := c.currentSession()
+	s := c.CurrentSession()
 	c.connectMu.Unlock()
 	if s == nil {
 		return nil
@@ -299,7 +289,7 @@ func (c *Client) ConnectSession(ctx context.Context) (*session, error) {
 	c.connectMu.Lock()
 	defer c.connectMu.Unlock()
 
-	if s := c.currentSession(); s != nil {
+	if s := c.CurrentSession(); s != nil {
 		return s, nil
 	}
 
@@ -328,7 +318,7 @@ func (c *Client) DetachSession(s *session) {
 	}
 }
 
-func (c *Client) currentSession() *session {
+func (c *Client) CurrentSession() *session {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.session
@@ -488,7 +478,7 @@ func (c *Client) handShake(ctx context.Context, conn net.Conn) (*RelayAddr, erro
 }
 
 func (c *Client) serverInstanceAddress() (string, netip.Addr, error) {
-	s := c.currentSession()
+	s := c.CurrentSession()
 	if s == nil {
 		return "", netip.Addr{}, fmt.Errorf("relay connection is not established")
 	}
