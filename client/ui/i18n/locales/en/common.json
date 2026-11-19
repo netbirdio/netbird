@@ -1937,19 +1937,19 @@
     },
     "agentNetwork.limit.tokens": {
         "message": "Tokens",
-        "description": "Label of the token allowance of an AI provider, next to its cap."
+        "description": "Label of the token allowance of an AI provider, followed by when it resets."
     },
     "agentNetwork.limit.spend": {
         "message": "Spending limit",
-        "description": "Label of the money allowance of an AI provider, next to its cap."
+        "description": "Label of the money allowance of an AI provider, followed by when it resets."
     },
     "agentNetwork.limit.unlimited": {
         "message": "Unlimited",
         "description": "Shown in place of a cap when tokens or spending have no limit on an AI provider."
     },
-    "agentNetwork.limit.used": {
-        "message": "{used} used",
-        "description": "How much of a limit is used so far. {used} is a formatted number or US dollar amount, possibly abbreviated like 8.4M; keep it."
+    "agentNetwork.limit.usedOfCap": {
+        "message": "{used} used / {cap}",
+        "description": "How much of a limit is used so far, next to the limit itself. {used} and {cap} are formatted numbers or US dollar amounts, possibly abbreviated like 8.4M; keep both."
     },
     "agentNetwork.limit.usedOfCapTokens": {
         "message": "{used} / {cap} tokens",
