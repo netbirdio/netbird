@@ -2,6 +2,7 @@ package healthcheck
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -36,6 +37,7 @@ type Sender struct {
 
 	ack              chan struct{}
 	alive            bool
+	activity         atomic.Bool
 	attemptThreshold int
 }
 
@@ -80,6 +82,14 @@ func (hc *Sender) OnHCResponse() {
 	}
 }
 
+// OnPeerActivity records that a frame arrived from the peer. Any inbound frame proves
+// the peer is alive, so a peer busy sending data is not disconnected for one missed
+// health check reply. It does not wake the health check loop, so it is cheap enough
+// to call for every frame.
+func (hc *Sender) OnPeerActivity() {
+	hc.activity.Store(true)
+}
+
 func (hc *Sender) StartHealthCheck(ctx context.Context) {
 	ticker := time.NewTicker(hc.healthCheckInterval)
 	defer ticker.Stop()
@@ -96,7 +106,9 @@ func (hc *Sender) StartHealthCheck(ctx context.Context) {
 		case <-ticker.C:
 			hc.requestHealthCheck()
 		case <-timeoutTicker.C:
-			if hc.alive {
+			// Swap first so activity only ever credits the window it arrived in.
+			if hc.activity.Swap(false) || hc.alive {
+				failureCounter = 0
 				hc.alive = false
 				continue
 			}

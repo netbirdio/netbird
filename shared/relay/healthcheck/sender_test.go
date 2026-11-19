@@ -257,6 +257,46 @@ func TestSender_KeepsOnePendingHealthCheck(t *testing.T) {
 	})
 }
 
+func TestSender_PeerActivityCreditsOnlyItsWindow(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		hc := NewSenderWithOpts(log.WithField("test_name", t.Name()), SenderOptions{
+			HealthCheckInterval: time.Second,
+			HealthCheckTimeout:  3 * time.Second,
+		})
+		exited := startSender(ctx, hc)
+		go func() {
+			for range hc.HealthCheck {
+			}
+		}()
+
+		// The timeout ticker fires every 4s. Activity in each window keeps the sender
+		// running although no health check is ever answered.
+		for range 5 {
+			hc.OnPeerActivity()
+			time.Sleep(4 * time.Second)
+			synctest.Wait()
+			select {
+			case <-hc.Timeout:
+				t.Fatalf("peer activity must count as a health check response")
+			default:
+			}
+		}
+
+		// No activity in the next window: the sender must time out.
+		time.Sleep(4 * time.Second)
+		synctest.Wait()
+		select {
+		case <-hc.Timeout:
+		default:
+			t.Errorf("a window without activity or response must time out")
+		}
+		cancel()
+		<-exited
+	})
+}
+
 func startSender(ctx context.Context, hc *Sender) <-chan struct{} {
 	exited := make(chan struct{})
 	go func() {
