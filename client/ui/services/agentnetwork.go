@@ -15,7 +15,7 @@ import (
 )
 
 // AgentNetworkInfo is what Agent Networks offers this peer. State is the
-// lower-case daemon state ("ok", "no_user", "not_enabled", "user_blocked",
+// lower-case daemon state ("ok", "not_enabled", "user_blocked",
 // "management_unsupported"). Times are RFC 3339, empty when unset.
 type AgentNetworkInfo struct {
 	State string `json:"state"`

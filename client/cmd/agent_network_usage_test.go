@@ -81,7 +81,6 @@ func TestRenderAgentNetworkUsage_Golden(t *testing.T) {
 		{name: "ok_no_email", resp: usageFixture(), noEmail: true},
 		{name: "ok_no_email_json", resp: usageFixture(), noEmail: true, asJSON: true},
 		{name: "no_providers", resp: &proto.GetAgentNetworkInfoResponse{State: proto.GetAgentNetworkInfoResponse_OK}},
-		{name: "no_user", resp: &proto.GetAgentNetworkInfoResponse{State: proto.GetAgentNetworkInfoResponse_NO_USER}},
 		{name: "not_enabled", resp: &proto.GetAgentNetworkInfoResponse{State: proto.GetAgentNetworkInfoResponse_NOT_ENABLED}},
 		{name: "not_enabled_json", resp: &proto.GetAgentNetworkInfoResponse{State: proto.GetAgentNetworkInfoResponse_NOT_ENABLED}, asJSON: true},
 		{name: "user_blocked", resp: &proto.GetAgentNetworkInfoResponse{State: proto.GetAgentNetworkInfoResponse_USER_BLOCKED}},
