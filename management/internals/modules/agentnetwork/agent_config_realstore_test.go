@@ -404,3 +404,60 @@ func TestGetUsageOverview_RealStore_SelfScoped(t *testing.T) {
 	require.Len(t, adminBuckets, 1)
 	assert.Equal(t, int64(300), adminBuckets[0].InputTokens, "the account-wide grant keeps the unscoped view")
 }
+
+// TestListAccessLogs_RealStore_ErrorDetailOnlyForAccountWide pins who may read
+// error_detail. It names upstream hosts and addresses and carries cap totals
+// for whole groups, so a caller seeing only their own rows gets the error
+// source and blocking policy but not the detail. A caller holding the
+// account-wide logs grant still gets it, in both the flat and session views.
+func TestListAccessLogs_RealStore_ErrorDetailOnlyForAccountWide(t *testing.T) {
+	mgr, s := newAgentConfigTestMgr(t)
+	mgr.permissionsManager = permissions.NewManager(s)
+	ctx := context.Background()
+
+	// Rows are only stored while the account collects logs.
+	settings := newSynthTestSettings()
+	settings.EnableLogCollection = true
+	require.NoError(t, s.SaveAgentNetworkSettings(ctx, settings))
+	require.NoError(t, s.SaveAccount(ctx, &nbtypes.Account{Id: testAccountID}))
+	require.NoError(t, s.SaveUser(ctx, &nbtypes.User{
+		Id: "user-a", AccountID: testAccountID, Role: nbtypes.UserRoleUser,
+	}))
+	require.NoError(t, s.SaveUser(ctx, &nbtypes.User{
+		Id: "admin", AccountID: testAccountID, Role: nbtypes.UserRoleAdmin,
+	}))
+
+	const detail = "group token cap exhausted on policy ainpol_x (used 950000 of 1000000)"
+	denied := newIngestTestEntry()
+	denied.ID, denied.UserId, denied.StatusCode = "log-denied", "user-a", 403
+	denied.Metadata[metaKeyPolicyDecision] = "deny"
+	denied.Metadata[metaKeyPolicyReason] = "llm_policy.token_cap_exceeded"
+	denied.Metadata[metaKeyPolicyBlockedBy] = "ainpol_x"
+	denied.Metadata[metaKeyPolicyDetail] = detail
+	denied.Metadata[metaKeyErrorSource] = "policy"
+	require.NoError(t, IngestAccessLog(ctx, s, denied))
+
+	own, _, err := mgr.ListAccessLogs(ctx, testAccountID, "user-a", types.AgentNetworkAccessLogFilter{})
+	require.NoError(t, err)
+	require.Len(t, own, 1, "the caller sees their own row")
+	assert.Empty(t, own[0].ErrorDetail, "a self-scoped caller must not read the admin-only detail")
+	assert.Equal(t, "policy", own[0].ErrorSource, "the error source stays visible to the caller")
+	assert.Equal(t, "ainpol_x", own[0].BlockedBy, "the blocking policy stays visible to the caller")
+
+	ownSessions, _, err := mgr.ListAccessLogSessions(ctx, testAccountID, "user-a", types.AgentNetworkAccessLogFilter{})
+	require.NoError(t, err)
+	require.Len(t, ownSessions, 1)
+	require.Len(t, ownSessions[0].Entries, 1)
+	assert.Empty(t, ownSessions[0].Entries[0].ErrorDetail, "the session view must not leak the detail either")
+
+	adminRows, _, err := mgr.ListAccessLogs(ctx, testAccountID, "admin", types.AgentNetworkAccessLogFilter{})
+	require.NoError(t, err)
+	require.Len(t, adminRows, 1)
+	assert.Equal(t, detail, adminRows[0].ErrorDetail, "the account-wide grant keeps the full detail")
+
+	adminSessions, _, err := mgr.ListAccessLogSessions(ctx, testAccountID, "admin", types.AgentNetworkAccessLogFilter{})
+	require.NoError(t, err)
+	require.Len(t, adminSessions, 1)
+	require.Len(t, adminSessions[0].Entries, 1)
+	assert.Equal(t, detail, adminSessions[0].Entries[0].ErrorDetail, "the session view keeps the detail for the grant holder")
+}

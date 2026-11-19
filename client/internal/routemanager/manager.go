@@ -66,6 +66,7 @@ type Manager interface {
 	SetFirewall(firewall.Manager) error
 	SetDNSForwarderPort(port uint16)
 	ReconcilePeerAllowedIPs(peerKey string) error
+	RefreshUnderlay() error
 	Stop(stateManager *statemanager.Manager)
 }
 
@@ -93,6 +94,7 @@ type DefaultManager struct {
 	routeSelector        *routeselector.RouteSelector
 	serverRouter         *server.Router
 	sysOps               *systemops.SysOps
+	stopped              bool // guarded by mux
 	statusRecorder       *peer.Status
 	relayMgr             *relayClient.Manager
 	wgInterface          iface.WGIface
@@ -120,7 +122,9 @@ func NewManager(config ManagerConfig) *DefaultManager {
 	notifier := notifier.NewNotifier()
 	sysOps := systemops.New(config.WGInterface, notifier)
 
-	if runtime.GOOS == "windows" && config.WGInterface != nil {
+	// Windows binds sockets away from the VPN interface by name; the underlay
+	// lookups on Windows and macOS skip it by name too.
+	if (runtime.GOOS == "windows" || runtime.GOOS == "darwin") && config.WGInterface != nil {
 		nbnet.SetVPNInterfaceName(config.WGInterface.Name())
 	}
 
@@ -320,6 +324,10 @@ func (m *DefaultManager) Stop(stateManager *statemanager.Manager) {
 		}
 	}
 
+	m.mux.Lock()
+	m.stopped = true
+	m.mux.Unlock()
+
 	if !nbnet.CustomRoutingDisabled() && !m.disableClientRoutes {
 		if err := m.sysOps.CleanupRouting(stateManager, nbnet.AdvancedRouting()); err != nil {
 			log.Errorf("Error cleaning up routing: %v", err)
@@ -327,7 +335,7 @@ func (m *DefaultManager) Stop(stateManager *statemanager.Manager) {
 			log.Info("Routing cleanup complete")
 		}
 
-		if runtime.GOOS == "windows" {
+		if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
 			nbnet.SetVPNInterfaceName("")
 		}
 	}
@@ -894,4 +902,22 @@ func minNetID(ids []route.NetID) route.NetID {
 		}
 	}
 	return best
+}
+
+// RefreshUnderlay points NetBird's own traffic at the current physical
+// default after the network changed under a running engine.
+func (m *DefaultManager) RefreshUnderlay() error {
+	// Setup and cleanup skip the binding in these modes: there is none to
+	// refresh, and a refresh here would install one nothing ever removes.
+	if nbnet.CustomRoutingDisabled() || m.disableClientRoutes {
+		return nil
+	}
+	m.mux.Lock()
+	defer m.mux.Unlock()
+	// A refresh landing after Stop would bind NetBird's traffic again after
+	// the cleanup removed the binding, and nothing would remove it.
+	if m.stopped {
+		return nil
+	}
+	return m.sysOps.RefreshUnderlay(nbnet.AdvancedRouting())
 }

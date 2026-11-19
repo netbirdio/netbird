@@ -187,6 +187,19 @@
       </elements>
     </policy>
 
+    <policy name="ExtraIFaceBlackList"
+            class="Machine"
+            displayName="$(string.ExtraIFaceBlackList_Name)"
+            explainText="$(string.ExtraIFaceBlackList_Help)"
+            key="Software\Policies\NetBird"
+            presentation="$(presentation.ExtraIFaceBlackList_Pres)">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <elements>
+        <text id="ExtraIFaceBlackList_Text" valueName="ExtraIFaceBlackList" required="true" />
+      </elements>
+    </policy>
+
     <policy name="SplitTunnel"
             class="Machine"
             displayName="$(string.SplitTunnel_Name)"
@@ -201,6 +214,19 @@
           <item displayName="$(string.SplitTunnel_Disallow)"><value><string>disallow</string></value></item>
         </enum>
         <text id="SplitTunnel_Apps" valueName="SplitTunnelApps" required="true" />
+      </elements>
+    </policy>
+
+    <policy name="AllowGroups"
+            class="Machine"
+            displayName="$(string.AllowGroups_Name)"
+            explainText="$(string.AllowGroups_Help)"
+            key="Software\Policies\NetBird"
+            presentation="$(presentation.AllowGroups_Pres)">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <elements>
+        <text id="AllowGroups_Text" valueName="AllowGroups" required="false" />
       </elements>
     </policy>
 

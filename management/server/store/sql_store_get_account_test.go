@@ -231,6 +231,7 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 			SystemSerialNumber: "ABC123",
 			SystemProductName:  "Server Model X",
 			SystemManufacturer: "Dell Inc.",
+			SystemHardwareUUID: "4C4C4544-0042-3510-8051-B4C04F4E3332",
 		},
 		Status: &nbpeer.PeerStatus{
 			LastSeen:         now.Add(-1 * time.Minute),
@@ -802,6 +803,7 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 		assert.Equal(t, "ABC123", p1.Meta.SystemSerialNumber, "Peer 1 serial number mismatch")
 		assert.Equal(t, "Server Model X", p1.Meta.SystemProductName, "Peer 1 product name mismatch")
 		assert.Equal(t, "Dell Inc.", p1.Meta.SystemManufacturer, "Peer 1 manufacturer mismatch")
+		assert.Equal(t, "4C4C4544-0042-3510-8051-B4C04F4E3332", p1.Meta.SystemHardwareUUID, "Peer 1 hardware UUID mismatch")
 
 		// Validate Network Addresses
 		assert.Len(t, p1.Meta.NetworkAddresses, 2, "Peer 1 should have 2 network addresses")

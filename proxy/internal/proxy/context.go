@@ -27,6 +27,20 @@ const (
 	OriginProxyError
 	// OriginAuth means the proxy intercepted the request for authentication.
 	OriginAuth
+	// OriginMiddleware means a middleware (policy, guardrail, router) denied
+	// the request before it reached the backend.
+	OriginMiddleware
+)
+
+// Metadata keys the proxy stamps itself (not via a middleware) so the
+// admin's access log can tell who failed a request.
+const (
+	// MetaKeyErrorSource names who produced a failed response; see
+	// ResponseOrigin.ErrorSource.
+	MetaKeyErrorSource = "error.source"
+	// MetaKeyProxyError is the classified transport error when the proxy
+	// could not reach the backend.
+	MetaKeyProxyError = "proxy.error"
 )
 
 func (o ResponseOrigin) String() string {
@@ -37,8 +51,28 @@ func (o ResponseOrigin) String() string {
 		return "proxy_error"
 	case OriginAuth:
 		return "auth"
+	case OriginMiddleware:
+		return "middleware"
 	default:
 		return "backend"
+	}
+}
+
+// ErrorSource maps the origin of a failed response to the admin-facing
+// error source: "provider" when the backend (the LLM API, for agent
+// networks) answered with the error, "proxy" when the proxy failed to
+// route or reach it, "policy" for a middleware denial, "auth" for a
+// proxy authentication rejection.
+func (o ResponseOrigin) ErrorSource() string {
+	switch o {
+	case OriginNoRoute, OriginProxyError:
+		return "proxy"
+	case OriginAuth:
+		return "auth"
+	case OriginMiddleware:
+		return "policy"
+	default:
+		return "provider"
 	}
 }
 

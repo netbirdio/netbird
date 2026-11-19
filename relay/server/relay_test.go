@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/shared/relay/auth/allow"
+	"github.com/netbirdio/netbird/shared/relay/messages"
 )
 
 type closeRecorderConn struct {
@@ -36,6 +37,10 @@ func (c *closeRecorderConn) Close() error {
 
 func (c *closeRecorderConn) Protocol() string {
 	return "test"
+}
+
+func (c *closeRecorderConn) MaxMessageSize() int {
+	return messages.MaxMessageSize
 }
 
 func TestRelay_AcceptAfterShutdownClosesConn(t *testing.T) {
