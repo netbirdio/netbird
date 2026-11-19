@@ -5224,8 +5224,10 @@ type AgentNetworkProvider struct {
 	// exhausted is true when the next request on this provider would be denied
 	// for a spent cap.
 	Exhausted bool `protobuf:"varint,8,opt,name=exhausted,proto3" json:"exhausted,omitempty"`
-	// limits lists every cap that binds the caller on this provider. Token and
-	// USD caps are separate entries.
+	// limits lists the caps the caller's next request on this provider is
+	// checked against: every account rule that binds the caller, plus the caps
+	// of the policy that would pay for it. Token and USD caps are separate
+	// entries.
 	Limits []*AgentNetworkLimit `protobuf:"bytes,9,rep,name=limits,proto3" json:"limits,omitempty"`
 }
 

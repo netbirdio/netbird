@@ -1151,8 +1151,10 @@ message AgentNetworkProvider {
   // exhausted is true when the next request on this provider would be denied
   // for a spent cap.
   bool exhausted = 8;
-  // limits lists every cap that binds the caller on this provider. Token and
-  // USD caps are separate entries.
+  // limits lists the caps the caller's next request on this provider is
+  // checked against: every account rule that binds the caller, plus the caps
+  // of the policy that would pay for it. Token and USD caps are separate
+  // entries.
   repeated AgentNetworkLimit limits = 9;
 }
 
