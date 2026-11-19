@@ -4523,6 +4523,58 @@ func TestDefaultAccountManager_IsCacheCold(t *testing.T) {
 	})
 }
 
+func TestDefaultAccountManager_WarmupIDPCacheFillsMissingEmailAndName(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	account, err := manager.GetOrCreateAccountByUser(ctx, auth.UserAuth{UserId: "owner"})
+	require.NoError(t, err)
+	require.NoError(t, manager.Store.SaveUsers(ctx, []*types.User{
+		{Id: "named", AccountID: account.Id, Role: types.UserRoleUser, Name: "Stored"},
+		{Id: "unlinked", AccountID: account.Id, Role: types.UserRoleUser},
+		{Id: "unknown", AccountID: account.Id, Role: types.UserRoleUser},
+	}))
+
+	manager.idpManager = &idp.MockIDP{
+		GetAllAccountsFunc: func(context.Context) (map[string][]*idp.UserData, error) {
+			return map[string][]*idp.UserData{
+				account.Id: {
+					{ID: "owner", Email: "owner@example.com", Name: "Owner"},
+					{ID: "named", Email: "named@example.com", Name: "IdP"},
+				},
+				// Users the IdP holds no account ID for are matched to their account through the store.
+				idp.UnsetAccountID: {{ID: "unlinked", Email: "unlinked@example.com", Name: "Unlinked"}},
+			}, nil
+		},
+	}
+
+	cacheStore, err := cache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	require.NoError(t, err)
+
+	t.Setenv(envDisableIdPUserBackfill, "true")
+	require.NoError(t, manager.warmupIDPCache(ctx, cacheStore))
+	owner, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthNone, "owner")
+	require.NoError(t, err)
+	assert.Empty(t, owner.Email, "the backfill must not run when disabled")
+
+	t.Setenv(envDisableIdPUserBackfill, "false")
+	require.NoError(t, manager.warmupIDPCache(ctx, cacheStore))
+
+	tests := []struct{ id, email, name string }{
+		{"owner", "owner@example.com", "Owner"},
+		{"named", "named@example.com", "Stored"}, // a stored name is kept
+		{"unlinked", "unlinked@example.com", "Unlinked"},
+		{"unknown", "", ""}, // not in the IdP
+	}
+	for _, tt := range tests {
+		user, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthNone, tt.id)
+		require.NoError(t, err)
+		assert.Equal(t, tt.email, user.Email, "email of user %s", tt.id)
+		assert.Equal(t, tt.name, user.Name, "name of user %s", tt.id)
+	}
+}
+
 func TestPropagateUserGroupMemberships(t *testing.T) {
 	manager, _, err := createManager(t)
 	require.NoError(t, err)

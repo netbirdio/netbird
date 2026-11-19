@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -58,6 +59,7 @@ const (
 	peerSchedulerRetryInterval = 3 * time.Second
 	emptyUserID                = "empty user ID in claims"
 	errorGettingDomainAccIDFmt = "error getting account ID by private domain: %v"
+	envDisableIdPUserBackfill  = "NB_DISABLE_IDP_USER_BACKFILL"
 )
 
 type userLoggedInOnce bool
@@ -984,7 +986,48 @@ func (am *DefaultAccountManager) warmupIDPCache(ctx context.Context, store cache
 		}
 	}
 	log.WithContext(ctx).Infof("warmed up IDP cache with %d entries for %d accounts", rcvdUsers, len(userData))
+
+	if err := am.fillMissingEmailAndName(ctx, userData); err != nil {
+		log.WithContext(ctx).Warnf("failed to fill missing user email and name: %v", err)
+	}
 	return nil
+}
+
+// fillMissingEmailAndName stores the IdP email and name of users that don't have them yet.
+func (am *DefaultAccountManager) fillMissingEmailAndName(ctx context.Context, idpUsers map[string][]*idp.UserData) error {
+	if disabled, _ := strconv.ParseBool(os.Getenv(envDisableIdPUserBackfill)); disabled {
+		log.WithContext(ctx).Infof("skipping the user email and name backfill, disabled by %s", envDisableIdPUserBackfill)
+		return nil
+	}
+
+	users, err := am.Store.GetUsersMissingEmailOrName(ctx)
+	if err != nil {
+		return err
+	}
+
+	usersByID := make(map[string]*types.User, len(users))
+	for _, user := range users {
+		usersByID[user.Id] = user
+	}
+
+	for _, accountUsers := range idpUsers {
+		for _, idpUser := range accountUsers {
+			user, ok := usersByID[idpUser.ID]
+			if !ok || !canFillEmailOrName(user, idpUser) {
+				continue
+			}
+
+			if err := am.Store.FillUserEmailAndName(ctx, user.AccountID, user.Id, idpUser.Email, idpUser.Name); err != nil {
+				return fmt.Errorf("fill user %s: %w", user.Id, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func canFillEmailOrName(user *types.User, idpUser *idp.UserData) bool {
+	return (user.Email == "" && idpUser.Email != "") || (user.Name == "" && idpUser.Name != "")
 }
 
 // isCacheCold checks if the cache needs warming up.
