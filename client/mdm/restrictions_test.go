@@ -88,3 +88,9 @@ func TestBuildRestrictions_SSHKeys(t *testing.T) {
 	assert.True(t, r.MDM.DisableSSHAuth, "disableSSHAuth")
 	assert.True(t, r.MDM.SSHJWTCacheTTL, "sshJWTCacheTTL")
 }
+
+func TestBuildRestrictions_KeepConnectedOnQuit(t *testing.T) {
+	r := BuildRestrictions(NewPolicy(map[string]any{KeyKeepConnectedOnQuit: false}))
+	assert.True(t, r.MDM.KeepConnectedOnQuit, "managed whatever its value")
+	assert.False(t, BuildRestrictions(NewPolicy(map[string]any{KeyMTU: int64(1300)})).MDM.KeepConnectedOnQuit, "not managed when absent")
+}

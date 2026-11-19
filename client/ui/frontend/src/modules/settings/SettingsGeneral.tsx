@@ -63,15 +63,17 @@ export function SettingsGeneral() {
                         helpText={t("settings.general.autostart.help")}
                     />
                 )}
-                <FancyToggleSwitch
-                    value={keepConnected ?? false}
-                    onChange={(v) => {
-                        void setKeepConnectedOnQuit(v);
-                    }}
-                    loading={keepConnected === null}
-                    label={t("settings.general.keepConnectedOnQuit.label")}
-                    helpText={t("settings.general.keepConnectedOnQuit.help")}
-                />
+                {!mdm.keepConnectedOnQuit && (
+                    <FancyToggleSwitch
+                        value={keepConnected ?? false}
+                        onChange={(v) => {
+                            void setKeepConnectedOnQuit(v);
+                        }}
+                        loading={keepConnected === null}
+                        label={t("settings.general.keepConnectedOnQuit.label")}
+                        helpText={t("settings.general.keepConnectedOnQuit.help")}
+                    />
+                )}
             </SectionGroup>
 
             {!mdm.managementURL && !features.disableUpdateSettings && (

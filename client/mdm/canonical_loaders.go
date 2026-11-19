@@ -55,6 +55,7 @@ var allKeys = []string{
 	KeyEnableSSHRemotePortForwarding,
 	KeyDisableSSHAuth,
 	KeySSHJWTCacheTTL,
+	KeyKeepConnectedOnQuit,
 }
 
 // canonicalKey maps the lowercase form of a managed-config value name to

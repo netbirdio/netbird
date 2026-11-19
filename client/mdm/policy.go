@@ -126,6 +126,10 @@ const (
 	KeyDisableSSHAuth                = "disableSSHAuth"
 	// KeySSHJWTCacheTTL is in seconds; 0 disables the cache.
 	KeySSHJWTCacheTTL = "sshJWTCacheTTL"
+
+	// KeyKeepConnectedOnQuit enforces whether quitting the desktop app leaves
+	// the connection up. Read by the app itself; the daemon ignores it.
+	KeyKeepConnectedOnQuit = "keepConnectedOnQuit"
 )
 
 // Split-tunnel mode literals (KeySplitTunnelMode values).

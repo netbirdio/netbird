@@ -38,6 +38,7 @@ type Fields struct {
 	EnableSSHRemotePortForwarding bool   `json:"enableSSHRemotePortForwarding"`
 	DisableSSHAuth                bool   `json:"disableSSHAuth"`
 	SSHJWTCacheTTL                bool   `json:"sshJWTCacheTTL"`
+	KeepConnectedOnQuit           bool   `json:"keepConnectedOnQuit"`
 }
 
 // Features carries the feature gates a UI must honor.
@@ -93,6 +94,7 @@ func BuildRestrictions(policy *Policy) Restrictions {
 	r.MDM.EnableSSHRemotePortForwarding = policy.HasKey(KeyEnableSSHRemotePortForwarding)
 	r.MDM.DisableSSHAuth = policy.HasKey(KeyDisableSSHAuth)
 	r.MDM.SSHJWTCacheTTL = policy.HasKey(KeySSHJWTCacheTTL)
+	r.MDM.KeepConnectedOnQuit = policy.HasKey(KeyKeepConnectedOnQuit)
 	if v, ok := policy.GetBool(KeyAllowServerSSH); ok {
 		r.MDM.AllowServerSSH = &v
 	}

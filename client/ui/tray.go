@@ -14,6 +14,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/ui/authsession"
 	"github.com/netbirdio/netbird/client/ui/i18n"
 	"github.com/netbirdio/netbird/client/ui/preferences"
@@ -505,7 +506,8 @@ func (t *Tray) handleQuit() {
 	t.profileMu.Unlock()
 	t.svc.DaemonFeed.CancelProfileSwitch()
 
-	if t.svc.Preferences == nil || !t.svc.Preferences.Get().KeepConnectedOnQuit {
+	userKeep := t.svc.Preferences != nil && t.svc.Preferences.Get().KeepConnectedOnQuit
+	if !keepConnectedOnQuit(mdm.NewLoader(nil).Load(), userKeep) {
 		ctx, cancel := context.WithTimeout(context.Background(), quitDownTimeout)
 		defer cancel()
 		if err := t.svc.Connection.Down(ctx); err != nil {
@@ -593,4 +595,13 @@ func (t *Tray) notify(title, body, id string) {
 // adds the user-visible toast.
 func (t *Tray) notifyError(message string) {
 	t.notify(t.loc.T("notify.error.title"), message, notifyIDTrayError)
+}
+
+// keepConnectedOnQuit returns the MDM-enforced choice when the policy manages
+// it, else the user's.
+func keepConnectedOnQuit(policy *mdm.Policy, userKeep bool) bool {
+	if v, ok := policy.GetBool(mdm.KeyKeepConnectedOnQuit); ok {
+		return v
+	}
+	return userKeep
 }

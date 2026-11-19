@@ -81,6 +81,7 @@ var mdmKeysWithoutRequestField = map[string]bool{
 	mdm.KeySplitTunnelMode:          true,
 	mdm.KeySplitTunnelApps:          true,
 	mdm.KeyDisableAdvancedView:      true,
+	mdm.KeyKeepConnectedOnQuit:      true,
 }
 
 // A key the UI reports as managed but the save keeps sending would be persisted
