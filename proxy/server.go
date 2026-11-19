@@ -396,7 +396,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	go s.newManagementMappingWorker(runCtx, s.mgmtClient)
 
-	tlsConfig, err := s.configureTLS(ctx)
+	tlsConfig, err := s.configureTLS(runCtx)
 	if err != nil {
 		return err
 	}
@@ -869,6 +869,7 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 	}
 
 	go s.acme.WatchWildcards(ctx)
+	go s.acme.WatchExpiry(ctx)
 
 	if s.ACMEChallengeType == "http-01" {
 		s.http = &http.Server{

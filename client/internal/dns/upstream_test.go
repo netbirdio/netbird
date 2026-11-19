@@ -1035,3 +1035,153 @@ func TestUpstreamResolver_NonRetryableEDEShortCircuits(t *testing.T) {
 		assert.False(t, isOPT, "synthetic OPT must not leak to a non-EDNS0 client")
 	}
 }
+
+// TestUpstreamResolver_StaggeredRace covers a group of two upstreams on a slow
+// link. The primary keeps waiting after the secondary starts, so a reply that
+// arrives later than the per-upstream share of the budget is still used.
+func TestUpstreamResolver_StaggeredRace(t *testing.T) {
+	primary := netip.MustParseAddrPort("192.0.2.20:53")
+	secondary := netip.MustParseAddrPort("192.0.2.21:53")
+	never := 30 * time.Second
+
+	testCases := []struct {
+		name           string
+		primary        mockUpstreamResponse
+		secondary      mockUpstreamResponse
+		expectedRcode  int
+		expectedAnswer string
+		minElapsed     time.Duration
+		maxElapsed     time.Duration
+		expectFailed   []netip.AddrPort
+		expectNotFail  []netip.AddrPort
+	}{
+		{
+			// RTT above the 2.5s share but inside the 5s budget, as seen on a
+			// cellular link with about 4s RTT through an exit node.
+			name:           "slow primary answers after secondary started",
+			primary:        mockUpstreamResponse{msg: buildMockResponse(dns.RcodeSuccess, "192.0.2.100"), delay: 3500 * time.Millisecond},
+			secondary:      mockUpstreamResponse{msg: buildMockResponse(dns.RcodeSuccess, "192.0.2.101"), delay: never},
+			expectedRcode:  dns.RcodeSuccess,
+			expectedAnswer: "192.0.2.100",
+			minElapsed:     3400 * time.Millisecond,
+			maxElapsed:     4500 * time.Millisecond,
+			expectNotFail:  []netip.AddrPort{primary, secondary},
+		},
+		{
+			name:           "silent primary, secondary answers once started",
+			primary:        mockUpstreamResponse{msg: buildMockResponse(dns.RcodeSuccess, "192.0.2.100"), delay: never},
+			secondary:      mockUpstreamResponse{msg: buildMockResponse(dns.RcodeSuccess, "192.0.2.101")},
+			expectedRcode:  dns.RcodeSuccess,
+			expectedAnswer: "192.0.2.101",
+			minElapsed:     2400 * time.Millisecond,
+			maxElapsed:     3500 * time.Millisecond,
+			expectNotFail:  []netip.AddrPort{primary, secondary},
+		},
+		{
+			name:           "SERVFAIL from primary starts secondary at once",
+			primary:        mockUpstreamResponse{msg: buildMockResponse(dns.RcodeServerFailure, "")},
+			secondary:      mockUpstreamResponse{msg: buildMockResponse(dns.RcodeSuccess, "192.0.2.101")},
+			expectedRcode:  dns.RcodeSuccess,
+			expectedAnswer: "192.0.2.101",
+			maxElapsed:     time.Second,
+		},
+		{
+			name:          "both silent fail within the race budget",
+			primary:       mockUpstreamResponse{delay: never},
+			secondary:     mockUpstreamResponse{delay: never},
+			expectedRcode: dns.RcodeServerFailure,
+			minElapsed:    4900 * time.Millisecond,
+			maxElapsed:    6 * time.Second,
+			expectFailed:  []netip.AddrPort{primary, secondary},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mockClient := &mockUpstreamResolverPerServer{
+				responses: map[string]mockUpstreamResponse{
+					primary.String():   tc.primary,
+					secondary.String(): tc.secondary,
+				},
+				rtt: time.Millisecond,
+			}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+
+			resolver := &upstreamResolverBase{
+				ctx:             ctx,
+				upstreamClient:  mockClient,
+				upstreamTimeout: UpstreamTimeout,
+			}
+			resolver.addRace([]netip.AddrPort{primary, secondary})
+
+			var responseMSG *dns.Msg
+			responseWriter := &test.MockResponseWriter{
+				WriteMsgFunc: func(m *dns.Msg) error {
+					responseMSG = m
+					return nil
+				},
+			}
+
+			start := time.Now()
+			resolver.ServeDNS(responseWriter, new(dns.Msg).SetQuestion("example.com.", dns.TypeA))
+			elapsed := time.Since(start)
+
+			require.NotNil(t, responseMSG, "should write a response")
+			assert.Equal(t, tc.expectedRcode, responseMSG.Rcode, "unexpected rcode")
+			if tc.expectedAnswer != "" {
+				require.NotEmpty(t, responseMSG.Answer, "expected answer records")
+				assert.Contains(t, responseMSG.Answer[0].String(), tc.expectedAnswer, "answer from wrong upstream")
+			}
+			assert.GreaterOrEqual(t, elapsed, tc.minElapsed, "answered too early")
+			assert.LessOrEqual(t, elapsed, tc.maxElapsed, "answered too late")
+
+			health := resolver.UpstreamHealth()
+			for _, addr := range tc.expectFailed {
+				assert.NotEmpty(t, health[addr].LastErr, "%s should be marked failed", addr)
+			}
+			for _, addr := range tc.expectNotFail {
+				assert.Empty(t, health[addr].LastErr, "%s should not be marked failed", addr)
+			}
+		})
+	}
+}
+
+// TestUpstreamResolver_StaggeredRaceReportsSilentPrimary checks that a primary
+// still waiting when the secondary wins is reported, so the log keeps the hint
+// that the primary is dead.
+func TestUpstreamResolver_StaggeredRaceReportsSilentPrimary(t *testing.T) {
+	t.Parallel()
+
+	primary := netip.MustParseAddrPort("192.0.2.20:53")
+	secondary := netip.MustParseAddrPort("192.0.2.21:53")
+
+	mockClient := &mockUpstreamResolverPerServer{
+		responses: map[string]mockUpstreamResponse{
+			primary.String():   {msg: buildMockResponse(dns.RcodeSuccess, "192.0.2.100"), delay: 30 * time.Second},
+			secondary.String(): {msg: buildMockResponse(dns.RcodeSuccess, "192.0.2.101")},
+		},
+		rtt: time.Millisecond,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	resolver := &upstreamResolverBase{
+		ctx:             ctx,
+		upstreamClient:  mockClient,
+		upstreamTimeout: UpstreamTimeout,
+	}
+
+	req := new(dns.Msg).SetQuestion("example.com.", dns.TypeA)
+	res := resolver.tryRace(ctx, req, upstreamRace{primary, secondary})
+
+	require.NotNil(t, res.msg, "secondary should answer")
+	assert.Equal(t, secondary, res.upstream, "answer from wrong upstream")
+	require.Len(t, res.failures, 1, "only the silent primary should be reported")
+	assert.Equal(t, primary, res.failures[0].upstream, "reported upstream")
+	assert.Contains(t, res.failures[0].reason, "no reply after", "reported reason")
+}

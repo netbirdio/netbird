@@ -56,9 +56,10 @@ type Store interface {
 // sign for certificates on the token or in the PEM directory, which NB_CERT_STORE_DIR
 // names on Linux, /etc/netbird/certs by default.
 //
-// ProfileOwner is the OS account the active profile belongs to. On macOS and Windows only
-// that account's certificate store is consulted for user certificates, so on a machine
-// with several people signed in the result does not depend on who else is logged in.
+// ProfileOwner names the account the active profile belongs to, a uid on macOS and a SID
+// or account name on Windows. On macOS and Windows only that account's certificate store
+// is consulted for user certificates, so on a machine with several people signed in the
+// result does not depend on who else is logged in.
 // Empty means the profile has no owner, and only the user at the physical console counts.
 // OwnerUnknown means the owner could not be determined, and no user store is consulted:
 // guessing would let whoever sits at the console answer for the profile.

@@ -42,6 +42,10 @@ type Net struct {
 
 	// ctx is the context for network operations that supports cancellation
 	ctx context.Context
+
+	// resolver looks up the hosts given to ResolveUDPAddr and ResolveTCPAddr; nil
+	// means net.DefaultResolver.
+	resolver *net.Resolver
 }
 
 // NewNetWithDiscover creates a new StdNet instance.
@@ -109,16 +113,35 @@ func (n *Net) resolveAddr(network, address string) (netip.AddrPort, error) {
 	ctx, cancel := context.WithTimeout(n.ctx, dnsResolveTimeout)
 	defer cancel()
 
-	addrs, err := net.DefaultResolver.LookupNetIP(ctx, ipNet, host)
+	// Go's own resolver retries a name with every DNS search domain appended when an
+	// IPv6-only lookup gets an empty answer, as for a host without AAAA records; asking
+	// for A too stops that. IPv4 stays A-only so a resolver dropping AAAA cannot stall it.
+	lookupNet := ipNet
+	if ipNet == "ip6" {
+		lookupNet = "ip"
+	}
+	addrs, err := n.resolver.LookupNetIP(ctx, lookupNet, host)
 	if err != nil {
 		return netip.AddrPort{}, err
 	}
 
-	if len(addrs) == 0 {
-		return netip.AddrPort{}, errNoSuitableAddress
+	addr, ok := firstOfFamily(addrs, ipNet)
+	if !ok {
+		return netip.AddrPort{}, fmt.Errorf("lookup %s: %w", host, errNoSuitableAddress)
 	}
 
-	return netip.AddrPortFrom(addrs[0], uint16(port)), nil
+	return netip.AddrPortFrom(addr, uint16(port)), nil
+}
+
+func firstOfFamily(addrs []netip.Addr, ipNet string) (netip.Addr, bool) {
+	for _, addr := range addrs {
+		addr = addr.Unmap()
+		if ipNet == "ip4" && !addr.Is4() || ipNet == "ip6" && !addr.Is6() {
+			continue
+		}
+		return addr, true
+	}
+	return netip.Addr{}, false
 }
 
 // Interfaces returns a slice of interfaces which are available on the

@@ -46,7 +46,7 @@ func (m *managerImpl) fillAllowances(ctx context.Context, accountID, userID stri
 	}
 
 	ruleLimits := accountRuleLimits(base, rules, cache, now)
-	accountDeny, _, _ := checkAccountBudget(base, rules, cache, now)
+	accountDeny := checkAccountBudget(base, rules, cache, now) != nil
 	for i := range providers {
 		a := providerAllowance(base, candidates[i], cache, now, ruleLimits)
 		if accountDeny {
@@ -78,7 +78,7 @@ func providerAllowance(in PolicySelectionInput, candidates []*types.Policy, cach
 		return a
 	}
 
-	scored, _, _ := scoreCandidates(in, candidates, cache, now)
+	scored, _ := scoreCandidates(in, candidates, cache, now)
 	if len(scored) == 0 {
 		a.Exhausted = true
 		for _, p := range candidates {

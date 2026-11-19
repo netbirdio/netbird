@@ -44,10 +44,16 @@ const (
 	openAIErrRateLimit         = "rate_limit_error"
 )
 
+// vendorMessagePrefix marks the vendor-shaped message as NetBird's. LLM
+// clients show that message as if the provider sent it, so without the
+// prefix a budget stop reads like an error from Anthropic or OpenAI.
+const vendorMessagePrefix = "NetBird: "
+
 // providerEnvelope returns the vendor-shaped mirror for a denial on the
 // given surface, or nil when the surface has no envelope we can speak.
 // message is the already-redacted public message.
 func providerEnvelope(surface, code, message string, status int) (string, *providerError) {
+	message = vendorMessagePrefix + message
 	switch surface {
 	case "anthropic":
 		return "error", &providerError{
@@ -104,6 +110,11 @@ func RenderDenyResponse(w http.ResponseWriter, middlewareID string, reason *Deny
 		Middleware: truncate(Scan(middlewareID), 64),
 	}
 	resp.Type, resp.Error = providerEnvelope(reason.Surface, resp.Code, resp.Message, status)
+	// Clients such as Claude Code show the top-level message rather than the
+	// envelope's when the body carries both, so it needs the same prefix.
+	if resp.Error != nil {
+		resp.Message = resp.Error.Message
+	}
 	if n := len(reason.Details); n > 0 {
 		resp.Details = make(map[string]string, min(n, 8))
 		for k, v := range reason.Details {

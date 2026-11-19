@@ -134,6 +134,32 @@ func TestDecodeEnvelope_MalformedWgKeyPeerSkipped(t *testing.T) {
 	require.Len(t, result.Components.Peers, 1, "the well-formed peer survives, the malformed one is dropped")
 }
 
+// TestEnvelopeToNetworkMap_LoginExpiredFlagPeerIsOffline checks that a peer
+// carrying only the persisted login-expired flag, with the account's login
+// expiration disabled, survives the wire and is listed offline by the
+// receiving peer's local Calculate.
+func TestEnvelopeToNetworkMap_LoginExpiredFlagPeerIsOffline(t *testing.T) {
+	c, localPeerKey := buildSmokeComponents(t)
+	c.Peers["peer-B"].StatusLoginExpired = true
+	expiredKey := c.Peers["peer-B"].Key
+
+	envelope := mgmtgrpc.EncodeNetworkMapEnvelope(mgmtgrpc.ComponentsEnvelopeInput{
+		Components: c,
+		DNSDomain:  "netbird.cloud",
+	})
+	wire, err := goproto.Marshal(envelope)
+	require.NoError(t, err)
+	var decoded proto.NetworkMapEnvelope
+	require.NoError(t, goproto.Unmarshal(wire, &decoded))
+
+	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud", false)
+	require.NoError(t, err)
+
+	require.Len(t, result.NetworkMap.OfflinePeers, 1)
+	assert.Equal(t, expiredKey, result.NetworkMap.OfflinePeers[0].WgPubKey)
+	assert.Empty(t, result.NetworkMap.RemotePeers, "the flagged peer must not be connectable")
+}
+
 // TestEnvelopeRoundTrip_AllGroupShortCircuitParity reproduces prod accounts
 // with several groups literally named "All" where the "All"-named group does
 // not contain every peer. Server-side Calculate short-circuits destination

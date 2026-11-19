@@ -1,6 +1,7 @@
 package agentnetwork
 
 import (
+	"cmp"
 	"context"
 	"math"
 	"strconv"
@@ -24,6 +25,10 @@ const (
 	metaKeySelectedPolicyID    = "llm.selected_policy_id"
 	metaKeyPolicyDecision      = "llm_policy.decision"
 	metaKeyPolicyReason        = "llm_policy.reason"
+	metaKeyPolicyBlockedBy     = "llm_policy.blocked_by"
+	metaKeyPolicyDetail        = "llm_policy.detail"
+	metaKeyErrorSource         = "error.source"
+	metaKeyProxyError          = "proxy.error"
 	metaKeyInputTokens         = "llm.input_tokens"          //nolint:gosec // metadata key name, not a credential
 	metaKeyOutputTokens        = "llm.output_tokens"         //nolint:gosec // metadata key name, not a credential
 	metaKeyTotalTokens         = "llm.total_tokens"          //nolint:gosec // metadata key name, not a credential
@@ -120,6 +125,9 @@ func flattenAccessLog(e *accesslogs.AccessLogEntry) (*types.AgentNetworkAccessLo
 		SelectedPolicyID:     meta[metaKeySelectedPolicyID],
 		Decision:             meta[metaKeyPolicyDecision],
 		DenyReason:           meta[metaKeyPolicyReason],
+		BlockedBy:            meta[metaKeyPolicyBlockedBy],
+		ErrorSource:          meta[metaKeyErrorSource],
+		ErrorDetail:          cmp.Or(meta[metaKeyProxyError], meta[metaKeyPolicyDetail]),
 		InputTokens:          parseMetaInt(meta, metaKeyInputTokens),
 		OutputTokens:         parseMetaInt(meta, metaKeyOutputTokens),
 		TotalTokens:          parseMetaInt(meta, metaKeyTotalTokens),
