@@ -158,6 +158,9 @@ type EngineConfig struct {
 
 	DNSRouteInterval time.Duration
 
+	// ForceRelay skips direct connections and always uses a relay.
+	ForceRelay bool
+
 	DisableClientRoutes bool
 	DisableServerRoutes bool
 	DisableDNS          bool
@@ -737,7 +740,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	})
 
 	e.srWatcher = guard.NewSRWatcher(e.signal, e.relayManager, e.mobileDep.IFaceDiscover, iceCfg)
-	e.srWatcher.Start(peer.IsForceRelayed())
+	e.srWatcher.Start(e.config.ForceRelay)
 
 	if err = e.receiveSignalEvents(); err != nil {
 		return err
@@ -2048,8 +2051,9 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 			Addr:           e.getRosenpassAddr(),
 			PermissiveMode: e.config.RosenpassPermissive,
 		},
-		ICEConfig: e.createICEConfig(),
-		NetMgr:    e.netMgr,
+		ICEConfig:  e.createICEConfig(),
+		NetMgr:     e.netMgr,
+		ForceRelay: e.config.ForceRelay,
 	}
 
 	serviceDependencies := peer.ServiceDependencies{
