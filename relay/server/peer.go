@@ -357,7 +357,8 @@ func (p *Peer) sendLoop(ctx context.Context) {
 				return
 			}
 			if err != nil {
-				p.log.Errorf("failed to write transport message: %s", err)
+				p.log.Error("failed to write transport message")
+				p.log.Debugf("transport message write error: %s", err)
 				continue
 			}
 			p.metrics.TransferBytesSent.Add(ctx, int64(n))
