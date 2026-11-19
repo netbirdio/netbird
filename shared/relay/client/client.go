@@ -270,7 +270,10 @@ func (c *Client) Ready() bool {
 	return c.CurrentSession() != nil
 }
 
-// Close closes the connection to the relay server and all connections to other peers.
+// Close closes the connection to the relay server and all connections to other peers,
+// and waits until the session has ended. It returns nil right away when the client has
+// no current session. A session is detached as the first step of its teardown, so
+// Close does not wait for a teardown that was started elsewhere and is still running.
 func (c *Client) Close() error {
 	c.connectMu.Lock()
 	s := c.CurrentSession()
