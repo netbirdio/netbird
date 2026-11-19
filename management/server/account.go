@@ -995,9 +995,13 @@ func (am *DefaultAccountManager) warmupIDPCache(ctx context.Context, store cache
 
 // fillMissingEmailAndName stores the IdP email and name of users that don't have them yet.
 func (am *DefaultAccountManager) fillMissingEmailAndName(ctx context.Context, idpUsers map[string][]*idp.UserData) error {
-	if disabled, _ := strconv.ParseBool(os.Getenv(envDisableIdPUserBackfill)); disabled {
-		log.WithContext(ctx).Infof("skipping the user email and name backfill, disabled by %s", envDisableIdPUserBackfill)
-		return nil
+	if val := os.Getenv(envDisableIdPUserBackfill); val != "" {
+		if disabled, err := strconv.ParseBool(val); err != nil {
+			log.WithContext(ctx).Warnf("ignoring invalid %s=%q: %v", envDisableIdPUserBackfill, val, err)
+		} else if disabled {
+			log.WithContext(ctx).Infof("skipping the user email and name backfill, disabled by %s", envDisableIdPUserBackfill)
+			return nil
+		}
 	}
 
 	users, err := am.Store.GetUsersMissingEmailOrName(ctx)
@@ -1010,6 +1014,7 @@ func (am *DefaultAccountManager) fillMissingEmailAndName(ctx context.Context, id
 		usersByID[user.Id] = user
 	}
 
+	var errs error
 	for _, accountUsers := range idpUsers {
 		for _, idpUser := range accountUsers {
 			user, ok := usersByID[idpUser.ID]
@@ -1018,12 +1023,12 @@ func (am *DefaultAccountManager) fillMissingEmailAndName(ctx context.Context, id
 			}
 
 			if err := am.Store.FillUserEmailAndName(ctx, user.AccountID, user.Id, idpUser.Email, idpUser.Name); err != nil {
-				return fmt.Errorf("fill user %s: %w", user.Id, err)
+				errs = errors.Join(errs, fmt.Errorf("fill user %s: %w", user.Id, err))
 			}
 		}
 	}
 
-	return nil
+	return errs
 }
 
 func canFillEmailOrName(user *types.User, idpUser *idp.UserData) bool {

@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/push"
 	log "github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/metric/noop"
@@ -4556,8 +4558,15 @@ func TestDefaultAccountManager_WarmupIDPCacheFillsMissingEmailAndName(t *testing
 	require.NoError(t, err)
 	assert.Empty(t, owner.Email, "the backfill must not run when disabled")
 
-	t.Setenv(envDisableIdPUserBackfill, "false")
+	// An invalid value is logged and leaves the backfill on.
+	logs := new(logtest.Hook)
+	hooks := log.StandardLogger().ReplaceHooks(log.LevelHooks{log.WarnLevel: {logs}})
+	t.Cleanup(func() { log.StandardLogger().ReplaceHooks(hooks) })
+	t.Setenv(envDisableIdPUserBackfill, "ture")
 	require.NoError(t, manager.warmupIDPCache(ctx, cacheStore))
+	assert.True(t, slices.ContainsFunc(logs.AllEntries(), func(e *log.Entry) bool {
+		return strings.Contains(e.Message, envDisableIdPUserBackfill)
+	}), "an invalid %s value must be logged", envDisableIdPUserBackfill)
 
 	tests := []struct{ id, email, name string }{
 		{"owner", "owner@example.com", "Owner"},
@@ -4571,6 +4580,46 @@ func TestDefaultAccountManager_WarmupIDPCacheFillsMissingEmailAndName(t *testing
 		assert.Equal(t, tt.email, user.Email, "email of user %s", tt.id)
 		assert.Equal(t, tt.name, user.Name, "name of user %s", tt.id)
 	}
+}
+
+func TestDefaultAccountManager_FillMissingEmailAndNameContinuesAfterFailure(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	account, err := manager.GetOrCreateAccountByUser(ctx, auth.UserAuth{UserId: "owner"})
+	require.NoError(t, err)
+	require.NoError(t, manager.Store.SaveUsers(ctx, []*types.User{
+		{Id: "failing", AccountID: account.Id, Role: types.UserRoleUser},
+	}))
+	manager.Store = &failingFillStore{Store: manager.Store, userID: "failing"}
+
+	// The failing user comes first, so the owner is only filled if the loop carries on.
+	err = manager.fillMissingEmailAndName(ctx, map[string][]*idp.UserData{
+		account.Id: {
+			{ID: "failing", Email: "failing@example.com", Name: "Failing"},
+			{ID: "owner", Email: "owner@example.com", Name: "Owner"},
+		},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "fill user failing", "the failed user must be reported")
+
+	owner, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthNone, "owner")
+	require.NoError(t, err)
+	assert.Equal(t, "owner@example.com", owner.Email, "users after a failed one must still be filled")
+}
+
+// failingFillStore fails FillUserEmailAndName for one user and passes everything else through.
+type failingFillStore struct {
+	store.Store
+	userID string
+}
+
+func (s *failingFillStore) FillUserEmailAndName(ctx context.Context, accountID, userID, email, name string) error {
+	if userID == s.userID {
+		return errors.New("update failed")
+	}
+	return s.Store.FillUserEmailAndName(ctx, accountID, userID, email, name)
 }
 
 func TestDefaultAccountManager_LoginFillsEmailAndNameFromIdP(t *testing.T) {
