@@ -19,7 +19,7 @@ var (
 
 	ErrRelayClientNotConnected = fmt.Errorf("relay client not connected")
 
-	errForeignSessionEnded = errors.New("foreign relay session ended")
+	errForeignTrackGone = errors.New("foreign relay track is gone")
 )
 
 // RelayTrack hold the relay clients for the foreign relay servers.
@@ -303,7 +303,7 @@ func (m *Manager) UpdateToken(token *relayAuth.Token) error {
 
 func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string, serverIP netip.Addr) (*Conn, error) {
 	conn, err := m.openConnViaTrack(ctx, serverAddress, peerKey, serverIP)
-	if !errors.Is(err, errForeignSessionEnded) {
+	if !errors.Is(err, errForeignTrackGone) {
 		return conn, err
 	}
 	return m.openConnViaTrack(ctx, serverAddress, peerKey, serverIP)
@@ -384,7 +384,7 @@ func (m *Manager) openConnOnTrack(ctx context.Context, serverAddress string, rt 
 
 	if s != nil && s.isClosed() {
 		m.removeForeignTrack(serverAddress, rt)
-		return nil, errForeignSessionEnded
+		return nil, errForeignTrackGone
 	}
 
 	return relayClient.OpenConn(ctx, peerKey)
@@ -483,8 +483,9 @@ func (m *Manager) cleanUpUnusedRelays() {
 
 	for addr, rt := range m.relayClients {
 		rt.Lock()
-		// if the connection failed to the server the relay client will be nil
-		// but the instance will be kept in the relayClients until the next locking
+		// err marks a track that can no longer be used. Only a failed dial is
+		// still in the map with it set, until openConnViaTrack evicts the track;
+		// a retired track is deleted below under this same lock.
 		if rt.err != nil {
 			rt.Unlock()
 			continue
@@ -506,6 +507,7 @@ func (m *Manager) cleanUpUnusedRelays() {
 			rt.Unlock()
 			continue
 		}
+		rt.err = errForeignTrackGone
 		go func() {
 			_ = rt.relayClient.Close()
 		}()
