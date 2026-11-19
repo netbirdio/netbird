@@ -327,7 +327,8 @@ func loadFile(file string, format Format) (*fileState, error) {
 }
 
 // Status reports whether NetBird's settings for a harness are in place:
-// "configured", "configured, edited since" or "not configured".
+// "configured", "configured, edited since" or "not configured", or
+// "configured, " plus the load error when a recorded file cannot be read.
 func Status(id string, rec *Record) string {
 	hr := rec.Harnesses[id]
 	if hr == nil || len(hr.Files) == 0 {

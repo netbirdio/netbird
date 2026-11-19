@@ -66,8 +66,6 @@ func agentNetworkStateFromMgm(state mgmProto.GetAgentNetworkInfoResponse_State) 
 	switch state {
 	case mgmProto.GetAgentNetworkInfoResponse_OK:
 		return proto.GetAgentNetworkInfoResponse_OK
-	case mgmProto.GetAgentNetworkInfoResponse_NO_USER:
-		return proto.GetAgentNetworkInfoResponse_NO_USER
 	case mgmProto.GetAgentNetworkInfoResponse_NOT_ENABLED:
 		return proto.GetAgentNetworkInfoResponse_NOT_ENABLED
 	case mgmProto.GetAgentNetworkInfoResponse_USER_BLOCKED:
