@@ -230,8 +230,9 @@ func TestForeignAutoClose(t *testing.T) {
 	relayCleanupInterval = 1 * time.Second
 	keepUnusedServerTime = 2 * time.Second
 
+	addr1, _ := freeAddr(t)
 	srvCfg1 := server.ListenerConfig{
-		Address: "localhost:52301",
+		Address: addr1,
 	}
 	srv1, err := server.NewServer(newManagerTestServerConfig(srvCfg1.Address))
 	if err != nil {
@@ -257,8 +258,9 @@ func TestForeignAutoClose(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
+	addr2, _ := freeAddr(t)
 	srvCfg2 := server.ListenerConfig{
-		Address: "localhost:52302",
+		Address: addr2,
 	}
 	srv2, err := server.NewServer(newManagerTestServerConfig(srvCfg2.Address))
 	if err != nil {
