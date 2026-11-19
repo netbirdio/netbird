@@ -156,7 +156,11 @@ func parseRateLimitPeers(entries []string) (map[string]string, error) {
 		if i <= 0 || i == len(entry)-1 {
 			return nil, fmt.Errorf("%q is not in the form <peer>=<rate>", entry)
 		}
-		peers[entry[:i]] = entry[i+1:]
+		peer := entry[:i]
+		if _, dup := peers[peer]; dup {
+			return nil, fmt.Errorf("duplicate rate limit for peer %q", peer)
+		}
+		peers[peer] = entry[i+1:]
 	}
 	return peers, nil
 }
