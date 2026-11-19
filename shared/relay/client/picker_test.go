@@ -39,35 +39,44 @@ func TestServerPicker_UnavailableServers(t *testing.T) {
 }
 
 func TestServerPicker_ClosesLosingSessions(t *testing.T) {
-	// The proxies forward TCP only, so keep the relay client off QUIC.
-	t.Setenv(EnvRelayTransport, string(TransportModeWS))
-
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	proxies := []*relayProxy{
-		startRelayProxy(t, startRelayServer(t).Address),
-		startRelayProxy(t, startRelayServer(t).Address),
-	}
 	sp := &ServerPicker{
 		TokenStore:        &relayAuth.TokenStore{},
 		PeerID:            "alice",
 		ConnectionTimeout: lifecycleTestTimeout,
 	}
-	sp.ServerURLs.Store([]string{"rel://" + proxies[0].addr, "rel://" + proxies[1].addr})
+	urls := []string{"rel://" + startRelayServer(t).Address, "rel://" + startRelayServer(t).Address}
 
-	winner, err := sp.Pick(ctx)
-	require.NoError(t, err, "pick a server")
+	// Both candidates connect before the picker sees any result. A candidate
+	// that never became a session cannot stand in for one the picker closed.
+	results := make(chan connResult, len(urls))
+	sessions := make([]*session, 0, len(urls))
+	for _, url := range urls {
+		connected := make(chan connResult, 1)
+		sp.startConnection(ctx, connected, url)
+		cr := <-connected
+		require.NoError(t, cr.Err, "connect to %s", url)
+		sessions = append(sessions, cr.Session)
+		results <- cr
+	}
 
-	require.Eventually(t, func() bool {
-		return proxies[0].acceptedConns() == 1 && proxies[1].acceptedConns() == 1
-	}, lifecycleTestTimeout, 5*time.Millisecond, "both candidates must connect before the losing session is checked")
+	picked := make(chan connResult)
+	go sp.processConnResults(ctx, results, picked)
 
-	require.Eventually(t, func() bool {
-		return proxies[0].liveConns()+proxies[1].liveConns() == 1
-	}, lifecycleTestTimeout, 5*time.Millisecond, "the picker must close every session it did not hand over")
+	var winner connResult
+	select {
+	case winner = <-picked:
+	case <-time.After(lifecycleTestTimeout):
+		t.Fatal("the picker did not hand over a session")
+	}
+	require.Same(t, sessions[0], winner.Session, "the first connected candidate must be handed over")
 
-	assert.False(t, winner.isClosed(), "the picker must keep the session it handed over")
+	waitCtx, cancelWait := context.WithTimeout(ctx, lifecycleTestTimeout)
+	t.Cleanup(cancelWait)
+	assert.True(t, sessions[1].Wait(waitCtx), "the picker must close the session it did not hand over")
+	assert.False(t, sessions[0].isClosed(), "the picker must keep the session it handed over")
 }
 
 func TestServerPicker_ClosesSessionNobodyTook(t *testing.T) {
