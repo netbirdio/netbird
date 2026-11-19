@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -37,6 +38,8 @@ const (
 	enableLocalMetricsFlag   = "enable-local-metrics"
 	localMetricsAddressFlag  = "local-metrics-address"
 	preSharedKeyFlag         = "preshared-key"
+	configFlag               = "config"
+	managementURLFlag        = "management-url"
 	interfaceNameFlag        = "interface-name"
 	wireguardPortFlag        = "wireguard-port"
 	networkMonitorFlag       = "network-monitor"
@@ -60,7 +63,6 @@ var (
 	logFiles                []string
 	daemonAddr              string
 	managementURL           string
-	adminURL                string
 	setupKey                string
 	setupKeyPath            string
 	hostName                string
@@ -93,8 +95,15 @@ var (
 		Short:        "",
 		Long:         "",
 		SilenceUsage: true,
+		// Execute prints the error instead, so a refusal the daemon already
+		// explained is not reprinted inside a gRPC envelope.
+		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			SetFlagsFromEnvVars(cmd.Root())
+			setOnCommandLine := commandLineFlags(cmd)
+			SetFlagsFromEnvVars(cmd)
+			if err := validateFlagRequirements(cmd, setOnCommandLine); err != nil {
+				return err
+			}
 
 			// Don't resolve for service commands — they create the socket, not connect to it.
 			if !isServiceCmd(cmd) {
@@ -113,7 +122,11 @@ func Execute() error {
 	if isUpdateBinary() {
 		return updateCmd.Execute()
 	}
-	return rootCmd.Execute()
+	err := rootCmd.Execute()
+	if err != nil {
+		printCommandError(rootCmd, err)
+	}
+	return err
 }
 
 // init initialises package-level defaults and configures the root
@@ -146,7 +159,6 @@ func init() {
 
 	defaultConfigPath = defaultConfigPathDir + "config.json"
 	defaultLogFile = defaultLogFileDir + "client.log"
-
 	oldDefaultConfigPath = oldDefaultConfigPathDir + "config.json"
 	oldDefaultLogFile = oldDefaultLogFileDir + "client.log"
 
@@ -155,20 +167,9 @@ func init() {
 		defaultDaemonAddr = daddr.WindowsPipeAddr
 	}
 
-	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp|npipe]://[path|host:port|name]")
-	rootCmd.PersistentFlags().StringVarP(&managementURL, "management-url", "m", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", profilemanager.DefaultManagementURL))
-	rootCmd.PersistentFlags().StringVar(&adminURL, "admin-url", "", "(DEPRECATED) Admin Panel URL - This flag is no longer functional")
-	_ = rootCmd.PersistentFlags().MarkDeprecated("admin-url", "the admin-url flag is no longer functional and will be removed in a future version")
+	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|npipe]://[path|name]. tcp://host:port is deprecated: it carries no caller identity, so the daemon refuses every request on it")
 	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "sets NetBird log level")
 	rootCmd.PersistentFlags().StringSliceVar(&logFiles, "log-file", []string{defaultLogFile}, "sets NetBird log paths written to simultaneously. If `console` is specified the log will be output to stdout. If `syslog` is specified the log will be sent to syslog daemon. You can pass the flag multiple times or separate entries by `,` character")
-	rootCmd.PersistentFlags().StringVarP(&setupKey, "setup-key", "k", "", "Setup key obtained from the Management Service Dashboard (used to register peer)")
-	rootCmd.PersistentFlags().StringVar(&setupKeyPath, "setup-key-file", "", "The path to a setup key obtained from the Management Service Dashboard (used to register peer) This is ignored if the setup-key flag is provided.")
-	rootCmd.MarkFlagsMutuallyExclusive("setup-key", "setup-key-file")
-	rootCmd.PersistentFlags().StringVar(&preSharedKey, preSharedKeyFlag, "", "Sets WireGuard PreSharedKey property. If set, then only peers that have the same key can communicate.")
-	rootCmd.PersistentFlags().StringVarP(&hostName, "hostname", "n", "", "Sets a custom hostname for the device")
-	rootCmd.PersistentFlags().BoolVarP(&anonymizeFlag, "anonymize", "A", false, "anonymize public IP addresses, MAC addresses, and non-netbird.io domains in logs and status output; private, CGNAT, and link-local IP ranges are kept (see --anonymize-level strict)")
-	rootCmd.PersistentFlags().StringVar(&anonymizeLevelFlag, "anonymize-level", "", "anonymization level: \"default\" or \"strict\"; strict also anonymizes private, CGNAT, and link-local IP ranges, peer names, and WireGuard public keys. Setting this flag implies --anonymize")
-	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", profilemanager.DefaultConfigPath, "Overrides the default profile file location")
 
 	rootCmd.AddCommand(upCmd)
 	rootCmd.AddCommand(downCmd)
@@ -206,6 +207,7 @@ func init() {
 	profileCmd.AddCommand(profileRenameCmd)
 	profileCmd.AddCommand(profileRemoveCmd)
 	profileCmd.AddCommand(profileSelectCmd)
+	profileCmd.AddCommand(profileClaimCmd)
 
 	upCmd.PersistentFlags().StringSliceVar(&natExternalIPs, externalIPMapFlag, nil,
 		`Sets external IPs maps between local addresses and interfaces.`+
@@ -247,28 +249,52 @@ func SetupCloseHandler(ctx context.Context, cancel context.CancelFunc) {
 	}()
 }
 
-// SetFlagsFromEnvVars reads and updates flag values from environment variables with prefix WT_
+// SetFlagsFromEnvVars sets every flag that applies to cmd from its NB_ or WT_
+// environment variable. The environment overrides values given on the command line.
 func SetFlagsFromEnvVars(cmd *cobra.Command) {
-	flags := cmd.PersistentFlags()
-	flags.VisitAll(func(f *pflag.Flag) {
-		oldEnvVar := FlagNameToEnvVar(f.Name, "WT_")
+	flags := pflag.NewFlagSet(cmd.Name(), pflag.ContinueOnError)
+	flags.AddFlagSet(cmd.LocalFlags())
+	flags.AddFlagSet(cmd.InheritedFlags())
 
-		if value, present := os.LookupEnv(oldEnvVar); present {
-			err := flags.Set(f.Name, value)
-			if err != nil {
-				log.Infof("unable to configure flag %s using variable %s, err: %v", f.Name, oldEnvVar, err)
+	flags.VisitAll(func(f *pflag.Flag) {
+		if f.Name == "help" {
+			return
+		}
+
+		envVar, value, ok := lookupFlagEnv(f.Name)
+		if !ok {
+			return
+		}
+
+		// Setting a slice flag that was already set appends, the environment must replace it.
+		sv, isSlice := f.Value.(pflag.SliceValue)
+		var previous []string
+		if isSlice {
+			previous = sv.GetSlice()
+			if err := sv.Replace(nil); err != nil {
+				log.Infof("unable to reset flag %s for variable %s, err: %v", f.Name, envVar, err)
+				return
 			}
 		}
 
-		newEnvVar := FlagNameToEnvVar(f.Name, "NB_")
-
-		if value, present := os.LookupEnv(newEnvVar); present {
-			err := flags.Set(f.Name, value)
-			if err != nil {
-				log.Infof("unable to configure flag %s using variable %s, err: %v", f.Name, newEnvVar, err)
+		if err := flags.Set(f.Name, value); err != nil {
+			log.Infof("unable to configure flag %s using variable %s, err: %v", f.Name, envVar, err)
+			if isSlice {
+				_ = sv.Replace(previous)
 			}
 		}
 	})
+}
+
+// lookupFlagEnv returns the environment variable set for a flag, preferring NB_ over WT_.
+func lookupFlagEnv(flagName string) (string, string, bool) {
+	for _, prefix := range []string{"NB_", "WT_"} {
+		envVar := FlagNameToEnvVar(flagName, prefix)
+		if value, ok := os.LookupEnv(envVar); ok {
+			return envVar, value, true
+		}
+	}
+	return "", "", false
 }
 
 // FlagNameToEnvVar converts flag name to environment var name adding a prefix,
@@ -285,9 +311,43 @@ func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, e
 	defer cancel()
 
 	target, opts := daddr.DialTarget(addr)
-	opts = append(opts, grpc.WithBlock())
+	// Refusals are re-presented here, at the one place every command dials, so
+	// no command has to remember to render them.
+	opts = append(opts,
+		grpc.WithBlock(),
+		grpc.WithChainUnaryInterceptor(denialInterceptor),
+		grpc.WithChainStreamInterceptor(denialStreamInterceptor),
+	)
 
-	return grpc.DialContext(ctx, target, opts...)
+	denied := watchAccessDenied(ctx, cancel, addr)
+	conn, err := grpc.DialContext(ctx, target, opts...)
+	if err != nil && denied.Load() {
+		return nil, errDaemonAccessDenied
+	}
+	return conn, err
+}
+
+// accessProbeDelay is how long a dial may block before the socket is probed.
+const accessProbeDelay = 500 * time.Millisecond
+
+// watchAccessDenied probes addr after accessProbeDelay and cancels the dial if
+// the socket refuses this user.
+func watchAccessDenied(ctx context.Context, cancel context.CancelFunc, addr string) *atomic.Bool {
+	denied := &atomic.Bool{}
+	go func() {
+		timer := time.NewTimer(accessProbeDelay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+		if daddr.DeniesCaller(ctx, addr) {
+			denied.Store(true)
+			cancel()
+		}
+	}()
+	return denied
 }
 
 // terminalLoginError reports whether a Login failure is final, so the backoff
@@ -345,6 +405,16 @@ var CLIBackOffSettings = &backoff.ExponentialBackOff{
 	Clock:               backoff.SystemClock,
 }
 
+// anonymizeFlags holds the anonymization flags shared by status and the debug bundle commands.
+var anonymizeFlags = newAnonymizeFlagSet()
+
+func newAnonymizeFlagSet() *pflag.FlagSet {
+	flags := pflag.NewFlagSet("anonymize", pflag.ContinueOnError)
+	flags.BoolVarP(&anonymizeFlag, "anonymize", "A", false, "anonymize public IP addresses, MAC addresses, and non-netbird.io domains in logs and status output; private, CGNAT, and link-local IP ranges are kept (see --anonymize-level strict)")
+	flags.StringVar(&anonymizeLevelFlag, "anonymize-level", "", "anonymization level: \"default\" or \"strict\"; strict also anonymizes private, CGNAT, and link-local IP ranges, peer names, and WireGuard public keys. Setting this flag implies --anonymize")
+	return flags
+}
+
 // effectiveAnonymize resolves the --anonymize and --anonymize-level flags:
 // setting a level implies anonymization, and an invalid level is rejected.
 func effectiveAnonymize() (bool, anonymize.Level, error) {
@@ -356,6 +426,26 @@ func effectiveAnonymize() (bool, anonymize.Level, error) {
 		return false, anonymize.LevelDefault, fmt.Errorf("invalid anonymize level %q: use %q or %q", anonymizeLevelFlag, anonymize.LevelDefault.String(), anonymize.LevelStrict.String())
 	}
 	return true, level, nil
+}
+
+// addConfigFlag registers the daemon default profile path flag on cmd.
+func addConfigFlag(cmd *cobra.Command) {
+	cmd.PersistentFlags().StringVarP(&configPath, configFlag, "c", "", fmt.Sprintf("Overrides the default profile file location (default \"%s\")", profilemanager.DefaultConfigPath))
+}
+
+// addManagementURLFlag registers the management URL flag on cmd.
+func addManagementURLFlag(cmd *cobra.Command) {
+	cmd.PersistentFlags().StringVarP(&managementURL, managementURLFlag, "m", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", profilemanager.DefaultManagementURL))
+}
+
+// addLoginFlags registers the flags shared by the commands that log in a peer.
+func addLoginFlags(cmd *cobra.Command) {
+	addManagementURLFlag(cmd)
+	cmd.PersistentFlags().StringVarP(&setupKey, "setup-key", "k", "", "Setup key obtained from the Management Service Dashboard (used to register peer). Cannot be used with --setup-key-file.")
+	cmd.PersistentFlags().StringVar(&setupKeyPath, "setup-key-file", "", "The path to a setup key obtained from the Management Service Dashboard (used to register peer). Cannot be used with --setup-key.")
+	cmd.MarkFlagsMutuallyExclusive("setup-key", "setup-key-file")
+	cmd.PersistentFlags().StringVar(&preSharedKey, preSharedKeyFlag, "", "Sets WireGuard PreSharedKey property. If set, then only peers that have the same key can communicate.")
+	cmd.PersistentFlags().StringVarP(&hostName, "hostname", "n", "", "Sets a custom hostname for the device")
 }
 
 func getSetupKey() (string, error) {
@@ -487,10 +577,7 @@ func getClient(cmd *cobra.Command) (*grpc.ClientConn, error) {
 
 	conn, err := DialClientGRPCServer(cmd.Context(), daemonAddr)
 	if err != nil {
-		//nolint
-		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
-			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
+		return nil, daemonConnectError(err)
 	}
 
 	return conn, nil

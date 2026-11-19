@@ -79,6 +79,7 @@ func TestSelectPolicy_RealStore_AccountGroupCeiling(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, res.Allow, "group budget ceiling must deny once spent")
 	assert.Equal(t, denyCodeAccountBudgetCapExceeded, res.DenyCode, "account budget deny code")
+	assert.Equal(t, "ainbud-grp", res.SelectedPolicyID, "deny must name the account rule that blocked the request")
 }
 
 // TestSelectPolicy_RealStore_AccountTargetUsersBindsOnlyThatUser proves a

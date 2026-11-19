@@ -15,9 +15,9 @@ func TestParsingOfIP(t *testing.T) {
 	assert.Equal(t, "192.168.178.123\n", parsedIP)
 }
 
-// resetStatusFlags restores only the status-specific output flags. The global
-// root flags (setup-key and friends) are shared with other tests in the
-// package, so they must not be touched here.
+// resetStatusFlags restores only the status-specific output flags. The root
+// flags are shared with other tests in the package, so they must not be
+// touched here.
 func resetStatusFlags(t *testing.T) {
 	t.Helper()
 	t.Cleanup(func() {
