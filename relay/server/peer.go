@@ -348,6 +348,8 @@ func (p *Peer) dropOldestQueued() {
 }
 
 func (p *Peer) sendLoop(ctx context.Context) {
+	defer p.drainSendQueue()
+
 	for {
 		select {
 		case bufPtr := <-p.sendQueue:
@@ -363,6 +365,17 @@ func (p *Peer) sendLoop(ctx context.Context) {
 			}
 			p.metrics.TransferBytesSent.Add(ctx, int64(n))
 		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (p *Peer) drainSendQueue() {
+	for {
+		select {
+		case bufPtr := <-p.sendQueue:
+			msgBufPool.Put(bufPtr)
+		default:
 			return
 		}
 	}
