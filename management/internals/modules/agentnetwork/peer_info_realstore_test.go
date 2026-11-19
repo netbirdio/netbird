@@ -108,11 +108,14 @@ func TestGetAgentNetworkInfoForPeer_RealStore(t *testing.T) {
 		assert.Len(t, info.Config.Providers, 1, "expired peers still see their providers")
 	})
 
-	t.Run("setup-key peer has no user", func(t *testing.T) {
+	t.Run("setup-key peer is answered from its peer groups", func(t *testing.T) {
 		info, err := mgr.GetAgentNetworkInfoForPeer(ctx, testAccountID, "peer-setupkey")
 		require.NoError(t, err)
-		assert.Equal(t, types.PeerAgentNetworkNoUser, info.State)
-		assert.Nil(t, info.Config, "no providers for a peer without a user")
+		assert.Equal(t, types.PeerAgentNetworkOK, info.State)
+		require.NotNil(t, info.Config)
+		assert.Equal(t, "https://"+testEndpoint, info.Config.Endpoint)
+		require.Len(t, info.Config.Providers, 1, "setup-key peer is in grp-eng, which the policy covers")
+		assert.Equal(t, "prov-1", info.Config.Providers[0].ID)
 	})
 
 	t.Run("blocked owner", func(t *testing.T) {
