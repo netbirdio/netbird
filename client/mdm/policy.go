@@ -130,6 +130,15 @@ const (
 	// KeyKeepConnectedOnQuit enforces whether quitting the desktop app leaves
 	// the connection up. Read by the app itself; the daemon ignores it.
 	KeyKeepConnectedOnQuit = "keepConnectedOnQuit"
+
+	// Default preferences of the desktop app: applied when the key appears or
+	// its value changes, and left for the user to change afterwards. Only
+	// cosmetic settings belong here.
+	KeyDefaultLanguage = "defaultLanguage"
+	// KeyDefaultViewMode is "default" or "advanced".
+	KeyDefaultViewMode = "defaultViewMode"
+	// KeyDefaultTheme is "system", "light" or "dark".
+	KeyDefaultTheme = "defaultTheme"
 )
 
 // Split-tunnel mode literals (KeySplitTunnelMode values).
