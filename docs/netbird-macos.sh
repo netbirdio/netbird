@@ -93,6 +93,10 @@ enableSSHLocalPortForwarding="$NULL"
 enableSSHRemotePortForwarding="$NULL"
 disableSSHAuth="$NULL"                     # no user login on the SSH server, automation hosts only
 sshJWTCacheTTL="$NULL"                     # seconds, 0 disables the cache
+keepConnectedOnQuit="$NULL"                # quitting the app leaves the connection up
+defaultLanguage="$NULL"                    # applied once, user can change it: en, de, it, ...
+defaultViewMode="$NULL"                    # applied once: "default" or "advanced"
+defaultTheme="$NULL"                       # applied once: "system", "light" or "dark"
 splitTunnelMode="$NULL"                    # "allow" or "disallow", Android-only at the daemon level
 splitTunnelApps="$NULL"                    # comma-separated app IDs, Android-only
 ##############################################################################
@@ -245,6 +249,10 @@ main() {
   is_set "$enableSSHRemotePortForwarding" && emit_bool enableSSHRemotePortForwarding "$enableSSHRemotePortForwarding"
   is_set "$disableSSHAuth"            && emit_bool    disableSSHAuth            "$disableSSHAuth"
   is_set "$sshJWTCacheTTL"            && emit_int     sshJWTCacheTTL            "$sshJWTCacheTTL"
+  is_set "$keepConnectedOnQuit"       && emit_bool    keepConnectedOnQuit       "$keepConnectedOnQuit"
+  is_set "$defaultLanguage"           && emit_string  defaultLanguage           "$defaultLanguage"
+  is_set "$defaultViewMode"           && emit_string  defaultViewMode           "$defaultViewMode"
+  is_set "$defaultTheme"              && emit_string  defaultTheme              "$defaultTheme"
   is_set "$splitTunnelMode"           && emit_string  splitTunnelMode           "$splitTunnelMode"
   is_set "$splitTunnelApps"           && emit_string  splitTunnelApps           "$splitTunnelApps"
 

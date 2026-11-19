@@ -435,6 +435,64 @@
       </elements>
     </policy>
 
+    <policy name="KeepConnectedOnQuit"
+            class="Machine"
+            displayName="$(string.KeepConnectedOnQuit_Name)"
+            explainText="$(string.KeepConnectedOnQuit_Help)"
+            key="Software\Policies\NetBird"
+            valueName="KeepConnectedOnQuit">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="DefaultLanguage"
+            class="Machine"
+            displayName="$(string.DefaultLanguage_Name)"
+            explainText="$(string.DefaultLanguage_Help)"
+            key="Software\Policies\NetBird"
+            presentation="$(presentation.DefaultLanguage_Pres)">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <elements>
+        <text id="DefaultLanguage_Text" valueName="DefaultLanguage" required="true" />
+      </elements>
+    </policy>
+
+    <policy name="DefaultViewMode"
+            class="Machine"
+            displayName="$(string.DefaultViewMode_Name)"
+            explainText="$(string.DefaultViewMode_Help)"
+            key="Software\Policies\NetBird"
+            presentation="$(presentation.DefaultViewMode_Pres)">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <elements>
+        <enum id="DefaultViewMode_Enum" valueName="DefaultViewMode" required="true">
+          <item displayName="$(string.DefaultViewMode_Default)"><value><string>default</string></value></item>
+          <item displayName="$(string.DefaultViewMode_Advanced)"><value><string>advanced</string></value></item>
+        </enum>
+      </elements>
+    </policy>
+
+    <policy name="DefaultTheme"
+            class="Machine"
+            displayName="$(string.DefaultTheme_Name)"
+            explainText="$(string.DefaultTheme_Help)"
+            key="Software\Policies\NetBird"
+            presentation="$(presentation.DefaultTheme_Pres)">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <elements>
+        <enum id="DefaultTheme_Enum" valueName="DefaultTheme" required="true">
+          <item displayName="$(string.DefaultTheme_System)"><value><string>system</string></value></item>
+          <item displayName="$(string.DefaultTheme_Light)"><value><string>light</string></value></item>
+          <item displayName="$(string.DefaultTheme_Dark)"><value><string>dark</string></value></item>
+        </enum>
+      </elements>
+    </policy>
+
     <policy name="SplitTunnel"
             class="Machine"
             displayName="$(string.SplitTunnel_Name)"

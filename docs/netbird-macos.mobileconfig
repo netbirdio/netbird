@@ -240,6 +240,29 @@
                                 <integer>0</integer>
                                 -->
 
+                                <!-- ===== Desktop app =====
+                                     keepConnectedOnQuit : quitting the app leaves the connection up;
+                                                           the user cannot change it.
+                                     default*            : applied when first seen or when the value
+                                                           changes; the user can change them afterwards.
+                                     defaultLanguage     : en, de, es, fr, gl, he, hu, it, ja, ko, pl,
+                                                           pt, ru, uk, zh-CN, zh-HK.
+                                     defaultViewMode     : default or advanced.
+                                     defaultTheme        : system, light or dark. -->
+                                <!--
+                                <key>keepConnectedOnQuit</key>
+                                <true/>
+
+                                <key>defaultLanguage</key>
+                                <string>it</string>
+
+                                <key>defaultViewMode</key>
+                                <string>default</string>
+
+                                <key>defaultTheme</key>
+                                <string>system</string>
+                                -->
+
                                 <!-- ===== UI / kill switches (bool) ===== -->
                                 <!--
                                 <key>disableUpdateSettings</key>
