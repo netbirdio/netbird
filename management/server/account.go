@@ -1030,6 +1030,34 @@ func canFillEmailOrName(user *types.User, idpUser *idp.UserData) bool {
 	return (user.Email == "" && idpUser.Email != "") || (user.Name == "" && idpUser.Name != "")
 }
 
+// fillEmailAndNameFromIdP looks up the email and name missing from the token in the external
+// IdP. Token values win, and an IdP error leaves userAuth unchanged so the login goes ahead.
+func (am *DefaultAccountManager) fillEmailAndNameFromIdP(ctx context.Context, userAuth auth.UserAuth) auth.UserAuth {
+	if userAuth.Email != "" && userAuth.Name != "" {
+		return userAuth
+	}
+	if isNil(am.idpManager) || IsEmbeddedIdp(am.idpManager) {
+		return userAuth
+	}
+
+	userData, err := am.idpManager.GetUserDataByID(ctx, userAuth.UserId, idp.AppMetadata{})
+	if err != nil {
+		log.WithContext(ctx).Debugf("failed to get user %s from the IdP: %v", userAuth.UserId, err)
+		return userAuth
+	}
+	if userData == nil {
+		return userAuth
+	}
+
+	if userAuth.Email == "" {
+		userAuth.Email = userData.Email
+	}
+	if userAuth.Name == "" {
+		userAuth.Name = userData.Name
+	}
+	return userAuth
+}
+
 // isCacheCold checks if the cache needs warming up.
 func (am *DefaultAccountManager) isCacheCold(ctx context.Context, store cacheStore.StoreInterface) (bool, error) {
 	if store.GetType() != redis.RedisType {
@@ -1153,7 +1181,7 @@ func (am *DefaultAccountManager) GetAccountIDByUserID(ctx context.Context, userA
 	accountID, err := am.Store.GetAccountIDByUserID(ctx, store.LockingStrengthNone, userAuth.UserId)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
-			acc, err := am.GetOrCreateAccountByUser(ctx, userAuth)
+			acc, err := am.GetOrCreateAccountByUser(ctx, am.fillEmailAndNameFromIdP(ctx, userAuth))
 			if err != nil {
 				return "", status.Errorf(status.NotFound, "account not found or created for user id: %s", userAuth.UserId)
 			}
@@ -2022,6 +2050,7 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 		return userAccountID, nil
 	}
 
+	userAuth = am.fillEmailAndNameFromIdP(ctx, userAuth)
 	if domainAccountID != "" {
 		return am.addNewUserToDomainAccount(ctx, domainAccountID, userAuth)
 	}

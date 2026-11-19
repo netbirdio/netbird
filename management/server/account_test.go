@@ -26,9 +26,6 @@ import (
 	"go.uber.org/mock/gomock"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
-	"github.com/netbirdio/netbird/shared/management/status"
-
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
@@ -38,6 +35,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness/peerlivenesstest"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
@@ -69,6 +67,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/auth"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 func verifyCanAddPeerToAccount(t *testing.T, manager nbAccount.Manager, account *types.Account, userID string) {
@@ -99,7 +98,7 @@ func verifyCanAddPeerToAccount(t *testing.T, manager nbAccount.Manager, account 
 	}
 }
 
-func verifyNewAccountHasDefaultFields(t *testing.T, account *types.Account, createdBy string, domain string, expectedUsers []string) {
+func verifyNewAccountHasDefaultFields(t *testing.T, account *types.Account, createdBy, domain string, expectedUsers []string) {
 	t.Helper()
 	if len(account.Peers) != 0 {
 		t.Errorf("expected account to have len(Peers) = %v, got %v", 0, len(account.Peers))
@@ -1187,7 +1186,6 @@ func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 			}
 		}
 	})
-
 }
 
 func genUsers(p string, n int) map[string]*types.User {
@@ -4573,6 +4571,59 @@ func TestDefaultAccountManager_WarmupIDPCacheFillsMissingEmailAndName(t *testing
 		assert.Equal(t, tt.email, user.Email, "email of user %s", tt.id)
 		assert.Equal(t, tt.name, user.Name, "name of user %s", tt.id)
 	}
+}
+
+func TestDefaultAccountManager_LoginFillsEmailAndNameFromIdP(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	var lookups []string
+	manager.idpManager = &idp.MockIDP{
+		GetUserDataByIDFunc: func(_ context.Context, userID string, _ idp.AppMetadata) (*idp.UserData, error) {
+			lookups = append(lookups, userID)
+			if userID == "idp-down" {
+				return nil, errors.New("idp unavailable")
+			}
+			return &idp.UserData{ID: userID, Email: userID + "@idp.example", Name: "IdP " + userID}, nil
+		},
+	}
+
+	ctx := context.Background()
+	public := func(userAuth auth.UserAuth) auth.UserAuth {
+		userAuth.Domain, userAuth.DomainCategory = "gmail.com", types.PublicCategory
+		return userAuth
+	}
+	private := func(userAuth auth.UserAuth) auth.UserAuth {
+		userAuth.Domain, userAuth.DomainCategory = "company.com", types.PrivateCategory
+		return userAuth
+	}
+
+	tests := []struct {
+		userAuth    auth.UserAuth
+		email, name string
+	}{
+		{public(auth.UserAuth{UserId: "public-user"}), "public-user@idp.example", "IdP public-user"},
+		{private(auth.UserAuth{UserId: "private-user"}), "private-user@idp.example", "IdP private-user"},
+		{private(auth.UserAuth{UserId: "domain-user", Name: "Token"}), "domain-user@idp.example", "Token"},
+		{public(auth.UserAuth{UserId: "token-user", Email: "token@example.com", Name: "Token"}), "token@example.com", "Token"},
+		{public(auth.UserAuth{UserId: "idp-down"}), "", ""},
+	}
+	for _, tt := range tests {
+		_, err := manager.getAccountIDWithAuthorizationClaims(ctx, tt.userAuth)
+		require.NoError(t, err, "login of user %s", tt.userAuth.UserId)
+
+		user, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthNone, tt.userAuth.UserId)
+		require.NoError(t, err)
+		assert.Equal(t, tt.email, user.Email, "email of user %s", tt.userAuth.UserId)
+		assert.Equal(t, tt.name, user.Name, "name of user %s", tt.userAuth.UserId)
+	}
+
+	assert.Equal(t, []string{"public-user", "private-user", "domain-user", "idp-down"}, lookups,
+		"only new users whose token lacks email or name must be looked up")
+
+	_, err = manager.getAccountIDWithAuthorizationClaims(ctx, public(auth.UserAuth{UserId: "public-user"}))
+	require.NoError(t, err)
+	assert.Len(t, lookups, 4, "a returning user must not be looked up")
 }
 
 func TestPropagateUserGroupMemberships(t *testing.T) {
