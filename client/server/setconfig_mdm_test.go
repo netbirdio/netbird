@@ -546,3 +546,23 @@ func TestLoginRequestMDMConflicts_SSHKeys(t *testing.T) {
 		loginRequestMDMConflicts(&proto.LoginRequest{DisableSSHAuth: &on, SshJWTCacheTTL: &other}, policy),
 		"divergent values must be reported")
 }
+
+func TestSetConfig_MDMReject_ForceRelay(t *testing.T) {
+	s, ctx, profName, username, _ := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{mdm.KeyForceRelay: true}))
+
+	off := false
+	_, err := s.SetConfig(ctx, &proto.SetConfigRequest{ProfileName: profName, Username: username, ForceRelay: &off})
+
+	v := extractViolation(t, err)
+	assert.Equal(t, []string{mdm.KeyForceRelay}, v.GetFields(), "a divergent force relay must be reported")
+}
+
+func TestLoginRequestMDMConflicts_ForceRelay(t *testing.T) {
+	policy := mdm.NewPolicy(map[string]any{mdm.KeyForceRelay: true})
+	off, on := false, true
+
+	assert.Empty(t, loginRequestMDMConflicts(&proto.LoginRequest{ForceRelay: &on}, policy), "a value equal to the enforced one is an echo")
+	assert.Equal(t, []string{mdm.KeyForceRelay}, loginRequestMDMConflicts(&proto.LoginRequest{ForceRelay: &off}, policy),
+		"a divergent value must be reported")
+}

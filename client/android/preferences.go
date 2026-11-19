@@ -375,6 +375,9 @@ func (p *Preferences) SetDisableIPv6(disable bool) {
 
 // GetForceRelay reads the force relay setting from config file
 func (p *Preferences) GetForceRelay() (bool, error) {
+	if v, ok := p.policy().GetBool(mdm.KeyForceRelay); ok {
+		return v, nil
+	}
 	if p.configInput.ForceRelay != nil {
 		return *p.configInput.ForceRelay, nil
 	}

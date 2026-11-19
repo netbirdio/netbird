@@ -117,6 +117,8 @@ const (
 	KeyDNSRouteInterval = "dnsRouteInterval"
 	// KeyNATExternalIPs is read as a list or a comma-separated string.
 	KeyNATExternalIPs = "natExternalIPs"
+	// KeyForceRelay also wins over NB_FORCE_RELAY in the daemon environment.
+	KeyForceRelay = "forceRelay"
 
 	// SSH server overrides: they shape the server allowServerSSH turns on.
 	KeyEnableSSHRoot                 = "enableSSHRoot"

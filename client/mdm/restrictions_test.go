@@ -94,3 +94,8 @@ func TestBuildRestrictions_KeepConnectedOnQuit(t *testing.T) {
 	assert.True(t, r.MDM.KeepConnectedOnQuit, "managed whatever its value")
 	assert.False(t, BuildRestrictions(NewPolicy(map[string]any{KeyMTU: int64(1300)})).MDM.KeepConnectedOnQuit, "not managed when absent")
 }
+
+func TestBuildRestrictions_ForceRelay(t *testing.T) {
+	assert.True(t, BuildRestrictions(NewPolicy(map[string]any{KeyForceRelay: false})).MDM.ForceRelay, "managed whatever its value")
+	assert.False(t, BuildRestrictions(NewPolicy(map[string]any{KeyMTU: int64(1300)})).MDM.ForceRelay, "not managed when absent")
+}

@@ -1046,6 +1046,7 @@ func (config *Config) applyMDMNetworkOverrides(policy *mdm.Policy) {
 	applyMDMBool(policy, mdm.KeyDisableNotifications, func(v bool) { config.DisableNotifications = &v })
 	applyMDMBool(policy, mdm.KeyNetworkMonitor, func(v bool) { config.NetworkMonitor = &v })
 	applyMDMBool(policy, mdm.KeyDisableIPv6Discovery, func(v bool) { config.DisableIPv6Discovery = v })
+	applyMDMBool(policy, mdm.KeyForceRelay, func(v bool) { config.ForceRelay = v })
 
 	config.applyMDMInterfaceName(policy)
 	config.applyMDMMTU(policy)

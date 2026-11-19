@@ -760,3 +760,25 @@ func TestMDMConflicts_SSHKeys(t *testing.T) {
 		})
 	}
 }
+
+func TestApply_MDMForceRelayOverridesOnDiskValue(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "config.json")
+	configWithMDM(t, ConfigInput{ConfigPath: tmp, ForceRelay: boolPtr(false)}, mdm.NewPolicy(nil))
+	before, err := os.ReadFile(tmp)
+	require.NoError(t, err)
+
+	cfg := configWithMDM(t, ConfigInput{ConfigPath: tmp}, mdm.NewPolicy(map[string]any{mdm.KeyForceRelay: true}))
+
+	assert.True(t, cfg.ForceRelay, "the policy value applies")
+	after, err := os.ReadFile(tmp)
+	require.NoError(t, err)
+	assert.Equal(t, string(before), string(after), "the policy value is never written to the profile")
+}
+
+func TestMDMConflicts_ForceRelay(t *testing.T) {
+	policy := mdm.NewPolicy(map[string]any{mdm.KeyForceRelay: true})
+
+	assert.Nil(t, MDMConflicts(ConfigInput{}, policy), "an unset value does not conflict")
+	assert.Nil(t, MDMConflicts(ConfigInput{ForceRelay: boolPtr(true)}, policy), "a value matching the policy does not conflict")
+	assert.Equal(t, []string{mdm.KeyForceRelay}, MDMConflicts(ConfigInput{ForceRelay: boolPtr(false)}, policy), "a differing value conflicts")
+}

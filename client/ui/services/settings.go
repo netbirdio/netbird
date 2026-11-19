@@ -424,6 +424,7 @@ var mdmRequestFields = map[string]func(*proto.SetConfigRequest){
 	mdm.KeyEnableSSHRemotePortForwarding: func(r *proto.SetConfigRequest) { r.EnableSSHRemotePortForwarding = nil },
 	mdm.KeyDisableSSHAuth:                func(r *proto.SetConfigRequest) { r.DisableSSHAuth = nil },
 	mdm.KeySSHJWTCacheTTL:                func(r *proto.SetConfigRequest) { r.SshJWTCacheTTL = nil },
+	mdm.KeyForceRelay:                    func(r *proto.SetConfigRequest) { r.ForceRelay = nil },
 }
 
 // dropMDMManagedFields leaves the MDM-enforced fields out of a settings save.

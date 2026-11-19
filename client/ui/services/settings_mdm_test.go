@@ -136,5 +136,6 @@ func fullSetConfigRequest() *proto.SetConfigRequest {
 		EnableSSHRemotePortForwarding: &b,
 		DisableSSHAuth:                &b,
 		SshJWTCacheTTL:                &ttl,
+		ForceRelay:                    &b,
 	}
 }

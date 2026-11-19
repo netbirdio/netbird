@@ -39,6 +39,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/tunnelnotifier"
 	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/internal/updater/installer"
+	"github.com/netbirdio/netbird/client/mdm"
 	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/netevents"
 	cProto "github.com/netbirdio/netbird/client/proto"
@@ -897,10 +898,13 @@ func closeConnWithLog(conn *net.UDPConn) {
 	}
 }
 
-// forceRelay resolves the force relay setting: NB_FORCE_RELAY in the daemon
-// environment wins over the profile, as environment variables do for every
-// other option.
+// forceRelay resolves the force relay setting: an MDM policy wins over
+// everything, then NB_FORCE_RELAY in the daemon environment wins over the
+// profile, as environment variables do for every other option.
 func forceRelay(config *profilemanager.Config) bool {
+	if _, managed := config.Policy().GetBool(mdm.KeyForceRelay); managed {
+		return config.ForceRelay
+	}
 	if forced, set := peer.ForceRelayFromEnv(); set {
 		return forced
 	}

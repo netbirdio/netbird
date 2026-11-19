@@ -49,6 +49,7 @@ var allKeys = []string{
 	KeyMTU,
 	KeyDNSRouteInterval,
 	KeyNATExternalIPs,
+	KeyForceRelay,
 	KeyEnableSSHRoot,
 	KeyEnableSSHSFTP,
 	KeyEnableSSHLocalPortForwarding,

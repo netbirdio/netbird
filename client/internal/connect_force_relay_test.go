@@ -8,6 +8,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 )
 
 // NB_FORCE_RELAY in the daemon environment wins over the profile when set, as
@@ -34,6 +35,26 @@ func TestForceRelayPrecedence(t *testing.T) {
 			}
 			got := forceRelay(&profilemanager.Config{ForceRelay: tc.profile})
 			assert.Equal(t, tc.want, got, "effective force relay")
+		})
+	}
+}
+
+// An MDM policy wins over NB_FORCE_RELAY in the daemon environment, in both
+// directions.
+func TestForceRelayMDMWinsOverEnv(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		env    string
+		policy bool
+	}{
+		{name: "policy off beats env on", env: "true", policy: false},
+		{name: "policy on beats env off", env: "false", policy: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(peer.EnvKeyNBForceRelay, tc.env)
+			cfg := (&profilemanager.Config{ForceRelay: !tc.policy}).WithMDMPolicy(
+				mdm.NewPolicy(map[string]any{mdm.KeyForceRelay: tc.policy}))
+			assert.Equal(t, tc.policy, forceRelay(cfg), "the policy decides")
 		})
 	}
 }
