@@ -55,7 +55,6 @@ func TestRelayAgentNetworkInfo(t *testing.T) {
 
 func TestRelayAgentNetworkInfo_States(t *testing.T) {
 	for mgmState, want := range map[mgmProto.GetAgentNetworkInfoResponse_State]proto.GetAgentNetworkInfoResponse_State{
-		mgmProto.GetAgentNetworkInfoResponse_NO_USER:      proto.GetAgentNetworkInfoResponse_NO_USER,
 		mgmProto.GetAgentNetworkInfoResponse_NOT_ENABLED:  proto.GetAgentNetworkInfoResponse_NOT_ENABLED,
 		mgmProto.GetAgentNetworkInfoResponse_USER_BLOCKED: proto.GetAgentNetworkInfoResponse_USER_BLOCKED,
 		mgmProto.GetAgentNetworkInfoResponse_State(99):    proto.GetAgentNetworkInfoResponse_STATE_UNSPECIFIED,
