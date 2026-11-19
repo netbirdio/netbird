@@ -2625,13 +2625,13 @@ func (s *Server) RemoveProfile(ctx context.Context, msg *proto.RemoveProfileRequ
 // Root or administrator only, enforced by the gate. The owner is whoever the
 // caller names rather than the caller's own identity, so it is validated
 // before anything is written.
+//
+// Disabling profiles does not disable ownership, so a claim stays available
+// then. It is the only way to give the default profile an owner on a machine
+// where nobody sits at the console.
 func (s *Server) ClaimProfile(ctx context.Context, msg *proto.ClaimProfileRequest) (*proto.ClaimProfileResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-
-	if s.checkProfilesDisabled() {
-		return nil, gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
-	}
 
 	if msg.Handle == "" {
 		return nil, gstatus.Errorf(codes.InvalidArgument, "profile must be provided")
