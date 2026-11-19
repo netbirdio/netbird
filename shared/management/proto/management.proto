@@ -845,7 +845,9 @@ message GetAgentNetworkInfoResponse {
     // OK: Agent Networks is set up for the account. An empty providers list
     // means no policy gives this peer access yet.
     OK = 1;
-    // NO_USER: the peer has no owning user (e.g. registered with a setup key).
+    // NO_USER: no longer sent. Management answers a peer with no owning user
+    // (e.g. registered with a setup key) from its peer groups like any other
+    // peer. Kept so clients still understand older management servers.
     NO_USER = 2;
     // NOT_ENABLED: the account has no Agent Network.
     NOT_ENABLED = 3;
@@ -853,7 +855,8 @@ message GetAgentNetworkInfoResponse {
     USER_BLOCKED = 4;
   }
   State state = 1;
-  // endpoint is the account's proxy base URL, "https://<label>.<cluster>".
+  // endpoint is the account's proxy base URL, "https://" plus the account's
+  // gateway hostname. Set only when state is OK.
   string endpoint = 2;
   repeated AgentNetworkProvider providers = 3;
 }
