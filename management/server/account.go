@@ -534,7 +534,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountNetworkRangeUpdated, eventMeta)
 	}
 	if reloadReverseProxy {
-		if err = am.serviceManager.ReloadAllServicesForAccount(ctx, accountID); err != nil {
+		if err = am.serviceManager.ReloadAllServicesForAccount(context.WithoutCancel(ctx), accountID); err != nil {
 			log.WithContext(ctx).Warnf("failed to reload all services for account %s: %v", accountID, err)
 		}
 	}
@@ -2796,7 +2796,7 @@ func (am *DefaultAccountManager) UpdatePeerIP(ctx context.Context, accountID, us
 	}
 
 	if updateNetworkMap {
-		am.reloadServicesTargetingPeer(ctx, accountID, peerID)
+		am.reloadServicesTargetingPeer(context.WithoutCancel(ctx), accountID, peerID)
 
 		peer, err := am.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 		if err != nil {

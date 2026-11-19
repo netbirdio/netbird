@@ -50,9 +50,6 @@ const (
 	// PeerAgentNetworkOK means the account has an Agent Network; the
 	// providers in Config may still be empty when no policy covers the peer.
 	PeerAgentNetworkOK PeerAgentNetworkState = "ok"
-	// PeerAgentNetworkNoUser means the peer has no owning user, e.g. it
-	// was registered with a setup key.
-	PeerAgentNetworkNoUser PeerAgentNetworkState = "no_user"
 	// PeerAgentNetworkNotEnabled means the account has no Agent Network.
 	PeerAgentNetworkNotEnabled PeerAgentNetworkState = "not_enabled"
 	// PeerAgentNetworkUserBlocked means the owning user is blocked or
@@ -61,7 +58,7 @@ const (
 )
 
 // PeerAgentNetworkInfo is what Agent Networks offers one peer, computed
-// from the peer's own groups and owning user.
+// from the peer's own groups and, for a user-owned peer, its owner.
 type PeerAgentNetworkInfo struct {
 	State PeerAgentNetworkState
 	// Config carries the endpoint and providers; set only when State is OK.

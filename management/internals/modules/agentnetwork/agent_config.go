@@ -27,32 +27,26 @@ func (m *managerImpl) GetAgentConfigForUser(ctx context.Context, accountID, user
 
 // GetAgentNetworkInfoForPeer returns what Agent Networks offers a peer.
 // Providers come from the peer's own groups, the same groups the proxy
-// authorizes tunnel requests against, and the owner gate mirrors the
-// proxy's: a blocked or pending owner gets nothing. A peer without a user
-// gets NoUser.
+// authorizes tunnel requests against. A user-owned peer is answered only
+// while its owner is active; a blocked or pending owner gets nothing. A
+// setup-key peer has no owner to gate on and is answered from its peer
+// groups alone.
 func (m *managerImpl) GetAgentNetworkInfoForPeer(ctx context.Context, accountID, peerID string) (*types.PeerAgentNetworkInfo, error) {
 	peer, err := m.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 	if err != nil {
 		return nil, fmt.Errorf("get peer: %w", err)
 	}
-	if peer.UserID == "" {
-		return &types.PeerAgentNetworkInfo{State: types.PeerAgentNetworkNoUser}, nil
-	}
-
-	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, peer.UserID)
-	if err != nil {
-		return nil, fmt.Errorf("get peer owner: %w", err)
-	}
-	// The lookup is by user id alone; never answer with a user from
-	// another account.
-	if user.AccountID != accountID {
-		return nil, status.Errorf(status.PermissionDenied, "peer owner belongs to another account")
-	}
 
 	info := &types.PeerAgentNetworkInfo{}
-	if user.IsBlocked() || user.PendingApproval {
-		info.State = types.PeerAgentNetworkUserBlocked
-		return info, nil
+	if peer.UserID != "" {
+		active, err := m.peerOwnerActive(ctx, accountID, peer.UserID)
+		if err != nil {
+			return nil, err
+		}
+		if !active {
+			info.State = types.PeerAgentNetworkUserBlocked
+			return info, nil
+		}
 	}
 
 	groupIDs, err := m.store.GetPeerGroupIDs(ctx, store.LockingStrengthNone, accountID, peerID)
@@ -70,6 +64,21 @@ func (m *managerImpl) GetAgentNetworkInfoForPeer(ctx context.Context, accountID,
 	info.State = types.PeerAgentNetworkOK
 	info.Config = cfg
 	return info, nil
+}
+
+// peerOwnerActive reports whether the peer's owner may use Agent Networks:
+// it must belong to the account and be neither blocked nor pending approval.
+func (m *managerImpl) peerOwnerActive(ctx context.Context, accountID, userID string) (bool, error) {
+	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
+	if err != nil {
+		return false, fmt.Errorf("get peer owner: %w", err)
+	}
+	// The lookup is by user id alone; never answer with a user from
+	// another account.
+	if user.AccountID != accountID {
+		return false, status.Errorf(status.PermissionDenied, "peer owner belongs to another account")
+	}
+	return !user.IsBlocked() && !user.PendingApproval, nil
 }
 
 // agentConfigForGroups computes the effective Agent Network setup for
