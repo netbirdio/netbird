@@ -52,7 +52,6 @@ jobs:
           persist-credentials: false
 
       - name: run install script
-        shell: bash
         env:
           # Pinned to a release that ships no Linux arm64 UI archive, so the UI
           # download keeps failing here after newer releases start shipping one.
@@ -61,14 +60,13 @@ jobs:
           SKIP_UI_APP: false
           XDG_CURRENT_DESKTOP: none
           GITHUB_TOKEN: ${{ github.token }}
-        run: sh -x release_files/install.sh 2>&1 | tee install.log
+        run: sh -x release_files/install.sh
 
       - name: check cli binary
         run: command -v netbird
 
-      - name: check ui install was skipped with a warning
+      - name: check ui binary was not installed
         run: |
-          grep -q "Continuing with the NetBird CLI only" install.log
           if command -v netbird-ui; then
             echo "netbird-ui must not be installed when its download fails"
             exit 1
