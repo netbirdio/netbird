@@ -664,8 +664,9 @@ func TestSessionEndObservedAfterDrop(t *testing.T) {
 	require.NoError(t, err, "reconnect on the same client")
 	require.NotSame(t, first, second, "a reconnect must start a new session")
 
-	// The ended session is torn down once more, the way a late cleanup of the
-	// old connection would do it after the client has already reconnected.
+	// The session has already ended, so Close does nothing here and only shows
+	// that repeating it is safe. DetachSession is the late cleanup of the old
+	// connection, arriving after the client has already reconnected.
 	require.NoError(t, first.Close(true))
 	relayClient.DetachSession(first)
 
