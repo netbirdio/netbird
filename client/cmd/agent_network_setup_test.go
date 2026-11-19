@@ -172,11 +172,6 @@ func TestAgentNetworkSetupRefusals(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "no user",
-			resp: &proto.GetAgentNetworkInfoResponse{State: proto.GetAgentNetworkInfoResponse_NO_USER},
-			want: []string{"not available for this peer"},
-		},
-		{
 			name: "unknown state fails closed",
 			resp: &proto.GetAgentNetworkInfoResponse{State: proto.GetAgentNetworkInfoResponse_STATE_UNSPECIFIED, Endpoint: "https://x"},
 			want: []string{"unknown Agent Networks state"},

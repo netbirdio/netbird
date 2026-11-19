@@ -21,8 +21,6 @@ import (
 )
 
 const (
-	agentNetworkNoUserText = "Agent Networks usage is not available for this peer " +
-		"(it was added with a setup key and has no user)."
 	agentNetworkNotEnabledText  = "Agent Networks is not enabled for your NetBird account."
 	agentNetworkNoProvidersText = "No Agent Networks policy gives you access. Ask your administrator."
 	agentNetworkBlockedText     = "Your NetBird user is blocked or waiting for approval, " +
@@ -45,7 +43,7 @@ var agentNetworkUsageCmd = &cobra.Command{
 }
 
 func init() {
-	agentNetworkUsageCmd.Flags().BoolVar(&agentNetworkUsageJSON, "json", false, "print the daemon response as JSON")
+	agentNetworkUsageCmd.Flags().BoolVar(&agentNetworkUsageJSON, "json", false, "print the response as JSON")
 	agentNetworkCmd.AddCommand(agentNetworkUsageCmd)
 }
 
@@ -103,8 +101,6 @@ func renderAgentNetworkUsage(w io.Writer, resp *proto.GetAgentNetworkInfoRespons
 	switch resp.GetState() {
 	case proto.GetAgentNetworkInfoResponse_OK:
 		writeAgentNetworkProviders(w, resp, email, now)
-	case proto.GetAgentNetworkInfoResponse_NO_USER:
-		fmt.Fprintln(w, agentNetworkNoUserText)
 	case proto.GetAgentNetworkInfoResponse_NOT_ENABLED:
 		fmt.Fprintln(w, agentNetworkNotEnabledText)
 	case proto.GetAgentNetworkInfoResponse_USER_BLOCKED:

@@ -79,7 +79,6 @@ func TestAgentNetworkUsageSetupKeyPeer(t *testing.T) {
 	assert.Contains(t, out, "e2e-usage-provider (openai_api)", "setup-key peer must see the provider its group reaches")
 	assert.Contains(t, out, "0 / 100,000 tokens", "user cap row: %s", out)
 	assert.Contains(t, out, "0 / 500,000 tokens", "group cap row: %s", out)
-	assert.NotContains(t, out, "setup key and has no user", "a current server no longer sends NO_USER")
 
 	code, out, err = cl.Exec(ctx, "netbird", "agent-network", "usage", "--json")
 	require.NoError(t, err)

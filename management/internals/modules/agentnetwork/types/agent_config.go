@@ -73,8 +73,9 @@ type ProviderAllowance struct {
 	// Unlimited means a policy without caps pays for the caller and no
 	// account rule binds them.
 	Unlimited bool
-	// Exhausted mirrors the proxy: true exactly when the policy selector
-	// would deny the caller's next request on this provider.
+	// Exhausted is true when the policy selector would deny the caller's next
+	// request on this provider for a spent cap. The model gate is not
+	// evaluated.
 	Exhausted bool
 	Limits    []AllowanceLimit
 }

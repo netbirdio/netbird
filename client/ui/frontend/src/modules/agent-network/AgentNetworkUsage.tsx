@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import Skeleton from "react-loading-skeleton";
-import { BotIcon, CircleAlertIcon, RefreshCwIcon, ShieldBanIcon, UserXIcon } from "lucide-react";
+import { BotIcon, CircleAlertIcon, RefreshCwIcon, ShieldBanIcon } from "lucide-react";
 import type {
     AgentNetworkInfo,
     AgentNetworkLimit,
@@ -60,14 +60,6 @@ export const AgentNetworkUsageView = ({
     }
 
     switch (info.state) {
-        case "no_user":
-            return (
-                <EmptyState
-                    icon={UserXIcon}
-                    title={t("agentNetwork.noUser.title")}
-                    description={t("agentNetwork.noUser.description")}
-                />
-            );
         case "user_blocked":
             return (
                 <EmptyState

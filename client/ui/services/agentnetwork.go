@@ -8,22 +8,17 @@ import (
 	"sync"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/client/internal/agentnetwork/harness"
-	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
 // AgentNetworkInfo is what Agent Networks offers this peer. State is the
-// lower-case daemon state ("ok", "no_user", "not_enabled", "user_blocked",
+// lower-case daemon state ("ok", "not_enabled", "user_blocked",
 // "management_unsupported"). Times are RFC 3339, empty when unset.
 type AgentNetworkInfo struct {
-	State string `json:"state"`
-	// UserEmail is the email the last SSO login stored on the active profile,
-	// empty when there is none.
-	UserEmail string                 `json:"userEmail"`
+	State     string                 `json:"state"`
 	Endpoint  string                 `json:"endpoint"`
 	Providers []AgentNetworkProvider `json:"providers"`
 }
@@ -72,26 +67,7 @@ func (s *AgentNetwork) Info(ctx context.Context) (AgentNetworkInfo, error) {
 	if err != nil {
 		return AgentNetworkInfo{}, err
 	}
-	info := agentNetworkInfoFromProto(resp)
-	info.UserEmail = activeProfileEmail(ctx, cli)
-	return info, nil
-}
-
-// activeProfileEmail reads the email from the active profile's state file.
-// The daemon names the active profile; the state file is user-owned, so it
-// is read here rather than by the daemon. Empty when it cannot be read.
-func activeProfileEmail(ctx context.Context, cli proto.DaemonServiceClient) string {
-	active, err := cli.GetActiveProfile(ctx, &proto.GetActiveProfileRequest{})
-	if err != nil {
-		log.Debugf("failed to get active profile: %v", err)
-		return ""
-	}
-	state, err := profilemanager.NewProfileManager().GetProfileState(profilemanager.ID(active.GetId()))
-	if err != nil {
-		log.Debugf("failed to get profile state: %v", err)
-		return ""
-	}
-	return state.Email
+	return agentNetworkInfoFromProto(resp), nil
 }
 
 func agentNetworkInfoFromProto(resp *proto.GetAgentNetworkInfoResponse) AgentNetworkInfo {

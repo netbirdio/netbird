@@ -265,8 +265,6 @@ func anSetupCheckState(info *proto.GetAgentNetworkInfoResponse) error {
 			return errors.New("management reported no Agent Networks endpoint")
 		}
 		return nil
-	case proto.GetAgentNetworkInfoResponse_NO_USER:
-		return errors.New("not available for this peer: Agent Networks needs a peer owned by a user, and this one was registered with a setup key")
 	case proto.GetAgentNetworkInfoResponse_NOT_ENABLED:
 		return errors.New("this account has no Agent Network enabled")
 	case proto.GetAgentNetworkInfoResponse_USER_BLOCKED:

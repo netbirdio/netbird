@@ -36,7 +36,6 @@ func TestAgentNetworkInfoFromProto(t *testing.T) {
 	assert.Empty(t, got.Providers[0].Limits[1].ResetsAt, "an unset timestamp stays empty")
 
 	for state, want := range map[proto.GetAgentNetworkInfoResponse_State]string{
-		proto.GetAgentNetworkInfoResponse_NO_USER:                "no_user",
 		proto.GetAgentNetworkInfoResponse_NOT_ENABLED:            "not_enabled",
 		proto.GetAgentNetworkInfoResponse_USER_BLOCKED:           "user_blocked",
 		proto.GetAgentNetworkInfoResponse_MANAGEMENT_UNSUPPORTED: "management_unsupported",

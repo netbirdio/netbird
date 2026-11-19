@@ -9,13 +9,14 @@ import (
 	"github.com/netbirdio/netbird/management/server/store"
 )
 
-// fillAllowances sets each provider's Allowance for the calling principal.
+// fillAllowances sets each provider's Allowance for the calling principal:
+// the owning user's ID, or the peer ID for a peer without one.
 // It runs the selector's own steps (applicable policies, account ceiling,
 // candidate scoring) against one batched consumption read, so Exhausted
 // matches what SelectPolicyForRequest would answer. The model gate is
 // skipped: no request model exists here, and its empty-model rule would
 // report every allowlisted provider as exhausted.
-func (m *managerImpl) fillAllowances(ctx context.Context, accountID, userID string, groupIDs []string, providers []types.AgentConfigProvider) error {
+func (m *managerImpl) fillAllowances(ctx context.Context, accountID, principalID string, groupIDs []string, providers []types.AgentConfigProvider) error {
 	if len(providers) == 0 {
 		return nil
 	}
@@ -30,7 +31,7 @@ func (m *managerImpl) fillAllowances(ctx context.Context, accountID, userID stri
 		return fmt.Errorf("list account policies: %w", err)
 	}
 
-	base := PolicySelectionInput{AccountID: accountID, UserID: userID, GroupIDs: groupIDs}
+	base := PolicySelectionInput{AccountID: accountID, UserID: principalID, GroupIDs: groupIDs}
 	candidates := make([][]*types.Policy, len(providers))
 	var all []*types.Policy
 	for i, p := range providers {

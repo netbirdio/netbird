@@ -1899,14 +1899,6 @@
         "message": "Couldn't refresh. Showing the last known usage.",
         "description": "Shown above the last known Agent Networks usage when a refresh failed. The technical error is shown under it."
     },
-    "agentNetwork.noUser.title": {
-        "message": "Not available on this device",
-        "description": "Agent Networks tab, empty-state title: this device was added with a setup key and has no user, so there is no personal usage to show."
-    },
-    "agentNetwork.noUser.description": {
-        "message": "Agent Networks needs a signed-in user. This device was added with a setup key.",
-        "description": "Agent Networks tab, empty-state text under the 'not available on this device' title."
-    },
     "agentNetwork.blocked.title": {
         "message": "Not available for your user",
         "description": "Agent Networks tab, empty-state title when the user's NetBird account is blocked or waiting for approval."
@@ -1933,7 +1925,7 @@
     },
     "agentNetwork.usage.title": {
         "message": "Usage",
-        "description": "Heading of the usage block in the Agent Networks tab. The user's email is shown next to it."
+        "description": "Heading of the usage block in the Agent Networks tab."
     },
     "agentNetwork.badge.exhausted": {
         "message": "Exhausted",
@@ -1969,11 +1961,11 @@
     },
     "agentNetwork.limit.usedOfCapTokens": {
         "message": "{used} / {cap} tokens",
-        "description": "Tooltip with the exact tokens used of a limit. {used} and {cap} are formatted numbers; keep both."
+        "description": "Screen-reader value of the usage bar: the exact tokens used of a limit. {used} and {cap} are formatted numbers; keep both."
     },
     "agentNetwork.limit.usedOfCapUsd": {
         "message": "{used} / {cap}",
-        "description": "Tooltip with the exact money spent of a limit. {used} and {cap} are formatted US dollar amounts; keep both."
+        "description": "Screen-reader value of the usage bar: the exact money spent of a limit. {used} and {cap} are formatted US dollar amounts; keep both."
     },
     "agentNetwork.limit.resets": {
         "message": "Resets {when}",
