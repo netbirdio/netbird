@@ -70,9 +70,12 @@ func TestStatusOutputFlagExclusiveWithLegacyFlags(t *testing.T) {
 // must not conflict with --output on the command line.
 func TestStatusOutputIgnoresDisabledLegacyFlagFromEnv(t *testing.T) {
 	resetStatusFlags(t)
-	for _, name := range []string{"NB_OUTPUT", "WT_OUTPUT", "WT_JSON"} {
-		t.Setenv(name, "")
-		require.NoError(t, os.Unsetenv(name))
+	for _, flag := range append(statusOutputNames(), outputFlagName) {
+		for _, prefix := range []string{"NB_", "WT_"} {
+			name := FlagNameToEnvVar(flag, prefix)
+			t.Setenv(name, "")
+			require.NoError(t, os.Unsetenv(name))
+		}
 	}
 	t.Setenv("NB_JSON", "false")
 
