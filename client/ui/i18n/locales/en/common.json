@@ -2024,11 +2024,11 @@
         "description": "Title of the connect dialog. {name} is the coding agent, e.g. Claude Code; keep it."
     },
     "agentNetwork.harness.dialogDescription.claudeCode": {
-        "message": "Claude Code will send its requests to Agent Networks instead of your claude.ai login. Your login stays saved. NetBird backs up your config first, so Disconnect puts everything back.",
+        "message": "Claude Code will send its requests to Agent Networks instead of your claude.ai login. Your login stays saved. NetBird backs up your config first. Disconnect restores the settings it changed, unless you edited them since.",
         "description": "Text under the title of the Claude Code setup dialog. Keep 'Claude Code' and 'claude.ai' verbatim."
     },
     "agentNetwork.harness.dialogDescription.generic": {
-        "message": "{name} will send its requests to Agent Networks. NetBird backs up your config first, so Disconnect puts everything back.",
+        "message": "{name} will send its requests to Agent Networks. NetBird backs up your config first. Disconnect restores the settings it changed, unless you edited them since.",
         "description": "Text under the title of the setup dialog for agents other than Claude Code. {name} is the agent name; keep it."
     },
     "agentNetwork.harness.provider": {
