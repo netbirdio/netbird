@@ -338,6 +338,7 @@ func decodePeerCompact(pc *proto.PeerCompact, peerID string) *nmdata.Peer {
 		SSHEnabled:             pc.SshEnabled,
 		DNSLabel:               pc.DnsLabel,
 		LoginExpirationEnabled: pc.LoginExpirationEnabled,
+		StatusLoginExpired:     pc.LoginExpired,
 		ProxyMeta:              nmdata.ProxyMeta{Embedded: pc.ProxyEmbedded},
 		Meta: nmdata.PeerSystemMeta{
 			WtVersion:    pc.AgentVersion,
