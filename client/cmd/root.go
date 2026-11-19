@@ -218,7 +218,7 @@ func init() {
 	)
 	upCmd.PersistentFlags().StringVar(&customDNSAddress, dnsResolverAddress, "",
 		`Sets a custom address for NetBird's local DNS resolver. `+
-			`If set, the agent won't attempt to discover the best ip and port to listen on. `+
+			`If set, the client won't attempt to discover the best ip and port to listen on. `+
 			`An empty string "" clears the previous configuration. `+
 			`E.g. --dns-resolver-address 127.0.0.1:5053 or --dns-resolver-address ""`,
 	)

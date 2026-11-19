@@ -30,7 +30,7 @@ type OfferAnswer struct {
 	// We can set the remote peer's endpoint with this port.
 	WgListenPort int
 
-	// Version of NetBird Agent
+	// Version of NetBird client
 	Version string
 	// RosenpassPubKey is the Rosenpass public key of the remote peer when receiving this message
 	// This value is the local Rosenpass server public key when sending the message

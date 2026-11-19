@@ -1,6 +1,6 @@
 # Multistage build for nblink, used in e2e tests. The release image
 # (client/Dockerfile-nblink) packages a goreleaser artifact, so this compiles
-# from source the way Dockerfile.client does for the agent, while keeping the
+# from source the way Dockerfile.client does for the client, while keeping the
 # release image's runtime shape: distroless, non-root, numeric UID.
 #
 # The runtime stage deliberately grants nothing. nblink's claim is that it
