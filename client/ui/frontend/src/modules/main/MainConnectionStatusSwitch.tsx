@@ -6,7 +6,7 @@ import { ToggleSwitch } from "@/components/switches/ToggleSwitch.tsx";
 import { useStatus } from "@/contexts/StatusContext.tsx";
 import { useProfile } from "@/contexts/ProfileContext.tsx";
 import { cn } from "@/lib/cn.ts";
-import { errorDialog, formatErrorMessage } from "@/lib/errors.ts";
+import { errorDialogFor } from "@/lib/errors.ts";
 import {
     startConnection,
     EVENT_BROWSER_LOGIN_CANCEL,
@@ -40,8 +40,6 @@ const NEEDS_LOGIN_STATES = new Set(["NeedsLogin", "SessionExpired", "LoginFailed
 
 const FORCE_TOGGLE_DELAY_MS = 7000;
 
-const errorMessage = formatErrorMessage;
-
 export const MainConnectionStatusSwitch = () => {
     const { t } = useTranslation();
     const { status, refresh } = useStatus();
@@ -49,7 +47,7 @@ export const MainConnectionStatusSwitch = () => {
 
     const daemonState = status?.status ?? "Idle";
     const needsLogin = NEEDS_LOGIN_STATES.has(daemonState);
-    const unreachable = daemonState === "DaemonUnavailable";
+    const unreachable = daemonState === "DaemonUnavailable" || daemonState === "DaemonAccessDenied";
 
     type Action = "connect" | "logging-in" | "disconnect" | null;
     const [action, setAction] = useState<Action>(null);
@@ -83,6 +81,7 @@ export const MainConnectionStatusSwitch = () => {
             case "LoginFailed":
             case "SessionExpired":
             case "DaemonUnavailable":
+            case "DaemonAccessDenied":
                 return ConnectionState.Disconnected;
             default:
                 return ConnectionState.Disconnected;
@@ -100,10 +99,7 @@ export const MainConnectionStatusSwitch = () => {
         } catch (e) {
             setAction(null);
             await refresh();
-            await errorDialog({
-                Title: t("connect.error.connectTitle"),
-                Message: errorMessage(e),
-            });
+            await errorDialogFor(t("connect.error.connectTitle"), e);
         }
     };
 
@@ -115,10 +111,7 @@ export const MainConnectionStatusSwitch = () => {
         } catch (e) {
             setAction(null);
             await refresh();
-            await errorDialog({
-                Title: t("connect.error.disconnectTitle"),
-                Message: errorMessage(e),
-            });
+            await errorDialogFor(t("connect.error.disconnectTitle"), e);
         }
     };
 
@@ -209,10 +202,7 @@ export const MainConnectionStatusSwitch = () => {
         } catch (e) {
             setAction(null);
             await refresh();
-            await errorDialog({
-                Title: t("connect.error.disconnectTitle"),
-                Message: errorMessage(e),
-            });
+            await errorDialogFor(t("connect.error.disconnectTitle"), e);
         }
     };
     const show = connState === ConnectionState.Connected;

@@ -190,8 +190,14 @@ func TestManagerImpl_CreateRecord(t *testing.T) {
 			assert.Equal(t, activity.DNSRecordCreated, activityID)
 		}
 
+		var reason types.UpdateReason
+		mockAccountManager.ExpandAndUpdateAffectedFunc = func(_ context.Context, _ string, _ *affectedpeers.Snapshot, _ affectedpeers.Change, r types.UpdateReason) {
+			reason = r
+		}
+
 		result, err := manager.CreateRecord(ctx, testAccountID, testUserID, zone.ID, inputRecord)
 		require.NoError(t, err)
+		assert.Equal(t, types.UpdateReason{Resource: types.UpdateResourceZoneRecord, Operation: types.UpdateOperationCreate}, reason)
 		assert.NotNil(t, result)
 		assert.NotEmpty(t, result.ID)
 		assert.Equal(t, testAccountID, result.AccountID)
@@ -392,8 +398,14 @@ func TestManagerImpl_UpdateRecord(t *testing.T) {
 			assert.Equal(t, activity.DNSRecordUpdated, activityID)
 		}
 
+		var reason types.UpdateReason
+		mockAccountManager.ExpandAndUpdateAffectedFunc = func(_ context.Context, _ string, _ *affectedpeers.Snapshot, _ affectedpeers.Change, r types.UpdateReason) {
+			reason = r
+		}
+
 		result, err := manager.UpdateRecord(ctx, testAccountID, testUserID, zone.ID, updatedRecord)
 		require.NoError(t, err)
+		assert.Equal(t, types.UpdateReason{Resource: types.UpdateResourceZoneRecord, Operation: types.UpdateOperationUpdate}, reason)
 		assert.NotNil(t, result)
 		assert.Equal(t, updatedRecord.Content, result.Content)
 		assert.Equal(t, updatedRecord.TTL, result.TTL)
@@ -447,7 +459,7 @@ func TestManagerImpl_UpdateRecord(t *testing.T) {
 		mockAccountManager.StoreEventFunc = func(context.Context, string, string, string, activity.ActivityDescriber, map[string]any) {
 			events++
 		}
-		mockAccountManager.ExpandAndUpdateAffectedFunc = func(context.Context, string, *affectedpeers.Snapshot, affectedpeers.Change) {
+		mockAccountManager.ExpandAndUpdateAffectedFunc = func(context.Context, string, *affectedpeers.Snapshot, affectedpeers.Change, types.UpdateReason) {
 			fanOuts++
 		}
 
@@ -568,8 +580,14 @@ func TestManagerImpl_DeleteRecord(t *testing.T) {
 			assert.Equal(t, activity.DNSRecordDeleted, activityID)
 		}
 
+		var reason types.UpdateReason
+		mockAccountManager.ExpandAndUpdateAffectedFunc = func(_ context.Context, _ string, _ *affectedpeers.Snapshot, _ affectedpeers.Change, r types.UpdateReason) {
+			reason = r
+		}
+
 		err = manager.DeleteRecord(ctx, testAccountID, testUserID, zone.ID, record.ID)
 		require.NoError(t, err)
+		assert.Equal(t, types.UpdateReason{Resource: types.UpdateResourceZoneRecord, Operation: types.UpdateOperationDelete}, reason)
 		assert.True(t, storeEventCalled, "StoreEvent should have been called")
 
 		_, err = testStore.GetDNSRecordByID(ctx, store.LockingStrengthNone, testAccountID, zone.ID, record.ID)

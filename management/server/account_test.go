@@ -2822,6 +2822,56 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 	require.Error(t, err, "expecting to fail when providing PeerLoginExpiration more than 180 days")
 }
 
+func TestDefaultAccountManager_UpdateAccountSettings_OmittedExtraSkipsIntegration(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	ctrl := gomock.NewController(t)
+	settingsMock := settings.NewMockManager(ctrl)
+	settingsMock.EXPECT().
+		GetExtraSettings(gomock.Any(), gomock.Any()).
+		Return(&types.ExtraSettings{}, nil).
+		AnyTimes()
+	settingsMock.EXPECT().
+		GetSettings(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&types.Settings{Extra: &types.ExtraSettings{
+			FlowEnabled:             true,
+			UserEmailMappingEnabled: true,
+		}}, nil).
+		AnyTimes()
+	var calls []*types.ExtraSettings
+	settingsMock.EXPECT().
+		UpdateExtraSettings(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _ string, extra *types.ExtraSettings) (bool, error) {
+			calls = append(calls, extra)
+			return false, nil
+		}).
+		AnyTimes()
+	manager.settingsManager = settingsMock
+
+	returned, err := manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
+		PeerLoginExpiration:        time.Hour,
+		PeerLoginExpirationEnabled: false,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, calls, "integration extra settings must not be written when the update omits extra")
+	require.NotNil(t, returned.Extra, "returned settings must carry extra")
+	assert.True(t, returned.Extra.FlowEnabled, "returned settings must report the integration flow state")
+	assert.True(t, returned.Extra.UserEmailMappingEnabled, "returned settings must report the integration email mapping state")
+
+	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
+		PeerLoginExpiration:        time.Hour,
+		PeerLoginExpirationEnabled: false,
+		Extra:                      &types.ExtraSettings{FlowEnabled: true},
+	})
+	require.NoError(t, err)
+	require.Len(t, calls, 1, "integration extra settings must be written when the update supplies extra")
+	assert.True(t, calls[0].FlowEnabled)
+}
+
 func TestDefaultAccountManager_UpdateAccountSettings_PeerApproval(t *testing.T) {
 	manager, _, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
@@ -3999,8 +4049,9 @@ func setupNetworkMapTest(t *testing.T) (*DefaultAccountManager, *update_channel.
 		t.Fatal(err)
 	}
 
-	account, err := createAccount(manager, "test_account", userID, "")
-	if err != nil {
+	account := newAccountWithId(context.Background(), "test_account", userID, "", "", "", false)
+	account.Network.Net = net.IPNet{IP: net.IPv4(100, 64, 0, 0).To4(), Mask: net.CIDRMask(16, 32)}
+	if err = manager.Store.SaveAccount(context.Background(), account); err != nil {
 		t.Fatal(err)
 	}
 
@@ -5294,6 +5345,59 @@ func TestDefaultAccountManager_ExpirationJobsStopForDeletedAccount(t *testing.T)
 			assert.False(t, reschedule, "job must not reschedule for a deleted account")
 		})
 	}
+}
+
+func TestDefaultAccountManager_ExpirationJobsStopWhenDisabledForAccount(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	ctx := context.Background()
+	accountID, err := manager.GetAccountIDByUserID(ctx, auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	firstKey, secondKey := addExpiringPeers(t, manager)
+	for _, key := range []string{firstKey, secondKey} {
+		peer, err := manager.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, key)
+		require.NoError(t, err)
+		peer.InactivityExpirationEnabled = true
+		require.NoError(t, manager.Store.SavePeer(ctx, accountID, peer))
+		setPeerLogin(t, manager, accountID, key, false, time.Now().UTC().Add(-2*time.Hour))
+	}
+
+	// Saved through the store, as another management instance would, so no running job is cancelled.
+	require.NoError(t, manager.Store.SaveAccountSettings(ctx, accountID, &types.Settings{
+		PeerLoginExpiration:             time.Hour,
+		PeerLoginExpirationEnabled:      false,
+		PeerInactivityExpiration:        time.Hour,
+		PeerInactivityExpirationEnabled: false,
+		Extra:                           &types.ExtraSettings{},
+	}))
+	serialBefore := networkSerial(t, manager, accountID)
+
+	expiredPeers, err := manager.getExpiredPeers(ctx, accountID)
+	require.NoError(t, err)
+	assert.Empty(t, expiredPeers, "no peer is a login expiration candidate while it is disabled for the account")
+	inactivePeers, err := manager.getInactivePeers(ctx, accountID)
+	require.NoError(t, err)
+	assert.Empty(t, inactivePeers, "no peer is an inactivity expiration candidate while it is disabled for the account")
+
+	jobs := map[string]func() (time.Duration, bool){
+		"login":      manager.peerLoginExpirationJob(ctx, accountID),
+		"inactivity": manager.peerInactivityExpirationJob(ctx, accountID),
+	}
+	for name, job := range jobs {
+		t.Run(name, func(t *testing.T) {
+			_, reschedule := job()
+			assert.False(t, reschedule, "job must not reschedule while the expiration is disabled for the account")
+		})
+	}
+
+	for _, key := range []string{firstKey, secondKey} {
+		peer, err := manager.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, key)
+		require.NoError(t, err)
+		assert.False(t, peer.Status.LoginExpired, "peer must not expire while the expiration is disabled for the account")
+	}
+	assert.Equal(t, serialBefore, networkSerial(t, manager, accountID), "network serial must not change when no peer expired")
 }
 
 func networkSerial(t *testing.T, manager *DefaultAccountManager, accountID string) uint64 {

@@ -8,6 +8,9 @@
     "tray.status.daemonUnavailable": {
         "message": "Non está en execución"
     },
+    "tray.status.daemonAccessDenied": {
+        "message": "Sen acceso"
+    },
     "tray.status.error": {
         "message": "Erro"
     },
@@ -674,6 +677,9 @@
     "settings.security.rosenpass.help": {
         "message": "Engade un intercambio de chaves poscuántico mediante Rosenpass sobre WireGuard®."
     },
+    "settings.security.rosenpass.deprecated": {
+        "message": "Obsoleto: a compatibilidade con Rosenpass podería eliminarse nunha versión futura."
+    },
     "settings.security.rosenpassPermissive.label": {
         "message": "Activar modo permisivo"
     },
@@ -1331,6 +1337,12 @@
     "daemon.unavailable.docsLink": {
         "message": "Documentación"
     },
+    "daemon.accessDenied.title": {
+        "message": "Sen acceso ao servizo NetBird"
+    },
+    "daemon.accessDenied.description": {
+        "message": "O seu administrador restrinxiu o servizo NetBird neste dispositivo a determinados usuarios ou grupos, e a súa conta non está entre eles. Contacte co seu administrador para obter acceso."
+    },
     "daemon.outdated.title": {
         "message": "O cliente NetBird está desactualizado"
     },
@@ -1360,6 +1372,9 @@
     },
     "error.daemon_unreachable": {
         "message": "O daemon de NetBird non responde. Por favor, comprobe que o servizo está en execución."
+    },
+    "error.daemon_access_denied": {
+        "message": "A súa conta non ten permiso para usar o servizo NetBird neste dispositivo. Contacte co seu administrador para obter acceso."
     },
     "error.settings_locked": {
         "message": "A configuración non se pode cambiar neste dispositivo: un administrador bloqueouna."
@@ -1393,5 +1408,23 @@
     },
     "settings.ssh.privilege.authorizePending": {
         "message": "Agardando pola autorización…"
+    },
+    "profile.ownedByAnother.name": {
+        "message": "Outro usuario"
+    },
+    "profile.ownedByAnother.hint": {
+        "message": "O perfil activo pertence a outro usuario. Só o seu propietario pode cambialo ou desconectalo."
+    },
+    "error.privilege_required": {
+        "message": "Esta acción require privilexios elevados."
+    },
+    "error.session_held": {
+        "message": "Outro usuario ten este equipo conectado."
+    },
+    "error.not_profile_owner": {
+        "message": "Este perfil pertence a outro usuario."
+    },
+    "error.profile_unowned": {
+        "message": "Este perfil aínda non ten propietario."
     }
 }

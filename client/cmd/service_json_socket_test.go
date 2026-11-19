@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,25 +19,63 @@ func preserveJSONSocketTestState(t *testing.T) {
 
 	origJSONSocket := jsonSocket
 	origEnableJSONSocket := enableJSONSocket
-	origChanged := map[string]bool{}
-	serviceCmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
-		origChanged[flag.Name] = flag.Changed
-	})
+	origProfilesDisabled := profilesDisabled
+	origUpdateSettingsDisabled := updateSettingsDisabled
+	origCaptureEnabled := captureEnabled
+	origNetworksDisabled := networksDisabled
+	origAllowGroups := allowGroups
 
 	t.Cleanup(func() {
 		jsonSocket = origJSONSocket
 		enableJSONSocket = origEnableJSONSocket
-		serviceCmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
-			flag.Changed = origChanged[flag.Name]
-		})
+		profilesDisabled = origProfilesDisabled
+		updateSettingsDisabled = origUpdateSettingsDisabled
+		captureEnabled = origCaptureEnabled
+		networksDisabled = origNetworksDisabled
+		allowGroups = origAllowGroups
 	})
 }
 
+// testDaemonCommand returns a fresh command with the daemon flags registered.
+// Registering resets the bound globals to their defaults, so they are restored
+// on cleanup.
+func testDaemonCommand(t *testing.T) *cobra.Command {
+	t.Helper()
+	preserveJSONSocketTestState(t)
+
+	cmd := &cobra.Command{}
+	addDaemonFlags(cmd)
+	return cmd
+}
+
 func TestJSONSocketFlagsArePositiveEnableOnly(t *testing.T) {
-	assert.NotNil(t, serviceCmd.PersistentFlags().Lookup("enable-json-socket"))
-	assert.NotNil(t, serviceCmd.PersistentFlags().Lookup("json-socket"))
-	assert.Nil(t, serviceCmd.PersistentFlags().Lookup("disable-json-socket"))
-	assert.Equal(t, "false", serviceCmd.PersistentFlags().Lookup("enable-json-socket").DefValue)
+	for _, cmd := range []*cobra.Command{runCmd, installCmd, reconfigureCmd} {
+		assert.NotNil(t, cmd.Flags().Lookup("enable-json-socket"), "%s should accept --enable-json-socket", cmd.Name())
+		assert.NotNil(t, cmd.Flags().Lookup("json-socket"), "%s should accept --json-socket", cmd.Name())
+		assert.Nil(t, cmd.Flags().Lookup("disable-json-socket"), "%s should not accept --disable-json-socket", cmd.Name())
+		assert.Equal(t, "false", cmd.Flags().Lookup("enable-json-socket").DefValue, "%s should leave the JSON socket off by default", cmd.Name())
+	}
+}
+
+func TestDaemonFlagsOnlyOnCommandsThatUseThem(t *testing.T) {
+	daemonFlags := []string{"disable-profiles", "disable-update-settings", "enable-capture", "disable-networks", "enable-json-socket", "json-socket", "allow-group"}
+
+	// run reads the flags, install and reconfigure save them into the run arguments.
+	for _, cmd := range []*cobra.Command{runCmd, installCmd, reconfigureCmd} {
+		for _, name := range daemonFlags {
+			assert.NotNil(t, cmd.Flags().Lookup(name), "%s should accept --%s", cmd.Name(), name)
+		}
+	}
+
+	// The other subcommands act on the installed service and would silently ignore them.
+	for _, cmd := range []*cobra.Command{startCmd, stopCmd, restartCmd, svcStatusCmd, uninstallCmd, resetParamsCmd} {
+		for _, name := range daemonFlags {
+			assert.Nil(t, cmd.Flags().Lookup(name), "%s should not accept --%s", cmd.Name(), name)
+			assert.Nil(t, cmd.InheritedFlags().Lookup(name), "%s should not inherit --%s", cmd.Name(), name)
+		}
+	}
+
+	assert.NotNil(t, startCmd.InheritedFlags().Lookup("service"), "every service subcommand should accept --service")
 }
 
 func TestBuildServiceArgumentsDefaultDisablesJSONSocket(t *testing.T) {
@@ -71,31 +108,27 @@ func TestBuildServiceArgumentsIncludesJSONSocketWhenEnabled(t *testing.T) {
 }
 
 func TestJSONSocketWithoutEnableValidation(t *testing.T) {
-	preserveJSONSocketTestState(t)
+	cmd := testDaemonCommand(t)
 
-	enableJSONSocket = false
-	require.NoError(t, serviceCmd.PersistentFlags().Set("json-socket", "tcp://127.0.0.1:8080"))
+	require.NoError(t, cmd.Flags().Set("json-socket", "tcp://127.0.0.1:8080"))
 
-	err := validateJSONSocketFlags()
+	err := validateJSONSocketFlags(cmd)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "--enable-json-socket")
 }
 
 func TestJSONSocketWithEnableValidation(t *testing.T) {
-	preserveJSONSocketTestState(t)
+	cmd := testDaemonCommand(t)
 
-	require.NoError(t, serviceCmd.PersistentFlags().Set("enable-json-socket", "true"))
-	require.NoError(t, serviceCmd.PersistentFlags().Set("json-socket", "tcp://127.0.0.1:8080"))
+	require.NoError(t, cmd.Flags().Set("enable-json-socket", "true"))
+	require.NoError(t, cmd.Flags().Set("json-socket", "tcp://127.0.0.1:8080"))
 
-	assert.NoError(t, validateJSONSocketFlags())
+	assert.NoError(t, validateJSONSocketFlags(cmd))
 }
 
 func TestJSONSocketServiceParamsPersistEnableAndAddress(t *testing.T) {
 	preserveJSONSocketTestState(t)
-	serviceCmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
-		flag.Changed = false
-	})
 
 	enableJSONSocket = true
 	jsonSocket = "tcp://127.0.0.1:8080"

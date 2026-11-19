@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"strings"
@@ -133,6 +134,8 @@ type stubAccounts struct {
 	users     map[string]*types.User
 	storeDown bool
 	events    []storedEvent
+	// loginIPs are the client IPs GetUserFromUserAuth saw on its context.
+	loginIPs []netip.Addr
 }
 
 // storedEvent is one activity event the broker stored.
@@ -151,6 +154,11 @@ func (a *stubAccounts) GetAccountIDFromUserAuth(context.Context, auth.UserAuth) 
 func (a *stubAccounts) SyncUserJWTGroups(context.Context, auth.UserAuth) error { return nil }
 
 func (a *stubAccounts) GetUserFromUserAuth(ctx context.Context, userAuth auth.UserAuth) (*types.User, error) {
+	if ip, ok := nbcontext.GetClientIP(ctx); ok {
+		a.mu.Lock()
+		a.loginIPs = append(a.loginIPs, ip)
+		a.mu.Unlock()
+	}
 	return a.GetUserByID(ctx, userAuth.UserId)
 }
 
@@ -1020,4 +1028,18 @@ func TestBrokerLimitsCallbacksPerClient(t *testing.T) {
 	assert.Equal(t, http.StatusTooManyRequests, callback("203.0.113.7"),
 		"the burst is spent, and an untrusted peer's X-Forwarded-For does not open a new budget")
 	assert.NotEmpty(t, env.register(clientCallback), "registration is not limited with the callback")
+}
+
+// The login goes through GetUserFromUserAuth, whose dashboard.login event records the client
+// address, so the broker has to put the resolved one on the context like the API middleware.
+func TestBrokerLoginCarriesClientIP(t *testing.T) {
+	env := newBrokerEnv(t)
+	clientID := env.register(clientCallback)
+	back := env.login(env.newRequest(clientID), false)
+	require.NotEmpty(t, back.Query().Get("code"))
+
+	env.accounts.mu.Lock()
+	defer env.accounts.mu.Unlock()
+	assert.Equal(t, []netip.Addr{netip.MustParseAddr("127.0.0.1")}, env.accounts.loginIPs,
+		"the callback's client address reaches the user lookup")
 }
