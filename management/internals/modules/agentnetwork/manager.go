@@ -118,7 +118,9 @@ type PolicySelectionInput struct {
 // group dimension applies. WindowSeconds is the chosen policy's
 // effective window length in seconds (token_limit's wins when both
 // halves are enabled with mismatched windows; budget_limit's
-// otherwise; 0 when no caps are configured at all).
+// otherwise; 0 when no caps are configured at all). On a cap deny,
+// SelectedPolicyID instead names what blocked the request: the
+// exhausted policy, or the account budget rule for llm_account.* codes.
 type PolicySelectionResult struct {
 	Allow              bool
 	SelectedPolicyID   string
@@ -1296,11 +1298,18 @@ func (m *managerImpl) ListConsumption(ctx context.Context, accountID, userID str
 // Callers without the account-wide logs grant get a self-scoped page —
 // only their own requests — instead of a denial.
 func (m *managerImpl) ListAccessLogs(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLog, int64, error) {
-	filter, err := m.scopeFilterToCaller(ctx, accountID, userID, modules.AgentNetworkLogs, filter)
+	filter, accountWide, err := m.scopeFilterToCaller(ctx, accountID, userID, modules.AgentNetworkLogs, filter)
 	if err != nil {
 		return nil, 0, err
 	}
-	return m.store.GetAgentNetworkAccessLogs(ctx, store.LockingStrengthNone, accountID, filter)
+	rows, total, err := m.store.GetAgentNetworkAccessLogs(ctx, store.LockingStrengthNone, accountID, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	if !accountWide {
+		redactAdminDetail(rows)
+	}
+	return rows, total, nil
 }
 
 // ListAccessLogSessions returns a paginated, server-side-filtered page of
@@ -1308,11 +1317,20 @@ func (m *managerImpl) ListAccessLogs(ctx context.Context, accountID, userID stri
 // sessions matching the filter. Self-scoped like ListAccessLogs for
 // callers without the account-wide logs grant.
 func (m *managerImpl) ListAccessLogSessions(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLogSession, int64, error) {
-	filter, err := m.scopeFilterToCaller(ctx, accountID, userID, modules.AgentNetworkLogs, filter)
+	filter, accountWide, err := m.scopeFilterToCaller(ctx, accountID, userID, modules.AgentNetworkLogs, filter)
 	if err != nil {
 		return nil, 0, err
 	}
-	return m.store.GetAgentNetworkAccessLogSessions(ctx, store.LockingStrengthNone, accountID, filter)
+	sessions, total, err := m.store.GetAgentNetworkAccessLogSessions(ctx, store.LockingStrengthNone, accountID, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	if !accountWide {
+		for _, sess := range sessions {
+			redactAdminDetail(sess.Entries)
+		}
+	}
+	return sessions, total, nil
 }
 
 // GetUsageOverview returns the filtered usage rows aggregated into time buckets
@@ -1320,7 +1338,7 @@ func (m *managerImpl) ListAccessLogSessions(ctx context.Context, accountID, user
 // account-wide usage grant get their own rows aggregated instead of a
 // denial, so the dashboard serves "my usage" from the same endpoint.
 func (m *managerImpl) GetUsageOverview(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter, granularity types.UsageGranularity) ([]*types.AgentNetworkUsageBucket, error) {
-	filter, err := m.scopeFilterToCaller(ctx, accountID, userID, modules.AgentNetworkUsage, filter)
+	filter, _, err := m.scopeFilterToCaller(ctx, accountID, userID, modules.AgentNetworkUsage, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -1337,17 +1355,28 @@ func (m *managerImpl) GetUsageOverview(ctx context.Context, accountID, userID st
 // filters are dropped. A caller may always see their own rows — strictly
 // tighter than any role gate — which is what lets every authenticated
 // user read their usage and requests through the regular endpoints.
-// Validation errors (not denials) still fail closed.
-func (m *managerImpl) scopeFilterToCaller(ctx context.Context, accountID, userID string, module modules.Module, filter types.AgentNetworkAccessLogFilter) (types.AgentNetworkAccessLogFilter, error) {
+// accountWide reports whether the caller holds the grant. Validation errors
+// (not denials) still fail closed.
+func (m *managerImpl) scopeFilterToCaller(ctx context.Context, accountID, userID string, module modules.Module, filter types.AgentNetworkAccessLogFilter) (scoped types.AgentNetworkAccessLogFilter, accountWide bool, err error) {
 	ok, _, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, module, operations.Read)
 	if err != nil {
-		return filter, status.NewPermissionValidationError(err)
+		return filter, false, status.NewPermissionValidationError(err)
 	}
 	if !ok {
 		filter.UserID = &userID
 		filter.GroupIDs = nil
 	}
-	return filter, nil
+	return filter, ok, nil
+}
+
+// redactAdminDetail clears the fields only callers with the account-wide logs
+// grant may read from rows served to a self-scoped caller. ErrorDetail names
+// upstream hosts and addresses, and cap details carry group and account
+// totals, none of which the caller's own requests should reveal.
+func redactAdminDetail(rows []*types.AgentNetworkAccessLog) {
+	for _, row := range rows {
+		row.ErrorDetail = ""
+	}
 }
 
 // StartAccessLogCleanup launches a background sweep that periodically deletes

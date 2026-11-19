@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"runtime"
 	"sync"
@@ -58,6 +59,11 @@ func (c *Conn) Client() (proto.DaemonServiceClient, error) {
 	}
 	c.client = proto.NewDaemonServiceClient(cc)
 	return c.client, nil
+}
+
+// DeniesCaller reports whether the daemon socket refuses this user.
+func (c *Conn) DeniesCaller(ctx context.Context) bool {
+	return daemonaddr.DeniesCaller(ctx, daemonaddr.ResolveDaemonAddr(c.addr))
 }
 
 // DaemonAddr returns the default daemon gRPC address: a Unix socket on

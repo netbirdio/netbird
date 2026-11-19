@@ -186,6 +186,7 @@ type Peer struct {
 	IP                         []byte         `nmap:"json"`
 	IPv6                       []byte         `nmap:"json"`
 	PeerStatusRequiresApproval sql.NullBool   `nmap:"map_to:RequiresApproval"`
+	PeerStatusLoginExpired     sql.NullBool   `nmap:"skip"`
 	PeerLastSeen               sql.NullTime   `nmap:"skip"`
 	PeerSessionStartedAt       sql.NullInt64  `nmap:"skip"`
 	InstanceLastSeen           sql.NullTime   `nmap:"skip"`
@@ -324,6 +325,7 @@ func ConvertToNmdataPeers(peers []Peer) ([]nmdata.Peer, map[string][]*nmdata.Pee
 		var status nbpeer.PeerStatus
 		status.ApplyConnection(p.PeerSessionStartedAt, p.PeerLastSeen, p.InstanceLastSeen)
 		dp.Connected = status.Connected
+		dp.StatusLoginExpired = p.PeerStatusLoginExpired.Bool
 		if dp.ProxyMeta.Embedded && dp.Connected {
 			clusterToPeerIdx[p.ProxyMetaCluster.String] = append(clusterToPeerIdx[p.ProxyMetaCluster.String], &dp)
 		}

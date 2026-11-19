@@ -3,6 +3,7 @@ package forwarder
 import (
 	"context"
 	"net/netip"
+	"runtime"
 	"testing"
 	"time"
 
@@ -247,8 +248,12 @@ func TestEgressesOverlay(t *testing.T) {
 // A UDP flow whose destination the host cannot connect to is reported as dropped when the host routes
 // the flow, and as an ordinary end in netstack mode where there is no host route lookup to blame.
 func TestHandleUDP_DialError(t *testing.T) {
-	// A link-local destination without a zone cannot be connected to.
+	// A link-local destination without a zone cannot be connected to. Windows falls back to a default
+	// zone instead, but refuses the reserved 240.0.0.0/4 range.
 	unreachable := netip.MustParseAddr("fe80::1")
+	if runtime.GOOS == "windows" {
+		unreachable = netip.MustParseAddr("240.0.0.1")
+	}
 	remote := netip.MustParseAddr("10.0.0.2")
 
 	tests := []struct {

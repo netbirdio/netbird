@@ -1719,14 +1719,14 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 // before the dispatch goroutine starts, so the snapshot is released on return.
 // Exported so the networks sub-package managers (which hold only account.Manager)
 // share it.
-func (am *DefaultAccountManager) ExpandAndUpdateAffected(ctx context.Context, accountID string, snap *affectedpeers.Snapshot, change affectedpeers.Change) {
-	go am.dispatchAffectedPeerIDs(ctx, accountID, snap.Expand(ctx, accountID, change))
+func (am *DefaultAccountManager) ExpandAndUpdateAffected(ctx context.Context, accountID string, snap *affectedpeers.Snapshot, change affectedpeers.Change, reason types.UpdateReason) {
+	go am.dispatchAffectedPeerIDs(ctx, accountID, snap.Expand(ctx, accountID, change), reason)
 }
 
 // dispatchAffectedPeerIDs dispatches a single network-map refresh for already
 // expanded affected peer IDs. It may run in a goroutine that outlives the
 // request, so it detaches from the request context's cancellation up front.
-func (am *DefaultAccountManager) dispatchAffectedPeerIDs(ctx context.Context, accountID string, affectedPeerIDs []string) {
+func (am *DefaultAccountManager) dispatchAffectedPeerIDs(ctx context.Context, accountID string, affectedPeerIDs []string, reason types.UpdateReason) {
 	ctx = context.WithoutCancel(ctx)
 
 	if len(affectedPeerIDs) == 0 {
@@ -1735,7 +1735,7 @@ func (am *DefaultAccountManager) dispatchAffectedPeerIDs(ctx context.Context, ac
 	}
 
 	log.WithContext(ctx).Debugf("updating %d affected peers for account %s: %v", len(affectedPeerIDs), accountID, affectedPeerIDs)
-	_ = am.networkMapController.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	_ = am.networkMapController.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs, reason)
 }
 
 // affectedPeerSet collects the affected peer IDs of several snapshot expansions,
@@ -1805,11 +1805,23 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 }
 
 // getNextPeerExpiration returns the minimum duration in which the next peer of the account will expire if it was found.
-// If there is no peer that expires this function returns false and a duration of 0.
+// If login expiration is disabled for the account or no peer expires, this function returns false and a duration of 0.
 // This function only considers peers that haven't been expired yet. Offline peers count too:
 // a running job is never re-armed on connect, so a peer that reconnects with an old login
 // must already be part of the scheduled run.
 func (am *DefaultAccountManager) getNextPeerExpiration(ctx context.Context, accountID string) (time.Duration, bool) {
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if isNotFound(err) {
+		return 0, false
+	}
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get account settings: %v", err)
+		return peerSchedulerRetryInterval, true
+	}
+	if !settings.PeerLoginExpirationEnabled {
+		return 0, false
+	}
+
 	peersWithExpiry, err := am.Store.GetAccountPeersWithExpiration(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get peers with expiration: %v", err)
@@ -1818,15 +1830,6 @@ func (am *DefaultAccountManager) getNextPeerExpiration(ctx context.Context, acco
 
 	if len(peersWithExpiry) == 0 {
 		return 0, false
-	}
-
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
-	if isNotFound(err) {
-		return 0, false
-	}
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get account settings: %v", err)
-		return peerSchedulerRetryInterval, true
 	}
 
 	var nextExpiry *time.Duration
@@ -1853,9 +1856,21 @@ func (am *DefaultAccountManager) getNextPeerExpiration(ctx context.Context, acco
 }
 
 // GetNextInactivePeerExpiration returns the minimum duration in which the next peer of the account will expire if it was found.
-// If there is no peer that expires this function returns false and a duration of 0.
+// If inactivity expiration is disabled for the account or no peer expires, this function returns false and a duration of 0.
 // This function only considers peers that haven't been expired yet and that are not connected.
 func (am *DefaultAccountManager) getNextInactivePeerExpiration(ctx context.Context, accountID string) (time.Duration, bool) {
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if isNotFound(err) {
+		return 0, false
+	}
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get account settings: %v", err)
+		return peerSchedulerRetryInterval, true
+	}
+	if !settings.PeerInactivityExpirationEnabled {
+		return 0, false
+	}
+
 	peersWithInactivity, err := am.Store.GetAccountPeersWithInactivity(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get peers with inactivity: %v", err)
@@ -1864,15 +1879,6 @@ func (am *DefaultAccountManager) getNextInactivePeerExpiration(ctx context.Conte
 
 	if len(peersWithInactivity) == 0 {
 		return 0, false
-	}
-
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
-	if isNotFound(err) {
-		return 0, false
-	}
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get account settings: %v", err)
-		return peerSchedulerRetryInterval, true
 	}
 
 	var nextExpiry *time.Duration
@@ -1900,12 +1906,15 @@ func (am *DefaultAccountManager) getNextInactivePeerExpiration(ctx context.Conte
 
 // getExpiredPeers returns peers that have been expired.
 func (am *DefaultAccountManager) getExpiredPeers(ctx context.Context, accountID string) ([]*nbpeer.Peer, error) {
-	peersWithExpiry, err := am.Store.GetAccountPeersWithExpiration(ctx, store.LockingStrengthNone, accountID)
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}
+	if !settings.PeerLoginExpirationEnabled {
+		return nil, nil
+	}
 
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	peersWithExpiry, err := am.Store.GetAccountPeersWithExpiration(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -1927,12 +1936,15 @@ func (am *DefaultAccountManager) getExpiredPeers(ctx context.Context, accountID 
 
 // getInactivePeers returns peers that have been expired by inactivity
 func (am *DefaultAccountManager) getInactivePeers(ctx context.Context, accountID string) ([]*nbpeer.Peer, error) {
-	peersWithInactivity, err := am.Store.GetAccountPeersWithInactivity(ctx, store.LockingStrengthNone, accountID)
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}
+	if !settings.PeerInactivityExpirationEnabled {
+		return nil, nil
+	}
 
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	peersWithInactivity, err := am.Store.GetAccountPeersWithInactivity(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}

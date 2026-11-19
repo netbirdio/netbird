@@ -5,8 +5,26 @@
 #
 # Run with:  bats release_files/tests/
 
+# The sh -c scripts below take their paths as $1 and $2 rather than having
+# them spliced in, where an apostrophe in a path would break the quoting.
+# shellcheck disable=SC2016 # so $1 in single quotes is meant for sh
+
 setup() {
+  # First, before anything can fail: teardown removes $tmp, and a tmp
+  # exported by the caller must never be what it finds there.
+  tmp=''
   SCRIPT="${BATS_TEST_DIRNAME}/../skip-latest.sh"
+
+  # Some tests build a repository of their own. Git honours GIT_DIR and its
+  # kin over the current directory, and sets them for hooks, so a run from a
+  # hook would commit and tag in the caller's repository instead -- and still
+  # pass, reading back what it wrote. Clear every variable that ties git to a
+  # repository; git lists them itself.
+  # shellcheck disable=SC2046 # one name per word is the point
+  unset $(git rev-parse --local-env-vars)
+  # Neutralise the developer's git config too: a global tag.gpgSign turns
+  # `git tag <name>` into an annotated tag and fails for want of a message.
+  export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 
   # A tag set with a newer line released and an older one still maintained.
   TAGS='v0.79.0
@@ -18,11 +36,34 @@ v0.81.0-rc.2
 v0.81.0'
 }
 
+teardown() {
+  if [[ -n "${tmp:-}" ]]; then rm -rf "$tmp"; fi
+}
+
 # decide <tag> [tags]  -- tags default to $TAGS
 decide() {
   local tag=$1
   local tags=${2-$TAGS}
   SKIP_LATEST_TAGS="$tags" run "$SCRIPT" "$tag"
+}
+
+# make_repo <tag>...  -- a repository of the test's own at $repo, holding the
+# given tags; teardown removes it.
+make_repo() {
+  tmp=$(mktemp -d)
+  repo="$tmp/repo"
+  mkdir -p "$repo"
+  # No `|| ...` after this subshell: it would switch off bats' set -e inside,
+  # and a failed cd or git init would let the commit and tags land in
+  # whatever repository encloses the current directory.
+  (
+    cd "$repo" || exit
+    # An empty --template copies no hooks into the repository, whatever
+    # GIT_TEMPLATE_DIR the caller has; init.templateDir is already off.
+    git init -q --template= .
+    git -c user.email=t@example.com -c user.name=t commit -q --allow-empty -m init
+    for tag in "$@"; do git tag "$tag"; done
+  )
 }
 
 @test "the newest release moves latest" {
@@ -104,30 +145,19 @@ v0.1.0'
 }
 
 @test "an empty SKIP_LATEST_TAGS is an empty list, not ask git" {
-  # Guards the ${VAR+set} test: a plain -n check would fall through to git,
-  # where this repository's real v0.80.0 would let the script succeed.
-  decide v0.80.0 ''
+  # Guards the ${VAR+set} test: a plain -n check would fall through to git
+  # and find v0.80.0 there, letting the script succeed. The tag lives in a
+  # repository made here, not this one: CI checks this one out without tags,
+  # where git would find nothing either and the test could not tell.
+  make_repo v0.80.0
+  SKIP_LATEST_TAGS='' run sh -c 'cd "$1" && "$2" v0.80.0 </dev/null' sh "$repo" "$SCRIPT"
   [ "$status" -eq 1 ]
 }
 
 @test "falls back to git tag when SKIP_LATEST_TAGS is unset" {
   # The CI path.
-  tmp=$(mktemp -d)
-  repo="$tmp/repo"
-  mkdir -p "$repo"
-  # Neutralise the developer's git config: a global tag.gpgSign turns
-  # `git tag <name>` into an annotated tag and fails for want of a message.
-  export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
-  (
-    cd "$repo"
-    git init -q .
-    git -c user.email=t@example.com -c user.name=t commit -q --allow-empty -m init
-    git tag v0.80.1
-    git tag v0.81.0
-    git tag v0.80.2
-  ) || return 1
-  run env -u SKIP_LATEST_TAGS sh -c "cd '$repo' && '$SCRIPT' v0.80.2 </dev/null"
-  rm -rf "$tmp"
+  make_repo v0.80.1 v0.81.0 v0.80.2
+  run env -u SKIP_LATEST_TAGS sh -c 'cd "$1" && "$2" v0.80.2 </dev/null' sh "$repo" "$SCRIPT"
   [ "$status" -eq 0 ]
   [ "${lines[-1]}" = "true" ]
 }
@@ -138,7 +168,7 @@ v0.1.0'
 }
 
 @test "the decision goes to stdout and the reasoning to stderr" {
-  SKIP_LATEST_TAGS='v0.81.0' run sh -c "'$SCRIPT' v0.81.0 2>/dev/null"
+  SKIP_LATEST_TAGS='v0.81.0' run sh -c '"$1" v0.81.0 2>/dev/null' sh "$SCRIPT"
   [ "$status" -eq 0 ]
   [ "$output" = "false" ]
 }

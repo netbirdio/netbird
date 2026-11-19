@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
+	nbtypes "github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -209,7 +210,7 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 		event()
 	}
 
-	m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change, nbtypes.UpdateReason{Resource: nbtypes.UpdateResourceNetwork, Operation: nbtypes.UpdateOperationDelete})
 
 	return nil
 }

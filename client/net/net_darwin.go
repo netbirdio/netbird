@@ -51,6 +51,21 @@ func SetBoundInterface(af int, iface *net.Interface) {
 	}
 }
 
+// ClearBoundInterface resets the cached egress interface of one address
+// family. af must be unix.AF_INET or unix.AF_INET6; other values are ignored.
+func ClearBoundInterface(af int) {
+	boundIfaceMu.Lock()
+	defer boundIfaceMu.Unlock()
+	switch af {
+	case unix.AF_INET:
+		boundIface4 = nil
+	case unix.AF_INET6:
+		boundIface6 = nil
+	default:
+		log.Warnf("ClearBoundInterface: unsupported address family %d", af)
+	}
+}
+
 // ClearBoundInterfaces resets the cached egress interfaces. Called by the
 // routemanager during cleanup.
 func ClearBoundInterfaces() {

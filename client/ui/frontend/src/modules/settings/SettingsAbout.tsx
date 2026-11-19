@@ -24,8 +24,8 @@ const SlackIcon = (props: SVGProps<SVGSVGElement>) => (
         />
     </svg>
 );
-import { useSettings } from "@/contexts/SettingsContext.tsx";
 import { useStatus } from "@/contexts/StatusContext.tsx";
+import { useGuiVersion } from "@/hooks/useGuiVersion";
 import { UpdateVersionCard } from "@/modules/auto-update/UpdateVersionCard";
 import { useAccentTrigger } from "@/modules/settings/SettingsAccent";
 
@@ -38,7 +38,7 @@ function openUrl(url: string) {
 export function SettingsAbout() {
     const { t } = useTranslation();
     const { status } = useStatus();
-    const { guiVersion } = useSettings();
+    const guiVersion = useGuiVersion();
     const daemonVersion = status?.daemonVersion ?? "—";
 
     const handleVersionClick = useAccentTrigger();

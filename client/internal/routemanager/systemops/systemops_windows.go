@@ -19,6 +19,7 @@ import (
 	"github.com/yusufpapurcu/wmi"
 	"golang.org/x/sys/windows"
 
+	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbnet "github.com/netbirdio/netbird/client/net"
 )
@@ -91,6 +92,7 @@ type candidateRoute struct {
 	prefixLength    uint8
 	routeMetric     uint32
 	interfaceMetric int
+	nextHop         netip.Addr
 }
 
 // IP_ADDRESS_PREFIX is defined in https://learn.microsoft.com/en-us/windows/win32/api/netioapi/ns-netioapi-ip_address_prefix
@@ -860,6 +862,7 @@ func parseCandidateRoute(entry *MIB_IPFORWARD_ROW2, dest netip.Addr, skipInterfa
 		prefixLength:    entry.DestinationPrefix.PrefixLength,
 		routeMetric:     entry.Metric,
 		interfaceMetric: interfaceMetric,
+		nextHop:         parseIPNexthop(entry.NextHop, int(entry.InterfaceIndex)),
 	}
 }
 
@@ -917,6 +920,35 @@ func combinedMetric(candidate candidateRoute) uint64 {
 // 2. Lowest combined metric (route metric + interface metric)
 // 3. Lowest route metric.
 func GetBestInterface(dest netip.Addr, vpnIntf string) (*net.Interface, error) {
+	_, iface, err := bestRoute(dest, vpnIntf)
+	return iface, err
+}
+
+// GetUnderlayNextHop returns the physical network's default next hop for the
+// family of unspec. The VPN interface is skipped: with an exit node its split
+// 0/1 and 128/1 routes would otherwise win the lookup for the default.
+func GetUnderlayNextHop(unspec netip.Addr, vpnIntf string) (Nexthop, error) {
+	// bestRoute only warns when it cannot resolve the VPN interface, which
+	// suits the dialer, but here its split routes would win: unknown, not
+	// the tunnel. Resolve it once and skip exactly that index.
+	var skipInterfaceIndex int
+	if vpnIntf != "" {
+		vpn, err := net.InterfaceByName(vpnIntf)
+		if err != nil {
+			return Nexthop{}, fmt.Errorf("resolve the NetBird interface %s: %w", vpnIntf, err)
+		}
+		skipInterfaceIndex = vpn.Index
+	}
+	candidate, iface, err := bestRouteSkipping(unspec, skipInterfaceIndex)
+	if err != nil {
+		return Nexthop{}, err
+	}
+	return Nexthop{IP: candidate.nextHop, Intf: iface}, nil
+}
+
+// bestRoute picks the route GetBestInterface uses for dest, with its usable
+// interface, skipping the VPN interface.
+func bestRoute(dest netip.Addr, vpnIntf string) (candidateRoute, *net.Interface, error) {
 	var skipInterfaceIndex int
 	if vpnIntf != "" {
 		if iface, err := net.InterfaceByName(vpnIntf); err == nil {
@@ -926,25 +958,32 @@ func GetBestInterface(dest netip.Addr, vpnIntf string) (*net.Interface, error) {
 			log.Warnf("failed to get VPN interface %s: %v", vpnIntf, err)
 		}
 	}
+	return bestRouteSkipping(dest, skipInterfaceIndex)
+}
 
+// bestRouteSkipping is bestRoute with the VPN interface already resolved to
+// its index; 0 skips nothing.
+func bestRouteSkipping(dest netip.Addr, skipInterfaceIndex int) (candidateRoute, *net.Interface, error) {
 	table, err := getWindowsRoutingTable()
 	if err != nil {
-		return nil, fmt.Errorf("get routing table: %w", err)
+		return candidateRoute{}, nil, fmt.Errorf("get routing table: %w", err)
 	}
 	defer freeWindowsRoutingTable(table)
 
 	candidates := parseCandidatesFromTable(table, dest, skipInterfaceIndex)
 
 	if len(candidates) == 0 {
-		return nil, fmt.Errorf("no route to %s", dest)
+		return candidateRoute{}, nil, fmt.Errorf("no route to %s: %w", dest, vars.ErrRouteNotFound)
 	}
 
 	sortRouteCandidates(candidates)
 
+	var lookupErr error
 	for _, candidate := range candidates {
 		iface, err := net.InterfaceByIndex(int(candidate.interfaceIndex))
 		if err != nil {
 			log.Warnf("failed to get interface by index %d: %v", candidate.interfaceIndex, err)
+			lookupErr = err
 			continue
 		}
 
@@ -959,10 +998,15 @@ func GetBestInterface(dest netip.Addr, vpnIntf string) (*net.Interface, error) {
 
 		log.Debugf("route lookup for %s: selected interface %s (index %d), route metric %d, interface metric %d",
 			dest, iface.Name, iface.Index, candidate.routeMetric, candidate.interfaceMetric)
-		return iface, nil
+		return candidate, iface, nil
 	}
 
-	return nil, fmt.Errorf("no usable interface found for %s", dest)
+	// A candidate whose interface could not be read may still be usable: that
+	// is a failed lookup, not a missing default.
+	if lookupErr != nil {
+		return candidateRoute{}, nil, fmt.Errorf("no usable interface found for %s: %w", dest, lookupErr)
+	}
+	return candidateRoute{}, nil, fmt.Errorf("no usable interface found for %s: %w", dest, vars.ErrRouteNotFound)
 }
 
 // formatRouteAge formats the route age in seconds to a human-readable string

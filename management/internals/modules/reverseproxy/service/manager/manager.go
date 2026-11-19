@@ -186,42 +186,51 @@ func (m *Manager) GetAllServices(ctx context.Context, accountID, userID string) 
 
 func (m *Manager) replaceHostByLookup(ctx context.Context, accountID string, s *service.Service) error {
 	for _, target := range s.Targets {
-		switch target.TargetType {
-		case service.TargetTypePeer:
-			peer, err := m.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, target.TargetId)
-			if err != nil {
-				log.WithContext(ctx).Warnf("failed to get peer by id %s for service %s: %v", target.TargetId, s.ID, err)
-				target.Host = unknownHostPlaceholder
-				continue
+		host, err := m.lookupTargetHost(ctx, accountID, target)
+		if err != nil {
+			if sErr, ok := status.FromError(err); !ok || sErr.Type() != status.NotFound {
+				return fmt.Errorf("look up %s target %s: %w", target.TargetType, target.TargetId, err)
 			}
-			target.Host = peer.IP.String()
-		case service.TargetTypeHost:
-			resource, err := m.store.GetNetworkResourceByID(ctx, store.LockingStrengthNone, accountID, target.TargetId)
-			if err != nil {
-				log.WithContext(ctx).Warnf("failed to get resource by id %s for service %s: %v", target.TargetId, s.ID, err)
-				target.Host = unknownHostPlaceholder
-				continue
-			}
-			target.Host = resource.Prefix.Addr().String()
-		case service.TargetTypeDomain:
-			resource, err := m.store.GetNetworkResourceByID(ctx, store.LockingStrengthNone, accountID, target.TargetId)
-			if err != nil {
-				log.WithContext(ctx).Warnf("failed to get resource by id %s for service %s: %v", target.TargetId, s.ID, err)
-				target.Host = unknownHostPlaceholder
-				continue
-			}
-			target.Host = resource.Domain
-		case service.TargetTypeSubnet:
-			// For subnets we do not do any lookups on the resource
-		case service.TargetTypeCluster:
-			// Cluster targets carry the upstream address on target_id; the
-			// proxy resolves the destination at request time.
-		default:
-			return fmt.Errorf("unknown target type: %s", target.TargetType)
+			log.WithContext(ctx).Warnf("%s target %s of service %s not found: %v", target.TargetType, target.TargetId, s.ID, err)
+			host = unknownHostPlaceholder
 		}
+		target.Host = host
 	}
 
 	return nil
+}
+
+// lookupTargetHost returns the upstream host of the target, or the target's current host when it needs no lookup.
+func (m *Manager) lookupTargetHost(ctx context.Context, accountID string, target *service.Target) (string, error) {
+	switch target.TargetType {
+	case service.TargetTypePeer:
+		peer, err := m.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, target.TargetId)
+		if err != nil {
+			return "", err
+		}
+		return peer.IP.String(), nil
+	case service.TargetTypeHost:
+		resource, err := m.store.GetNetworkResourceByID(ctx, store.LockingStrengthNone, accountID, target.TargetId)
+		if err != nil {
+			return "", err
+		}
+		return resource.Prefix.Addr().String(), nil
+	case service.TargetTypeDomain:
+		resource, err := m.store.GetNetworkResourceByID(ctx, store.LockingStrengthNone, accountID, target.TargetId)
+		if err != nil {
+			return "", err
+		}
+		return resource.Domain, nil
+	case service.TargetTypeSubnet:
+		// For subnets we do not do any lookups on the resource
+		return target.Host, nil
+	case service.TargetTypeCluster:
+		// Cluster targets carry the upstream address on target_id; the
+		// proxy resolves the destination at request time.
+		return target.Host, nil
+	default:
+		return "", fmt.Errorf("unknown target type: %s", target.TargetType)
+	}
 }
 
 func (m *Manager) GetService(ctx context.Context, accountID, userID, serviceID string) (*service.Service, error) {
