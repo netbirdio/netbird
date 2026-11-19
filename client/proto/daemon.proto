@@ -1118,7 +1118,9 @@ message GetAgentNetworkInfoResponse {
     // OK: Agent Networks is set up for the account. An empty providers list
     // means no policy gives this peer access yet.
     OK = 1;
-    // NO_USER: the peer has no owning user (e.g. registered with a setup key).
+    // NO_USER: no longer sent. Management answers a peer with no owning user
+    // (e.g. registered with a setup key) from its peer groups like any other
+    // peer. Kept so clients still understand older management servers.
     NO_USER = 2;
     // NOT_ENABLED: the account has no Agent Network.
     NOT_ENABLED = 3;
@@ -1128,7 +1130,8 @@ message GetAgentNetworkInfoResponse {
     MANAGEMENT_UNSUPPORTED = 5;
   }
   State state = 1;
-  // endpoint is the account's proxy base URL, "https://<label>.<cluster>".
+  // endpoint is the account's proxy base URL, "https://" plus the account's
+  // gateway hostname. Set only when state is OK.
   string endpoint = 2;
   repeated AgentNetworkProvider providers = 3;
 }
@@ -1148,8 +1151,10 @@ message AgentNetworkProvider {
   // exhausted is true when the next request on this provider would be denied
   // for a spent cap.
   bool exhausted = 8;
-  // limits lists every cap that binds the caller on this provider. Token and
-  // USD caps are separate entries.
+  // limits lists the caps the caller's next request on this provider is
+  // checked against: every account rule that binds the caller, plus the caps
+  // of the policy that would pay for it. Token and USD caps are separate
+  // entries.
   repeated AgentNetworkLimit limits = 9;
 }
 

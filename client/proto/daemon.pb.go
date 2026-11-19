@@ -257,7 +257,9 @@ const (
 	// OK: Agent Networks is set up for the account. An empty providers list
 	// means no policy gives this peer access yet.
 	GetAgentNetworkInfoResponse_OK GetAgentNetworkInfoResponse_State = 1
-	// NO_USER: the peer has no owning user (e.g. registered with a setup key).
+	// NO_USER: no longer sent. Management answers a peer with no owning user
+	// (e.g. registered with a setup key) from its peer groups like any other
+	// peer. Kept so clients still understand older management servers.
 	GetAgentNetworkInfoResponse_NO_USER GetAgentNetworkInfoResponse_State = 2
 	// NOT_ENABLED: the account has no Agent Network.
 	GetAgentNetworkInfoResponse_NOT_ENABLED GetAgentNetworkInfoResponse_State = 3
@@ -7313,7 +7315,8 @@ func (*GetAgentNetworkInfoRequest) Descriptor() ([]byte, []int) {
 type GetAgentNetworkInfoResponse struct {
 	state protoimpl.MessageState            `protogen:"open.v1"`
 	State GetAgentNetworkInfoResponse_State `protobuf:"varint,1,opt,name=state,proto3,enum=daemon.GetAgentNetworkInfoResponse_State" json:"state,omitempty"`
-	// endpoint is the account's proxy base URL, "https://<label>.<cluster>".
+	// endpoint is the account's proxy base URL, "https://" plus the account's
+	// gateway hostname. Set only when state is OK.
 	Endpoint      string                  `protobuf:"bytes,2,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
 	Providers     []*AgentNetworkProvider `protobuf:"bytes,3,rep,name=providers,proto3" json:"providers,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -7387,8 +7390,10 @@ type AgentNetworkProvider struct {
 	// exhausted is true when the next request on this provider would be denied
 	// for a spent cap.
 	Exhausted bool `protobuf:"varint,8,opt,name=exhausted,proto3" json:"exhausted,omitempty"`
-	// limits lists every cap that binds the caller on this provider. Token and
-	// USD caps are separate entries.
+	// limits lists the caps the caller's next request on this provider is
+	// checked against: every account rule that binds the caller, plus the caps
+	// of the policy that would pay for it. Token and USD caps are separate
+	// entries.
 	Limits        []*AgentNetworkLimit `protobuf:"bytes,9,rep,name=limits,proto3" json:"limits,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
