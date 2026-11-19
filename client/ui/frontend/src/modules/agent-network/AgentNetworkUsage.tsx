@@ -298,18 +298,31 @@ const LimitRow = ({ unit, limit, now }: RowProps) => {
             cap: formatAmount(unit, limit.cap, lang, false),
         },
     );
-    const used = t("agentNetwork.limit.used", {
+    const used = t("agentNetwork.limit.usedOfCap", {
         used: formatAmount(unit, limit.used, lang, true),
+        cap: formatAmount(unit, limit.cap, lang, true),
     });
     const resets = limit.resetsAt ? new Date(limit.resetsAt) : null;
 
     return (
         <div className={"min-w-0 text-xs"}>
             <div className={"flex items-baseline gap-2"}>
-                <span className={"min-w-0 flex-1 truncate text-nb-gray-200"}>{label}</span>
-                <span className={"shrink-0 text-nb-gray-300 tabular-nums"}>
-                    {formatAmount(unit, limit.cap, lang, true)}
+                <span className={"min-w-0 flex-1 truncate text-nb-gray-200"}>
+                    {label}
+                    {resets && (
+                        <span className={"text-nb-gray-400"}>
+                            {" · "}
+                            <Tooltip content={formatUntil(resets, now, lang)}>
+                                <span>
+                                    {t("agentNetwork.limit.resets", {
+                                        when: formatReset(resets, now, lang),
+                                    })}
+                                </span>
+                            </Tooltip>
+                        </span>
+                    )}
                 </span>
+                <span className={"shrink-0 text-nb-gray-300 tabular-nums"}>{used}</span>
             </div>
             <div
                 role={"progressbar"}
@@ -325,21 +338,6 @@ const LimitRow = ({ unit, limit, now }: RowProps) => {
                     style={{ width: `${percent}%` }}
                 />
             </div>
-            <p className={"mt-1.5 truncate text-nb-gray-400 tabular-nums"}>
-                {used}
-                {resets && (
-                    <>
-                        {" · "}
-                        <Tooltip content={formatUntil(resets, now, lang)}>
-                            <span>
-                                {t("agentNetwork.limit.resets", {
-                                    when: formatReset(resets, now, lang),
-                                })}
-                            </span>
-                        </Tooltip>
-                    </>
-                )}
-            </p>
         </div>
     );
 };
