@@ -177,3 +177,25 @@ func TestClaimProfile_RefusesAnUnknownAccountName(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, codes.InvalidArgument, gstatus.Convert(err).Code())
 }
+
+// Disabling profiles leaves ownership enforced, so an administrator still has to
+// be able to give the default profile an owner. Otherwise a machine whose user
+// never sits at the console, such as one only reached over RDP, has no way out.
+func TestClaimProfile_AllowedWhenProfilesDisabled(t *testing.T) {
+	srv := claimTestServer(t)
+	srv.profilesDisabled = true
+
+	owner := claimOwner(4242)
+	resp, err := srv.ClaimProfile(withTarget(rootCtx(), profilemanager.DefaultConfigPath), &proto.ClaimProfileRequest{
+		Handle: "default",
+		Owner:  owner,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, owner, resp.GetOwner())
+
+	list, err := srv.ListProfiles(rootCtx(), &proto.ListProfilesRequest{})
+	require.NoError(t, err)
+	require.Len(t, list.GetProfiles(), 1)
+	assert.Equal(t, []string{owner}, list.GetProfiles()[0].GetOwners(),
+		"the claim must be recorded even with profiles disabled")
+}
