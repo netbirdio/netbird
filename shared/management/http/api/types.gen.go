@@ -4213,9 +4213,6 @@ type Peer struct {
 	// GeonameId Unique identifier from the GeoNames database for a specific geographical location.
 	GeonameId int `json:"geoname_id"`
 
-	// Groups Groups that the peer belongs to
-	Groups []GroupMinimum `json:"groups"`
-
 	// Hostname Hostname of the machine
 	Hostname string `json:"hostname"`
 
@@ -4309,9 +4306,6 @@ type PeerBatch struct {
 
 	// GeonameId Unique identifier from the GeoNames database for a specific geographical location.
 	GeonameId int `json:"geoname_id"`
-
-	// Groups Groups that the peer belongs to
-	Groups []GroupMinimum `json:"groups"`
 
 	// Hostname Hostname of the machine
 	Hostname string `json:"hostname"`
