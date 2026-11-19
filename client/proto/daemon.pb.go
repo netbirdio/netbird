@@ -257,16 +257,12 @@ const (
 	// OK: Agent Networks is set up for the account. An empty providers list
 	// means no policy gives this peer access yet.
 	GetAgentNetworkInfoResponse_OK GetAgentNetworkInfoResponse_State = 1
-	// NO_USER: no longer sent. Management answers a peer with no owning user
-	// (e.g. registered with a setup key) from its peer groups like any other
-	// peer. Kept so clients still understand older management servers.
-	GetAgentNetworkInfoResponse_NO_USER GetAgentNetworkInfoResponse_State = 2
 	// NOT_ENABLED: the account has no Agent Network.
-	GetAgentNetworkInfoResponse_NOT_ENABLED GetAgentNetworkInfoResponse_State = 3
+	GetAgentNetworkInfoResponse_NOT_ENABLED GetAgentNetworkInfoResponse_State = 2
 	// USER_BLOCKED: the owning user is blocked or pending approval.
-	GetAgentNetworkInfoResponse_USER_BLOCKED GetAgentNetworkInfoResponse_State = 4
+	GetAgentNetworkInfoResponse_USER_BLOCKED GetAgentNetworkInfoResponse_State = 3
 	// MANAGEMENT_UNSUPPORTED: the management server predates this RPC.
-	GetAgentNetworkInfoResponse_MANAGEMENT_UNSUPPORTED GetAgentNetworkInfoResponse_State = 5
+	GetAgentNetworkInfoResponse_MANAGEMENT_UNSUPPORTED GetAgentNetworkInfoResponse_State = 4
 )
 
 // Enum value maps for GetAgentNetworkInfoResponse_State.
@@ -274,18 +270,16 @@ var (
 	GetAgentNetworkInfoResponse_State_name = map[int32]string{
 		0: "STATE_UNSPECIFIED",
 		1: "OK",
-		2: "NO_USER",
-		3: "NOT_ENABLED",
-		4: "USER_BLOCKED",
-		5: "MANAGEMENT_UNSUPPORTED",
+		2: "NOT_ENABLED",
+		3: "USER_BLOCKED",
+		4: "MANAGEMENT_UNSUPPORTED",
 	}
 	GetAgentNetworkInfoResponse_State_value = map[string]int32{
 		"STATE_UNSPECIFIED":      0,
 		"OK":                     1,
-		"NO_USER":                2,
-		"NOT_ENABLED":            3,
-		"USER_BLOCKED":           4,
-		"MANAGEMENT_UNSUPPORTED": 5,
+		"NOT_ENABLED":            2,
+		"USER_BLOCKED":           3,
+		"MANAGEMENT_UNSUPPORTED": 4,
 	}
 )
 
@@ -8071,18 +8065,17 @@ const file_daemon_proto_rawDesc = "" +
 	"\x1aStartBundleCaptureResponse\"\x1a\n" +
 	"\x18StopBundleCaptureRequest\"\x1b\n" +
 	"\x19StopBundleCaptureResponse\"\x1c\n" +
-	"\x1aGetAgentNetworkInfoRequest\"\xaa\x02\n" +
+	"\x1aGetAgentNetworkInfoRequest\"\x9d\x02\n" +
 	"\x1bGetAgentNetworkInfoResponse\x12?\n" +
 	"\x05state\x18\x01 \x01(\x0e2).daemon.GetAgentNetworkInfoResponse.StateR\x05state\x12\x1a\n" +
 	"\bendpoint\x18\x02 \x01(\tR\bendpoint\x12:\n" +
-	"\tproviders\x18\x03 \x03(\v2\x1c.daemon.AgentNetworkProviderR\tproviders\"r\n" +
+	"\tproviders\x18\x03 \x03(\v2\x1c.daemon.AgentNetworkProviderR\tproviders\"e\n" +
 	"\x05State\x12\x15\n" +
 	"\x11STATE_UNSPECIFIED\x10\x00\x12\x06\n" +
-	"\x02OK\x10\x01\x12\v\n" +
-	"\aNO_USER\x10\x02\x12\x0f\n" +
-	"\vNOT_ENABLED\x10\x03\x12\x10\n" +
-	"\fUSER_BLOCKED\x10\x04\x12\x1a\n" +
-	"\x16MANAGEMENT_UNSUPPORTED\x10\x05\"\xbe\x01\n" +
+	"\x02OK\x10\x01\x12\x0f\n" +
+	"\vNOT_ENABLED\x10\x02\x12\x10\n" +
+	"\fUSER_BLOCKED\x10\x03\x12\x1a\n" +
+	"\x16MANAGEMENT_UNSUPPORTED\x10\x04\"\xbe\x01\n" +
 	"\x14AgentNetworkProvider\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
