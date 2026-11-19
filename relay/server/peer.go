@@ -34,6 +34,9 @@ type Peer struct {
 	store    *store.Store
 	notifier *store.PeerNotifier
 
+	// limiters optionally caps the rate the relay forwards to destination peers.
+	limiters *limiterSet
+
 	ctx       context.Context
 	ctxCancel context.CancelFunc
 
@@ -44,7 +47,7 @@ type Peer struct {
 }
 
 // NewPeer creates a new Peer instance and prepare custom logging
-func NewPeer(metrics *metrics.Metrics, id messages.PeerID, version messages.ProtocolVersion, conn listener.Conn, store *store.Store, notifier *store.PeerNotifier) *Peer {
+func NewPeer(metrics *metrics.Metrics, id messages.PeerID, version messages.ProtocolVersion, conn listener.Conn, store *store.Store, notifier *store.PeerNotifier, limiters *limiterSet) *Peer {
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &Peer{
 		metrics:   metrics,
@@ -55,6 +58,7 @@ func NewPeer(metrics *metrics.Metrics, id messages.PeerID, version messages.Prot
 		conn:      conn,
 		store:     store,
 		notifier:  notifier,
+		limiters:  limiters,
 		ctx:       ctx,
 		ctxCancel: cancel,
 	}
@@ -239,12 +243,35 @@ func (p *Peer) handleTransportMsg(msg []byte) {
 		return
 	}
 
+	if !p.waitRateLimit(dp.id, len(msg)) {
+		p.log.Debugf("rate limited transport message to: %s", dp.String())
+		return
+	}
+
 	n, err := dp.Write(dp.ctx, msg)
 	if err != nil {
 		p.log.Errorf("failed to write transport message to: %s", dp.String())
 		return
 	}
 	p.metrics.TransferBytesSent.Add(p.ctx, int64(n))
+}
+
+// waitRateLimit blocks until the destination peer has budget for size bytes, or
+// returns false when the wait timed out. Dropping a single transport message is
+// safe: relayed payloads are individual WireGuard datagrams, so the sender sees
+// it as packet loss and recovers on its own.
+func (p *Peer) waitRateLimit(dst messages.PeerID, size int) bool {
+	lim := p.limiters.forDst(dst)
+	if lim == nil {
+		return true
+	}
+
+	ctx, cancel := context.WithTimeout(p.ctx, rateLimitWaitTimeout)
+	defer cancel()
+	if err := lim.WaitN(ctx, size); err != nil {
+		return false
+	}
+	return true
 }
 
 func (p *Peer) handleSubscribePeerState(msg []byte) {

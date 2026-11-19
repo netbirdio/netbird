@@ -26,7 +26,7 @@ func (c *failingWriteConn) Write(context.Context, []byte) (int, error) {
 func TestPeer_HealthcheckWriteErrorClosesConnection(t *testing.T) {
 	relay := newTestRelay(t, &allow.Auth{})
 	conn := &failingWriteConn{scriptedConn: newScriptedConn()}
-	peer := NewPeer(relay.metrics, messages.HashID("peer"), messages.CurrentProtocolVersion, conn, relay.store, relay.notifier)
+	peer := NewPeer(relay.metrics, messages.HashID("peer"), messages.CurrentProtocolVersion, conn, relay.store, relay.notifier, relay.limiters)
 	hc := healthcheck.NewSender(peer.log)
 	hc.HealthCheck <- struct{}{}
 
@@ -56,7 +56,7 @@ func TestPeer_HealthcheckHandlerAfterSenderExit(t *testing.T) {
 			// cannot show every order.
 			for range 50 {
 				conn := newScriptedConn()
-				peer := NewPeer(relay.metrics, messages.HashID("peer"), messages.CurrentProtocolVersion, conn, relay.store, relay.notifier)
+				peer := NewPeer(relay.metrics, messages.HashID("peer"), messages.CurrentProtocolVersion, conn, relay.store, relay.notifier, relay.limiters)
 				hc := healthcheck.NewSender(peer.log)
 				if tc.timedOut {
 					hc.Timeout <- struct{}{}

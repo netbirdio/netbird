@@ -53,6 +53,12 @@ type Config struct {
 	EnableSTUN   bool
 	STUNPorts    []int
 	STUNLogLevel string
+	// RateLimitDefault caps forwarded bandwidth to peers without an explicit
+	// per-peer limit. Empty means unlimited.
+	RateLimitDefault string
+	// RateLimitPeers maps a destination peer (relay id or WireGuard public key)
+	// to its limit, e.g. "sha-abc...=50mbps".
+	RateLimitPeers map[string]string
 }
 
 func (c Config) Validate() error {
@@ -124,6 +130,8 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&cobraConfig.EnableSTUN, "enable-stun", false, "enable embedded STUN server")
 	rootCmd.PersistentFlags().IntSliceVar(&cobraConfig.STUNPorts, "stun-ports", []int{3478}, "ports for the embedded STUN server (can be specified multiple times or comma-separated)")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.STUNLogLevel, "stun-log-level", "info", "log level for STUN server (panic, fatal, error, warn, info, debug, trace)")
+	rootCmd.PersistentFlags().StringVar(&cobraConfig.RateLimitDefault, "rate-limit-default", "", "default forwarding rate limit per destination peer (e.g. 50mbps); empty means unlimited")
+	rootCmd.PersistentFlags().StringToStringVar(&cobraConfig.RateLimitPeers, "rate-limit-peers", nil, "per-destination-peer forwarding limits, key is relay id or peer public key (e.g. sha-abc...=50mbps)")
 
 	setFlagsFromEnvVars(rootCmd)
 }
@@ -192,6 +200,11 @@ func execute(cmd *cobra.Command, args []string) error {
 		ExposedAddress: cobraConfig.ExposedAddress,
 		AuthValidator:  authenticator,
 		TLSSupport:     tlsSupport,
+		RateLimit: server.RateLimitConfig{
+			Enabled: cobraConfig.RateLimitDefault != "" || len(cobraConfig.RateLimitPeers) > 0,
+			Default: cobraConfig.RateLimitDefault,
+			Peers:   cobraConfig.RateLimitPeers,
+		},
 	}
 
 	srv, err := createRelayServer(cfg)
