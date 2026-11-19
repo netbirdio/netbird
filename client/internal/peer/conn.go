@@ -155,6 +155,21 @@ type Conn struct {
 	// pendingFirstPacket is the lazyconn-captured handshake init, replayed once the real
 	// transport is up.
 	pendingFirstPacket []byte
+
+	// iceActiveGen counts the times ICE became the active path, so an underlay
+	// mark can tell the lost P2P path from one negotiated after the change.
+	// Both fields are guarded by mu.
+	iceActiveGen uint64
+	underlayMark underlayMark
+}
+
+// underlayMark records a P2P path lost to a network change, to be moved to
+// relay once the relay is back. A relay connection seen before notBefore may
+// be one the change is about to sweep.
+type underlayMark struct {
+	iceGen    uint64
+	notBefore time.Time
+	until     time.Time
 }
 
 // injectPendingFirstPacket replays the captured handshake through the proxy if present, else
@@ -311,11 +326,7 @@ func (conn *Conn) Close(signalToRemote bool) {
 	conn.Log.Infof("close peer connection")
 	conn.ctxCancel()
 
-	if conn.wgWatcherCancel != nil {
-		conn.wgWatcherCancel()
-		conn.wgWatcher = nil
-		conn.wgWatcherCancel = nil
-	}
+	conn.dropWgWatcher()
 	conn.workerRelay.CloseConn()
 	if conn.workerICE != nil {
 		conn.workerICE.Close()
@@ -488,6 +499,7 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 	conn.injectPendingFirstPacket(wgProxy, iceConnInfo.RemoteConn)
 
 	conn.currentConnPriority = priority
+	conn.iceActiveGen++
 	conn.statusICE.SetConnected()
 	conn.updateIceState(iceConnInfo, updateTime)
 	conn.doOnConnected(iceConnInfo.RosenpassPubKey, iceConnInfo.RosenpassAddr, updateTime)
@@ -520,6 +532,7 @@ func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
 		// todo consider to move after the ConfigureWGEndpoint
 		conn.wgProxyRelay.Work()
 
+		conn.enableWgWatcherIfNeeded(time.Now())
 		presharedKey := conn.presharedKey(conn.rosenpassRemoteKey)
 		if err := conn.endpointUpdater.SwitchWGEndpoint(conn.wgProxyRelay.EndpointAddr(), presharedKey); err != nil {
 			conn.Log.Errorf("failed to switch to relay conn: %v", err)
@@ -589,6 +602,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 		conn.setRelayedProxy(wgProxy, rci.relayedConn)
 		conn.statusRelay.SetConnected()
 		conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey, time.Now())
+		conn.moveMarkedToRelayLocked(time.Now())
 		return
 	}
 
@@ -692,6 +706,98 @@ func (conn *Conn) onGuardEvent() {
 	}
 }
 
+// OnUnderlayChanged reacts to a change of the host's physical network. A P2P
+// path whose local end is gone, or that relied on the old network's NAT
+// mapping, is dead, but ICE would only notice after its own timeouts. The
+// network change also sweeps the relay connection, so moving the peer now
+// would land it on a dying relay: the path is marked instead, and moved once
+// this peer's relay connection is back after notBefore, until the given
+// deadline. A path that can still work is left alone.
+func (conn *Conn) OnUnderlayChanged(localAddrExists func(netip.Addr) bool, notBefore, until time.Time) {
+	state, err := conn.statusRecorder.GetPeer(conn.config.Key)
+
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
+	conn.underlayMark = underlayMark{}
+	if err != nil {
+		return
+	}
+	// A lazy connection is in the peer store before Open gives it a context.
+	if conn.ctx == nil || conn.ctx.Err() != nil || conn.workerICE == nil {
+		return
+	}
+	if conn.currentConnPriority != conntype.ICEP2P && conn.currentConnPriority != conntype.ICETurn {
+		return
+	}
+	if !p2pPathLost(state.LocalIceCandidateType, state.LocalIceCandidateEndpoint, localAddrExists) {
+		conn.Log.Debugf("network changed, P2P path via %s can still work: keeping it", state.LocalIceCandidateEndpoint)
+		return
+	}
+
+	if !conn.workerRelay.IsRelayConnectionSupportedWithPeer() {
+		conn.Log.Debugf("network changed, P2P path lost and no relay with this peer: waiting for ICE")
+		return
+	}
+
+	conn.Log.Infof("network changed, P2P path lost: switching to relay once it is back")
+	conn.underlayMark = underlayMark{iceGen: conn.iceActiveGen, notBefore: notBefore, until: until}
+}
+
+// MoveMarkedToRelay switches a peer marked by OnUnderlayChanged to relay if
+// its relay connection is already back.
+func (conn *Conn) MoveMarkedToRelay() {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	conn.moveMarkedToRelayLocked(time.Now())
+}
+
+// moveMarkedToRelayLocked closes the ICE agent of a marked peer, which
+// switches it to relay through the same path as an ICE disconnect and lets
+// the guard renegotiate P2P on the new network. The caller holds mu.
+func (conn *Conn) moveMarkedToRelayLocked(now time.Time) {
+	if conn.ctx == nil || conn.ctx.Err() != nil || conn.workerICE == nil {
+		return
+	}
+	switch conn.underlayMark.verdict(conn.iceActiveGen, conn.currentConnPriority, conn.isReadyToUpgrade(), now) {
+	case markWait:
+		return
+	case markDrop:
+		conn.underlayMark = underlayMark{}
+		return
+	}
+	conn.underlayMark = underlayMark{}
+	conn.Log.Infof("relay is back, switching to relay while P2P renegotiates")
+	conn.workerICE.Close()
+}
+
+type markVerdict int
+
+const (
+	// markWait keeps the mark: the relay of this peer is not back yet, or
+	// may still be the one the change sweeps.
+	markWait markVerdict = iota
+	// markDrop discards the mark: it expired, or the lost path is gone already.
+	markDrop
+	// markMove switches the peer to relay now.
+	markMove
+)
+
+// verdict decides what to do with a mark given the connection state now.
+func (m underlayMark) verdict(iceActiveGen uint64, priority conntype.ConnPriority, relayReady bool, now time.Time) markVerdict {
+	if m.until.IsZero() || now.After(m.until) {
+		return markDrop
+	}
+	// ICE reconnected since the change, or the peer left P2P on its own.
+	if m.iceGen != iceActiveGen || (priority != conntype.ICEP2P && priority != conntype.ICETurn) {
+		return markDrop
+	}
+	if now.Before(m.notBefore) || !relayReady {
+		return markWait
+	}
+	return markMove
+}
+
 func (conn *Conn) onWGDisconnected(watcherCtx context.Context) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
@@ -714,6 +820,7 @@ func (conn *Conn) onWGDisconnected(watcherCtx context.Context) {
 		conn.Log.Debugf("No active connection to close on WG timeout")
 	}
 
+	conn.dropWgWatcher()
 	conn.escalateWGTimeoutLocked()
 }
 
@@ -884,7 +991,14 @@ func (conn *Conn) enableWgWatcherIfNeeded(enabledTime time.Time) {
 // waits for the goroutine: the timeout path reentrantly calls back here under conn.mu, so
 // blocking would deadlock. Caller must hold conn.mu.
 func (conn *Conn) disableWgWatcherIfNeeded() {
-	if conn.currentConnPriority != conntype.None || conn.wgWatcher == nil {
+	if conn.currentConnPriority != conntype.None {
+		return
+	}
+	conn.dropWgWatcher()
+}
+
+func (conn *Conn) dropWgWatcher() {
+	if conn.wgWatcher == nil {
 		return
 	}
 	conn.wgWatcherCancel()
@@ -1100,4 +1214,19 @@ func metricsConnType(priority conntype.ConnPriority) metrics.ConnectionType {
 	default:
 		return metrics.ConnectionTypeUnknown
 	}
+}
+
+// p2pPathLost reports whether a P2P path cannot have survived a network
+// change. A host candidate survives while its address is still on the host.
+// Server-reflexive, peer-reflexive and relay candidates depend on the old
+// network's NAT mapping or TURN allocation, so they are treated as lost.
+func p2pPathLost(localCandidateType, localEndpoint string, localAddrExists func(netip.Addr) bool) bool {
+	if localCandidateType != "host" {
+		return true
+	}
+	endpoint, err := netip.ParseAddrPort(localEndpoint)
+	if err != nil {
+		return true
+	}
+	return !localAddrExists(endpoint.Addr().Unmap())
 }

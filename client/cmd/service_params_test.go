@@ -14,7 +14,6 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -188,17 +187,11 @@ func TestApplyServiceParams_OnlyUnchangedFlags(t *testing.T) {
 	updateSettingsDisabled = false
 	serviceEnvVars = nil
 
-	// Reset Changed state on all relevant flags.
-	rootCmd.PersistentFlags().VisitAll(func(f *pflag.Flag) {
-		f.Changed = false
-	})
-	serviceCmd.PersistentFlags().VisitAll(func(f *pflag.Flag) {
-		f.Changed = false
-	})
-
 	// Simulate user explicitly setting --log-level via CLI.
-	logLevel = "warn"
-	require.NoError(t, rootCmd.PersistentFlags().Set("log-level", "warn"))
+	cmd := &cobra.Command{}
+	cmd.Flags().StringSlice("service-env", nil, "")
+	cmd.Flags().StringVar(&logLevel, "log-level", "info", "")
+	require.NoError(t, cmd.Flags().Set("log-level", "warn"))
 
 	saved := &serviceParams{
 		LogLevel:              "debug",
@@ -213,8 +206,6 @@ func TestApplyServiceParams_OnlyUnchangedFlags(t *testing.T) {
 		ServiceEnvVars:        map[string]string{"SAVED_KEY": "saved_val"},
 	}
 
-	cmd := &cobra.Command{}
-	cmd.Flags().StringSlice("service-env", nil, "")
 	applyServiceParams(cmd, saved)
 
 	// log-level was Changed, so it should keep "warn", not use saved "debug".
@@ -247,11 +238,6 @@ func TestApplyServiceParams_BooleanRevertToFalse(t *testing.T) {
 	updateSettingsDisabled = true
 	enableJSONSocket = true
 
-	// Reset Changed state so flags appear unset.
-	serviceCmd.PersistentFlags().VisitAll(func(f *pflag.Flag) {
-		f.Changed = false
-	})
-
 	// Saved params have both as false.
 	saved := &serviceParams{
 		DisableProfiles:       false,
@@ -279,10 +265,6 @@ func TestApplyServiceParams_ClearManagementURL(t *testing.T) {
 		DaemonAddr: "unix:///var/run/netbird.sock",
 		// ManagementURL intentionally empty: was cleared with --management-url "".
 	}
-
-	rootCmd.PersistentFlags().VisitAll(func(f *pflag.Flag) {
-		f.Changed = false
-	})
 
 	cmd := &cobra.Command{}
 	cmd.Flags().StringSlice("service-env", nil, "")
@@ -463,9 +445,19 @@ func TestServiceParams_FieldsCoveredInFunctions(t *testing.T) {
 		applyFields[k] = v
 	}
 
+	// AllowGroupIDs records what AllowGroups resolved to at install time. It is
+	// derived, so restoring it would pin an install to a stale ID instead of
+	// resolving the names again.
+	fieldsNotRestored := map[string]bool{
+		"AllowGroupIDs": true,
+	}
+
 	for _, field := range structFields {
 		assert.Contains(t, currentFields, field,
 			"serviceParams field %q is not captured in currentServiceParams()", field)
+		if fieldsNotRestored[field] {
+			continue
+		}
 		assert.Contains(t, applyFields, field,
 			"serviceParams field %q is not restored in applyServiceParams()/applyServiceEnvParams()", field)
 	}
@@ -485,9 +477,13 @@ func TestServiceParams_BuildArgsCoversAllFlags(t *testing.T) {
 	installerFile, err := parser.ParseFile(fset, "service_installer.go", nil, 0)
 	require.NoError(t, err)
 
-	// Fields that are handled outside of buildServiceArguments (env vars go through newSVCConfig).
+	// Fields that are handled outside of buildServiceArguments:
+	// ServiceEnvVars goes through newSVCConfig() EnvVars. AllowGroups is
+	// carried as AllowGroupIDs instead: the service runs with the resolved
+	// principals, not with the names they were resolved from.
 	fieldsNotInArgs := map[string]bool{
 		"ServiceEnvVars": true,
+		"AllowGroups":    true,
 	}
 
 	buildFields := extractFuncGlobalRefs(t, installerFile, "buildServiceArguments")
@@ -513,7 +509,8 @@ func TestServiceParams_BuildArgsCoversAllFlags(t *testing.T) {
 	// (builtins, boilerplate, loop variables).
 	nonParamGlobals := map[string]bool{
 		"args": true, "append": true, "string": true, "_": true,
-		"logFile": true, // range variable over logFiles
+		"logFile":   true, // range variable over logFiles
+		"principal": true, // range variable over resolvedAllowGroups
 	}
 	for ref := range buildFields {
 		if nonParamGlobals[ref] {
@@ -620,6 +617,8 @@ func fieldToGlobalVar(field string) string {
 		"DisableNetworks":       "networksDisabled",
 		"EnableJSONSocket":      "enableJSONSocket",
 		"ServiceEnvVars":        "serviceEnvVars",
+		"AllowGroups":           "allowGroups",
+		"AllowGroupIDs":         "resolvedAllowGroups",
 	}
 	if v, ok := m[field]; ok {
 		return v

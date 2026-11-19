@@ -301,7 +301,7 @@ func TestUnmarshalAuthMsgRejectsMalformedFrames(t *testing.T) {
 
 func TestEncoderStampsVersion(t *testing.T) {
 	for _, version := range []ProtocolVersion{1, 2, 7} {
-		enc := NewEncoder(version)
+		enc := NewEncoder(version, MaxMessageSize)
 		assert.Equal(t, version, enc.Version())
 		assert.Equal(t, []byte{byte(version), byte(MsgTypeHealthCheck)}, enc.Healthcheck(), "healthcheck must carry the version")
 		assert.Equal(t, []byte{byte(version), byte(MsgTypeClose)}, enc.CloseMsg(), "close must carry the version")
@@ -329,7 +329,7 @@ func TestEncoderStampsVersion(t *testing.T) {
 }
 
 func TestPackageEncodersUseCurrentVersion(t *testing.T) {
-	current := NewEncoder(CurrentProtocolVersion)
+	current := NewEncoder(CurrentProtocolVersion, MaxMessageSize)
 	assert.Equal(t, current.CloseMsg(), MarshalCloseMsg())
 	assert.Equal(t, current.Healthcheck(), MarshalHealthcheck())
 
@@ -342,7 +342,7 @@ func TestPackageEncodersUseCurrentVersion(t *testing.T) {
 	ids := []PeerID{HashID("a"), HashID("b")}
 	wantOnline, err := current.PeersOnline(ids)
 	require.NoError(t, err)
-	gotOnline, err := MarshalPeersOnline(ids)
+	gotOnline, err := MarshalPeersOnline(ids, MaxMessageSize)
 	require.NoError(t, err)
 	assert.Equal(t, wantOnline, gotOnline)
 }
