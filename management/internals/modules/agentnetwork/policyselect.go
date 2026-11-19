@@ -521,10 +521,10 @@ const (
 
 func (u capUsage) exhausted() bool { return u.used >= u.cap }
 
-// tokenCapUsages returns the token caps that bind the caller: the user cap
-// when a user is known, the group cap when attrGroup is set. attrGroup may be
-// empty (no group dimension applies).
-func tokenCapUsages(cache consumptionCache, accountID, userID, attrGroup string, tl types.PolicyTokenLimit, now time.Time) []capUsage {
+// tokenCapUsages returns the token caps that bind the caller: the principal's
+// cap when principalID is set, the group cap when attrGroup is set. attrGroup
+// may be empty (no group dimension applies).
+func tokenCapUsages(cache consumptionCache, accountID, principalID, attrGroup string, tl types.PolicyTokenLimit, now time.Time) []capUsage {
 	if !tl.Enabled || tl.WindowSeconds <= 0 {
 		return nil
 	}
@@ -538,8 +538,8 @@ func tokenCapUsages(cache consumptionCache, accountID, userID, attrGroup string,
 			windowSeconds: tl.WindowSeconds, windowStart: windowStart,
 		})
 	}
-	if tl.UserCap > 0 && userID != "" {
-		add(capScopeUser, types.DimensionUser, userID, tl.UserCap)
+	if tl.UserCap > 0 && principalID != "" {
+		add(capScopeUser, types.DimensionUser, principalID, tl.UserCap)
 	}
 	if tl.GroupCap > 0 && attrGroup != "" {
 		add(capScopeGroup, types.DimensionGroup, attrGroup, tl.GroupCap)
@@ -548,7 +548,7 @@ func tokenCapUsages(cache consumptionCache, accountID, userID, attrGroup string,
 }
 
 // budgetCapUsages is the budget (USD) counterpart of tokenCapUsages.
-func budgetCapUsages(cache consumptionCache, accountID, userID, attrGroup string, bl types.PolicyBudgetLimit, now time.Time) []capUsage {
+func budgetCapUsages(cache consumptionCache, accountID, principalID, attrGroup string, bl types.PolicyBudgetLimit, now time.Time) []capUsage {
 	if !bl.Enabled || bl.WindowSeconds <= 0 {
 		return nil
 	}
@@ -562,8 +562,8 @@ func budgetCapUsages(cache consumptionCache, accountID, userID, attrGroup string
 			windowSeconds: bl.WindowSeconds, windowStart: windowStart,
 		})
 	}
-	if bl.UserCapUsd > 0 && userID != "" {
-		add(capScopeUser, types.DimensionUser, userID, bl.UserCapUsd)
+	if bl.UserCapUsd > 0 && principalID != "" {
+		add(capScopeUser, types.DimensionUser, principalID, bl.UserCapUsd)
 	}
 	if bl.GroupCapUsd > 0 && attrGroup != "" {
 		add(capScopeGroup, types.DimensionGroup, attrGroup, bl.GroupCapUsd)

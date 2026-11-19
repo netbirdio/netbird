@@ -43,7 +43,7 @@ var agentNetworkUsageCmd = &cobra.Command{
 }
 
 func init() {
-	agentNetworkUsageCmd.Flags().BoolVar(&agentNetworkUsageJSON, "json", false, "print the daemon response as JSON")
+	agentNetworkUsageCmd.Flags().BoolVar(&agentNetworkUsageJSON, "json", false, "print the response as JSON")
 	agentNetworkCmd.AddCommand(agentNetworkUsageCmd)
 }
 
