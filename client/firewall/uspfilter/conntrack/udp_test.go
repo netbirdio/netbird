@@ -156,65 +156,75 @@ func TestUDPTracker_IsValidInbound(t *testing.T) {
 }
 
 func TestUDPTracker_Cleanup(t *testing.T) {
-	// Use shorter intervals for testing
-	timeout := 50 * time.Millisecond
-	cleanupInterval := 25 * time.Millisecond
+	// The cleanup routine is driven by a test-owned tick channel instead of a
+	// wall-clock ticker, and expiry is set explicitly through lastSeen, so the
+	// outcome does not depend on scheduler latency. The timeout is long enough
+	// that the fresh flow cannot expire while the test runs.
+	timeout := time.Minute
 
 	ctx, tickerCancel := context.WithCancel(context.Background())
 	defer tickerCancel()
 
-	// Create tracker with custom cleanup interval
+	ticks := make(chan time.Time)
 	tracker := &UDPTracker{
 		connections:   make(map[ConnKey]*UDPConnTrack),
 		timeout:       timeout,
-		cleanupTicker: time.NewTicker(cleanupInterval),
+		cleanupTicker: &time.Ticker{C: ticks},
 		tickerCancel:  tickerCancel,
 		logger:        logger,
 		flowLogger:    flowLogger,
 	}
 
-	// Start cleanup routine
-	go tracker.cleanupRoutine(ctx)
+	routineDone := make(chan struct{})
+	go func() {
+		defer close(routineDone)
+		tracker.cleanupRoutine(ctx)
+	}()
 
-	// Add some connections
-	connections := []struct {
-		srcIP   netip.Addr
-		dstIP   netip.Addr
-		srcPort uint16
-		dstPort uint16
-	}{
+	expired := []ConnKey{
 		{
-			srcIP:   netip.MustParseAddr("192.168.1.2"),
-			dstIP:   netip.MustParseAddr("192.168.1.3"),
-			srcPort: 12345,
-			dstPort: 53,
+			SrcIP:   netip.MustParseAddr("192.168.1.2"),
+			DstIP:   netip.MustParseAddr("192.168.1.3"),
+			SrcPort: 12345,
+			DstPort: 53,
 		},
 		{
-			srcIP:   netip.MustParseAddr("192.168.1.4"),
-			dstIP:   netip.MustParseAddr("192.168.1.5"),
-			srcPort: 12346,
-			dstPort: 53,
+			SrcIP:   netip.MustParseAddr("192.168.1.4"),
+			DstIP:   netip.MustParseAddr("192.168.1.5"),
+			SrcPort: 12346,
+			DstPort: 53,
 		},
 	}
-
-	for _, conn := range connections {
-		tracker.TrackOutbound(conn.srcIP, conn.dstIP, conn.srcPort, conn.dstPort, 0)
+	fresh := ConnKey{
+		SrcIP:   netip.MustParseAddr("192.168.1.6"),
+		DstIP:   netip.MustParseAddr("192.168.1.7"),
+		SrcPort: 12347,
+		DstPort: 53,
 	}
 
-	// Verify initial connections
-	assert.Len(t, tracker.connections, 2)
+	for _, key := range append([]ConnKey{fresh}, expired...) {
+		tracker.TrackOutbound(key.SrcIP, key.DstIP, key.SrcPort, key.DstPort, 0)
+	}
 
-	// Wait for connection timeout and cleanup interval
-	time.Sleep(timeout + 2*cleanupInterval)
+	tracker.mutex.Lock()
+	require.Len(t, tracker.connections, 3)
+	for _, key := range expired {
+		tracker.connections[key].lastSeen.Store(time.Now().Add(-2 * timeout).UnixNano())
+	}
+	tracker.mutex.Unlock()
 
-	tracker.mutex.RLock()
-	connCount := len(tracker.connections)
-	tracker.mutex.RUnlock()
+	// The routine runs cleanup synchronously on each tick, so once it has
+	// received the tick and then exited on cancel, the cleanup pass is done.
+	ticks <- time.Now()
+	tickerCancel()
+	<-routineDone
 
-	// Verify connections were cleaned up
-	assert.Equal(t, 0, connCount, "Expected all connections to be cleaned up")
+	for _, key := range expired {
+		assert.NotContains(t, tracker.connections, key, "expired connection should be cleaned up")
+	}
+	assert.Contains(t, tracker.connections, fresh, "fresh connection should survive cleanup")
+	assert.Len(t, tracker.connections, 1, "only the fresh connection should remain")
 
-	// Properly close the tracker
 	tracker.Close()
 }
 

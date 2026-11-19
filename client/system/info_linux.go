@@ -63,6 +63,7 @@ func GetInfo(ctx context.Context) *Info {
 		SystemSerialNumber: si.SystemSerialNumber,
 		SystemProductName:  si.SystemProductName,
 		SystemManufacturer: si.SystemManufacturer,
+		SystemHardwareUUID: si.SystemHardwareUUID,
 		Environment:        si.Environment,
 	}
 
@@ -109,6 +110,17 @@ func sysInfo() (string, string, string) {
 		manufacturer = si.ProductVendor
 	}
 	return serial, name, manufacturer
+}
+
+// sysHardwareUUID reads the SMBIOS UUID from the same file osquery uses for
+// system_info.uuid. The file is root-only and absent on machines without DMI.
+func sysHardwareUUID() string {
+	raw, err := os.ReadFile("/sys/class/dmi/id/product_uuid")
+	if err != nil {
+		log.Debugf("failed to read system hardware UUID: %v", err)
+		return ""
+	}
+	return cleanHardwareUUID(string(raw))
 }
 
 func defaultSysInfoImplementation() SysInfo {

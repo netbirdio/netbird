@@ -8,7 +8,7 @@ import {
 import { Restrictions, SetConfigParams } from "@bindings/services/models.js";
 import { ConfirmDialog } from "@/components/dialog/ConfirmDialog";
 import { useAutoSizeWindow } from "@/hooks/useAutoSizeWindow";
-import { errorDialog, formatErrorMessage } from "@/lib/errors";
+import { errorDialogFor } from "@/lib/errors";
 import i18next from "@/lib/i18n";
 import { isNetbirdCloud } from "@/hooks/useManagementUrl";
 import { WelcomeStepTray } from "./WelcomeStepTray";
@@ -130,10 +130,7 @@ export default function WelcomeDialog() {
                     }),
                 );
             } catch (e) {
-                await errorDialog({
-                    Title: i18next.t("settings.error.saveTitle"),
-                    Message: formatErrorMessage(e),
-                });
+                await errorDialogFor(i18next.t("settings.error.saveTitle"), e);
                 throw e;
             }
             setInitial((s) => (s ? { ...s, managementUrl: url } : s));
