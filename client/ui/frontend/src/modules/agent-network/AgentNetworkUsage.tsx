@@ -224,10 +224,6 @@ const LoadError = ({ error, onRetry }: { error: string; onRetry?: () => void }) 
 
 const ProviderSection = ({ provider, now }: { provider: AgentNetworkProvider; now: Date }) => {
     const { t, i18n } = useTranslation();
-    // The catalog id is only worth showing when the admin gave the provider another name.
-    const showCatalogId =
-        provider.catalogId !== "" &&
-        provider.catalogId.toLowerCase() !== provider.name.toLowerCase();
     const reset = soonestReset(provider.limits);
     return (
         <section aria-label={provider.name} className={"min-w-0 px-6 py-4"}>
@@ -235,11 +231,6 @@ const ProviderSection = ({ provider, now }: { provider: AgentNetworkProvider; no
                 <h3 className={"min-w-0 text-sm font-medium text-nb-gray-100"}>
                     <TruncatedText text={provider.name} className={"block truncate"} />
                 </h3>
-                {showCatalogId && (
-                    <span className={"shrink-0 text-xs text-nb-gray-400"}>
-                        {provider.catalogId}
-                    </span>
-                )}
                 <span className={"flex-1"} />
                 {provider.exhausted && (
                     <Badge variant={"danger"}>{t("agentNetwork.badge.exhausted")}</Badge>
@@ -258,7 +249,7 @@ const ProviderSection = ({ provider, now }: { provider: AgentNetworkProvider; no
                 <p className={"mt-1 text-xs text-nb-gray-400"}>{t("agentNetwork.noLimits")}</p>
             )}
             {provider.limits.length > 0 && (
-                <div className={"mt-3 flex flex-col gap-3"}>
+                <div className={"mt-3 flex flex-col gap-5"}>
                     {UNITS.map((unit) => (
                         <LimitRow
                             key={unit}
