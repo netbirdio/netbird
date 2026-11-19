@@ -749,6 +749,7 @@ func toPeerCompact(p *nmdata.Peer) *proto.PeerCompact {
 		SupportsSourcePrefixes: p.SupportsSourcePrefixes(),
 		ServerSshAllowed:       p.Meta.Flags.ServerSSHAllowed,
 		ProxyEmbedded:          p.ProxyMeta.Embedded,
+		LoginExpired:           p.StatusLoginExpired,
 	}
 	if p.LastLogin != nil {
 		pc.LastLoginUnixNano = p.LastLogin.UnixNano()
