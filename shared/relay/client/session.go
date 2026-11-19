@@ -107,9 +107,8 @@ func (s *session) OpenConn(ctx context.Context, peerID messages.PeerID) (*Conn, 
 		return nil, err
 	}
 
-	if s.isClosed() {
-		container.close(ErrServerDisconnected)
-		return nil, fmt.Errorf("relay connection is not established")
+	if err := s.confirmContainer(peerID, container); err != nil {
+		return nil, err
 	}
 
 	s.log.Infof("remote peer is available: %s", peerID)
@@ -399,6 +398,22 @@ func (s *session) closeConn(containerRef *connContainer, id messages.PeerID) err
 	delete(s.conns, id)
 	current.close(net.ErrClosed)
 
+	return nil
+}
+
+func (s *session) confirmContainer(peerID messages.PeerID, container *connContainer) error {
+	s.mu.Lock()
+	closed := s.closed
+	current := s.conns[peerID]
+	s.mu.Unlock()
+
+	if closed {
+		container.close(ErrServerDisconnected)
+		return fmt.Errorf("relay connection is not established")
+	}
+	if current != container {
+		return fmt.Errorf("peer went offline while opening: %w", context.Cause(container.ctx))
+	}
 	return nil
 }
 
