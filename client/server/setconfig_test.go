@@ -69,6 +69,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	remoteJobsAllowed := true
 	serverVNCAllowed := true
 	disableVNCApproval := true
+	forceRelay := true
 	interfaceName := "utun100"
 	wireguardPort := int64(51820)
 	preSharedKey := "test-psk"
@@ -111,6 +112,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 		DisableNotifications: &disableNotifications,
 		BlockInbound:         &blockInbound,
 		DisableIpv6:          &disableIPv6,
+		ForceRelay:           &forceRelay,
 		NatExternalIPs:       []string{"1.2.3.4", "5.6.7.8"},
 		CleanNATExternalIPs:  false,
 		CustomDNSAddress:     []byte("1.1.1.1:53"),
@@ -167,6 +169,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	require.Equal(t, disableNotifications, *cfg.DisableNotifications)
 	require.Equal(t, blockInbound, cfg.BlockInbound)
 	require.Equal(t, disableIPv6, cfg.DisableIPv6)
+	require.Equal(t, forceRelay, cfg.ForceRelay)
 	require.Equal(t, []string{"1.2.3.4", "5.6.7.8"}, cfg.NATExternalIPs)
 	require.Equal(t, "1.1.1.1:53", cfg.CustomDNSAddress)
 	// IFaceBlackList contains defaults + extras
@@ -222,6 +225,7 @@ func verifyAllFieldsCovered(t *testing.T, req *proto.SetConfigRequest) {
 		"DisableNotifications":          true,
 		"BlockInbound":                  true,
 		"DisableIpv6":                   true,
+		"ForceRelay":                    true,
 		"NatExternalIPs":                true,
 		"CustomDNSAddress":              true,
 		"ExtraIFaceBlacklist":           true,
@@ -285,6 +289,7 @@ func TestCLIFlags_MappedToSetConfig(t *testing.T) {
 		"block-lan-access":                  "BlockLanAccess",
 		"block-inbound":                     "BlockInbound",
 		"disable-ipv6":                      "DisableIpv6",
+		"force-relay":                       "ForceRelay",
 		"external-ip-map":                   "NatExternalIPs",
 		"dns-resolver-address":              "CustomDNSAddress",
 		"extra-iface-blacklist":             "ExtraIFaceBlacklist",

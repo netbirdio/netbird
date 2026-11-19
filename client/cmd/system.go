@@ -9,6 +9,7 @@ const (
 	blockLANAccessFlag      = "block-lan-access"
 	blockInboundFlag        = "block-inbound"
 	disableIPv6Flag         = "disable-ipv6"
+	forceRelayFlag          = "force-relay"
 )
 
 var (
@@ -19,6 +20,7 @@ var (
 	blockLANAccess      bool
 	blockInbound        bool
 	disableIPv6         bool
+	forceRelay          bool
 )
 
 func init() {
@@ -44,4 +46,8 @@ func init() {
 
 	upCmd.PersistentFlags().BoolVar(&disableIPv6, disableIPv6Flag, false,
 		"Disable IPv6 overlay. If enabled, the client won't request or use an IPv6 overlay address.")
+
+	upCmd.PersistentFlags().BoolVar(&forceRelay, forceRelayFlag, false,
+		"Force relay. If enabled, the client never tries a direct connection and always connects to peers through a relay.\n"+
+			"NB_FORCE_RELAY in the daemon environment overrides it.")
 }

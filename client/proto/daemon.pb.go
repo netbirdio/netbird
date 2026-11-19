@@ -353,8 +353,11 @@ type LoginRequest struct {
 	RemoteJobsAllowed  *bool `protobuf:"varint,43,opt,name=remoteJobsAllowed,proto3,oneof" json:"remoteJobsAllowed,omitempty"`
 	ServerVNCAllowed   *bool `protobuf:"varint,44,opt,name=serverVNCAllowed,proto3,oneof" json:"serverVNCAllowed,omitempty"`
 	DisableVNCApproval *bool `protobuf:"varint,45,opt,name=disableVNCApproval,proto3,oneof" json:"disableVNCApproval,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// force_relay skips direct connections and always uses a relay. Absent
+	// leaves the stored value unchanged.
+	ForceRelay    *bool `protobuf:"varint,46,opt,name=force_relay,json=forceRelay,proto3,oneof" json:"force_relay,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *LoginRequest) Reset() {
@@ -699,6 +702,13 @@ func (x *LoginRequest) GetServerVNCAllowed() bool {
 func (x *LoginRequest) GetDisableVNCApproval() bool {
 	if x != nil && x.DisableVNCApproval != nil {
 		return *x.DisableVNCApproval
+	}
+	return false
+}
+
+func (x *LoginRequest) GetForceRelay() bool {
+	if x != nil && x.ForceRelay != nil {
+		return *x.ForceRelay
 	}
 	return false
 }
@@ -1269,6 +1279,7 @@ type GetConfigResponse struct {
 	// render the corresponding inputs as read-only and display a "managed
 	// by MDM" indicator.
 	MDMManagedFields []string `protobuf:"bytes,28,rep,name=mDMManagedFields,proto3" json:"mDMManagedFields,omitempty"`
+	ForceRelay       bool     `protobuf:"varint,32,opt,name=force_relay,json=forceRelay,proto3" json:"force_relay,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -1518,6 +1529,13 @@ func (x *GetConfigResponse) GetMDMManagedFields() []string {
 		return x.MDMManagedFields
 	}
 	return nil
+}
+
+func (x *GetConfigResponse) GetForceRelay() bool {
+	if x != nil {
+		return x.ForceRelay
+	}
+	return false
 }
 
 // PeerState contains the latest state of a peer
@@ -4460,8 +4478,11 @@ type SetConfigRequest struct {
 	RemoteJobsAllowed  *bool `protobuf:"varint,38,opt,name=remoteJobsAllowed,proto3,oneof" json:"remoteJobsAllowed,omitempty"`
 	ServerVNCAllowed   *bool `protobuf:"varint,39,opt,name=serverVNCAllowed,proto3,oneof" json:"serverVNCAllowed,omitempty"`
 	DisableVNCApproval *bool `protobuf:"varint,40,opt,name=disableVNCApproval,proto3,oneof" json:"disableVNCApproval,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// force_relay skips direct connections and always uses a relay. Absent
+	// leaves the stored value unchanged.
+	ForceRelay    *bool `protobuf:"varint,41,opt,name=force_relay,json=forceRelay,proto3,oneof" json:"force_relay,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SetConfigRequest) Reset() {
@@ -4770,6 +4791,13 @@ func (x *SetConfigRequest) GetServerVNCAllowed() bool {
 func (x *SetConfigRequest) GetDisableVNCApproval() bool {
 	if x != nil && x.DisableVNCApproval != nil {
 		return *x.DisableVNCApproval
+	}
+	return false
+}
+
+func (x *SetConfigRequest) GetForceRelay() bool {
+	if x != nil && x.ForceRelay != nil {
+		return *x.ForceRelay
 	}
 	return false
 }
@@ -7529,7 +7557,7 @@ var File_daemon_proto protoreflect.FileDescriptor
 const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"\fdaemon.proto\x12\x06daemon\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\"\x0e\n" +
-	"\fEmptyRequest\"\xed\x15\n" +
+	"\fEmptyRequest\"\xa3\x16\n" +
 	"\fLoginRequest\x12\x1a\n" +
 	"\bsetupKey\x18\x01 \x01(\tR\bsetupKey\x12&\n" +
 	"\fpreSharedKey\x18\x02 \x01(\tB\x02\x18\x01R\fpreSharedKey\x12$\n" +
@@ -7579,7 +7607,9 @@ const file_daemon_proto_rawDesc = "" +
 	"\x15local_metrics_address\x18* \x01(\tH\x1dR\x13localMetricsAddress\x88\x01\x01\x121\n" +
 	"\x11remoteJobsAllowed\x18+ \x01(\bH\x1eR\x11remoteJobsAllowed\x88\x01\x01\x12/\n" +
 	"\x10serverVNCAllowed\x18, \x01(\bH\x1fR\x10serverVNCAllowed\x88\x01\x01\x123\n" +
-	"\x12disableVNCApproval\x18- \x01(\bH R\x12disableVNCApproval\x88\x01\x01B\x13\n" +
+	"\x12disableVNCApproval\x18- \x01(\bH R\x12disableVNCApproval\x88\x01\x01\x12$\n" +
+	"\vforce_relay\x18. \x01(\bH!R\n" +
+	"forceRelay\x88\x01\x01B\x13\n" +
 	"\x11_rosenpassEnabledB\x10\n" +
 	"\x0e_interfaceNameB\x10\n" +
 	"\x0e_wireguardPortB\x17\n" +
@@ -7612,7 +7642,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x16_local_metrics_addressB\x14\n" +
 	"\x12_remoteJobsAllowedB\x13\n" +
 	"\x11_serverVNCAllowedB\x15\n" +
-	"\x13_disableVNCApproval\"\xb5\x01\n" +
+	"\x13_disableVNCApprovalB\x0e\n" +
+	"\f_force_relay\"\xb5\x01\n" +
 	"\rLoginResponse\x12$\n" +
 	"\rneedsSSOLogin\x18\x01 \x01(\bR\rneedsSSOLogin\x12\x1a\n" +
 	"\buserCode\x18\x02 \x01(\tR\buserCode\x12(\n" +
@@ -7647,7 +7678,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\fDownResponse\"P\n" +
 	"\x10GetConfigRequest\x12 \n" +
 	"\vprofileName\x18\x01 \x01(\tR\vprofileName\x12\x1a\n" +
-	"\busername\x18\x02 \x01(\tR\busername\"\xb4\n" +
+	"\busername\x18\x02 \x01(\tR\busername\"\xd5\n" +
 	"\n" +
 	"\x11GetConfigResponse\x12$\n" +
 	"\rmanagementUrl\x18\x01 \x01(\tR\rmanagementUrl\x12\x1e\n" +
@@ -7684,7 +7715,9 @@ const file_daemon_proto_rawDesc = "" +
 	"\x11remoteJobsAllowed\x18\x1d \x01(\bR\x11remoteJobsAllowed\x12*\n" +
 	"\x10serverVNCAllowed\x18\x1e \x01(\bR\x10serverVNCAllowed\x12.\n" +
 	"\x12disableVNCApproval\x18\x1f \x01(\bR\x12disableVNCApproval\x12*\n" +
-	"\x10mDMManagedFields\x18\x1c \x03(\tR\x10mDMManagedFields\"\x92\x06\n" +
+	"\x10mDMManagedFields\x18\x1c \x03(\tR\x10mDMManagedFields\x12\x1f\n" +
+	"\vforce_relay\x18  \x01(\bR\n" +
+	"forceRelay\"\x92\x06\n" +
 	"\tPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
 	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12\x1e\n" +
@@ -7922,7 +7955,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\f_profileNameB\v\n" +
 	"\t_username\"'\n" +
 	"\x15SwitchProfileResponse\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\x96\x14\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\xcc\x14\n" +
 	"\x10SetConfigRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12 \n" +
 	"\vprofileName\x18\x02 \x01(\tR\vprofileName\x12$\n" +
@@ -7967,7 +8000,9 @@ const file_daemon_proto_rawDesc = "" +
 	"\x15local_metrics_address\x18% \x01(\tH\x1aR\x13localMetricsAddress\x88\x01\x01\x121\n" +
 	"\x11remoteJobsAllowed\x18& \x01(\bH\x1bR\x11remoteJobsAllowed\x88\x01\x01\x12/\n" +
 	"\x10serverVNCAllowed\x18' \x01(\bH\x1cR\x10serverVNCAllowed\x88\x01\x01\x123\n" +
-	"\x12disableVNCApproval\x18( \x01(\bH\x1dR\x12disableVNCApproval\x88\x01\x01B\x13\n" +
+	"\x12disableVNCApproval\x18( \x01(\bH\x1dR\x12disableVNCApproval\x88\x01\x01\x12$\n" +
+	"\vforce_relay\x18) \x01(\bH\x1eR\n" +
+	"forceRelay\x88\x01\x01B\x13\n" +
 	"\x11_rosenpassEnabledB\x10\n" +
 	"\x0e_interfaceNameB\x10\n" +
 	"\x0e_wireguardPortB\x17\n" +
@@ -7997,7 +8032,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x16_local_metrics_addressB\x14\n" +
 	"\x12_remoteJobsAllowedB\x13\n" +
 	"\x11_serverVNCAllowedB\x15\n" +
-	"\x13_disableVNCApproval\"\x13\n" +
+	"\x13_disableVNCApprovalB\x0e\n" +
+	"\f_force_relay\"\x13\n" +
 	"\x11SetConfigResponse\"Q\n" +
 	"\x11AddProfileRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12 \n" +

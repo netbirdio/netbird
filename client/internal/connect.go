@@ -731,7 +731,7 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		EnableSSHRemotePortForwarding: config.EnableSSHRemotePortForwarding,
 		DisableSSHAuth:                config.DisableSSHAuth,
 		DNSRouteInterval:              config.DNSRouteInterval,
-		ForceRelay:                    peer.IsForceRelayed(),
+		ForceRelay:                    forceRelay(config),
 
 		DisableClientRoutes: config.DisableClientRoutes,
 		DisableServerRoutes: config.DisableServerRoutes || config.BlockInbound,
@@ -895,4 +895,14 @@ func closeConnWithLog(conn *net.UDPConn) {
 	if time.Since(startClosing) > time.Second {
 		log.Warnf("closing the testing port %d took %s. Usually it is safe to ignore, but continuous warnings may indicate a problem.", conn.LocalAddr().(*net.UDPAddr).Port, time.Since(startClosing))
 	}
+}
+
+// forceRelay resolves the force relay setting: NB_FORCE_RELAY in the daemon
+// environment wins over the profile, as environment variables do for every
+// other option.
+func forceRelay(config *profilemanager.Config) bool {
+	if forced, set := peer.ForceRelayFromEnv(); set {
+		return forced
+	}
+	return config.ForceRelay
 }

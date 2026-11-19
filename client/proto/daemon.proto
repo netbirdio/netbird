@@ -265,6 +265,10 @@ message LoginRequest {
   optional bool serverVNCAllowed = 44;
 
   optional bool disableVNCApproval = 45;
+
+  // force_relay skips direct connections and always uses a relay. Absent
+  // leaves the stored value unchanged.
+  optional bool force_relay = 46;
 }
 
 message LoginResponse {
@@ -397,6 +401,8 @@ message GetConfigResponse {
   // render the corresponding inputs as read-only and display a "managed
   // by MDM" indicator.
   repeated string mDMManagedFields = 28;
+
+  bool force_relay = 32;
 }
 
 // PeerState contains the latest state of a peer
@@ -833,6 +839,10 @@ message SetConfigRequest {
   optional bool serverVNCAllowed = 39;
 
   optional bool disableVNCApproval = 40;
+
+  // force_relay skips direct connections and always uses a relay. Absent
+  // leaves the stored value unchanged.
+  optional bool force_relay = 41;
 }
 
 message SetConfigResponse{}

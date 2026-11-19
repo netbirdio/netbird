@@ -103,6 +103,7 @@ type ConfigInput struct {
 	BlockLANAccess      *bool
 	BlockInbound        *bool
 	DisableIPv6         *bool
+	ForceRelay          *bool
 	SyncMessageVersion  *int
 
 	DisableNotifications *bool
@@ -156,6 +157,10 @@ type Config struct {
 	BlockInbound        bool
 	DisableIPv6         bool
 	SyncMessageVersion  *int
+
+	// ForceRelay skips direct connections and always uses a relay.
+	// NB_FORCE_RELAY in the daemon environment overrides it.
+	ForceRelay bool
 
 	DisableNotifications *bool
 
@@ -862,6 +867,12 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	if input.DisableIPv6 != nil && *input.DisableIPv6 != config.DisableIPv6 {
 		log.Infof("setting IPv6 overlay disabled=%v", *input.DisableIPv6)
 		config.DisableIPv6 = *input.DisableIPv6
+		updated = true
+	}
+
+	if input.ForceRelay != nil && *input.ForceRelay != config.ForceRelay {
+		log.Infof("setting force relay=%v", *input.ForceRelay)
+		config.ForceRelay = *input.ForceRelay
 		updated = true
 	}
 

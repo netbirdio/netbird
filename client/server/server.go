@@ -672,6 +672,7 @@ func (s *Server) setConfigInputFromRequest(msg *proto.SetConfigRequest, resolved
 	config.DisableNotifications = msg.DisableNotifications
 	config.BlockInbound = msg.BlockInbound
 	config.DisableIPv6 = msg.DisableIpv6
+	config.ForceRelay = msg.ForceRelay
 	config.EnableSSHRoot = msg.EnableSSHRoot
 	config.EnableSSHSFTP = msg.EnableSSHSFTP
 	config.EnableSSHLocalPortForwarding = msg.EnableSSHLocalPortForwarding
@@ -2608,6 +2609,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		EnableSSHRemotePortForwarding: enableSSHRemotePortForwarding,
 		DisableSSHAuth:                disableSSHAuth,
 		SshJWTCacheTTL:                sshJWTCacheTTL,
+		ForceRelay:                    cfg.ForceRelay,
 		MDMManagedFields:              cfg.Policy().ManagedKeys(),
 	}, nil
 }

@@ -373,6 +373,19 @@ func (p *Preferences) SetDisableIPv6(disable bool) {
 	p.configInput.DisableIPv6 = &disable
 }
 
+// GetForceRelay reads the force relay setting from config file
+func (p *Preferences) GetForceRelay() (bool, error) {
+	if p.configInput.ForceRelay != nil {
+		return *p.configInput.ForceRelay, nil
+	}
+
+	cfg, err := profilemanager.ReadConfigOrDefault(p.configInput.ConfigPath)
+	if err != nil {
+		return false, err
+	}
+	return cfg.ForceRelay, err
+}
+
 // GetRemoteJobsAllowed reads the remote jobs opt-in from config file
 func (p *Preferences) GetRemoteJobsAllowed() (bool, error) {
 	policy := p.policy()
