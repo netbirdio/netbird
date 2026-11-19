@@ -12,7 +12,7 @@ const (
 	ComponentNetworkMap
 )
 
-const DefaultSyncMessageVersion = Base
+const DefaultSyncMessageVersion = HighestSyncMessageVersion
 const HighestSyncMessageVersion = ComponentNetworkMap
 
 var ErrorUnrecognizedSyncMessageVersion = errors.New("unrecognized SyncMessageVersion")
@@ -58,7 +58,7 @@ func SyncMessageVersionsFromMap(toconvert map[string]int) map[string]SyncMessage
 	return toret
 }
 
-// return highest common sync message version, or Default (which is always available)
+// return highest common sync message version, or Base (which is always available)
 func HighestCommonSyncMessageVersion(a SyncMessageVersion, b SyncMessageVersion) SyncMessageVersion {
 	if a > b {
 		return b
