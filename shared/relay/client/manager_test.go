@@ -40,8 +40,9 @@ func TestEmptyURL(t *testing.T) {
 func TestForeignConn(t *testing.T) {
 	ctx := context.Background()
 
+	addr1, _ := freeAddr(t)
 	lstCfg1 := server.ListenerConfig{
-		Address: "localhost:52101",
+		Address: addr1,
 	}
 
 	srv1, err := server.NewServer(newManagerTestServerConfig(lstCfg1.Address))
@@ -67,8 +68,9 @@ func TestForeignConn(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
+	addr2, _ := freeAddr(t)
 	srvCfg2 := server.ListenerConfig{
-		Address: "localhost:52102",
+		Address: addr2,
 	}
 	srv2, err := server.NewServer(newManagerTestServerConfig(srvCfg2.Address))
 	if err != nil {
