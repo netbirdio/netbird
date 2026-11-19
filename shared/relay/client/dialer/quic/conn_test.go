@@ -69,7 +69,8 @@ func TestWriteTimesOutWhenNetworkGoesDead(t *testing.T) {
 	}
 
 	_, err = conn.Write(payload)
-	assert.Error(t, err, "the connection must be closed once a write has timed out")
+	assert.Error(t, err, "a write after the timeout must fail")
+	assert.NotErrorIs(t, err, os.ErrDeadlineExceeded, "the connection must be closed once a write has timed out")
 }
 
 // startHoldingQUICServer listens with the relay server's QUIC configuration,

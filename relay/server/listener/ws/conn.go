@@ -116,7 +116,7 @@ func (c *Conn) ioErrHandling(err error) error {
 }
 
 func (c *Conn) closeOnWriteTimeout() {
-	if err := c.CloseNow(); err != nil {
+	if err := c.Close(); err != nil {
 		log.Debugf("failed to close websocket after a write timeout: %v", err)
 	}
 }
