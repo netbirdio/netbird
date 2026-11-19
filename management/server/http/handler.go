@@ -96,7 +96,7 @@ func NewAPIHandler(ctx context.Context, router *mux.Router, accountManager accou
 	policies.AddEndpoints(accountManager, LocationManager, router)
 	policies.AddPostureCheckEndpoints(accountManager, LocationManager, router)
 	policies.AddLocationsEndpoints(accountManager, LocationManager, permissionsManager, router)
-	groups.AddEndpoints(accountManager, router)
+	groups.AddEndpoints(accountManager, permissionsManager, router)
 	routes.AddEndpoints(accountManager, router)
 	dns.AddEndpoints(accountManager, router)
 	events.AddEndpoints(accountManager, router)

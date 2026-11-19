@@ -3431,8 +3431,8 @@ type Group struct {
 	// Name Group Name identifier
 	Name string `json:"name"`
 
-	// Peers List of peers object
-	Peers []PeerMinimum `json:"peers"`
+	// Peers List of peer IDs
+	Peers []string `json:"peers"`
 
 	// PeersCount Count of peers associated to the group
 	PeersCount int        `json:"peers_count"`

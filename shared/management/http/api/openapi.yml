@@ -1428,10 +1428,11 @@ components:
         - type: object
           properties:
             peers:
-              description: List of peers object
+              description: List of peer IDs
               type: array
               items:
-                $ref: '#/components/schemas/PeerMinimum'
+                type: string
+                example: "chacbco6lnnbn6cg5s90"
             resources:
               type: array
               items:

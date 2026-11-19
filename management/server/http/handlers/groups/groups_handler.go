@@ -1,6 +1,7 @@
 package groups
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -9,8 +10,9 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
@@ -19,11 +21,13 @@ import (
 
 // handler is a handler that returns groups of the account
 type handler struct {
-	accountManager account.Manager
+	accountManager     account.Manager
+	permissionsManager permissions.Manager
 }
 
-func AddEndpoints(accountManager account.Manager, router *mux.Router) {
-	groupsHandler := newHandler(accountManager)
+// AddEndpoints registers the groups endpoints on the router.
+func AddEndpoints(accountManager account.Manager, permissionsManager permissions.Manager, router *mux.Router) {
+	groupsHandler := newHandler(accountManager, permissionsManager)
 	router.HandleFunc("/groups", groupsHandler.getAllGroups).Methods("GET", "OPTIONS")
 	router.HandleFunc("/groups", groupsHandler.createGroup).Methods("POST", "OPTIONS")
 	router.HandleFunc("/groups/{groupId}", groupsHandler.updateGroup).Methods("PUT", "OPTIONS")
@@ -32,9 +36,10 @@ func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 }
 
 // newHandler creates a new groups handler
-func newHandler(accountManager account.Manager) *handler {
+func newHandler(accountManager account.Manager, permissionsManager permissions.Manager) *handler {
 	return &handler{
-		accountManager: accountManager,
+		accountManager:     accountManager,
+		permissionsManager: permissionsManager,
 	}
 }
 
@@ -58,14 +63,14 @@ func (h *handler) getAllGroups(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		accountPeers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, "", "", "")
+		visible, err := h.visiblePeers(r.Context(), accountID, userID)
 		if err != nil {
 			util.WriteError(r.Context(), err, w)
 			return
 		}
 
 		// Return as array with single element to maintain API consistency
-		groupsResponse := []*api.Group{toGroupResponse(accountPeers, group)}
+		groupsResponse := []*api.Group{toGroupResponse(visible, group)}
 		util.WriteJSONObject(r.Context(), w, groupsResponse)
 		return
 	}
@@ -77,7 +82,7 @@ func (h *handler) getAllGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accountPeers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, "", "", "")
+	visible, err := h.visiblePeers(r.Context(), accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -85,7 +90,7 @@ func (h *handler) getAllGroups(w http.ResponseWriter, r *http.Request) {
 
 	groupsResponse := make([]*api.Group, 0, len(groups))
 	for _, group := range groups {
-		groupsResponse = append(groupsResponse, toGroupResponse(accountPeers, group))
+		groupsResponse = append(groupsResponse, toGroupResponse(visible, group))
 	}
 
 	util.WriteJSONObject(r.Context(), w, groupsResponse)
@@ -169,13 +174,13 @@ func (h *handler) updateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accountPeers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, "", "", "")
+	visible, err := h.visiblePeers(r.Context(), accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, toGroupResponse(accountPeers, &group))
+	util.WriteJSONObject(r.Context(), w, toGroupResponse(visible, &group))
 }
 
 // createGroup handles group creation request
@@ -226,13 +231,13 @@ func (h *handler) createGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accountPeers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, "", "", "")
+	visible, err := h.visiblePeers(r.Context(), accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, toGroupResponse(accountPeers, &group))
+	util.WriteJSONObject(r.Context(), w, toGroupResponse(visible, &group))
 }
 
 // deleteGroup handles group deletion request
@@ -287,43 +292,71 @@ func (h *handler) getGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accountPeers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, "", "", "")
+	visible, err := h.visiblePeers(r.Context(), accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, toGroupResponse(accountPeers, group))
+	util.WriteJSONObject(r.Context(), w, toGroupResponse(visible, group))
 
 }
 
-func toGroupResponse(peers []*nbpeer.Peer, group *types.Group) *api.Group {
-	peersMap := make(map[string]*nbpeer.Peer, len(peers))
-	for _, peer := range peers {
-		peersMap[peer.ID] = peer
+// peerVisibility is the set of peers a caller may see. The zero value allows none.
+type peerVisibility struct {
+	all bool
+	ids map[string]struct{}
+}
+
+func (v peerVisibility) allows(peerID string) bool {
+	if v.all {
+		return true
+	}
+	_, ok := v.ids[peerID]
+	return ok
+}
+
+// visiblePeers resolves which peers the caller may see.
+func (h *handler) visiblePeers(ctx context.Context, accountID, userID string) (peerVisibility, error) {
+	allowed, ctx, err := h.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
+	if err != nil {
+		return peerVisibility{}, status.NewPermissionValidationError(err)
+	}
+	if allowed {
+		return peerVisibility{all: true}, nil
 	}
 
-	peerCache := make(map[string]api.PeerMinimum)
+	peers, err := h.accountManager.GetPeers(ctx, accountID, userID, "", "", "")
+	if err != nil {
+		return peerVisibility{}, err
+	}
+
+	ids := make(map[string]struct{}, len(peers))
+	for _, peer := range peers {
+		ids[peer.ID] = struct{}{}
+	}
+	return peerVisibility{ids: ids}, nil
+}
+
+// toGroupResponse converts a group to its API form, keeping only peers the caller may see.
+func toGroupResponse(visible peerVisibility, group *types.Group) *api.Group {
 	gr := api.Group{
 		Id:     group.ID,
 		Name:   group.Name,
 		Issued: (*api.GroupIssued)(&group.Issued),
 	}
 
+	seen := make(map[string]struct{}, len(group.Peers))
 	for _, pid := range group.Peers {
-		_, ok := peerCache[pid]
-		if !ok {
-			peer, ok := peersMap[pid]
-			if !ok {
-				continue
-			}
-			peerResp := api.PeerMinimum{
-				Id:   peer.ID,
-				Name: peer.Name,
-			}
-			peerCache[pid] = peerResp
-			gr.Peers = append(gr.Peers, peerResp)
+		if _, dup := seen[pid]; dup {
+			continue
 		}
+		seen[pid] = struct{}{}
+
+		if !visible.allows(pid) {
+			continue
+		}
+		gr.Peers = append(gr.Peers, pid)
 	}
 
 	gr.PeersCount = len(gr.Peers)
