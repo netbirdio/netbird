@@ -5,6 +5,7 @@ package agentnetwork
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 	"time"
 
@@ -17,9 +18,9 @@ import (
 
 // TestAgentNetworkUsageSetupKeyPeer drives `netbird agent-network usage`
 // inside a real client: CLI -> daemon -> management GetAgentNetworkInfo. The
-// harness joins clients with setup keys, so the peer has no user and the
-// answer is NO_USER. Limits need a user-owned peer, which the harness cannot
-// register; the management real-store tests cover those.
+// harness joins clients with setup keys, so the peer has no user. Management
+// answers it from its peer groups, with the peer id as the usage principal,
+// so the policy's user and group caps both come back as limit rows.
 func TestAgentNetworkUsageSetupKeyPeer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -27,6 +28,35 @@ func TestAgentNetworkUsageSetupKeyPeer(t *testing.T) {
 	grp, err := srv.API().Groups.Create(ctx, api.PostApiGroupsJSONRequestBody{Name: "e2e-usage"})
 	require.NoError(t, err, "create group")
 	t.Cleanup(func() { _ = srv.API().Groups.Delete(context.Background(), grp.Id) })
+
+	// A private upstream skips the credential check; nothing here sends a
+	// request through the proxy.
+	prov, err := srv.CreateProvider(ctx, api.AgentNetworkProviderRequest{
+		Name:        "e2e-usage-provider",
+		ProviderId:  "openai_api",
+		UpstreamUrl: "https://10.255.255.1",
+		ApiKey:      ptr("sk-dummy-e2e-key"),
+		Enabled:     ptr(true),
+	})
+	require.NoError(t, err, "create provider")
+	t.Cleanup(func() { _ = srv.DeleteProvider(context.Background(), prov.Id) })
+
+	pol, err := srv.CreatePolicy(ctx, api.AgentNetworkPolicyRequest{
+		Name:                   "e2e-usage",
+		Enabled:                ptr(true),
+		SourceGroups:           []string{grp.Id},
+		DestinationProviderIds: []string{prov.Id},
+		Limits: &api.AgentNetworkPolicyLimits{
+			TokenLimit: api.AgentNetworkPolicyTokenLimit{
+				Enabled:       true,
+				UserCap:       100_000,
+				GroupCap:      500_000,
+				WindowSeconds: 3600,
+			},
+		},
+	})
+	require.NoError(t, err, "create policy")
+	t.Cleanup(func() { _ = srv.DeletePolicy(context.Background(), pol.Id) })
 
 	ephemeral := false
 	sk, err := srv.API().SetupKeys.Create(ctx, api.PostApiSetupKeysJSONRequestBody{
@@ -45,17 +75,35 @@ func TestAgentNetworkUsageSetupKeyPeer(t *testing.T) {
 
 	code, out, err := cl.Exec(ctx, "netbird", "agent-network", "usage")
 	require.NoError(t, err)
-	assert.Equal(t, 0, code, "NO_USER is an answer, not a failure: %s", out)
-	assert.Contains(t, out, "Agent Networks usage is not available for this peer", "setup-key peer must get the no-user text")
+	require.Equal(t, 0, code, "usage: %s", out)
+	assert.Contains(t, out, "e2e-usage-provider (openai_api)", "setup-key peer must see the provider its group reaches")
+	assert.Contains(t, out, "0 / 100,000 tokens", "user cap row: %s", out)
+	assert.Contains(t, out, "0 / 500,000 tokens", "group cap row: %s", out)
+	assert.NotContains(t, out, "setup key and has no user", "a current server no longer sends NO_USER")
 
 	code, out, err = cl.Exec(ctx, "netbird", "agent-network", "usage", "--json")
 	require.NoError(t, err)
 	require.Equal(t, 0, code, "json output: %s", out)
+	type providerUsage struct {
+		Name      string `json:"name"`
+		Exhausted bool   `json:"exhausted"`
+		Limits    []struct {
+			Cap float64 `json:"cap"`
+		} `json:"limits"`
+	}
 	var resp struct {
-		State     string            `json:"state"`
-		Providers []json.RawMessage `json:"providers"`
+		State     string          `json:"state"`
+		Providers []providerUsage `json:"providers"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(out), &resp), "--json must print only JSON: %s", out)
-	assert.Equal(t, "NO_USER", resp.State)
-	assert.Empty(t, resp.Providers, "a peer without a user must not see providers")
+	assert.Equal(t, "OK", resp.State)
+	idx := slices.IndexFunc(resp.Providers, func(p providerUsage) bool { return p.Name == "e2e-usage-provider" })
+	require.GreaterOrEqual(t, idx, 0, "provider must be listed: %s", out)
+	p := resp.Providers[idx]
+	assert.False(t, p.Exhausted, "nothing spent yet")
+	caps := make([]float64, 0, len(p.Limits))
+	for _, l := range p.Limits {
+		caps = append(caps, l.Cap)
+	}
+	assert.ElementsMatch(t, []float64{100_000, 500_000}, caps, "user and group caps are both listed")
 }

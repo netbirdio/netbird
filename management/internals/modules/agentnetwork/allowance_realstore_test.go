@@ -90,8 +90,12 @@ func selectionInput() PolicySelectionInput {
 // selection.
 func spend(t *testing.T, mgr *managerImpl, tokens int64, usd float64) {
 	t.Helper()
+	spendAs(t, mgr, selectionInput(), tokens, usd)
+}
+
+func spendAs(t *testing.T, mgr *managerImpl, in PolicySelectionInput, tokens int64, usd float64) {
+	t.Helper()
 	ctx := context.Background()
-	in := selectionInput()
 	res, err := mgr.SelectPolicyForRequest(ctx, in)
 	require.NoError(t, err)
 	require.NoError(t, mgr.RecordUsage(ctx, RecordUsageInput{
@@ -103,7 +107,12 @@ func spend(t *testing.T, mgr *managerImpl, tokens int64, usd float64) {
 
 func peerAllowance(t *testing.T, mgr *managerImpl) *types.ProviderAllowance {
 	t.Helper()
-	info, err := mgr.GetAgentNetworkInfoForPeer(context.Background(), testAccountID, allowPeer)
+	return allowanceFor(t, mgr, allowPeer)
+}
+
+func allowanceFor(t *testing.T, mgr *managerImpl, peerID string) *types.ProviderAllowance {
+	t.Helper()
+	info, err := mgr.GetAgentNetworkInfoForPeer(context.Background(), testAccountID, peerID)
 	require.NoError(t, err)
 	require.Equal(t, types.PeerAgentNetworkOK, info.State)
 	require.NotNil(t, info.Config)
@@ -303,4 +312,48 @@ func TestAllowance_RealStore_ExhaustedMatchesSelector(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A setup-key peer has no owner, so the proxy books and checks its usage
+// under the peer id (getTunnelPeerInfo). Its user-dimension cap must read
+// that counter, while the group cap shares the pool with peer-1's owner.
+func TestAllowance_RealStore_SetupKeyPeerUsesPeerPrincipal(t *testing.T) {
+	const skPeer = "peer-setupkey"
+	mgr, s := allowanceFixture(t, []*types.Policy{allowPolicy("pol", []string{"grp-eng"}, tokenLimits(100, 500, 3600))})
+	ctx := context.Background()
+	require.NoError(t, s.AddPeerToAccount(ctx, &nbpeer.Peer{
+		ID: skPeer, AccountID: testAccountID, Key: "key-" + skPeer,
+		DNSLabel: skPeer, IP: netip.AddrFrom4([4]byte{100, 64, 0, 2}), Status: &nbpeer.PeerStatus{},
+	}))
+	require.NoError(t, s.AddPeerToGroup(ctx, testAccountID, skPeer, "grp-eng"))
+
+	skIn := PolicySelectionInput{AccountID: testAccountID, UserID: skPeer, GroupIDs: []string{"grp-eng"}, ProviderID: "prov-1", Model: "gpt-5.4"}
+	spendAs(t, mgr, skIn, 60, 0)
+	spend(t, mgr, 50, 0)
+
+	limitByCap := func(a *types.ProviderAllowance, limitCap float64) types.AllowanceLimit {
+		t.Helper()
+		for _, l := range a.Limits {
+			if l.Cap == limitCap {
+				return l
+			}
+		}
+		require.Failf(t, "limit not listed", "no limit with cap %v in %+v", limitCap, a.Limits)
+		return types.AllowanceLimit{}
+	}
+
+	a := allowanceFor(t, mgr, skPeer)
+	require.Len(t, a.Limits, 2, "user and group caps are both listed")
+	assert.Equal(t, 60.0, limitByCap(a, 100).Used, "user cap reads the peer-id counter, not the owner's")
+	assert.Equal(t, 110.0, limitByCap(a, 500).Used, "group cap counts every member of grp-eng")
+	assert.False(t, a.Exhausted, "60 of 100 used")
+
+	spendAs(t, mgr, skIn, 40, 0)
+
+	a = allowanceFor(t, mgr, skPeer)
+	res, err := mgr.SelectPolicyForRequest(ctx, skIn)
+	require.NoError(t, err)
+	assert.False(t, res.Allow, "the proxy denies the setup-key peer once its peer-id cap is spent")
+	assert.True(t, a.Exhausted, "exhausted must match the proxy's deny for the setup-key peer")
+	assert.False(t, peerAllowance(t, mgr).Exhausted, "peer-1's owner has used only 50 of their 100")
 }
