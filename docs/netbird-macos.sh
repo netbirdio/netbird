@@ -87,6 +87,7 @@ interfaceName="$NULL"                      # macOS: utun followed by a number, e
 mtu="$NULL"                                # 576-8192
 dnsRouteInterval="$NULL"                   # duration such as 1m or 1m30s
 natExternalIPs="$NULL"                     # comma-separated external-IP[/internal-IP or /interface]
+forceRelay="$NULL"                         # never try a direct connection, always use a relay
 enableSSHRoot="$NULL"
 enableSSHSFTP="$NULL"
 enableSSHLocalPortForwarding="$NULL"
@@ -243,6 +244,7 @@ main() {
   is_set "$mtu"                       && emit_int     mtu                       "$mtu"
   is_set "$dnsRouteInterval"          && emit_string  dnsRouteInterval          "$dnsRouteInterval"
   is_set "$natExternalIPs"            && emit_string  natExternalIPs            "$natExternalIPs"
+  is_set "$forceRelay"                && emit_bool    forceRelay                "$forceRelay"
   is_set "$enableSSHRoot"             && emit_bool    enableSSHRoot             "$enableSSHRoot"
   is_set "$enableSSHSFTP"             && emit_bool    enableSSHSFTP             "$enableSSHSFTP"
   is_set "$enableSSHLocalPortForwarding" && emit_bool enableSSHLocalPortForwarding "$enableSSHLocalPortForwarding"

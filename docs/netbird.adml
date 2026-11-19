@@ -93,6 +93,8 @@
 
       <string id="NATExternalIPs_Name">External IP mappings</string>
       <string id="NATExternalIPs_Help">Public addresses to offer as connection candidates when the device sits behind a static NAT, comma-separated. Each entry is an external IP, optionally followed by /internal-IP or /interface, for example 203.0.113.7/10.0.0.5. Replaces the device's own --external-ip-map value. Invalid entries are skipped by the client.</string>
+      <string id="ForceRelay_Name">Force relay</string>
+      <string id="ForceRelay_Help">When enabled, the client never tries a direct connection and reaches every peer through a relay. Disabled allows direct connections. Overrides the device's --force-relay setting and the NB_FORCE_RELAY environment variable. All traffic of these devices then goes through the relay servers. Equivalent to --force-relay.</string>
 
       <string id="EnableSSHRoot_Name">Allow SSH root login</string>
       <string id="EnableSSHRoot_Help">When enabled, the NetBird SSH server accepts logins as root. Disabled refuses them. Applies while the SSH server is allowed. Equivalent to --enable-ssh-root.</string>

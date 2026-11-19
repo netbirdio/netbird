@@ -361,6 +361,18 @@
       </elements>
     </policy>
 
+    <policy name="ForceRelay"
+            class="Machine"
+            displayName="$(string.ForceRelay_Name)"
+            explainText="$(string.ForceRelay_Help)"
+            key="Software\Policies\NetBird"
+            valueName="ForceRelay">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
     <policy name="EnableSSHRoot"
             class="Machine"
             displayName="$(string.EnableSSHRoot_Name)"

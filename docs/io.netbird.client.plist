@@ -132,6 +132,8 @@
          dnsRouteInterval   : a duration such as 30s, 1m or 1m30s.
          natExternalIPs     : array or comma-separated string of
                               external-IP[/internal-IP or /interface].
+         forceRelay         : never try a direct connection; also wins over
+                              NB_FORCE_RELAY in the daemon environment.
          An invalid value is ignored and the device keeps its own. -->
     <!--
     <key>disableDNS</key>
@@ -166,6 +168,9 @@
 
     <key>natExternalIPs</key>
     <string>203.0.113.7/10.0.0.5</string>
+
+    <key>forceRelay</key>
+    <false/>
     -->
 
     <!-- ===== SSH server =====
