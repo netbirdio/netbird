@@ -10,6 +10,8 @@ import (
 
 	"github.com/coder/websocket"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/shared/relay/messages"
 )
 
 const (
@@ -67,6 +69,11 @@ func (c *Conn) RemoteAddr() net.Addr {
 // Protocol returns the transport name for this connection.
 func (c *Conn) Protocol() string {
 	return "ws"
+}
+
+// MaxMessageSize returns the largest message a single Write carries.
+func (c *Conn) MaxMessageSize() int {
+	return messages.MaxMessageSize
 }
 
 func (c *Conn) Close() error {

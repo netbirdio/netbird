@@ -504,15 +504,15 @@ func (mr *MockManagerMockRecorder) DeleteUserInvite(ctx, accountID, initiatorUse
 }
 
 // ExpandAndUpdateAffected mocks base method.
-func (m *MockManager) ExpandAndUpdateAffected(ctx context.Context, accountID string, snap *affectedpeers.Snapshot, change affectedpeers.Change) {
+func (m *MockManager) ExpandAndUpdateAffected(ctx context.Context, accountID string, snap *affectedpeers.Snapshot, change affectedpeers.Change, reason types.UpdateReason) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "ExpandAndUpdateAffected", ctx, accountID, snap, change)
+	m.ctrl.Call(m, "ExpandAndUpdateAffected", ctx, accountID, snap, change, reason)
 }
 
 // ExpandAndUpdateAffected indicates an expected call of ExpandAndUpdateAffected.
-func (mr *MockManagerMockRecorder) ExpandAndUpdateAffected(ctx, accountID, snap, change any) *gomock.Call {
+func (mr *MockManagerMockRecorder) ExpandAndUpdateAffected(ctx, accountID, snap, change, reason any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExpandAndUpdateAffected", reflect.TypeOf((*MockManager)(nil).ExpandAndUpdateAffected), ctx, accountID, snap, change)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExpandAndUpdateAffected", reflect.TypeOf((*MockManager)(nil).ExpandAndUpdateAffected), ctx, accountID, snap, change, reason)
 }
 
 // ExtendPeerSession mocks base method.
