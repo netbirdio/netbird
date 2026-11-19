@@ -317,8 +317,9 @@ func (s *session) writeTo(containerRef *connContainer, dstID messages.PeerID, pa
 		} else {
 			s.log.Errorf("failed to write transport message: %s", err)
 		}
+		return 0, err
 	}
-	return len(payload), err
+	return len(payload), nil
 }
 
 // onDatagramTooLarge reacts to a datagram rejected as too large for the path.
