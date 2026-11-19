@@ -35,8 +35,8 @@ server:
   #   enabled: true
   #   default: "50mbps"       # applies to each peer without an explicit entry
   #   peers:
-  #     "sha-abc123...": "10mbps"
-  #     "peer-wireguard-public-key=": "20mbps"
+  #     "sha-<relay id from the relay logs>": "10mbps"
+  #     "<peer WireGuard public key>": "20mbps"
 
   # Metrics endpoint port
   metricsPort: 9090

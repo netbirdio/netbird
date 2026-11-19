@@ -64,6 +64,9 @@ func newLimiterSet(cfg RateLimitConfig) (*limiterSet, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid rate limit peer key %q: %w", key, err)
 		}
+		if _, dup := s.peers[id]; dup {
+			return nil, fmt.Errorf("duplicate rate limit for peer %q", key)
+		}
 		limit, err := parseRate(spec)
 		if err != nil {
 			return nil, fmt.Errorf("invalid rate limit for peer %q: %w", key, err)

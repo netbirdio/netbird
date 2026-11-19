@@ -85,10 +85,17 @@ func TestParsePeerIDKey(t *testing.T) {
 }
 
 func TestNewRelay_RejectsInvalidRateLimit(t *testing.T) {
+	pubKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
 	tests := map[string]RateLimitConfig{
 		"default":   {Enabled: true, Default: "fast"},
 		"peer key":  {Enabled: true, Peers: map[string]string{"not-a-key": "10mbps"}},
 		"peer rate": {Enabled: true, Peers: map[string]string{relayKey("peer"): "10"}},
+		// The same peer by public key and by relay id: which limit wins would
+		// depend on map iteration order.
+		"duplicate peer": {Enabled: true, Peers: map[string]string{
+			pubKey:                           "10mbps",
+			messages.HashID(pubKey).String(): "20mbps",
+		}},
 	}
 
 	for name, cfg := range tests {
