@@ -17,11 +17,10 @@ import (
 // TestHarnessSetupClaudeCode covers what `netbird agent-network setup
 // claude-code` relies on, from a real agent:
 //
-//   - The daemon relays GetAgentNetworkInfo and the CLI refuses a peer the
-//     endpoint would not serve as a user. Harness peers join with a setup key,
-//     so they have no owning user: setup must say so and write nothing into
-//     CLAUDE_CONFIG_DIR. The write path itself is covered by the unit tests,
-//     since a user-owned peer needs an interactive IdP login.
+//   - The daemon relays GetAgentNetworkInfo and the CLI writes the config.
+//     Harness peers join with a setup key, so they have no owning user;
+//     management answers them from their peer groups, so setup writes
+//     settings.json into CLAUDE_CONFIG_DIR with the endpoint and model.
 //   - The values setup renders for an Anthropic provider work through the
 //     endpoint: base URL as-is, the apiKeyHelper's "-" as the only credential,
 //     and the provider's model. This is the request Claude Code makes.
@@ -82,14 +81,15 @@ func TestHarnessSetupClaudeCode(t *testing.T) {
 
 	endpoint, proxyIP, cl, _ := connectClient(t, ctx, "harness-setup", sk.Key)
 
-	t.Run("setup-key peer is refused", func(t *testing.T) {
+	t.Run("setup-key peer is set up", func(t *testing.T) {
 		code, out, err := cl.Exec(ctx, "sh", "-c",
-			"CLAUDE_CONFIG_DIR=/tmp/claude netbird agent-network setup claude-code; echo exit=$?; ls -A /tmp/claude 2>&1; true")
+			"CLAUDE_CONFIG_DIR=/tmp/claude netbird agent-network setup claude-code; echo exit=$?; cat /tmp/claude/settings.json 2>&1; true")
 		require.NoError(t, err, "exec setup in the client")
 		require.Equal(t, 0, code, out)
-		assert.Contains(t, out, "not available for this peer", "a peer without a user is told why")
-		assert.NotContains(t, out, "exit=0", "setup fails for a peer without a user")
-		assert.Contains(t, out, "No such file", "nothing is written into CLAUDE_CONFIG_DIR")
+		assert.Contains(t, out, "exit=0", "setup succeeds for a setup-key peer")
+		assert.Contains(t, out, `"ANTHROPIC_BASE_URL"`, "settings.json points Claude Code at the endpoint")
+		assert.Contains(t, out, `"`+matrixAnthropicModel+`"`, "settings.json carries the provider's model")
+		assert.Contains(t, out, `"apiKeyHelper"`, "settings.json carries the placeholder key helper")
 	})
 
 	t.Run("rendered values reach the provider", func(t *testing.T) {
