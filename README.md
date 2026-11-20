@@ -169,6 +169,7 @@ request.
 - [NetBird installer script](https://github.com/physk/netbird-installer)
 - [netbird-tui](https://github.com/n0pashkov/netbird-tui) - terminal UI for managing NetBird peers, routes, and settings
 - [caddy-netbird](https://github.com/lixmal/caddy-netbird) - Caddy plugin that embeds a NetBird client for proxying HTTP and TCP/UDP traffic through NetBird networks
+- [Vortix](https://github.com/Harry-kp/vortix) - terminal UI that runs NetBird side by side with your own WireGuard and OpenVPN tunnels, with leak checks and a kill switch
 
 **Note**: The `main` branch may be in an *unstable or even broken state* during development.
 For stable versions, see [releases](https://github.com/netbirdio/netbird/releases).
