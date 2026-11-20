@@ -10,10 +10,12 @@ import (
 
 var ErrRouteNotSupported = errors.New("route operations not supported on js")
 
-func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
-	return ErrRouteNotSupported
+// addToRouteTable is a no-op placeholder for JS.
+func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) (bool, error) {
+	return false, ErrRouteNotSupported
 }
 
+// removeFromRouteTable is a no-op placeholder for JS.
 func (r *SysOps) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
 	return ErrRouteNotSupported
 }

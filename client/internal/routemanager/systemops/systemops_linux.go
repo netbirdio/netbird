@@ -164,21 +164,47 @@ func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager, advancedRout
 	return nberrors.FormatErrorOrNil(result)
 }
 
-func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+// addToRouteTable adds a route for a given prefix and next hop to the main routing table.
+func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) (bool, error) {
 	return addRoute(prefix, nexthop, syscall.RT_TABLE_MAIN)
 }
 
+// removeFromRouteTable removes a route for a given prefix and next hop from the main routing table.
 func (r *SysOps) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
 	return removeRoute(prefix, nexthop, syscall.RT_TABLE_MAIN)
 }
 
+// AddVPNRoute adds a route for the prefix over the VPN interface.
+//
+// Under advanced routing the route lands in the NetBird table, which the main table already
+// outranks by rule priority. The legacy path shares the main table with the host's own routes,
+// so a prefix contained in a locally attached subnet is withheld instead of installed, where
+// it would shadow that link. Withheld prefixes stay counted by the caller's refcounter with
+// no OS route, and are converged later by ReconcileLocalSubnets. Unverified discovery fails
+// closed the same way rather than installing over a subnet the cache missed.
 func (r *SysOps) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	if err := r.validateRoute(prefix); err != nil {
 		return err
 	}
 
+	// Only the legacy path shares one table with the host's own routes and can shadow them.
+	// Advanced routing keeps VPN routes in a separate table that the main table already wins
+	// against via rule priority, so skipping there would only strand the prefix if the LAN
+	// later disappeared.
 	if !nbnet.AdvancedRouting() {
-		return r.genericAddVPNRoute(prefix, intf)
+		if subnet, overlap, healthy := r.localSubnetOverlap(prefix); !healthy || overlap {
+			if !healthy {
+				log.Warnf("Withholding VPN route %s: local-subnet discovery unverified, failing closed", prefix)
+			} else {
+				log.Debugf("Skipping VPN route %s: overlaps local subnet %s", prefix, subnet)
+			}
+			r.suppressVPNRoute(prefix, intf)
+			return nil
+		}
+		if err := r.genericAddVPNRoute(prefix, intf); err != nil {
+			return err
+		}
+		return nil
 	}
 
 	if sysctlFailed && (prefix == vars.Defaultv4 || prefix == vars.Defaultv6) {
@@ -194,19 +220,28 @@ func (r *SysOps) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 			return fmt.Errorf("add v6 blackhole: %w", err)
 		}
 	}
-	if err := addRoute(prefix, Nexthop{netip.Addr{}, intf}, NetbirdVPNTableID); err != nil {
+	if _, err := addRoute(prefix, Nexthop{netip.Addr{}, intf}, NetbirdVPNTableID); err != nil {
 		return fmt.Errorf("add route: %w", err)
 	}
 	return nil
 }
 
+// RemoveVPNRoute removes the prefix's VPN route. Under advanced routing it deletes from the
+// NetBird table; on the legacy path it first clears any withheld guard mark, since a prefix the
+// guard withheld has no OS route to remove.
 func (r *SysOps) RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	if err := r.validateRoute(prefix); err != nil {
 		return err
 	}
 
 	if !nbnet.AdvancedRouting() {
-		return r.genericRemoveVPNRoute(prefix, intf)
+		if r.takeSuppressedVPNRoute(prefix) {
+			return nil
+		}
+		if err := r.genericRemoveVPNRoute(prefix, intf); err != nil {
+			return err
+		}
+		return nil
 	}
 
 	if prefix == vars.Defaultv4 && (r.wgInterface == nil || !r.wgInterface.Address().HasIPv6()) {
@@ -642,7 +677,7 @@ func ruleActionToString(action int) string {
 }
 
 // addRoute adds a route to a specific routing table identified by tableID.
-func addRoute(prefix netip.Prefix, nexthop Nexthop, tableID int) error {
+func addRoute(prefix netip.Prefix, nexthop Nexthop, tableID int) (bool, error) {
 	route := &netlink.Route{
 		Scope:  netlink.SCOPE_UNIVERSE,
 		Table:  tableID,
@@ -651,19 +686,25 @@ func addRoute(prefix netip.Prefix, nexthop Nexthop, tableID int) error {
 
 	_, ipNet, err := net.ParseCIDR(prefix.String())
 	if err != nil {
-		return fmt.Errorf(errParsePrefixMsg, prefix, err)
+		return false, fmt.Errorf(errParsePrefixMsg, prefix, err)
 	}
 	route.Dst = ipNet
 
 	if err := addNextHop(nexthop, route); err != nil {
-		return fmt.Errorf("add gateway and device: %w", err)
+		return false, fmt.Errorf("add gateway and device: %w", err)
 	}
 
-	if err := netlink.RouteAdd(route); err != nil && !isOpErr(err) {
-		return fmt.Errorf("netlink add route: %w", err)
+	if err := netlink.RouteAdd(route); err != nil {
+		if errors.Is(err, syscall.EEXIST) {
+			return false, nil
+		}
+		if !isOpErr(err) {
+			return false, fmt.Errorf("netlink add route: %w", err)
+		}
+		return false, nil
 	}
 
-	return nil
+	return true, nil
 }
 
 // addUnreachableRoute adds an unreachable route for the specified IP family and routing table.
@@ -731,7 +772,7 @@ func removeRoute(prefix netip.Prefix, nexthop Nexthop, tableID int) error {
 		return fmt.Errorf("add gateway and device: %w", err)
 	}
 
-	if err := netlink.RouteDel(route); err != nil && !errors.Is(err, syscall.ESRCH) && !isOpErr(err) {
+	if err := netlink.RouteDel(route); err != nil && !errors.Is(err, syscall.ESRCH) && !errors.Is(err, syscall.ENOENT) && !isOpErr(err) {
 		return fmt.Errorf("netlink remove route: %w", err)
 	}
 
