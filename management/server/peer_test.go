@@ -2882,6 +2882,31 @@ func TestUpdatePeer_DnsLabelCollisionWithFQDN(t *testing.T) {
 	assert.Contains(t, updated.DNSLabel, "netbird1-", "DNS label should be IP-based fallback")
 }
 
+func TestUpdatePeer_DnsLabelPreservedOnFQDNRename(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	accountID, err := manager.GetAccountIDByUserID(ctx, auth.UserAuth{UserId: userID})
+	require.NoError(t, err)
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	peer, _, _, _, err := manager.AddPeer(ctx, "", "", userID, &nbpeer.Peer{
+		Key:  key.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{Hostname: "mypeer"},
+	}, false)
+	require.NoError(t, err)
+	require.Equal(t, "mypeer", peer.DNSLabel, "initial DNS label should match hostname")
+
+	update := peer.Copy()
+	update.Name = "mypeer.mydomain.nl"
+	updated, err := manager.UpdatePeer(ctx, accountID, userID, update)
+	require.NoError(t, err)
+	assert.Equal(t, update.Name, updated.Name, "peer name should reflect the rename")
+	assert.Equal(t, "mypeer", updated.DNSLabel, "peer should retain its own DNS label")
+}
+
 func TestUpdatePeer_DnsLabelUniqueName(t *testing.T) {
 	manager, _, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
