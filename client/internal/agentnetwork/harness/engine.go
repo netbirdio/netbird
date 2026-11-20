@@ -87,7 +87,8 @@ func (p *Plan) Pending() bool {
 
 // NewPlan compares the wanted settings of a harness with the files and the
 // ownership record. Keys NetBird wrote earlier that are no longer wanted are
-// restored. With no settings, it plans an undo.
+// restored. With no settings, it plans an undo. A file the process does not
+// own is refused with a NotOwnerError before anything is planned.
 func NewPlan(id string, settings []Setting, rec *Record, force bool) (*Plan, error) {
 	p := &Plan{harness: id, files: map[string]*fileState{}}
 	owned := rec.Harnesses[id]
@@ -116,6 +117,9 @@ func NewPlan(id string, settings []Setting, rec *Record, force bool) (*Plan, err
 		}
 		st, err := loadFile(file, formats[file])
 		if err != nil {
+			return nil, err
+		}
+		if err := checkOwner(st.target); err != nil {
 			return nil, err
 		}
 		p.files[file] = st
