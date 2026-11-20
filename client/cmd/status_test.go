@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -21,7 +22,7 @@ func TestParsingOfIP(t *testing.T) {
 func resetStatusFlags(t *testing.T) {
 	t.Helper()
 	t.Cleanup(func() {
-		for _, name := range []string{"detail", "table", "json", "yaml", "ipv4", "ipv6"} {
+		for _, name := range []string{outputFlagName, "detail", "table", "json", "yaml", "ipv4", "ipv6"} {
 			f := statusCmd.Flags().Lookup(name)
 			require.NotNil(t, f, "flag %s must exist", name)
 			require.NoError(t, f.Value.Set(f.DefValue))
@@ -37,7 +38,8 @@ func TestStatusTableFlagExclusive(t *testing.T) {
 			require.NoError(t, statusCmd.Flags().Set("table", "true"))
 			require.NoError(t, statusCmd.Flags().Set(other, "true"))
 
-			assert.Error(t, statusCmd.ValidateFlagGroups(), "--table with --%s must be rejected", other)
+			_, err := resolveStatusOutput()
+			assert.Error(t, err, "--table with --%s must be rejected", other)
 		})
 	}
 
@@ -45,30 +47,96 @@ func TestStatusTableFlagExclusive(t *testing.T) {
 		resetStatusFlags(t)
 		require.NoError(t, statusCmd.Flags().Set("table", "true"))
 
-		assert.NoError(t, statusCmd.ValidateFlagGroups())
+		got, err := resolveStatusOutput()
+		require.NoError(t, err)
+		assert.Equal(t, outputTable, got, "resolved output")
 	})
 }
 
-func TestFilterEnablesDetailOnlyWithoutOutputFormat(t *testing.T) {
+func TestStatusOutputFlagExclusiveWithLegacyFlags(t *testing.T) {
+	for _, legacy := range []string{"detail", "table", "json", "yaml", "ipv4", "ipv6"} {
+		t.Run(legacy, func(t *testing.T) {
+			resetStatusFlags(t)
+			require.NoError(t, statusCmd.Flags().Set(outputFlagName, "json"))
+			require.NoError(t, statusCmd.Flags().Set(legacy, "true"))
+
+			_, err := resolveStatusOutput()
+			assert.Error(t, err, "--output with --%s must be rejected", legacy)
+		})
+	}
+}
+
+// A format flag set to false by an NB_* variable does not select a format, so it
+// must not conflict with --output on the command line.
+func TestStatusOutputIgnoresDisabledLegacyFlagFromEnv(t *testing.T) {
+	resetStatusFlags(t)
+	for _, flag := range append(statusOutputNames(), outputFlagName) {
+		for _, prefix := range []string{"NB_", "WT_"} {
+			name := FlagNameToEnvVar(flag, prefix)
+			t.Setenv(name, "")
+			require.NoError(t, os.Unsetenv(name))
+		}
+	}
+	t.Setenv("NB_JSON", "false")
+
+	require.NoError(t, statusCmd.ParseFlags([]string{"-o", "detail"}))
+	SetFlagsFromEnvVars(statusCmd)
+	require.True(t, statusCmd.Flags().Changed("json"), "the environment must mark --json as set")
+
+	require.NoError(t, statusCmd.ValidateFlagGroups())
+	got, err := resolveStatusOutput()
+	require.NoError(t, err)
+	assert.Equal(t, outputDetail, got, "resolved output")
+}
+
+func TestLegacyOutputFlagsAreHiddenNotDeprecated(t *testing.T) {
+	for _, legacy := range []string{"detail", "table", "json", "yaml", "ipv4", "ipv6"} {
+		f := statusCmd.Flags().Lookup(legacy)
+		require.NotNil(t, f, "flag %s must exist", legacy)
+		assert.True(t, f.Hidden, "--%s must be hidden from help", legacy)
+		assert.Empty(t, f.Deprecated, "--%s must not print a deprecation warning", legacy)
+	}
+}
+
+func TestResolveStatusOutput(t *testing.T) {
 	tests := []struct {
-		name       string
-		table      bool
-		json       bool
-		wantDetail bool
+		name    string
+		output  string
+		legacy  *bool
+		filter  string
+		want    statusOutput
+		wantErr bool
 	}{
-		{name: "no format", wantDetail: true},
-		{name: "table", table: true, wantDetail: false},
-		{name: "json", json: true, wantDetail: false},
+		{name: "default is summary", want: outputSummary},
+		{name: "output json", output: "json", want: outputJSON},
+		{name: "output is case insensitive", output: "YAML", want: outputYAML},
+		{name: "output ipv6", output: "ipv6", want: outputIPv6},
+		{name: "unknown output", output: "xml", wantErr: true},
+		{name: "legacy table", legacy: &tableFlag, want: outputTable},
+		{name: "legacy ipv4", legacy: &ipv4Flag, want: outputIPv4},
+		{name: "filter selects detail", filter: "connected", want: outputDetail},
+		{name: "filter keeps output", output: "table", filter: "connected", want: outputTable},
+		{name: "filter keeps legacy output", legacy: &jsonFlag, filter: "connected", want: outputJSON},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			resetStatusFlags(t)
-			tableFlag, jsonFlag = tt.table, tt.json
+			oldFilter := statusFilter
+			t.Cleanup(func() { statusFilter = oldFilter })
 
-			enableDetailFlagWhenFilterFlag()
+			outputFlag, statusFilter = tt.output, tt.filter
+			if tt.legacy != nil {
+				*tt.legacy = true
+			}
 
-			assert.Equal(t, tt.wantDetail, detailFlag)
+			got, err := resolveStatusOutput()
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got, "resolved output")
 		})
 	}
 }
