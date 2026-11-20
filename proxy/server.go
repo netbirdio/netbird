@@ -1070,7 +1070,7 @@ func (s *Server) resolveDialFunc(accountID types.AccountID) (types.DialContextFu
 	if !ok {
 		return nil, fmt.Errorf("no client for account %s", accountID)
 	}
-	return client.DialContext, nil
+	return types.GuardLoopbackDial(client.DialContext), nil
 }
 
 // initPrivateInbound wires per-account inbound listeners when --private
