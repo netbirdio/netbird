@@ -27,6 +27,8 @@ type AppMetrics struct {
 	SendSuccess      metric.Int64Counter
 	SendFailures     metric.Int64Counter
 	SendInflight     metric.Int64UpDownCounter
+
+	AlignedStreams metric.Int64UpDownCounter
 }
 
 func NewAppMetrics(meter metric.Meter, prefix ...string) (*AppMetrics, error) {
@@ -153,6 +155,13 @@ func NewAppMetrics(meter metric.Meter, prefix ...string) (*AppMetrics, error) {
 		return nil, err
 	}
 
+	alignedStreams, err := meter.Int64UpDownCounter(p+"aligned_streams",
+		metric.WithDescription("Number of active streams with the aligned heartbeat"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &AppMetrics{
 		Meter: meter,
 
@@ -175,6 +184,8 @@ func NewAppMetrics(meter metric.Meter, prefix ...string) (*AppMetrics, error) {
 		SendSuccess:      sendSuccess,
 		SendFailures:     sendFailures,
 		SendInflight:     sendInflight,
+
+		AlignedStreams: alignedStreams,
 	}, nil
 }
 
