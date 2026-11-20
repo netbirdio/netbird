@@ -97,3 +97,38 @@ func TestPeer_GracefulCloseCarriesConnectionVersion(t *testing.T) {
 	assert.Equal(t, messages.NewEncoder(messages.ProtocolV1, messages.MaxMessageSize).CloseMsg(), frames[1], "the close message must carry the connection version")
 	assert.True(t, conn.isClosed(), "the connection must be closed after the close message")
 }
+
+func TestRelay_StalledTargetDoesNotHoldOtherTargets(t *testing.T) {
+	relay := newTestRelay(t, &allow.Auth{})
+
+	stalled := newStalledWriteConn()
+	t.Cleanup(func() { _ = stalled.Close() })
+	stalled.deliver(t, authFrame(t, "stalled"))
+	relay.Accept(stalled)
+	stalled.waitFrames(t, 1)
+
+	healthy, healthyID := acceptPeer(t, relay, "healthy")
+	sender, senderID := acceptPeer(t, relay, "sender")
+
+	// The first frame parks the stalled target's writer; the rest overflow its
+	// send queue, so the sender meets both a busy and a full target.
+	toStalled, err := messages.MarshalTransportMsg(messages.HashID("stalled"), []byte("stuck"))
+	require.NoError(t, err)
+	sender.deliver(t, toStalled)
+	require.True(t, signaled(stalled.entered), "the forwarded frame must stall on the stalled target")
+	for i := 0; i < sendQueueSize+10; i++ {
+		sender.deliver(t, toStalled)
+	}
+
+	payload := []byte("hello healthy")
+	toHealthy, err := messages.MarshalTransportMsg(healthyID, payload)
+	require.NoError(t, err)
+	sender.deliver(t, toHealthy)
+
+	frames := healthy.waitFrames(t, 2)
+	gotSender, gotPayload, err := messages.UnmarshalTransportMsg(frames[1])
+	require.NoError(t, err)
+	assert.Equal(t, senderID, *gotSender, "the peer ID must be rewritten to the sender")
+	assert.Equal(t, payload, gotPayload, "a target that does not take its messages must not hold the sender's messages to another target")
+	assert.False(t, sender.isClosed(), "the sender must stay connected")
+}
