@@ -2,6 +2,7 @@ package routemanager
 
 import (
 	"context"
+	"errors"
 	"net/netip"
 	"testing"
 
@@ -186,6 +187,44 @@ func TestSelectRoutes_TotalFailureLeavesInstalledRoutesAlone(t *testing.T) {
 	assert.ElementsMatch(t, installed, maps.Keys(m.activeRoutes), "a fully invalid request must not disturb the routing table")
 }
 
+func TestSelectRoutes_ErrNoRoutesApplied(t *testing.T) {
+	m := newSelectionTestManager()
+
+	err := m.selectRoutes([]route.NetID{"missing"}, true)
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, ErrNoRoutesApplied), "a fully unknown request applies nothing")
+	assert.Contains(t, err.Error(), "route 'missing' is not available")
+	assert.NotContains(t, err.Error(), "no requested network is available")
+
+	unwrapped := errors.Unwrap(err)
+	require.NotNil(t, unwrapped, "the wrapped error must still be reachable via Unwrap")
+	assert.Equal(t, err.Error(), unwrapped.Error(), "the marker must not alter the wrapped error's message")
+
+	err = m.selectRoutes([]route.NetID{"lan", "missing"}, true)
+	assert.Error(t, err)
+	assert.False(t, errors.Is(err, ErrNoRoutesApplied), "a partial failure still changes the selection")
+}
+
+func TestDeselectRoutes_ErrNoRoutesApplied(t *testing.T) {
+	m := newSelectionTestManager()
+	require.NoError(t, m.selectRoutes([]route.NetID{"lan"}, true))
+
+	err := m.deselectRoutes([]route.NetID{"missing"})
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, ErrNoRoutesApplied), "a fully unknown request applies nothing")
+	assert.Contains(t, err.Error(), "route 'missing' is not available")
+	assert.NotContains(t, err.Error(), "no requested network is available")
+
+	err = m.deselectRoutes([]route.NetID{"lan", "missing"})
+	assert.Error(t, err)
+	assert.False(t, errors.Is(err, ErrNoRoutesApplied), "a partial failure still changes the selection")
+}
+
+func TestSelectRoutes_EmptyRequestSucceeds(t *testing.T) {
+	m := newSelectionTestManager()
+	require.NoError(t, m.selectRoutes(nil, false))
+}
+
 func TestExitNodeSelectionHelpers(t *testing.T) {
 	routesMap := map[route.NetID][]*route.Route{
 		"exitA": {{Network: netip.MustParsePrefix("0.0.0.0/0")}},
@@ -200,4 +239,25 @@ func TestExitNodeSelectionHelpers(t *testing.T) {
 
 	others := otherExitNodeIDs(routesMap, []route.NetID{"exitB"})
 	assert.ElementsMatch(t, []route.NetID{"exitA"}, others, "only the other exit node is a sibling; the lan route is ignored")
+}
+
+func TestNoneAvailable(t *testing.T) {
+	all := []route.NetID{"lan", "exitA"}
+
+	tests := map[string]struct {
+		requested []route.NetID
+		all       []route.NetID
+		want      bool
+	}{
+		"empty request":                {requested: nil, all: all, want: false},
+		"all unknown ids":              {requested: []route.NetID{"missing", "also-missing"}, all: all, want: true},
+		"one known id among unknown":   {requested: []route.NetID{"missing", "lan"}, all: all, want: false},
+		"empty available with request": {requested: []route.NetID{"lan"}, all: nil, want: true},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tt.want, noneAvailable(tt.requested, tt.all), "noneAvailable(%v, %v) mismatch", tt.requested, tt.all)
+		})
+	}
 }
