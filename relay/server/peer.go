@@ -110,6 +110,7 @@ func (p *Peer) Work() {
 			continue
 		}
 
+		hc.OnPeerActivity()
 		p.handleMsgType(ctx, msgType, hc, n, msg)
 	}
 }
