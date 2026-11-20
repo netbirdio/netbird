@@ -107,7 +107,7 @@ func (s *BaseServer) DBConn() *db.Conn {
 
 func (s *BaseServer) Store() store.Store {
 	return Create(s, func() store.Store {
-		store, err := store.NewSqlStore(context.Background(), s.DBConn(), s.Metrics(), false)
+		store, err := store.NewSqlStore(context.Background(), s.DBConn(), s.Metrics(), os.Getenv("NETBIRD_SKIP_MIGRATIONS") == "true")
 		if err != nil {
 			log.Fatalf("failed to create store: %v", err)
 		}
