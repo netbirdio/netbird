@@ -1121,7 +1121,7 @@ func (m *Manager) SetCertificateIssuedAt(ctx context.Context, accountID, service
 			}
 			at = time.Now().UTC()
 		}
-		if meta.CertificateIssuedAt != nil && meta.CertificateIssuedAt.Equal(at) {
+                if meta.CertificateIssuedAt != nil && !at.After(*meta.CertificateIssuedAt) {
 			return false
 		}
 		meta.CertificateIssuedAt = &at
