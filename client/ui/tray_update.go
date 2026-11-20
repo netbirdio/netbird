@@ -22,7 +22,7 @@ type trayUpdater struct {
 	app          *application.App
 	showMainAt   func(url string)
 	update       *services.Update
-	notifier     *Notifier
+	send         sendFn
 	loc          *Localizer
 	onIconChange func()
 	// onMenuChange drives a full tray relayout: the update row lives in the
@@ -42,10 +42,12 @@ func newTrayUpdater(app *application.App, showMainAt func(url string), update *s
 		app:          app,
 		showMainAt:   showMainAt,
 		update:       update,
-		notifier:     notifier,
 		loc:          loc,
 		onIconChange: onIconChange,
 		onMenuChange: onMenuChange,
+	}
+	if notifier != nil {
+		u.send = notifier.SendNotification
 	}
 	app.Event.On(updater.EventStateChanged, u.onStateEvent)
 	// Seed from cached state to cover an event that fired before wiring completed.
@@ -169,14 +171,14 @@ func (u *trayUpdater) refreshMenuItem(st updater.State) {
 }
 
 func (u *trayUpdater) sendUpdateNotification(st updater.State) {
-	if u.notifier == nil {
+	if u.send == nil {
 		return
 	}
 	body := u.loc.T("notify.update.body", "version", st.Version)
 	if st.Enforced {
 		body += u.loc.T("notify.update.enforcedSuffix")
 	}
-	_ = safeSendNotification(u.notifier.SendNotification, "update", notifications.NotificationOptions{
+	_ = safeSendNotification(u.send, "update", notifications.NotificationOptions{
 		ID:    notifyIDUpdatePrefix + st.Version,
 		Title: u.loc.T("notify.update.title"),
 		Body:  body,
