@@ -85,7 +85,11 @@ if ($LASTEXITCODE -ne 0) {
 
 # Audit dump so the JumpCloud per-execution log captures the applied state.
 Write-Host "[netbird-mdm] final policy state under $RegKey :"
-& reg.exe query $RegKey /s
+if (Test-Path "Registry::$RegKey") {
+    & reg.exe query $RegKey /s
+} else {
+    Write-Host "[netbird-mdm] no policy values present under $RegKey"
+}
 
 # Daemon's 1-min reload ticker picks up the change automatically.
 # Uncomment to force immediate convergence (skips the ticker wait):

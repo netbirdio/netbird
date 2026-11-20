@@ -57,6 +57,12 @@
 
       <string id="WireguardPort_Name">WireGuard port</string>
       <string id="WireguardPort_Help">UDP port used by the local WireGuard interface. Allowed range: 1-65535.</string>
+      <string id="LazyConnection_Name">Lazy connections</string>
+      <string id="LazyConnection_Help">Local override for lazy connections. Enabled forces lazy connections on, Disabled forces them off, and leaving the policy Not Configured defers to the Management setting. The NB_LAZY_CONN environment variable takes precedence over this policy.</string>
+      <string id="EnableLocalMetrics_Name">Enable local metrics endpoint</string>
+      <string id="EnableLocalMetrics_Help">Exposes the client's local Prometheus /metrics endpoint. Unrelated to "Disable metrics collection".</string>
+      <string id="LocalMetricsAddress_Name">Local metrics listen address</string>
+      <string id="LocalMetricsAddress_Help">Listen address of the local Prometheus /metrics endpoint. Defaults to 127.0.0.1:9191 when the endpoint is enabled and this policy is Not Configured.</string>
 
       <string id="ExtraIFaceBlackList_Name">Extra interface blacklist</string>
       <string id="ExtraIFaceBlackList_Help">Interface name prefixes whose local addresses NetBird never offers as peer connection candidates, comma-separated. Matching is a case-sensitive name prefix with no wildcards: "vEthernet" excludes every Hyper-V and WSL adapter, so keep entries specific. The entries are added to the built-in list and to the device's own --extra-iface-blacklist entries, never replace them, and are not written to the device configuration. Only local candidates are filtered: traffic to the Relay, Signal and Management services, and to peers reached through a public address, still follows the operating system routing table.</string>
@@ -94,7 +100,7 @@
       <string id="NATExternalIPs_Name">External IP mappings</string>
       <string id="NATExternalIPs_Help">Public addresses to offer as connection candidates when the device sits behind a static NAT, comma-separated. Each entry is an external IP, optionally followed by /internal-IP or /interface, for example 203.0.113.7/10.0.0.5. Replaces the device's own --external-ip-map value. Invalid entries are skipped by the client.</string>
       <string id="ForceRelay_Name">Force relay</string>
-      <string id="ForceRelay_Help">When enabled, the client never tries a direct connection and reaches every peer through a relay. Disabled allows direct connections. Overrides the device's --force-relay setting and the NB_FORCE_RELAY environment variable. All traffic of these devices then goes through the relay servers. Equivalent to --force-relay.</string>
+      <string id="ForceRelay_Help">When enabled, the client never tries a direct connection and reaches every peer through a relay. Disabled allows direct connections. Overrides the device's --force-relay setting and the NB_FORCE_RELAY environment variable. Equivalent to --force-relay.</string>
 
       <string id="EnableSSHRoot_Name">Allow SSH root login</string>
       <string id="EnableSSHRoot_Help">When enabled, the NetBird SSH server accepts logins as root. Disabled refuses them. Applies while the SSH server is allowed. Equivalent to --enable-ssh-root.</string>
@@ -145,10 +151,10 @@
       <string id="DisableNetworks_Help">When enabled, the client UI/CLI cannot list, select or deselect NetBird networks (the corresponding daemon RPCs return Unavailable). Equivalent to --disable-networks.</string>
 
       <string id="DisableAdvancedView_Name">Disable advanced view</string>
-      <string id="DisableAdvancedView_Help">When enabled, the client UI hides the advanced-view section of the new UI revision. Tristate at the daemon: 1 (enabled) hides the section; 0 (disabled) explicitly shows it; not configured leaves the UI's default behavior in place. MDM is the sole source — no equivalent CLI flag exists.</string>
+      <string id="DisableAdvancedView_Help">When enabled, the client hides the advanced section of its interface. This policy only changes what the interface offers: it is not part of the daemon configuration and never causes a configuration change to be rejected. Setting it to Disabled explicitly re-enables the section.</string>
 
       <string id="DisableMetricsCollection_Name">Disable metrics collection</string>
-      <string id="DisableMetricsCollection_Help">When enabled, the client does not collect or report local usage metrics.</string>
+      <string id="DisableMetricsCollection_Help">Reserved for a future client telemetry feature. The client recognizes this setting but it has no effect in current releases.</string>
 
     </stringTable>
     <presentationTable>
@@ -174,6 +180,12 @@
 
       <presentation id="WireguardPort_Pres">
         <decimalTextBox refId="WireguardPort_Decimal" defaultValue="51820">WireGuard UDP port:</decimalTextBox>
+      </presentation>
+      <presentation id="LocalMetricsAddress_Pres">
+        <textBox refId="LocalMetricsAddress_Text">
+          <label>Listen address:</label>
+          <defaultValue>127.0.0.1:9191</defaultValue>
+        </textBox>
       </presentation>
 
       <presentation id="ExtraIFaceBlackList_Pres">

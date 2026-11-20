@@ -55,9 +55,9 @@ set -euo pipefail
 #   docs/netbird.admx + .adml (Windows ADMX schema)
 #
 NULL='__UNSET__'
-managementURL='https://api.netbird.io:443'
+managementURL="$NULL"
 preSharedKey="$NULL"                       # secret; redacted in log
-allowServerSSH='true'
+allowServerSSH="$NULL"
 allowRemoteJobs="$NULL"
 debugBundleUploadURL="$NULL"                # HTTPS URL with a host; overrides management
 allowServerVNC="$NULL"
@@ -71,10 +71,13 @@ disableMetricsCollection="$NULL"
 disableUpdateSettings="$NULL"
 disableProfiles="$NULL"
 disableNetworks="$NULL"
-disableAdvancedView="$NULL"           # tristate at the daemon
+disableAdvancedView="$NULL"                # UI-only: hides the advanced section, rejects nothing
 rosenpassEnabled="$NULL"
 rosenpassPermissive="$NULL"
-wireguardPort='51820'
+wireguardPort="$NULL"
+lazyConnection="$NULL"                     # "true"/"false"; absent defers to the Management setting
+enableLocalMetrics="$NULL"                 # local Prometheus endpoint; unrelated to disableMetricsCollection
+localMetricsAddress="$NULL"                # default 127.0.0.1:9191
 extraIFaceBlackList="$NULL"                # comma-separated interface name prefixes, added to the built-in list
 disableDNS="$NULL"
 disableIPv6="$NULL"
@@ -87,7 +90,7 @@ interfaceName="$NULL"                      # macOS: utun followed by a number, e
 mtu="$NULL"                                # 576-8192
 dnsRouteInterval="$NULL"                   # duration such as 1m or 1m30s
 natExternalIPs="$NULL"                     # comma-separated external-IP[/internal-IP or /interface]
-forceRelay="$NULL"                         # never try a direct connection, always use a relay
+forceRelay="$NULL"                         # true: never try a direct connection; false: allow one
 enableSSHRoot="$NULL"
 enableSSHSFTP="$NULL"
 enableSSHLocalPortForwarding="$NULL"
@@ -184,8 +187,21 @@ emit_int() {
     log "invalid integer for $key: $value (must be decimal); skipping"
     return
   fi
+  if [[ "$key" == "wireguardPort" ]] && (( 10#$value < 1 || 10#$value > 65535 )); then
+    log "invalid integer for $key: $value (must be 1-65535); skipping"
+    return
+  fi
   printf '    <key>%s</key>\n    <integer>%s</integer>\n' "$key" "$value" >> "$PLIST_PATH.tmp"
   log "set $key = $value"
+}
+
+# emit_split_tunnel_mode validates that VALUE is "allow" or "disallow" and, if valid, appends a plist string entry for splitTunnelMode; on invalid input it logs a skip and does not emit the key.
+emit_split_tunnel_mode() {
+  local value="$1"
+  case "$value" in
+    allow|disallow) emit_string splitTunnelMode "$value" ;;
+    *) log "invalid splitTunnelMode: $value (must be allow/disallow); skipping" ;;
+  esac
 }
 
 # main builds the NetBird MDM plist from configured policy variables, validates and installs it to /Library/Managed Preferences/io.netbird.client.plist (root:wheel, 600 — the daemon reads it directly as root, so it need not be world-readable) and optionally triggers the NetBird daemon to reload.
@@ -232,6 +248,9 @@ main() {
   is_set "$rosenpassEnabled"          && emit_bool    rosenpassEnabled          "$rosenpassEnabled"
   is_set "$rosenpassPermissive"       && emit_bool    rosenpassPermissive       "$rosenpassPermissive"
   is_set "$wireguardPort"             && emit_int     wireguardPort             "$wireguardPort"
+  is_set "$lazyConnection"            && emit_bool    lazyConnection            "$lazyConnection"
+  is_set "$enableLocalMetrics"        && emit_bool    enableLocalMetrics        "$enableLocalMetrics"
+  is_set "$localMetricsAddress"       && emit_string  localMetricsAddress       "$localMetricsAddress"
   is_set "$extraIFaceBlackList"       && emit_string  extraIFaceBlackList       "$extraIFaceBlackList"
   is_set "$disableDNS"                && emit_bool    disableDNS                "$disableDNS"
   is_set "$disableIPv6"               && emit_bool    disableIPv6               "$disableIPv6"
@@ -255,7 +274,7 @@ main() {
   is_set "$defaultLanguage"           && emit_string  defaultLanguage           "$defaultLanguage"
   is_set "$defaultViewMode"           && emit_string  defaultViewMode           "$defaultViewMode"
   is_set "$defaultTheme"              && emit_string  defaultTheme              "$defaultTheme"
-  is_set "$splitTunnelMode"           && emit_string  splitTunnelMode           "$splitTunnelMode"
+  is_set "$splitTunnelMode"           && emit_split_tunnel_mode                  "$splitTunnelMode"
   is_set "$splitTunnelApps"           && emit_string  splitTunnelApps           "$splitTunnelApps"
 
   end_plist

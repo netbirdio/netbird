@@ -113,6 +113,24 @@
     <integer>51820</integer>
     -->
 
+    <!-- ===== Lazy connections =====
+         true forces lazy connections on, false forces them off, and an
+         absent key defers to the Management setting. NB_LAZY_CONN
+         takes precedence when both are configured. -->
+    <!--
+    <key>lazyConnection</key>
+    <true/>
+    -->
+
+    <!-- ===== Local Prometheus metrics endpoint ===== -->
+    <!--
+    <key>enableLocalMetrics</key>
+    <true/>
+
+    <key>localMetricsAddress</key>
+    <string>127.0.0.1:9191</string>
+    -->
+
     <!-- ===== Extra interface blacklist =====
          Interface name prefixes whose local addresses are never offered as
          peer connection candidates. Array or comma-separated string; added
@@ -132,8 +150,9 @@
          dnsRouteInterval   : a duration such as 30s, 1m or 1m30s.
          natExternalIPs     : array or comma-separated string of
                               external-IP[/internal-IP or /interface].
-         forceRelay         : never try a direct connection; also wins over
-                              NB_FORCE_RELAY in the daemon environment.
+         forceRelay         : true never tries a direct connection, false allows
+                              one; either value wins over NB_FORCE_RELAY in the
+                              daemon environment.
          An invalid value is ignored and the device keeps its own. -->
     <!--
     <key>disableDNS</key>
@@ -233,7 +252,7 @@
                                    UI. Tristate at the daemon: set to true to
                                    hide, false to explicitly show, omit the
                                    key to let the UI apply its own default.
-         disableMetricsCollection: opt out of anonymous usage telemetry. -->
+         disableMetricsCollection: reserved; recognized but no effect yet. -->
     <!--
     <key>disableUpdateSettings</key>
     <true/>
