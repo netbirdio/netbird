@@ -292,7 +292,7 @@ func TestSetConfig_ManagementURLSpellingsPassTheGate(t *testing.T) {
 // Past the gate the handler goes on to do real work this test does not stand
 // up, so the assertion is only that the refusal did not happen.
 func TestLogin_RestatingTheStoredConfigPassesTheGate(t *testing.T) {
-	s, _, _, username, _ := setupServerWithProfile(t)
+	s, _, _, username, cfgPath := setupServerWithProfile(t)
 	s.updateSettingsDisabled = true
 	s.rootCtx = internal.CtxInitState(context.Background())
 
@@ -301,7 +301,7 @@ func TestLogin_RestatingTheStoredConfigPassesTheGate(t *testing.T) {
 	// without it the profile's management URL is dialed for real.
 	s.isLoginRequiredFn = func(context.Context) (bool, error) { return false, nil }
 
-	_, err := s.Login(userCtx(), &proto.LoginRequest{
+	_, err := s.Login(withTarget(userCtx(), cfgPath), &proto.LoginRequest{
 		Username:      &username,
 		ManagementUrl: storedManagementURL,
 	})

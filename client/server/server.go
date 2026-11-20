@@ -69,6 +69,7 @@ const (
 	// refusal the caller has to act on.
 	errUpdateSettingsDisabled = "update settings are disabled, you cannot use this feature without update settings enabled"
 	errNetworksDisabled       = "network selection is disabled by the administrator"
+	errActiveProfileChanged   = "the active profile changed during login, try again"
 )
 
 var ErrServiceNotUp = errors.New("service is not up")
@@ -770,7 +771,22 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		log.Errorf("failed to get active profile config: %v", err)
 		return nil, fmt.Errorf("failed to get active profile config: %w", err)
 	}
+	if afterLoginPrepared != nil {
+		afterLoginPrepared()
+	}
 	s.mutex.Lock()
+	// SwitchProfile and Up install their own config under s.mutex. If one ran
+	// since the check, its config must stay.
+	current, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		s.mutex.Unlock()
+		return nil, fmt.Errorf("active profile state: %w", err)
+	}
+	if current == nil || *current != *activeProf {
+		s.mutex.Unlock()
+		log.Warnf("login for profile %s aborted: %s", activeProf.ID, errActiveProfileChanged)
+		return nil, gstatus.Error(codes.Aborted, errActiveProfileChanged)
+	}
 	s.config = config
 	if switched {
 		s.jwtCache.clear()
@@ -2987,6 +3003,10 @@ func sendTerminalNotification() error {
 // between Login's first privilege check and the authoritative one.
 var afterLoginPreCheck func()
 
+// afterLoginPrepared is a seam for tests to run a concurrent profile switch
+// between Login's active profile check and installing its config.
+var afterLoginPrepared func()
+
 // authorizeAndPrepareLogin makes the authoritative privilege decision for a login
 // and, when it passes, carries out every state change that decision authorizes:
 // cancelling an login already in progress, switching to the requested profile, and
@@ -2997,6 +3017,10 @@ var afterLoginPreCheck func()
 // of this is reached; this one exists because that check is not synchronized
 // against a concurrent privileged request that enables the SSH server, and a
 // caller refused here must not have cancelled or switched anything either.
+//
+// The exception is a SwitchProfile or Up that moves the active profile off the
+// target. That login is refused with codes.Aborted after the cancel and its own
+// switch.
 func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.LoginRequest, activeProf *profilemanager.ActiveProfileState) (context.Context, *profilemanager.ActiveProfileState, bool, error) {
 	if afterLoginPreCheck != nil {
 		afterLoginPreCheck()
@@ -3005,7 +3029,12 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 	s.guardedConfigMu.Lock()
 	defer s.guardedConfigMu.Unlock()
 
-	stored, err := s.storedLoginConfig(callerCtx, activeProf, msg)
+	// The gate approved this profile, so the check and the write both use it.
+	target, err := s.targetProfile(callerCtx)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	stored, err := s.storedProfileConfig(target)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -3039,11 +3068,7 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 
 	switched := false
 	if msg.ProfileName != nil {
-		resolved, err := s.targetProfile(callerCtx)
-		if err != nil {
-			return nil, nil, false, err
-		}
-		switched, err = s.switchProfileIfNeeded(resolved, activeProf)
+		switched, err = s.switchProfileIfNeeded(target, activeProf)
 		if err != nil {
 			return nil, nil, false, fmt.Errorf("switch profile: %w", err)
 		}
@@ -3057,6 +3082,11 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 	activeProf, err = s.profileManager.GetActiveProfileState()
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("active profile state: %w", err)
+	}
+	// SwitchProfile and Up do not hold guardedConfigMu, so the active profile can
+	// have moved off the target.
+	if !s.isActiveProfile(activeProf, target) {
+		return nil, nil, false, gstatus.Error(codes.Aborted, errActiveProfileChanged)
 	}
 
 	if err := s.persistLoginOverrides(activeProf, msg); err != nil {

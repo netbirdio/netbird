@@ -20,7 +20,7 @@ import (
 // the failure. Reproduces `netbird down; netbird up` printing a device-code URL
 // because Management happened to be restarting when the daemon dialed it.
 func TestLogin_ManagementUnreachableIsReturnedInsteadOfDemandingSSO(t *testing.T) {
-	s, _, _, username, _ := setupServerWithProfile(t)
+	s, _, _, username, cfgPath := setupServerWithProfile(t)
 	s.rootCtx = internal.CtxInitState(context.Background())
 
 	unreachable := errors.New("create connection: dial context: context deadline exceeded")
@@ -30,7 +30,7 @@ func TestLogin_ManagementUnreachableIsReturnedInsteadOfDemandingSSO(t *testing.T
 		return false, unreachable
 	}
 
-	resp, err := s.Login(userCtx(), &proto.LoginRequest{Username: &username})
+	resp, err := s.Login(withTarget(userCtx(), cfgPath), &proto.LoginRequest{Username: &username})
 	require.Error(t, err)
 	require.ErrorIs(t, err, unreachable, "the transport failure was replaced by something else")
 	require.Nil(t, resp, "a failed login must not answer with a login response")
@@ -57,7 +57,7 @@ func TestLogin_AuthRefusalStartsSSOFlow(t *testing.T) {
 		return true, nil
 	}
 
-	_, err := s.Login(userCtx(), &proto.LoginRequest{Username: &username})
+	_, err := s.Login(withTarget(userCtx(), cfgPath), &proto.LoginRequest{Username: &username})
 	require.Error(t, err)
 
 	status, stateErr := internal.CtxGetState(s.rootCtx).Status()
@@ -67,7 +67,7 @@ func TestLogin_AuthRefusalStartsSSOFlow(t *testing.T) {
 }
 
 func TestLogin_SetupKeyStillRunsWhenPeerNeedsLogin(t *testing.T) {
-	s, _, _, username, _ := setupServerWithProfile(t)
+	s, _, _, username, cfgPath := setupServerWithProfile(t)
 	s.rootCtx = internal.CtxInitState(context.Background())
 
 	s.isLoginRequiredFn = func(context.Context) (bool, error) {
@@ -81,7 +81,7 @@ func TestLogin_SetupKeyStillRunsWhenPeerNeedsLogin(t *testing.T) {
 	}
 
 	setupKey := "A2C8E32F-AEB2-4B45-8FD3-8A0C1B2D3E4F"
-	resp, err := s.Login(userCtx(), &proto.LoginRequest{Username: &username, SetupKey: setupKey})
+	resp, err := s.Login(withTarget(userCtx(), cfgPath), &proto.LoginRequest{Username: &username, SetupKey: setupKey})
 	require.NoError(t, err, "the probe's outcome leaked out as the login result")
 	require.NotNil(t, resp)
 	require.Equal(t, []string{setupKey}, keysTried, "the setup key never reached the login attempt")
