@@ -90,6 +90,13 @@ const (
 	// management-supplied URL (or the default upload server).
 	KeyBundleUploadURL = "debugBundleUploadURL"
 
+	// KeyDisableUpdateNotifications stops the daemon from announcing new
+	// client versions, so the UI shows no update indicator, tray icon or
+	// notification. Read as a bool; absent or false = announce as usual.
+	// Daemon-only: NOT stored on Config. Detection and management-driven
+	// installs are unaffected.
+	KeyDisableUpdateNotifications = "disableUpdateNotifications"
+
 	// KeyExtraIFaceBlackList adds interface name prefixes to the blacklist
 	// used for connection candidate discovery. Additive, unlike every other
 	// key: the defaults, the profile file and the --extra-iface-blacklist flag

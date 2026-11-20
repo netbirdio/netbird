@@ -246,6 +246,18 @@
       <disabledValue><decimal value="0" /></disabledValue>
     </policy>
 
+    <policy name="DisableUpdateNotifications"
+            class="Machine"
+            displayName="$(string.DisableUpdateNotifications_Name)"
+            explainText="$(string.DisableUpdateNotifications_Help)"
+            key="Software\Policies\NetBird"
+            valueName="DisableUpdateNotifications">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
     <policy name="DisableProfiles"
             class="Machine"
             displayName="$(string.DisableProfiles_Name)"

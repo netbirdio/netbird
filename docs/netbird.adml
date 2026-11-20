@@ -66,6 +66,9 @@
 
       <!-- UI -->
       <string id="DisableUpdateSettings_Name">Disable update settings</string>
+      <string id="DisableUpdateNotifications_Name">Disable update notifications</string>
+      <string id="DisableUpdateNotifications_Help">When enabled, the client does not announce new NetBird versions: the update indicator, the tray update icon and the update notification are not shown. Update detection and management-driven installs are unaffected. Equivalent to --disable-update-notifications.</string>
+
       <string id="DisableUpdateSettings_Help">When enabled, blocks every configuration change from the client UI and from the CLI (netbird up / login / setconfig). The Settings view stays viewable but read-only. Equivalent to --disable-update-settings.</string>
 
       <string id="DisableProfiles_Name">Disable profiles</string>

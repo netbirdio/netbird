@@ -23,6 +23,7 @@ var allKeys = []string{
 	KeyAllowServerSSH,
 	KeyDisableAutoConnect,
 	KeyDisableAutostart,
+	KeyDisableUpdateNotifications,
 	KeyPreSharedKey,
 	KeyRosenpassEnabled,
 	KeyRosenpassPermissive,
