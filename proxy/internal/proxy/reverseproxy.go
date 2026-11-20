@@ -42,6 +42,10 @@ type ReverseProxy struct {
 	// target) keeps the reverse-proxy hot path on the no-capture fast
 	// path with no middleware overhead.
 	middlewareManager *middleware.Manager
+	// allowSelfTargetLoop disables the loop guard in ServeHTTP so a peer
+	// can reach a service whose backend is that same peer. Defaults to
+	// false, which rejects such requests with 421.
+	allowSelfTargetLoop bool
 }
 
 // Option configures optional ReverseProxy behavior. Options exist so the core
@@ -55,6 +59,16 @@ type Option func(*ReverseProxy)
 func WithMiddlewareManager(m *middleware.Manager) Option {
 	return func(p *ReverseProxy) {
 		p.middlewareManager = m
+	}
+}
+
+// WithAllowSelfTargetLoop lets an overlay peer reach a service whose
+// backend resolves to that peer's own tunnel IP, instead of rejecting
+// the request with 421 Misdirected Request. Off by default because the
+// round trip doubles the peer's tunnel traffic.
+func WithAllowSelfTargetLoop(allow bool) Option {
+	return func(p *ReverseProxy) {
+		p.allowSelfTargetLoop = allow
 	}
 }
 
@@ -102,7 +116,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// through the proxy and back over WG to itself. Refuse the request
 	// with 421 (Misdirected Request) so the caller sees an explicit
 	// error instead of silently doubling tunnel traffic.
-	if p.isSelfTargetLoop(r, result.target.URL) {
+	if !p.allowSelfTargetLoop && p.isSelfTargetLoop(r, result.target.URL) {
 		p.serveRouteError(w, r, http.StatusMisdirectedRequest, "Loop Detected",
 			"This peer is the target of the requested service. Reach the backend directly instead of dialing the public service URL from the same machine.")
 		return
