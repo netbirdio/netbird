@@ -278,7 +278,7 @@ func (m *DefaultManager) validateSetupInfo(email, password, name string) error {
 		return status.Errorf(status.InvalidArgument, "password must be at least 8 characters")
 	}
 	if len(password) > 72 {
-		return status.Errorf(status.InvalidArgument, "password must be at most 72 characters")
+		return status.Errorf(status.InvalidArgument, "password must be at most 72 bytes")
 	}
 	return nil
 }
