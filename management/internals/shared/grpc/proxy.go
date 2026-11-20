@@ -450,7 +450,7 @@ type proxyConnectParams struct {
 
 // GetMappingUpdate handles the control stream with proxy clients
 func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest, stream proto.ProxyService_GetMappingUpdateServer) error {
-	params, err := s.validateProxyConnect(req.GetProxyId(), req.GetAddress(), stream.Context())
+	params, err := s.validateAndSanitizeProxyConnect(req.GetProxyId(), req.GetAddress(), stream.Context())
 	if err != nil {
 		return err
 	}
@@ -484,7 +484,7 @@ func (s *ProxyServiceServer) SyncMappings(stream proto.ProxyService_SyncMappings
 		return err
 	}
 
-	params, err := s.validateProxyConnect(init.GetProxyId(), init.GetAddress(), stream.Context())
+	params, err := s.validateAndSanitizeProxyConnect(init.GetProxyId(), init.GetAddress(), stream.Context())
 	if err != nil {
 		return err
 	}
@@ -523,10 +523,10 @@ func recvSyncInit(stream proto.ProxyService_SyncMappingsServer) (*proto.SyncMapp
 	return init, nil
 }
 
-// validateProxyConnect validates the proxy ID and address, checks cluster
+// validateAndSanitizeProxyConnect validates the proxy ID and address, checks cluster
 // address availability for account-scoped tokens, and finally consults the
 // connect authorizer (when installed) on the address claim.
-func (s *ProxyServiceServer) validateProxyConnect(proxyID, address string, ctx context.Context) (proxyConnectParams, error) {
+func (s *ProxyServiceServer) validateAndSanitizeProxyConnect(proxyID, address string, ctx context.Context) (proxyConnectParams, error) {
 	if proxyID == "" {
 		return proxyConnectParams{}, status.Errorf(codes.InvalidArgument, "proxy_id is required")
 	}
@@ -558,7 +558,7 @@ func (s *ProxyServiceServer) validateProxyConnect(proxyID, address string, ctx c
 		}
 	}
 
-	return proxyConnectParams{proxyID: proxyID, address: address}, nil
+	return proxyConnectParams{proxyID: proxyID, address: strings.ToLower(address)}, nil
 }
 
 // registerProxyConnection creates a proxyConnection, registers it with the

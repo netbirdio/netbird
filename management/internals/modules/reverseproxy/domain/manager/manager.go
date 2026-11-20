@@ -443,8 +443,9 @@ func extractClusterFromCustomDomains(serviceDomain string, customDomains []*doma
 	bestCluster := ""
 	bestLen := -1
 	matched := false
+	lowerServiceDomain := strings.ToLower(serviceDomain)
 	for _, cd := range customDomains {
-		if serviceDomain != cd.Domain && !strings.HasSuffix(serviceDomain, "."+cd.Domain) {
+		if lowerServiceDomain != cd.Domain && !strings.HasSuffix(lowerServiceDomain, "."+cd.Domain) {
 			continue
 		}
 		matched = true
@@ -471,8 +472,10 @@ func extractClusterFromCustomDomains(serviceDomain string, customDomains []*doma
 // Free domains have the format: <name>.<nonce>.<cluster> (e.g., myapp.abc123.eu.proxy.netbird.io)
 // It matches the domain suffix against available clusters and returns the matching cluster.
 func ExtractClusterFromFreeDomain(domain string, availableClusters []string) (string, bool) {
+	lowerDomain := strings.ToLower(domain)
 	for _, cluster := range availableClusters {
-		if domain == cluster || strings.HasSuffix(domain, "."+cluster) {
+		lowerCluster := strings.ToLower(cluster)
+		if lowerDomain == lowerCluster || strings.HasSuffix(lowerDomain, "."+lowerCluster) {
 			return cluster, true
 		}
 	}
