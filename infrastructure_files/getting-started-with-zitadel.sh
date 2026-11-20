@@ -3,8 +3,6 @@
 cat >&2 <<'EOF'
 ERROR: This legacy installation script has been retired and no longer runs.
 
-Zitadel support and existing Zitadel deployments are not deprecated.
-
 For new deployments, use getting-started.sh:
 
 https://docs.netbird.io/selfhosted/selfhosted-quickstart
@@ -20,7 +18,6 @@ supported through the advanced guide:
 
 https://docs.netbird.io/selfhosted/selfhosted-guide
 
-This compatibility notice will be removed in NetBird v0.80.
 EOF
 
 exit 1
