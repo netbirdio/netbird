@@ -1232,15 +1232,15 @@ func (x *PeerKeys) GetWgPubKey() []byte {
 	return nil
 }
 
-// Environment is part of the PeerSystemMeta and describes the environment the agent is running in.
+// Environment is part of the PeerSystemMeta and describes the environment the client is running in.
 type Environment struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// cloud is the cloud provider the agent is running in if applicable.
+	// cloud is the cloud provider the client is running in if applicable.
 	Cloud string `protobuf:"bytes,1,opt,name=cloud,proto3" json:"cloud,omitempty"`
-	// platform is the platform the agent is running on if applicable.
+	// platform is the platform the client is running on if applicable.
 	Platform string `protobuf:"bytes,2,opt,name=platform,proto3" json:"platform,omitempty"`
 }
 
@@ -5106,7 +5106,7 @@ type NetworkMapComponentsFull struct {
 	// Custom-zone domain for this peer's view (c.CustomZoneDomain). Empty when
 	// the peer has no custom zone records.
 	CustomZoneDomain string `protobuf:"bytes,7,opt,name=custom_zone_domain,json=customZoneDomain,proto3" json:"custom_zone_domain,omitempty"`
-	// Deduplicated agent versions; PeerCompact.agent_version_idx indexes here.
+	// Deduplicated client versions; PeerCompact.agent_version_idx indexes here.
 	// Empty string at index 0 if any peer has no version.
 	AgentVersions []string `protobuf:"bytes,8,rep,name=agent_versions,json=agentVersions,proto3" json:"agent_versions,omitempty"`
 	// All peers (deduplicated). The client splits peers into online / offline
@@ -5698,7 +5698,7 @@ type PeerCompact struct {
 	SupportsSourcePrefixes bool `protobuf:"varint,12,opt,name=supports_source_prefixes,json=supportsSourcePrefixes,proto3" json:"supports_source_prefixes,omitempty"`
 	// Mirror of types.Peer.Meta.Flags.ServerSSHAllowed. Read by Calculate()
 	// when expanding TCP port-22 firewall rules — the native SSH companion
-	// (port 22022) is only added when this flag is set and the peer agent
+	// (port 22022) is only added when this flag is set and the peer client
 	// version supports it.
 	ServerSshAllowed bool `protobuf:"varint,13,opt,name=server_ssh_allowed,json=serverSshAllowed,proto3" json:"server_ssh_allowed,omitempty"`
 	// Mirror of types.Peer.ProxyMeta.Embedded. Connections involving an

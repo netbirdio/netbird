@@ -102,11 +102,11 @@ export NETBIRD_DOMAIN=netbird.example.com; curl -fsSL https://github.com/netbird
 ```
 
 ### A bit on NetBird internals
-- Every machine in the network runs the [NetBird agent](client/), which manages WireGuard.
-- Every agent connects to the [Management Service](management/), which holds network state, manages peer IPs, and distributes updates to agents.
-- Agents use ICE (via [pion/ice](https://github.com/pion/ice)) to discover connection candidates for peer-to-peer connections.
+- Every machine in the network runs the [NetBird client](client/), which manages WireGuard.
+- Every client connects to the [Management Service](management/), which holds network state, manages peer IPs, and distributes updates to clients.
+- Clients use ICE (via [pion/ice](https://github.com/pion/ice)) to discover connection candidates for peer-to-peer connections.
 - Candidates are discovered with the help of [STUN](https://en.wikipedia.org/wiki/STUN) servers.
-- Agents negotiate a connection through the [Signal Service](signal/), exchanging end-to-end encrypted messages with candidates.
+- Clients negotiate a connection through the [Signal Service](signal/), exchanging end-to-end encrypted messages with candidates.
 - When NAT traversal fails (e.g. mobile carrier-grade NAT) and a direct p2p connection isn't possible, the system falls back to a [Relay Service](relay/) and a secure WireGuard tunnel is established through it.
 
 <p float="left" align="middle">
