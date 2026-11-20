@@ -148,6 +148,40 @@ func TestManager_MatchHostFormat(t *testing.T) {
 		"should use Match host with comma-separated patterns")
 }
 
+// The ProxyCommand terminates the SSH session locally and authenticates to the peer with
+// a token of its own, so the OpenSSH client must never offer a password or key. The
+// options are spelled out as "no" so the generated file shows that. Before OpenSSH 8.7
+// KbdInteractiveAuthentication and ChallengeResponseAuthentication are separate client
+// options, so both are set.
+func TestManager_ClientAuthMethodsDisabled(t *testing.T) {
+	tempDir := t.TempDir()
+	manager := &Manager{
+		sshConfigDir:  filepath.Join(tempDir, "ssh_config.d"),
+		sshConfigFile: "99-netbird.conf",
+	}
+
+	peers := []PeerSSHInfo{
+		{Hostname: "peer1", IP: netip.MustParseAddr("100.125.1.1"), FQDN: "peer1.nb.internal"},
+	}
+	require.NoError(t, manager.SetupSSHClientConfig(peers))
+
+	content, err := os.ReadFile(filepath.Join(manager.sshConfigDir, manager.sshConfigFile))
+	require.NoError(t, err)
+	configStr := string(content)
+
+	for _, line := range []string{
+		"    PasswordAuthentication no\n",
+		"    KbdInteractiveAuthentication no\n",
+		"    ChallengeResponseAuthentication no\n",
+		"    PubkeyAuthentication no\n",
+	} {
+		assert.Contains(t, configStr, line, "auth method should be explicitly disabled")
+	}
+
+	assert.NotContains(t, configStr, "Authentication yes", "no auth method should be enabled")
+	assert.NotContains(t, configStr, "PreferredAuthentications", "auth method preference is not needed")
+}
+
 func TestManager_HostPatternInjection(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "netbird-ssh-config-test")
 	require.NoError(t, err)
