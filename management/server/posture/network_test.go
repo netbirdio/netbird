@@ -74,7 +74,7 @@ func TestPeerNetworkRangeCheck_Check(t *testing.T) {
 				},
 			},
 			peer:    nbpeer.Peer{},
-			wantErr: true,
+			wantErr: false,
 			isValid: false,
 		},
 		{
@@ -123,7 +123,7 @@ func TestPeerNetworkRangeCheck_Check(t *testing.T) {
 			isValid: true,
 		},
 		{
-			name: "Peer with no networks range in the denied range",
+			name: "Peer with no networks range in the denied range is allowed through",
 			check: PeerNetworkRangeCheck{
 				Action: CheckActionDeny,
 				Ranges: []netip.Prefix{
@@ -132,8 +132,8 @@ func TestPeerNetworkRangeCheck_Check(t *testing.T) {
 				},
 			},
 			peer:    nbpeer.Peer{},
-			wantErr: true,
-			isValid: false,
+			wantErr: false,
+			isValid: true,
 		},
 		{
 			name: "Peer connection IP matches the denied /32",
@@ -323,7 +323,11 @@ func TestPeerNetworkRangeCheck_Check(t *testing.T) {
 			isValid: true,
 		},
 		{
-			name: "Empty NetworkAddresses and empty ConnectionIP still errors",
+			// When the peer carries no NetworkAddresses AND no ConnectionIP we
+			// cannot confirm membership in any range. Action-aware default:
+			// Deny -> allow (cannot confirm peer IS in denied range);
+			// Allow -> deny (cannot confirm peer IS in allowed range).
+			name: "Empty NetworkAddresses and empty ConnectionIP, Deny action allows the peer",
 			check: PeerNetworkRangeCheck{
 				Action: CheckActionDeny,
 				Ranges: []netip.Prefix{
@@ -331,7 +335,19 @@ func TestPeerNetworkRangeCheck_Check(t *testing.T) {
 				},
 			},
 			peer:    nbpeer.Peer{},
-			wantErr: true,
+			wantErr: false,
+			isValid: true,
+		},
+		{
+			name: "Empty NetworkAddresses and empty ConnectionIP, Allow action denies the peer",
+			check: PeerNetworkRangeCheck{
+				Action: CheckActionAllow,
+				Ranges: []netip.Prefix{
+					netip.MustParsePrefix("109.41.115.194/32"),
+				},
+			},
+			peer:    nbpeer.Peer{},
+			wantErr: false,
 			isValid: false,
 		},
 	}
