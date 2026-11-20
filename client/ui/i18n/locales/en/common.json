@@ -2052,7 +2052,7 @@
         "description": "Shown in the connect dialog when nothing would change."
     },
     "agentNetwork.harness.conflict": {
-        "message": "Settings marked 'Not set by NetBird' will be replaced. Disconnect puts them back.",
+        "message": "Settings marked 'Not set by NetBird' will be replaced. Disconnect restores the settings it changed, unless you edited them since.",
         "description": "Warning line under the preview in the setup dialog when existing settings would be overwritten. Keep 'Not set by NetBird' the same as the badge."
     },
     "agentNetwork.harness.notOurs": {
