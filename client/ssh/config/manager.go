@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -237,18 +238,30 @@ func (m *Manager) buildHostPatterns(peer PeerSSHInfo) []string {
 	return hostPatterns
 }
 
+// writeMu serializes config writes. They share one temporary file name, and managers are
+// created per call, so the lock cannot live on the Manager.
+var writeMu sync.Mutex
+
 func (m *Manager) writeSSHConfig(sshConfig string) error {
+	writeMu.Lock()
+	defer writeMu.Unlock()
+
 	sshConfigPath := filepath.Join(m.sshConfigDir, m.sshConfigFile)
 
 	if err := os.MkdirAll(m.sshConfigDir, 0755); err != nil {
 		return fmt.Errorf("create SSH config directory %s: %w", m.sshConfigDir, err)
 	}
 
-	tmp, err := os.CreateTemp(m.sshConfigDir, m.sshConfigFile+".*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temp SSH config: %w", err)
+	// A fixed temporary name lets SELinux policy label the file by name; a random one would
+	// only get the generic config label.
+	tmpPath := sshConfigPath + ".tmp"
+	if err := os.Remove(tmpPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove stale temp SSH config %s: %w", tmpPath, err)
 	}
-	tmpPath := tmp.Name()
+	tmp, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	if err != nil {
+		return fmt.Errorf("create temp SSH config %s: %w", tmpPath, err)
+	}
 	defer func() {
 		if err := os.Remove(tmpPath); err != nil && !os.IsNotExist(err) {
 			log.Debugf("remove temp SSH config %s: %v", tmpPath, err)

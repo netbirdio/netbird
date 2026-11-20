@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"syscall"
 
 	"github.com/hashicorp/go-multierror"
@@ -50,6 +51,9 @@ const (
 
 	// rtTablesPath is the path to the file containing the routing table names.
 	rtTablesPath = "/etc/iproute2/rt_tables"
+	// rtTablesDropInPath is the drop-in file iproute2 reads next to rtTablesPath. It is owned by
+	// NetBird and holds only its own table name.
+	rtTablesDropInPath = "/etc/iproute2/rt_tables.d/netbird.conf"
 
 	// ipv4ForwardingPath is the path to the file containing the IP forwarding setting.
 	ipv4ForwardingPath = "net.ipv4.ip_forward"
@@ -796,43 +800,56 @@ func entryExists(file *os.File, id int) (bool, error) {
 	return false, nil
 }
 
-// addRoutingTableName adds human-readable names for custom routing tables.
+// addRoutingTableName registers the human-readable name of the custom routing table.
 func addRoutingTableName() error {
-	file, err := os.Open(rtTablesPath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+	return registerRoutingTableName(rtTablesPath, rtTablesDropInPath)
+}
+
+// registerRoutingTableName writes the table name into the drop-in file unless an entry for the
+// table ID is already present in the legacy rt_tables file or in the drop-in itself. The drop-in
+// is read by iproute2 and, unlike rt_tables, exists on distributions that keep the stock table
+// list under /usr/share/iproute2.
+func registerRoutingTableName(legacyPath, dropInPath string) error {
+	for _, path := range []string{legacyPath, dropInPath} {
+		exists, err := tableEntryExists(path, NetbirdVPNTableID)
+		if err != nil {
+			return fmt.Errorf("verify entry %d, %s in %s: %w", NetbirdVPNTableID, NetbirdVPNTableName, path, err)
+		}
+		if exists {
 			return nil
 		}
-		return fmt.Errorf("open rt_tables: %w", err)
-	}
-	defer func() {
-		if err := file.Close(); err != nil {
-			log.Errorf("Error closing rt_tables: %v", err)
-		}
-	}()
-
-	exists, err := entryExists(file, NetbirdVPNTableID)
-	if err != nil {
-		return fmt.Errorf("verify entry %d, %s: %w", NetbirdVPNTableID, NetbirdVPNTableName, err)
-	}
-	if exists {
-		return nil
 	}
 
-	// Reopen the file in append mode to add new entries
-	if err := file.Close(); err != nil {
-		log.Errorf("Error closing rt_tables before appending: %v", err)
-	}
-	file, err = os.OpenFile(rtTablesPath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
-	if err != nil {
-		return fmt.Errorf("open rt_tables for appending: %w", err)
+	if err := os.MkdirAll(filepath.Dir(dropInPath), 0o755); err != nil {
+		return fmt.Errorf("create %s: %w", filepath.Dir(dropInPath), err)
 	}
 
-	if _, err := file.WriteString(fmt.Sprintf("\n%d\t%s\n", NetbirdVPNTableID, NetbirdVPNTableName)); err != nil {
-		return fmt.Errorf("append entry to rt_tables: %w", err)
+	entry := fmt.Sprintf("%d\t%s\n", NetbirdVPNTableID, NetbirdVPNTableName)
+	// nolint:gosec // iproute2 reads the drop-in as any user
+	if err := os.WriteFile(dropInPath, []byte(entry), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", dropInPath, err)
 	}
 
 	return nil
+}
+
+// tableEntryExists reports whether the file at path holds an entry for the table ID. A missing
+// file holds no entry.
+func tableEntryExists(path string, id int) (bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("open %s: %w", path, err)
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			log.Debugf("close %s: %v", path, err)
+		}
+	}()
+
+	return entryExists(file, id)
 }
 
 // addRule adds a routing rule to a specific routing table identified by tableID.
