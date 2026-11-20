@@ -200,6 +200,7 @@ func main() {
 		Session:         authSession,
 		Localizer:       localizer,
 		Preferences:     prefStore,
+		MDMLoader:       mdmLoader,
 	})
 	listenForShowSignal(context.Background(), tray)
 

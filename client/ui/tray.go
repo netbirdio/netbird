@@ -55,6 +55,9 @@ type TrayServices struct {
 	Session     *authsession.Session
 	Localizer   *Localizer
 	Preferences *preferences.Store
+	// MDMLoader is read when a notification is due, so a policy that turns
+	// notifications off applies even while the daemon sends no events.
+	MDMLoader *mdm.Loader
 }
 
 type Tray struct {
@@ -179,7 +182,7 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 		// in the right locale — no English flash then re-paint.
 		loc: svc.Localizer,
 	}
-	t.updater = newTrayUpdater(app, t.showMainAt, svc.Update, svc.Notifier, t.loc, func() { t.applyIcon() }, func() { t.relayoutMenu() })
+	t.updater = newTrayUpdater(app, t.showMainAt, svc.Update, svc.Notifier, t.isNotificationsEnabled, t.loc, func() { t.applyIcon() }, func() { t.relayoutMenu() })
 	t.tray = app.SystemTray.New()
 	// Seed panel-theme detection before the first paint so the initial icon
 	// matches the panel's light/dark scheme (Linux only).

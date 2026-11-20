@@ -30,6 +30,10 @@ type trayUpdater struct {
 	// on a plain SetLabel/SetHidden — only a relayout (fresh submenu ids) repaints.
 	onMenuChange func()
 
+	// notificationsEnabled reports the notifications setting, user or MDM,
+	// at the time a notification is due.
+	notificationsEnabled func() bool
+
 	mu                 sync.Mutex
 	item               *application.MenuItem
 	state              updater.State
@@ -37,7 +41,7 @@ type trayUpdater struct {
 	progressWindowOpen bool
 }
 
-func newTrayUpdater(app *application.App, showMainAt func(url string), update *services.Update, notifier *Notifier, loc *Localizer, onIconChange func(), onMenuChange func()) *trayUpdater {
+func newTrayUpdater(app *application.App, showMainAt func(url string), update *services.Update, notifier *Notifier, notificationsEnabled func() bool, loc *Localizer, onIconChange func(), onMenuChange func()) *trayUpdater {
 	u := &trayUpdater{
 		app:          app,
 		showMainAt:   showMainAt,
@@ -49,6 +53,7 @@ func newTrayUpdater(app *application.App, showMainAt func(url string), update *s
 	if notifier != nil {
 		u.send = notifier.SendNotification
 	}
+	u.notificationsEnabled = notificationsEnabled
 	app.Event.On(updater.EventStateChanged, u.onStateEvent)
 	// Seed from cached state to cover an event that fired before wiring completed.
 	u.state = update.GetState()
@@ -171,7 +176,7 @@ func (u *trayUpdater) refreshMenuItem(st updater.State) {
 }
 
 func (u *trayUpdater) sendUpdateNotification(st updater.State) {
-	if u.send == nil {
+	if u.send == nil || (u.notificationsEnabled != nil && !u.notificationsEnabled()) {
 		return
 	}
 	body := u.loc.T("notify.update.body", "version", st.Version)
