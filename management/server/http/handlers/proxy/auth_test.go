@@ -13,7 +13,7 @@ import (
 )
 
 func TestAuthCallbackHandler_RateLimiting(t *testing.T) {
-	handler := NewAuthCallbackHandler(&nbgrpc.ProxyServiceServer{}, nil)
+	handler := NewAuthCallbackHandler(&nbgrpc.ProxyServiceServer{}, nil, nil, nil)
 	require.NotNil(t, handler.rateLimiter, "Rate limiter should be initialized")
 
 	req := httptest.NewRequest(http.MethodGet, "/callback?state=test&code=test", nil)
@@ -55,7 +55,7 @@ func TestAuthCallbackHandler_RateLimiting(t *testing.T) {
 }
 
 func TestAuthCallbackHandler_RateLimitInHandleCallback(t *testing.T) {
-	handler := NewAuthCallbackHandler(&nbgrpc.ProxyServiceServer{}, nil)
+	handler := NewAuthCallbackHandler(&nbgrpc.ProxyServiceServer{}, nil, nil, nil)
 	testIP := "10.0.0.50"
 
 	handler.rateLimiter.Reset(testIP)
@@ -153,7 +153,7 @@ func TestResolveClientIP(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := NewAuthCallbackHandler(&nbgrpc.ProxyServiceServer{}, tt.trustedProxy)
+			handler := NewAuthCallbackHandler(&nbgrpc.ProxyServiceServer{}, nil, nil, tt.trustedProxy)
 
 			req := httptest.NewRequest(http.MethodGet, "/test", nil)
 			req.RemoteAddr = tt.remoteAddr
@@ -168,7 +168,7 @@ func TestResolveClientIP(t *testing.T) {
 }
 
 func TestAuthCallbackHandler_RateLimiterConfiguration(t *testing.T) {
-	handler := NewAuthCallbackHandler(&nbgrpc.ProxyServiceServer{}, nil)
+	handler := NewAuthCallbackHandler(&nbgrpc.ProxyServiceServer{}, nil, nil, nil)
 
 	require.NotNil(t, handler.rateLimiter, "Rate limiter should be initialized")
 

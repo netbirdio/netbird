@@ -139,7 +139,7 @@ func buildTestAPI(t testing_tools.TB, sqlFile string, peersUpdateManager network
 	zoneRecordsManager := recordsManager.NewManager(store, am, permissionsManager)
 
 	register := func(apiRouter *mux.Router) http.Handler {
-		apiHandler, err := http2.NewAPIHandler(ctx, apiRouter, am, networksManager, resourcesManager, routersManager,
+		apiHandler, err := http2.NewAPIHandler(ctx, apiRouter, authManagerMock, am, networksManager, resourcesManager, routersManager,
 			groupsManager, geoMock, permissionsManager, settingsManager, customZonesManager, zoneRecordsManager,
 			networkMapController, nil, serviceManager, nil, nil, nil, nil, nil, nil)
 		if err != nil {
