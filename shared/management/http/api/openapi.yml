@@ -23,6 +23,8 @@ tags:
     description: Interact with and view information about posture checks.
   - name: Routes
     description: Interact with and view information about routes.
+  - name: Exit Nodes
+    description: Interact with and view information about exit nodes, the peers that route internet traffic for other peers.
   - name: DNS
     description: Interact with and view information about DNS configuration.
   - name: DNS Zones
@@ -2023,7 +2025,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/NetworkResourceType'
         - type: string
-          enum: [ "peer" ]
+          enum: [ "peer", "exit_node" ]
           example: peer
     NetworkRequest:
       type: object
@@ -2182,6 +2184,89 @@ components:
           required:
             - id
         - $ref: '#/components/schemas/NetworkRouterRequest'
+    ExitNodePeer:
+      type: object
+      properties:
+        peer_id:
+          description: ID of a peer that routes internet traffic for this exit node
+          type: string
+          example: chacbco6lnnbn6cg5s91
+        metric:
+          description: Peer priority within the exit node. The enabled peer with the lowest metric is the primary, the others take over when it is unavailable
+          type: integer
+          maximum: 9999
+          minimum: 1
+          example: 100
+        enabled:
+          description: Whether this peer routes traffic for the exit node
+          type: boolean
+          example: true
+      required:
+        - peer_id
+        - metric
+        - enabled
+    ExitNodeRequest:
+      type: object
+      properties:
+        name:
+          description: Exit node name, shown to users in the NetBird client
+          type: string
+          maxLength: 255
+          minLength: 1
+          example: EU Egress
+        description:
+          description: Exit node description
+          type: string
+          example: Internet egress for EU teams
+        enabled:
+          description: Exit node status. A disabled exit node is not distributed to any peer
+          type: boolean
+          example: true
+        auto_apply:
+          description: Select this exit node automatically on the peers that its access control policies allow. When false, users select it in the client
+          type: boolean
+          example: true
+        peers:
+          description: Peers that route internet traffic for this exit node. More than one enabled peer enables high availability
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ExitNodePeer'
+      required:
+        - name
+        - enabled
+        - auto_apply
+        - peers
+    ExitNode:
+      allOf:
+        - type: object
+          properties:
+            id:
+              description: Exit node ID
+              type: string
+              example: chacdk86lnnboviihd7g
+            policies:
+              description: IDs of the access control policies whose destination is this exit node
+              type: array
+              items:
+                type: string
+                example: chacbco6lnnbn6cg5s91
+          required:
+            - id
+            - policies
+        - $ref: '#/components/schemas/ExitNodeRequest'
+    ExitNodeConvertRoutesRequest:
+      type: object
+      properties:
+        route_ids:
+          description: IDs of legacy network routes with the 0.0.0.0/0 network to convert
+          type: array
+          minItems: 1
+          items:
+            type: string
+            example: chacdk86lnnboviihd7g
+      required:
+        - route_ids
     Nameserver:
       type: object
       properties:
@@ -8787,6 +8872,181 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/NetworkRouter'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/exit-nodes:
+    get:
+      summary: List all Exit Nodes
+      description: Returns a list of all exit nodes
+      tags: [ Exit Nodes ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of Exit Nodes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExitNode'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create an Exit Node
+      description: Creates an exit node
+      tags: [ Exit Nodes ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: New Exit Node request
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/ExitNodeRequest'
+      responses:
+        '200':
+          description: An Exit Node object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExitNode'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/exit-nodes/convert-routes:
+    post:
+      summary: Convert legacy exit node routes
+      description: Converts network routes with the 0.0.0.0/0 network into exit nodes in one transaction. Routes that share a network identifier become one exit node with the same peers, metrics and status, and auto_apply is the opposite of their skip_auto_apply. Their distribution groups become the source groups of a new access control policy whose destination is the exit node. The converted routes are deleted
+      tags: [ Exit Nodes ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: Routes to convert
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/ExitNodeConvertRoutesRequest'
+      responses:
+        '200':
+          description: The created Exit Nodes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExitNode'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/exit-nodes/{exitNodeId}:
+    get:
+      summary: Retrieve an Exit Node
+      description: Get information about an exit node
+      tags: [ Exit Nodes ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: exitNodeId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an exit node
+      responses:
+        '200':
+          description: An Exit Node object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExitNode'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update an Exit Node
+      description: Update/Replace an exit node, including its peers
+      tags: [ Exit Nodes ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: exitNodeId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an exit node
+      requestBody:
+        description: Update Exit Node request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExitNodeRequest'
+      responses:
+        '200':
+          description: An Exit Node object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExitNode'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete an Exit Node
+      description: Delete an exit node. Fails while an access control policy still uses it as a destination
+      tags: [ Exit Nodes ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: exitNodeId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an exit node
+      responses:
+        '200':
+          description: Delete status code
+          content: { }
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
