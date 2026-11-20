@@ -182,6 +182,78 @@
     "notify.mdm.policyApplied.body": {
         "message": "A súa configuración de NetBird foi actualizada pola súa política de IT."
     },
+    "event.title": {
+        "message": "{severity}: {category}"
+    },
+    "event.severity.info": {
+        "message": "Información"
+    },
+    "event.severity.warning": {
+        "message": "Aviso"
+    },
+    "event.severity.error": {
+        "message": "Erro"
+    },
+    "event.severity.critical": {
+        "message": "Crítico"
+    },
+    "event.category.network": {
+        "message": "Rede"
+    },
+    "event.category.dns": {
+        "message": "DNS"
+    },
+    "event.category.authentication": {
+        "message": "Autenticación"
+    },
+    "event.category.connectivity": {
+        "message": "Conectividade"
+    },
+    "event.category.system": {
+        "message": "Sistema"
+    },
+    "event.panic": {
+        "message": "O servizo NetBird fallou de forma inesperada. Reinicie o servizo e envíe un informe de erro cos rexistros do cliente."
+    },
+    "event.dns.recovered": {
+        "message": "Os servidores DNS volven estar accesibles."
+    },
+    "event.dns.unreachable": {
+        "message": "Non se puido acceder a un ou máis servidores DNS. Isto pode afectar á súa capacidade de conectarse a algúns servizos."
+    },
+    "event.exitNode.connected": {
+        "message": "Nodo de saída conectado."
+    },
+    "event.exitNode.disconnected": {
+        "message": "Nodo de saída desconectado."
+    },
+    "event.exitNode.connectionLost": {
+        "message": "Perdeuse a conexión co nodo de saída. O seu acceso a internet pode verse afectado."
+    },
+    "event.exitNode.haChange": {
+        "message": "Nodo de saída desconectado por un cambio de alta dispoñibilidade."
+    },
+    "event.exitNode.disconnectedUnknown": {
+        "message": "Nodo de saída desconectado por motivos descoñecidos."
+    },
+    "event.update.installing": {
+        "message": "Instalando a actualización agora."
+    },
+    "event.update.completed": {
+        "message": "O seu cliente NetBird actualizouse automaticamente á versión {version}."
+    },
+    "event.update.failed": {
+        "message": "Fallou a actualización automática: {reason}"
+    },
+    "event.certPosture.proven": {
+        "message": "Un certificado esixido pola política de dispositivos da súa organización volve estar dispoñible."
+    },
+    "event.certPosture.lost": {
+        "message": "NetBird non puido usar un certificado esixido pola política de dispositivos da súa organización. O acceso a algúns recursos pode quedar bloqueado ata que haxa un dispoñible."
+    },
+    "event.certPosture.storeStuck": {
+        "message": "NetBird non pode ler os certificados esixidos pola política de dispositivos da súa organización porque o almacén de certificados deixou de responder. Se o problema continúa, reinicie o servizo de NetBird."
+    },
     "common.cancel": {
         "message": "Cancelar"
     },
