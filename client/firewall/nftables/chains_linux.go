@@ -607,15 +607,12 @@ func (r *family) Flush() error {
 	return nil
 }
 
-// queuePreroutingRule builds the prerouting mangle counterpart of a peer
-// ACL rule and queues it on the connection without flushing, so the
-// caller can commit it in the same transaction as the rule it pairs
-// with. The redirect mark tells the forward filter that the input ACL
-// accepts a packet DNAT diverted from input to forward, so only an
-// accept counterpart sets it. A drop counterpart drops new traffic
-// before DNAT and is inserted at the head, mirroring the
-// drop-before-accept order of the input chain. Returns nil when the
-// prerouting chain is absent, in which case nothing is queued.
+// queuePreroutingRule builds the prerouting counterpart of a peer ACL rule
+// and queues it on the connection. A drop rule drops new traffic before
+// DNAT and goes to the head of the chain. An accept rule sets the redirect
+// mark so the forward filter accepts a packet that DNAT diverts from input
+// to forward. The caller flushes the rule separately from the filter rule
+// it pairs with. Returns nil when the prerouting chain is absent.
 func (r *family) queuePreroutingRule(expressions []expr.Any, userData []byte, action firewall.Action) *nftables.Rule {
 	if r.chainPrerouting == nil {
 		log.Warn("prerouting chain is not created")
