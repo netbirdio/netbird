@@ -3,9 +3,11 @@ package client
 import (
 	"bytes"
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
+	nbRelay "github.com/netbirdio/netbird/shared/relay"
 	"github.com/netbirdio/netbird/shared/relay/messages"
 
 	"github.com/sirupsen/logrus"
@@ -16,7 +18,16 @@ import (
 type mockRelayedConn struct {
 }
 
+type recordingRelayedConn struct {
+	writes [][]byte
+}
+
 func (m *mockRelayedConn) Write(p []byte) (n int, err error) {
+	return len(p), nil
+}
+
+func (r *recordingRelayedConn) Write(p []byte) (n int, err error) {
+	r.writes = append(r.writes, append([]byte(nil), p...))
 	return len(p), nil
 }
 
@@ -25,7 +36,7 @@ func TestWaitToBeOnlineAndSubscribe_Success(t *testing.T) {
 	mockConn := &mockRelayedConn{}
 	logger := logrus.New()
 	logger.SetOutput(&bytes.Buffer{}) // discard log output
-	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, nil)
+	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, messages.MaxMessageSize, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -45,7 +56,7 @@ func TestWaitToBeOnlineAndSubscribe_Timeout(t *testing.T) {
 	mockConn := &mockRelayedConn{}
 	logger := logrus.New()
 	logger.SetOutput(&bytes.Buffer{})
-	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, nil)
+	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, messages.MaxMessageSize, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
@@ -60,7 +71,7 @@ func TestWaitToBeOnlineAndSubscribe_Duplicate(t *testing.T) {
 	mockConn := &mockRelayedConn{}
 	logger := logrus.New()
 	logger.SetOutput(&bytes.Buffer{})
-	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, nil)
+	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, messages.MaxMessageSize, nil)
 
 	ctx := context.Background()
 	go func() {
@@ -78,7 +89,7 @@ func TestUnsubscribeStateChange(t *testing.T) {
 	mockConn := &mockRelayedConn{}
 	logger := logrus.New()
 	logger.SetOutput(&bytes.Buffer{})
-	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, nil)
+	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, messages.MaxMessageSize, nil)
 
 	doneChan := make(chan struct{})
 	go func() {
@@ -96,4 +107,27 @@ func TestUnsubscribeStateChange(t *testing.T) {
 		// Expected timeout, meaning the subscription was successfully unsubscribed
 		t.Errorf("timeout")
 	}
+}
+
+func TestUnsubscribeStateChange_SplitsByMaxMessageSize(t *testing.T) {
+	conn := &recordingRelayedConn{}
+	logger := logrus.New()
+	logger.SetOutput(&bytes.Buffer{})
+	sub := NewPeersStateSubscription(logrus.NewEntry(logger), conn, nbRelay.QUICMaxDatagramSize, nil)
+
+	peerIDs := make([]messages.PeerID, 100)
+	for i := range peerIDs {
+		peerIDs[i] = messages.HashID(strconv.Itoa(i))
+	}
+	require.NoError(t, sub.UnsubscribeStateChange(peerIDs))
+	require.Greater(t, len(conn.writes), 1, "the connection limit must force a split")
+
+	var sent []messages.PeerID
+	for _, msg := range conn.writes {
+		assert.LessOrEqual(t, len(msg), nbRelay.QUICMaxDatagramSize, "message must respect the connection limit")
+		chunk, err := messages.UnmarshalUnsubPeerStateMsg(msg)
+		require.NoError(t, err)
+		sent = append(sent, chunk...)
+	}
+	assert.Equal(t, peerIDs, sent, "every peer ID must be unsubscribed")
 }

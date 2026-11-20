@@ -119,7 +119,7 @@ func StartNBLink(ctx context.Context, c *Combined, setupKey, forward, caCertPath
 		"NB_FORWARD":        strings.Join(append([]string{forward}, o.extra...), ","),
 		"NB_HOSTNAME":       o.name,
 		"NB_LOG_LEVEL":      "debug",
-		// Match the agent and the proxy: the combined relay is WebSocket-only,
+		// Match the client and the proxy: the combined relay is WebSocket-only,
 		// so the embedded client must use WS to hold a stable relay link.
 		"NB_RELAY_TRANSPORT": "ws",
 	}

@@ -3,7 +3,7 @@
 set -x
 
 LOG_FILE=/var/log/netbird/client_pre_install.log
-AGENT=/usr/local/bin/netbird
+NETBIRD_BIN=/usr/local/bin/netbird
 UI_PROCESS=netbird-ui
 
 mkdir -p /var/log/netbird/
@@ -74,7 +74,7 @@ quit_ui() {
         exit 1
     fi
     quit_ui
-    $AGENT service stop || true
+    $NETBIRD_BIN service stop || true
 
     echo "Preinstall complete"
     exit 0 # all good

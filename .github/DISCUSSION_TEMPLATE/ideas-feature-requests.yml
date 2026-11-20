@@ -31,7 +31,7 @@ body:
       description: Select every area this request touches.
       multiple: true
       options:
-        - Client / Agent
+        - Client
         - CLI
         - Desktop UI
         - Mobile app
