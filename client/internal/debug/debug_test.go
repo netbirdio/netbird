@@ -21,6 +21,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/configs"
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
@@ -1205,4 +1206,20 @@ func TestMaskSecrets_AuthToken(t *testing.T) {
 	}}
 	g.maskSecrets()
 	assert.Equal(t, []byte(maskedValue), g.syncResponse.NetbirdConfig.AuthToken, "the auth token must not reach the bundle")
+}
+
+// The profile value alone misleads support when NB_FORCE_RELAY or an MDM
+// policy decides force relay, so the bundle reports the value in effect too.
+func TestAddConfig_ReportsForceRelayInEffect(t *testing.T) {
+	t.Setenv(peer.EnvKeyNBForceRelay, "true")
+	g := &BundleGenerator{
+		anonymizer:     newAnonymizerForTest(),
+		internalConfig: &profilemanager.Config{ForceRelay: false},
+	}
+
+	var sb strings.Builder
+	g.addCommonConfigFields(&sb)
+
+	assert.Contains(t, sb.String(), "ForceRelay: false\n", "the profile value")
+	assert.Contains(t, sb.String(), "ForceRelayInEffect: true\n", "the value the engine runs with")
 }
