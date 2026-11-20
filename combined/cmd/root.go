@@ -57,8 +57,20 @@ var (
 All services (Management, Signal, Relay) are multiplexed on a single port.
 Optional STUN server runs on separate UDP ports.
 
-Configuration is loaded from a file specified with --config. Values can be
-overridden with NB_-prefixed environment variables, such as NB_SERVER_LOGLEVEL.`,
+Configuration is loaded from a file specified with --config. Settings are
+resolved as environment, then file, then defaults.
+
+Scalar settings under "server" can be set with an environment variable named
+after their path: NB_, then the path with dots replaced by underscores, in
+upper case. For example, server.logLevel is NB_SERVER_LOGLEVEL and
+server.tls.letsencrypt.email is NB_SERVER_TLS_LETSENCRYPT_EMAIL. Lists and
+maps, such as server.stunPorts, are file only.
+
+Some settings keep the names other NetBird services already read, and ignore
+an empty value: NB_AUTH_SECRET (server.authSecret), NB_STORE_ENCRYPTION_KEY,
+NB_STORE_ENGINE_POSTGRES_DSN and NB_STORE_ENGINE_SQLITE_FILE (server.store),
+NB_ACTIVITY_EVENT_* (server.activityStore) and NB_ACCESS_LOG_*
+(server.accessLogStore).`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE:          execute,

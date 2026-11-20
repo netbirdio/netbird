@@ -182,7 +182,7 @@ func TestLoadConfigNoPathSecretEnv(t *testing.T) {
 	assert.Equal(t, "env-store-encryption-key", cfg.Server.Store.EncryptionKey, "server.store.encryptionKey")
 }
 
-func TestApplyServerSecretEnvLogsNameNotValue(t *testing.T) {
+func TestApplyServerEnvOverridesLogsNameNotValue(t *testing.T) {
 	unsetSecretEnvs(t)
 	secret := "relay-secret-must-not-appear"
 	key := "store-key-must-not-appear"
@@ -191,7 +191,7 @@ func TestApplyServerSecretEnvLogsNameNotValue(t *testing.T) {
 
 	buf := captureLogOutput(t)
 	cfg := DefaultConfig()
-	applyServerSecretEnv(cfg)
+	applyServerEnvOverrides(cfg)
 
 	out := buf.String()
 	assert.Contains(t, out, envRelayAuthSecret, "info log should name the relay auth env var")
