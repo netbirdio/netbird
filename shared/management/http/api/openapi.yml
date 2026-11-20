@@ -2198,7 +2198,7 @@ components:
         name:
           description: Exit node name, shown to users in the NetBird client
           type: string
-          maxLength: 255
+          maxLength: 40
           minLength: 1
           example: EU Egress
         description:
@@ -2212,6 +2212,7 @@ components:
         auto_apply:
           description: Select this exit node automatically on the peers that its access control policies allow. When false, users select it in the client
           type: boolean
+          default: true
           example: true
         peers:
           description: Peers that route internet traffic for this exit node. More than one enabled peer enables high availability
@@ -2232,28 +2233,9 @@ components:
               description: Exit node ID
               type: string
               example: chacdk86lnnboviihd7g
-            policies:
-              description: IDs of the access control policies whose destination is this exit node
-              type: array
-              items:
-                type: string
-                example: chacbco6lnnbn6cg5s91
           required:
             - id
-            - policies
         - $ref: '#/components/schemas/ExitNodeRequest'
-    ExitNodeConvertRoutesRequest:
-      type: object
-      properties:
-        route_ids:
-          description: IDs of legacy network routes with the 0.0.0.0/0 network to convert
-          type: array
-          minItems: 1
-          items:
-            type: string
-            example: chacdk86lnnboviihd7g
-      required:
-        - route_ids
     Nameserver:
       type: object
       properties:
@@ -8918,37 +8900,10 @@ paths:
           "$ref": "#/components/responses/requires_authentication"
         '403':
           "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-  /api/exit-nodes/convert-routes:
-    post:
-      summary: Convert legacy exit node routes
-      description: Converts network routes with the 0.0.0.0/0 network into exit nodes in one transaction. Routes that share a network identifier become one exit node with the same peers, metrics and status, and auto_apply is the opposite of their skip_auto_apply. Their distribution groups become the source groups of a new access control policy whose destination is the exit node. The converted routes are deleted
-      tags: [ Exit Nodes ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      requestBody:
-        description: Routes to convert
-        content:
-          'application/json':
-            schema:
-              $ref: '#/components/schemas/ExitNodeConvertRoutesRequest'
-      responses:
-        '200':
-          description: The created Exit Nodes
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ExitNode'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
+        '422':
+          "$ref": "#/components/responses/validation_failed"
+        '409':
+          "$ref": "#/components/responses/conflict"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/exit-nodes/{exitNodeId}:
@@ -8979,6 +8934,8 @@ paths:
           "$ref": "#/components/responses/requires_authentication"
         '403':
           "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
         '500':
           "$ref": "#/components/responses/internal_error"
     put:
@@ -9014,11 +8971,17 @@ paths:
           "$ref": "#/components/responses/requires_authentication"
         '403':
           "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '422':
+          "$ref": "#/components/responses/validation_failed"
+        '409':
+          "$ref": "#/components/responses/conflict"
         '500':
           "$ref": "#/components/responses/internal_error"
     delete:
-      summary: Delete an Exit Node
-      description: Delete an exit node. Fails while an access control policy still uses it as a destination
+      summary: Delete an Exit Node and its policies
+      description: Delete an exit node and the access control policies whose destination it is
       tags: [ Exit Nodes ]
       security:
         - BearerAuth: [ ]
@@ -9040,6 +9003,8 @@ paths:
           "$ref": "#/components/responses/requires_authentication"
         '403':
           "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/dns/nameservers:
