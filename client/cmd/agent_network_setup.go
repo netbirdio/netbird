@@ -37,6 +37,7 @@ var agentNetworkSetupCmd = &cobra.Command{
 	Short: "Point a coding agent at Agent Networks",
 	Long: "Write a coding agent's global user config so it sends model requests to your Agent Networks endpoint.\n" +
 		"No credential is written: the endpoint authorizes this machine by its NetBird identity.\n" +
+		"Run it as the user who owns the config: a file owned by another user, for example under sudo, is refused.\n" +
 		"Run 'netbird agent-network setup list' for the supported agents.",
 	Example: "  netbird agent-network setup claude-code --dry-run\n" +
 		"  netbird agent-network setup claude-code --provider anthropic --model claude-opus-5\n" +

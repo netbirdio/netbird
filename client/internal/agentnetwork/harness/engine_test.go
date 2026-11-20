@@ -387,3 +387,82 @@ func TestStatus(t *testing.T) {
 	h.write(t, `{}`, 0o600)
 	assert.Equal(t, "configured, edited since", Status(claudeCode.ID, rec))
 }
+
+// fakeOtherUser makes every file look owned by someone other than the
+// process, as under sudo, without needing root.
+func fakeOtherUser(t *testing.T) {
+	t.Helper()
+	orig := effectiveUID
+	effectiveUID = func() int { return orig() + 1 }
+	t.Cleanup(func() { effectiveUID = orig })
+}
+
+func dirListing(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names
+}
+
+func TestOwnerMismatchRefuses(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no owner uid on Windows")
+	}
+	h := newTestHost(t)
+	h.apply(t, h.render(t, "anthropic", ""), false)
+	before := h.read(t)
+	listing := dirListing(t, filepath.Dir(h.settings))
+	record, err := os.ReadFile(h.env.RecordPath)
+	require.NoError(t, err)
+
+	fakeOtherUser(t)
+	for name, settings := range map[string][]Setting{
+		"setup": h.render(t, "bedrock_api", ""),
+		"undo":  nil,
+	} {
+		p, _, err := h.plan(t, settings, true)
+		var notOwner *NotOwnerError
+		require.ErrorAs(t, err, &notOwner, name)
+		assert.Nil(t, p, "%s: no plan to apply", name)
+		assert.Equal(t, h.settings, notOwner.File, "%s: the error names the file", name)
+		assert.Contains(t, err.Error(), "run setup as the file's owner", name)
+	}
+	assert.Equal(t, before, h.read(t), "the file is untouched")
+	assert.Equal(t, listing, dirListing(t, filepath.Dir(h.settings)), "no backup or temp file")
+	after, err := os.ReadFile(h.env.RecordPath)
+	require.NoError(t, err)
+	assert.Equal(t, string(record), string(after), "the record is untouched")
+}
+
+func TestOwnerMatchProceeds(t *testing.T) {
+	h := newTestHost(t)
+	h.write(t, `{"theme":"dark"}`, 0o600)
+	// The real uid owns the temp file, so the check passes.
+	h.apply(t, h.render(t, "anthropic", ""), false)
+	assert.Contains(t, h.read(t), testEndpoint, "the owner's file gets the settings")
+	assert.Len(t, h.backups(t), 1, "one backup")
+}
+
+func TestMissingFileForeignParentRefuses(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no owner uid on Windows")
+	}
+	h := newTestHost(t)
+	// Neither settings.json nor its directory exists; the nearest existing
+	// parent is the test root, which looks foreign.
+	root := filepath.Dir(filepath.Dir(h.settings))
+	listing := dirListing(t, root)
+
+	fakeOtherUser(t)
+	p, _, err := h.plan(t, h.render(t, "anthropic", ""), false)
+	var notOwner *NotOwnerError
+	require.ErrorAs(t, err, &notOwner)
+	assert.Nil(t, p, "no plan to apply")
+	assert.Equal(t, root, notOwner.Checked, "the nearest existing parent is checked")
+	assert.Contains(t, err.Error(), "does not exist", "the error says the file is missing")
+	assert.Equal(t, listing, dirListing(t, root), "no directory or file created")
+}
