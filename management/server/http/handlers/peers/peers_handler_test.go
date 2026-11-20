@@ -176,21 +176,6 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 			GetPeersFunc: func(_ context.Context, accountID, userID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, int, error) {
 				return peers, len(peers), nil
 			},
-			GetPeerGroupsFunc: func(ctx context.Context, accountID, peerID string) ([]*types.Group, error) {
-				peersID := make([]string, len(peers))
-				for _, peer := range peers {
-					peersID = append(peersID, peer.ID)
-				}
-				return []*types.Group{
-					{
-						ID:        "group1",
-						AccountID: accountID,
-						Name:      "group1",
-						Issued:    "api",
-						Peers:     peersID,
-					},
-				}, nil
-			},
 			GetDNSDomainFunc: func(settings *types.Settings) string {
 				return "netbird.selfhosted"
 			},
@@ -388,8 +373,8 @@ func TestPeerResponseNetworkAddresses(t *testing.T) {
 				Meta:   nbpeer.PeerSystemMeta{NetworkAddresses: tt.addresses},
 			}
 			responses := map[string]any{
-				"single peer": toSinglePeerResponse(peer, nil, "example.com", true, ""),
-				"peer list":   toPeerListItemResponse(peer, nil, "example.com", 0),
+				"single peer": toSinglePeerResponse(peer, "example.com", true, ""),
+				"peer list":   toPeerListItemResponse(peer, "example.com", 0),
 			}
 			for name, response := range responses {
 				t.Run(name, func(t *testing.T) {
@@ -642,6 +627,23 @@ func TestPeersHandlerUpdatePeerIP(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, tc.expectedIP, updatedPeer.Ip)
 			}
+		})
+	}
+}
+
+func TestPeerResponsesOmitGroups(t *testing.T) {
+	peer := &nbpeer.Peer{Status: &nbpeer.PeerStatus{}}
+	responses := map[string]any{
+		"single peer": toSinglePeerResponse(peer, "example.com", true, ""),
+		"peer list":   toPeerListItemResponse(peer, "example.com", 0),
+	}
+	for name, response := range responses {
+		t.Run(name, func(t *testing.T) {
+			body, err := json.Marshal(response)
+			require.NoError(t, err)
+			var fields map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(body, &fields))
+			assert.NotContains(t, fields, "groups", "peer responses must not embed group membership")
 		})
 	}
 }

@@ -15,7 +15,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/management/server/groups"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -167,9 +166,6 @@ func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string,
 
 	dnsDomain := h.networkMapController.GetDNSDomain(settings)
 
-	grps, _ := h.accountManager.GetPeerGroups(ctx, accountID, peerID)
-	grpsInfoMap := groups.ToGroupsInfoMap(grps, 0)
-
 	validPeers, invalidPeers, err := h.accountManager.GetValidatedPeers(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to list approved peers: %v", err)
@@ -180,7 +176,7 @@ func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string,
 	_, valid := validPeers[peer.ID]
 	reason := invalidPeers[peer.ID]
 
-	util.WriteJSONObject(ctx, w, toSinglePeerResponse(peer, grpsInfoMap[peerID], dnsDomain, valid, reason))
+	util.WriteJSONObject(ctx, w, toSinglePeerResponse(peer, dnsDomain, valid, reason))
 }
 
 func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID string, w http.ResponseWriter, r *http.Request) {
@@ -245,14 +241,6 @@ func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID stri
 	}
 	dnsDomain := h.networkMapController.GetDNSDomain(settings)
 
-	peerGroups, err := h.accountManager.GetPeerGroups(ctx, accountID, peer.ID)
-	if err != nil {
-		util.WriteError(ctx, err, w)
-		return
-	}
-
-	grpsInfoMap := groups.ToGroupsInfoMap(peerGroups, 0)
-
 	validPeers, invalidPeers, err := h.accountManager.GetValidatedPeers(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get validated peers: %v", err)
@@ -263,7 +251,7 @@ func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID stri
 	_, valid := validPeers[peer.ID]
 	reason := invalidPeers[peer.ID]
 
-	util.WriteJSONObject(r.Context(), w, toSinglePeerResponse(peer, grpsInfoMap[peerID], dnsDomain, valid, reason))
+	util.WriteJSONObject(r.Context(), w, toSinglePeerResponse(peer, dnsDomain, valid, reason))
 }
 
 func (h *Handler) deletePeer(ctx context.Context, accountID, userID string, peerID string, w http.ResponseWriter) {
@@ -334,15 +322,12 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 	}
 	dnsDomain := h.networkMapController.GetDNSDomain(settings)
 
-	grps, _ := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
-
-	grpsInfoMap := groups.ToGroupsInfoMap(grps, len(peers))
 	respBody := make([]*api.PeerBatch, 0, len(peers))
 	for _, peer := range peers {
 		if peer.ProxyMeta.Embedded {
 			continue
 		}
-		respBody = append(respBody, toPeerListItemResponse(peer, grpsInfoMap[peer.ID], dnsDomain, 0))
+		respBody = append(respBody, toPeerListItemResponse(peer, dnsDomain, 0))
 	}
 
 	validPeersMap, invalidPeersMap, err := h.accountManager.GetValidatedPeers(r.Context(), accountID)
@@ -583,7 +568,7 @@ func toNetworkAddresses(addrs []nbpeer.NetworkAddress) *[]api.NetworkAddress {
 	return &out
 }
 
-func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, approved bool, reason string) *api.Peer {
+func toSinglePeerResponse(peer *nbpeer.Peer, dnsDomain string, approved bool, reason string) *api.Peer {
 	osVersion := peer.Meta.OSVersion
 	if osVersion == "" {
 		osVersion = peer.Meta.Core
@@ -603,7 +588,6 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		KernelVersion:               peer.Meta.KernelVersion,
 		GeonameId:                   int(peer.Location.GeoNameID),
 		Version:                     peer.Meta.WtVersion,
-		Groups:                      groupsInfo,
 		SshEnabled:                  peer.SSHEnabled,
 		Hostname:                    peer.Meta.Hostname,
 		UserId:                      peer.UserID,
@@ -641,7 +625,7 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 	return apiPeer
 }
 
-func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, accessiblePeersCount int) *api.PeerBatch {
+func toPeerListItemResponse(peer *nbpeer.Peer, dnsDomain string, accessiblePeersCount int) *api.PeerBatch {
 	osVersion := peer.Meta.OSVersion
 	if osVersion == "" {
 		osVersion = peer.Meta.Core
@@ -660,7 +644,6 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 		KernelVersion:               peer.Meta.KernelVersion,
 		GeonameId:                   int(peer.Location.GeoNameID),
 		Version:                     peer.Meta.WtVersion,
-		Groups:                      groupsInfo,
 		SshEnabled:                  peer.SSHEnabled,
 		Hostname:                    peer.Meta.Hostname,
 		UserId:                      peer.UserID,

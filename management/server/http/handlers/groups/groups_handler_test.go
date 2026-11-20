@@ -15,12 +15,17 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/management/server"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -33,8 +38,19 @@ var TestPeers = map[string]*nbpeer.Peer{
 	"B": {Key: "B", ID: "peer-B-ID", IP: netip.MustParseAddr("200.200.200.200")},
 }
 
-func initGroupTestData(initGroups ...*types.Group) *handler {
+func newPermissionsMock(t *testing.T, peersRead bool, err error) *permissions.MockManager {
+	t.Helper()
+	m := permissions.NewMockManager(gomock.NewController(t))
+	m.EXPECT().
+		ValidateUserPermissions(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Eq(modules.Peers), gomock.Eq(operations.Read)).
+		Return(peersRead, context.Background(), err).
+		AnyTimes()
+	return m
+}
+
+func initGroupTestData(t *testing.T, initGroups ...*types.Group) *handler {
 	return &handler{
+		permissionsManager: newPermissionsMock(t, true, nil),
 		accountManager: &mock_server.MockAccountManager{
 			SaveGroupFunc: func(_ context.Context, accountID, userID string, group *types.Group, create bool) error {
 				if !strings.HasPrefix(group.ID, "id-") {
@@ -128,7 +144,7 @@ func TestGetGroup(t *testing.T) {
 		Name: "Group",
 	}
 
-	p := initGroupTestData(group)
+	p := initGroupTestData(t, group)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -281,7 +297,7 @@ func TestWriteGroup(t *testing.T) {
 		},
 	}
 
-	p := initGroupTestData()
+	p := initGroupTestData(t)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -359,7 +375,7 @@ func TestGetAllGroups(t *testing.T) {
 		},
 	}
 
-	p := initGroupTestData()
+	p := initGroupTestData(t)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -411,7 +427,7 @@ func TestToGroupResponseSkipsEmptyResource(t *testing.T) {
 		Resources: []types.Resource{{}, {ID: "res-1", Type: types.ResourceTypeHost}},
 	}
 
-	got := toGroupResponse(nil, group)
+	got := toGroupResponse(peerVisibility{all: true}, group)
 
 	assert.Equal(t, 1, got.ResourcesCount)
 	assert.Equal(t, []api.Resource{{Id: "res-1", Type: api.ResourceType(types.ResourceTypeHost)}}, got.Resources)
@@ -455,7 +471,7 @@ func TestDeleteGroup(t *testing.T) {
 		},
 	}
 
-	p := initGroupTestData()
+	p := initGroupTestData(t)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -494,4 +510,91 @@ func TestDeleteGroup(t *testing.T) {
 			}
 		})
 	}
+}
+
+func visibilityHandler(t *testing.T, peersRead bool, permErr error, ownPeers []*nbpeer.Peer, group *types.Group) *handler {
+	t.Helper()
+	return &handler{
+		permissionsManager: newPermissionsMock(t, peersRead, permErr),
+		accountManager: &mock_server.MockAccountManager{
+			GetGroupFunc: func(_ context.Context, _, _, _ string) (*types.Group, error) {
+				return group, nil
+			},
+			GetPeersFunc: func(_ context.Context, _, _, _, _, _ string) ([]*nbpeer.Peer, int, error) {
+				return ownPeers, len(ownPeers), nil
+			},
+		},
+	}
+}
+
+func getGroupVisibility(t *testing.T, h *handler) *httptest.ResponseRecorder {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/groups/grp", nil)
+	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{UserId: "test_user", AccountId: "test_id"})
+
+	router := mux.NewRouter()
+	router.HandleFunc("/api/groups/{groupId}", h.getGroup).Methods("GET")
+	router.ServeHTTP(recorder, req)
+	return recorder
+}
+
+func TestGetGroupPeerVisibility(t *testing.T) {
+	group := &types.Group{ID: "grp", Name: "Group", Issued: types.GroupIssuedAPI, Peers: []string{"p1", "p2", "p3", "p1"}}
+
+	t.Run("caller with peers read gets every member ID", func(t *testing.T) {
+		h := visibilityHandler(t, true, nil, nil, group)
+
+		recorder := getGroupVisibility(t, h)
+		require.Equal(t, http.StatusOK, recorder.Code)
+
+		got := &api.Group{}
+		require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), got))
+		assert.Equal(t, []string{"p1", "p2", "p3"}, got.Peers)
+		assert.Equal(t, 3, got.PeersCount)
+	})
+
+	t.Run("caller without peers read gets only their own peers", func(t *testing.T) {
+		own := []*nbpeer.Peer{{ID: "p2"}, {ID: "unrelated"}}
+		h := visibilityHandler(t, false, nil, own, group)
+
+		recorder := getGroupVisibility(t, h)
+		require.Equal(t, http.StatusOK, recorder.Code)
+
+		got := &api.Group{}
+		require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), got))
+		assert.Equal(t, []string{"p2"}, got.Peers)
+		assert.Equal(t, 1, got.PeersCount)
+	})
+
+	t.Run("caller without peers read and no own peers gets none", func(t *testing.T) {
+		h := visibilityHandler(t, false, nil, []*nbpeer.Peer{}, group)
+
+		recorder := getGroupVisibility(t, h)
+		require.Equal(t, http.StatusOK, recorder.Code)
+
+		got := &api.Group{}
+		require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), got))
+		assert.Empty(t, got.Peers)
+		assert.Equal(t, 0, got.PeersCount)
+	})
+
+	t.Run("permission check error denies and leaks no peers", func(t *testing.T) {
+		h := visibilityHandler(t, false, errors.New("permission backend down"), []*nbpeer.Peer{{ID: "p1"}}, group)
+
+		recorder := getGroupVisibility(t, h)
+		assert.NotEqual(t, http.StatusOK, recorder.Code)
+		assert.NotContains(t, recorder.Body.String(), "p1")
+	})
+
+	t.Run("fallback lookup error denies and leaks no peers", func(t *testing.T) {
+		h := visibilityHandler(t, false, nil, nil, group)
+		h.accountManager.(*mock_server.MockAccountManager).GetPeersFunc = func(_ context.Context, _, _, _, _, _ string) ([]*nbpeer.Peer, int, error) {
+			return nil, 0, errors.New("store unavailable")
+		}
+
+		recorder := getGroupVisibility(t, h)
+		assert.NotEqual(t, http.StatusOK, recorder.Code)
+		assert.NotContains(t, recorder.Body.String(), "p1")
+	})
 }

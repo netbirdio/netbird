@@ -190,15 +190,10 @@ func TestGuardrailGroupSwitchTakesEffectAfterTTL(t *testing.T) {
 // given group — the test client. The proxy peer is never added to test groups.
 func clientPeerInGroup(t *testing.T, ctx context.Context, groupID string) string {
 	t.Helper()
-	peers, err := srv.API().Peers.List(ctx)
-	require.NoError(t, err, "list peers")
-	for _, p := range peers {
-		for _, g := range p.Groups {
-			if g.Id == groupID {
-				return p.Id
-			}
-		}
+	group, err := srv.API().Groups.Get(ctx, groupID)
+	require.NoError(t, err, "get group %s", groupID)
+	if len(group.Peers) == 0 {
+		t.Fatalf("no peer found in group %s", groupID)
 	}
-	t.Fatalf("no peer found in group %s", groupID)
-	return ""
+	return group.Peers[0]
 }

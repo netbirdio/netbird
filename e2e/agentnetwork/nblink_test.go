@@ -5,6 +5,7 @@ package agentnetwork
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -187,7 +188,7 @@ func TestNBLinkReachesAgentNetwork(t *testing.T) {
 		peers := peersWithHostname(ctx, t, nb.Hostname())
 		require.Len(t, peers, 1, "exactly one peer must carry the forwarder's hostname %q", nb.Hostname())
 		peer = peers[0]
-		assert.True(t, peerInGroup(peer, allowed.Id),
+		assert.True(t, peerInGroup(ctx, t, peer.Id, allowed.Id),
 			"the setup key read from the file must have joined the peer to its auto-group")
 	})
 
@@ -617,13 +618,14 @@ func peersWithHostname(ctx context.Context, t *testing.T, hostname string) []api
 	return matched
 }
 
-func peerInGroup(p api.Peer, groupID string) bool {
-	for _, g := range p.Groups {
-		if g.Id == groupID {
-			return true
-		}
-	}
-	return false
+// peerInGroup reports whether peerID is a member of the group, read from the
+// Groups API because peer responses no longer carry group membership.
+func peerInGroup(ctx context.Context, t *testing.T, peerID, groupID string) bool {
+	t.Helper()
+
+	group, err := srv.API().Groups.Get(ctx, groupID)
+	require.NoError(t, err, "get group %s", groupID)
+	return slices.Contains(group.Peers, peerID)
 }
 
 // mintSetupKey creates a reusable setup key that auto-joins its peer to one

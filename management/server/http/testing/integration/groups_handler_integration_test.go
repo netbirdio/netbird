@@ -179,6 +179,7 @@ func Test_Groups_Create(t *testing.T) {
 				assert.NotEmpty(t, group.Id)
 				assert.Equal(t, "groupWithPeers", group.Name)
 				assert.Equal(t, 1, group.PeersCount)
+				assert.Equal(t, []string{testing_tools.TestPeerId}, group.Peers)
 			},
 		},
 		{

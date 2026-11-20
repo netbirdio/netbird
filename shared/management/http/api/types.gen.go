@@ -3431,8 +3431,8 @@ type Group struct {
 	// Name Group Name identifier
 	Name string `json:"name"`
 
-	// Peers List of peers object
-	Peers []PeerMinimum `json:"peers"`
+	// Peers List of peer IDs
+	Peers []string `json:"peers"`
 
 	// PeersCount Count of peers associated to the group
 	PeersCount int        `json:"peers_count"`
@@ -4213,9 +4213,6 @@ type Peer struct {
 	// GeonameId Unique identifier from the GeoNames database for a specific geographical location.
 	GeonameId int `json:"geoname_id"`
 
-	// Groups Groups that the peer belongs to
-	Groups []GroupMinimum `json:"groups"`
-
 	// Hostname Hostname of the machine
 	Hostname string `json:"hostname"`
 
@@ -4309,9 +4306,6 @@ type PeerBatch struct {
 
 	// GeonameId Unique identifier from the GeoNames database for a specific geographical location.
 	GeonameId int `json:"geoname_id"`
-
-	// Groups Groups that the peer belongs to
-	Groups []GroupMinimum `json:"groups"`
 
 	// Hostname Hostname of the machine
 	Hostname string `json:"hostname"`
