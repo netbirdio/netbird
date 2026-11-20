@@ -45,11 +45,12 @@ func loadGeolocationDatabases(ctx context.Context, dataDir string, mmdbFile stri
 				return copyFile(path.Join(dst, geoLiteCityMMDB), path.Join(dataDir, mmdbFile))
 			}
 			if err := loadDatabase(
+				ctx,
 				geoLiteCitySha256TarURL,
 				geoLiteCityTarGZURL,
 				extractFunc,
 			); err != nil {
-				return err
+				return fmt.Errorf("load %s: %w", file, err)
 			}
 
 		case geonamesdbFile:
@@ -62,11 +63,12 @@ func loadGeolocationDatabases(ctx context.Context, dataDir string, mmdbFile stri
 			}
 
 			if err := loadDatabase(
+				ctx,
 				geoLiteCitySha256ZipURL,
 				geoLiteCityZipURL,
 				extractFunc,
 			); err != nil {
-				return err
+				return fmt.Errorf("load %s: %w", file, err)
 			}
 		}
 	}
@@ -75,20 +77,20 @@ func loadGeolocationDatabases(ctx context.Context, dataDir string, mmdbFile stri
 
 // loadDatabase downloads a file from the specified URL and verifies its checksum.
 // It then calls the extract function to perform additional processing on the extracted files.
-func loadDatabase(checksumURL string, fileURL string, extractFunc func(src string, dst string) error) error {
+func loadDatabase(ctx context.Context, checksumURL string, fileURL string, extractFunc func(src string, dst string) error) error {
 	temp, err := os.MkdirTemp(os.TempDir(), "geolite")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(temp)
 
-	checksumFilename, err := getFilenameFromURL(checksumURL)
+	checksumFilename, err := getFilenameFromURL(ctx, checksumURL)
 	if err != nil {
 		return err
 	}
 	checksumFile := path.Join(temp, checksumFilename)
 
-	err = downloadFile(checksumURL, checksumFile)
+	err = downloadFile(ctx, checksumURL, checksumFile)
 	if err != nil {
 		return err
 	}
@@ -98,13 +100,13 @@ func loadDatabase(checksumURL string, fileURL string, extractFunc func(src strin
 		return err
 	}
 
-	dbFilename, err := getFilenameFromURL(fileURL)
+	dbFilename, err := getFilenameFromURL(ctx, fileURL)
 	if err != nil {
 		return err
 	}
 	dbFile := path.Join(temp, dbFilename)
 
-	err = downloadFile(fileURL, dbFile)
+	err = downloadFile(ctx, fileURL, dbFile)
 	if err != nil {
 		return err
 	}
