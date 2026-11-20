@@ -168,7 +168,8 @@ type AuthConfig struct {
 // AuthStorageConfig contains auth storage settings
 type AuthStorageConfig struct {
 	Type string `yaml:"type" env:"NB_SERVER_AUTH_STORAGE_TYPE"`
-	File string `yaml:"file" env:"NB_SERVER_AUTH_STORAGE_FILE"`
+	// File is not read; server.authStore.file sets the auth database path.
+	File string `yaml:"file"`
 }
 
 // AuthOwnerConfig contains initial admin user settings
