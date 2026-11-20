@@ -25,6 +25,15 @@ message EncryptedMessage {
 
   // encrypted message Body
   bytes body = 4;
+
+  // Set only on aligned heartbeats from the server. Never encrypted, clients
+  // do not decrypt such a message.
+  ServerHeartbeat serverHeartbeat = 5;
+}
+
+// ServerHeartbeat marks an EncryptedMessage as an aligned heartbeat from the
+// server. Its presence is the heartbeat; the message carries no other data.
+message ServerHeartbeat {
 }
 
 // A decrypted representation of the EncryptedMessage. Used locally before/after encryption
