@@ -120,7 +120,7 @@ type Client struct {
 	OktaScimIDP *OktaScimIDPAPI
 
 	// EventStreaming NetBird Event Streaming integration APIs
-	// see more: https://docs.netbird.io/api/resources/event-streaming
+	// see more: https://docs.netbird.io/api/resources/event-streaming-integrations
 	EventStreaming *EventStreamingAPI
 
 	// IdentityProviders NetBird Identity Providers APIs
