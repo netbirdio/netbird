@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,14 +21,12 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/push"
 	log "github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/metric/noop"
 	"go.uber.org/mock/gomock"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
-	"github.com/netbirdio/netbird/shared/management/status"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/idp/dex"
@@ -38,6 +37,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness/peerlivenesstest"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
@@ -69,6 +69,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/auth"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 func verifyCanAddPeerToAccount(t *testing.T, manager nbAccount.Manager, account *types.Account, userID string) {
@@ -99,7 +100,7 @@ func verifyCanAddPeerToAccount(t *testing.T, manager nbAccount.Manager, account 
 	}
 }
 
-func verifyNewAccountHasDefaultFields(t *testing.T, account *types.Account, createdBy string, domain string, expectedUsers []string) {
+func verifyNewAccountHasDefaultFields(t *testing.T, account *types.Account, createdBy, domain string, expectedUsers []string) {
 	t.Helper()
 	if len(account.Peers) != 0 {
 		t.Errorf("expected account to have len(Peers) = %v, got %v", 0, len(account.Peers))
@@ -1187,7 +1188,6 @@ func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 			}
 		}
 	})
-
 }
 
 func genUsers(p string, n int) map[string]*types.User {
@@ -4557,6 +4557,158 @@ func TestDefaultAccountManager_IsCacheCold(t *testing.T) {
 			assert.False(t, cold)
 		})
 	})
+}
+
+func TestDefaultAccountManager_WarmupIDPCacheFillsMissingEmailAndName(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	account, err := manager.GetOrCreateAccountByUser(ctx, auth.UserAuth{UserId: "owner"})
+	require.NoError(t, err)
+	require.NoError(t, manager.Store.SaveUsers(ctx, []*types.User{
+		{Id: "named", AccountID: account.Id, Role: types.UserRoleUser, Name: "Stored"},
+		{Id: "unlinked", AccountID: account.Id, Role: types.UserRoleUser},
+		{Id: "unknown", AccountID: account.Id, Role: types.UserRoleUser},
+	}))
+
+	manager.idpManager = &idp.MockIDP{
+		GetAllAccountsFunc: func(context.Context) (map[string][]*idp.UserData, error) {
+			return map[string][]*idp.UserData{
+				account.Id: {
+					{ID: "owner", Email: "owner@example.com", Name: "Owner"},
+					{ID: "named", Email: "named@example.com", Name: "IdP"},
+				},
+				// Users the IdP holds no account ID for are matched to their account through the store.
+				idp.UnsetAccountID: {{ID: "unlinked", Email: "unlinked@example.com", Name: "Unlinked"}},
+			}, nil
+		},
+	}
+
+	cacheStore, err := cache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	require.NoError(t, err)
+
+	t.Setenv(envDisableIdPUserBackfill, "true")
+	require.NoError(t, manager.warmupIDPCache(ctx, cacheStore))
+	owner, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthNone, "owner")
+	require.NoError(t, err)
+	assert.Empty(t, owner.Email, "the backfill must not run when disabled")
+
+	// An invalid value is logged and leaves the backfill on.
+	logs := new(logtest.Hook)
+	hooks := log.StandardLogger().ReplaceHooks(log.LevelHooks{log.WarnLevel: {logs}})
+	t.Cleanup(func() { log.StandardLogger().ReplaceHooks(hooks) })
+	t.Setenv(envDisableIdPUserBackfill, "ture")
+	require.NoError(t, manager.warmupIDPCache(ctx, cacheStore))
+	assert.True(t, slices.ContainsFunc(logs.AllEntries(), func(e *log.Entry) bool {
+		return strings.Contains(e.Message, envDisableIdPUserBackfill)
+	}), "an invalid %s value must be logged", envDisableIdPUserBackfill)
+
+	tests := []struct{ id, email, name string }{
+		{"owner", "owner@example.com", "Owner"},
+		{"named", "named@example.com", "Stored"}, // a stored name is kept
+		{"unlinked", "unlinked@example.com", "Unlinked"},
+		{"unknown", "", ""}, // not in the IdP
+	}
+	for _, tt := range tests {
+		user, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthNone, tt.id)
+		require.NoError(t, err)
+		assert.Equal(t, tt.email, user.Email, "email of user %s", tt.id)
+		assert.Equal(t, tt.name, user.Name, "name of user %s", tt.id)
+	}
+}
+
+func TestDefaultAccountManager_FillMissingEmailAndNameContinuesAfterFailure(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	account, err := manager.GetOrCreateAccountByUser(ctx, auth.UserAuth{UserId: "owner"})
+	require.NoError(t, err)
+	require.NoError(t, manager.Store.SaveUsers(ctx, []*types.User{
+		{Id: "failing", AccountID: account.Id, Role: types.UserRoleUser},
+	}))
+	manager.Store = &failingFillStore{Store: manager.Store, userID: "failing"}
+
+	// The failing user comes first, so the owner is only filled if the loop carries on.
+	err = manager.fillMissingEmailAndName(ctx, map[string][]*idp.UserData{
+		account.Id: {
+			{ID: "failing", Email: "failing@example.com", Name: "Failing"},
+			{ID: "owner", Email: "owner@example.com", Name: "Owner"},
+		},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "fill user failing", "the failed user must be reported")
+
+	owner, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthNone, "owner")
+	require.NoError(t, err)
+	assert.Equal(t, "owner@example.com", owner.Email, "users after a failed one must still be filled")
+}
+
+// failingFillStore fails FillUserEmailAndName for one user and passes everything else through.
+type failingFillStore struct {
+	store.Store
+	userID string
+}
+
+func (s *failingFillStore) FillUserEmailAndName(ctx context.Context, accountID, userID, email, name string) error {
+	if userID == s.userID {
+		return errors.New("update failed")
+	}
+	return s.Store.FillUserEmailAndName(ctx, accountID, userID, email, name)
+}
+
+func TestDefaultAccountManager_LoginFillsEmailAndNameFromIdP(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	var lookups []string
+	manager.idpManager = &idp.MockIDP{
+		GetUserDataByIDFunc: func(_ context.Context, userID string, _ idp.AppMetadata) (*idp.UserData, error) {
+			lookups = append(lookups, userID)
+			if userID == "idp-down" {
+				return nil, errors.New("idp unavailable")
+			}
+			return &idp.UserData{ID: userID, Email: userID + "@idp.example", Name: "IdP " + userID}, nil
+		},
+	}
+
+	ctx := context.Background()
+	public := func(userAuth auth.UserAuth) auth.UserAuth {
+		userAuth.Domain, userAuth.DomainCategory = "gmail.com", types.PublicCategory
+		return userAuth
+	}
+	private := func(userAuth auth.UserAuth) auth.UserAuth {
+		userAuth.Domain, userAuth.DomainCategory = "company.com", types.PrivateCategory
+		return userAuth
+	}
+
+	tests := []struct {
+		userAuth    auth.UserAuth
+		email, name string
+	}{
+		{public(auth.UserAuth{UserId: "public-user"}), "public-user@idp.example", "IdP public-user"},
+		{private(auth.UserAuth{UserId: "private-user"}), "private-user@idp.example", "IdP private-user"},
+		{private(auth.UserAuth{UserId: "domain-user", Name: "Token"}), "domain-user@idp.example", "Token"},
+		{public(auth.UserAuth{UserId: "token-user", Email: "token@example.com", Name: "Token"}), "token@example.com", "Token"},
+		{public(auth.UserAuth{UserId: "idp-down"}), "", ""},
+	}
+	for _, tt := range tests {
+		_, err := manager.getAccountIDWithAuthorizationClaims(ctx, tt.userAuth)
+		require.NoError(t, err, "login of user %s", tt.userAuth.UserId)
+
+		user, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthNone, tt.userAuth.UserId)
+		require.NoError(t, err)
+		assert.Equal(t, tt.email, user.Email, "email of user %s", tt.userAuth.UserId)
+		assert.Equal(t, tt.name, user.Name, "name of user %s", tt.userAuth.UserId)
+	}
+
+	assert.Equal(t, []string{"public-user", "private-user", "domain-user", "idp-down"}, lookups,
+		"only new users whose token lacks email or name must be looked up")
+
+	_, err = manager.getAccountIDWithAuthorizationClaims(ctx, public(auth.UserAuth{UserId: "public-user"}))
+	require.NoError(t, err)
+	assert.Len(t, lookups, 4, "a returning user must not be looked up")
 }
 
 func TestPropagateUserGroupMemberships(t *testing.T) {
