@@ -153,6 +153,11 @@ func TestVertexNeedsProject(t *testing.T) {
 	var missing *MissingVarError
 	require.ErrorAs(t, err, &missing)
 	assert.Equal(t, VarVertexProject, missing.Var)
+	assert.True(t, v.Uses(VarVertexProject), "the vertex variant references the project")
+
+	anthropic, _ := claudeCode.Variant("anthropic", "")
+	assert.False(t, anthropic.Uses(VarVertexProject), "the anthropic variant needs no project")
+	assert.True(t, anthropic.Uses(VarModel), "the anthropic variant pins the model")
 }
 
 func TestVariantFallsBackToFlavor(t *testing.T) {

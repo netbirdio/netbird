@@ -50,16 +50,32 @@ func relayAgentNetworkInfo(ctx context.Context, fetch agentNetworkInfoFetcher) (
 		Endpoint: info.GetEndpoint(),
 	}
 	for _, p := range info.GetProviders() {
-		resp.Providers = append(resp.Providers, &proto.AgentNetworkProvider{
-			Id:               p.GetId(),
-			Name:             p.GetName(),
-			CatalogId:        p.GetCatalogId(),
-			ApiFlavor:        p.GetApiFlavor(),
-			AllModelsAllowed: p.GetAllModelsAllowed(),
-			Models:           p.GetModels(),
-		})
+		resp.Providers = append(resp.Providers, agentNetworkProviderFromMgm(p))
 	}
 	return resp, nil
+}
+
+func agentNetworkProviderFromMgm(p *mgmProto.AgentNetworkProvider) *proto.AgentNetworkProvider {
+	out := &proto.AgentNetworkProvider{
+		Id:               p.GetId(),
+		Name:             p.GetName(),
+		CatalogId:        p.GetCatalogId(),
+		ApiFlavor:        p.GetApiFlavor(),
+		AllModelsAllowed: p.GetAllModelsAllowed(),
+		Models:           p.GetModels(),
+		Unlimited:        p.GetUnlimited(),
+		Exhausted:        p.GetExhausted(),
+	}
+	// The unit enum mirrors the management one value for value.
+	for _, l := range p.GetLimits() {
+		out.Limits = append(out.Limits, &proto.AgentNetworkLimit{
+			Unit:     proto.AgentNetworkLimit_Unit(l.GetUnit()),
+			Cap:      l.GetCap(),
+			Used:     l.GetUsed(),
+			ResetsAt: l.GetResetsAt(),
+		})
+	}
+	return out
 }
 
 func agentNetworkStateFromMgm(state mgmProto.GetAgentNetworkInfoResponse_State) proto.GetAgentNetworkInfoResponse_State {
