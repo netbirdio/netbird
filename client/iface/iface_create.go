@@ -17,7 +17,7 @@ func (w *WGIface) Create() error {
 	}
 
 	w.configurer = cfgr
-	return nil
+	return w.reserveOverlay(false)
 }
 
 // CreateOnAndroid this function make sense on mobile only
