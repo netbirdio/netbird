@@ -43,6 +43,8 @@ func anSetupTestHost(t *testing.T, resp *proto.GetAgentNetworkInfoResponse) (str
 	}
 	claudeDir := filepath.Join(root, "claude")
 	t.Setenv("CLAUDE_CONFIG_DIR", claudeDir)
+	t.Setenv("CODEX_HOME", filepath.Join(root, "codex"))
+	t.Setenv("PI_CODING_AGENT_DIR", filepath.Join(root, "pi"))
 
 	origAddr := daemonAddr
 	t.Cleanup(func() { daemonAddr = origAddr })
@@ -101,6 +103,65 @@ func TestAgentNetworkSetupClaudeCode(t *testing.T) {
 	data, err = os.ReadFile(settings)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{}`, string(data), "undo removes every key setup wrote")
+}
+
+func TestAgentNetworkSetupOpenAIHarnesses(t *testing.T) {
+	endpoint := httptest.NewTLSServer(http.NotFoundHandler())
+	t.Cleanup(endpoint.Close)
+	addr, _ := anSetupTestHost(t, &proto.GetAgentNetworkInfoResponse{
+		State:    proto.GetAgentNetworkInfoResponse_OK,
+		Endpoint: endpoint.URL,
+		Providers: []*proto.AgentNetworkProvider{
+			{Id: "p1", Name: "OpenAI", CatalogId: "openai_api", ApiFlavor: "openai", Models: []string{"gpt-5.5"}},
+		},
+	})
+	root := filepath.Dir(os.Getenv("CODEX_HOME"))
+	codexFile := filepath.Join(root, "codex", "config.toml")
+	openCodeFile := filepath.Join(root, "opencode", "opencode.jsonc")
+	piModels := filepath.Join(root, "pi", "models.json")
+	piSettings := filepath.Join(root, "pi", "settings.json")
+
+	out, err := runAgentNetworkCmd(addr, "setup", "codex", "--dry-run")
+	require.NoError(t, err, out)
+	assert.Contains(t, out, `model_providers.netbird.base_url: (absent) -> "`+endpoint.URL+`/v1"`, "dry run shows the TOML keys")
+	assert.Contains(t, out, "CODEX_CA_CERTIFICATE", "the warning names Codex's CA variable")
+	_, err = os.Stat(codexFile)
+	assert.True(t, os.IsNotExist(err), "dry run writes nothing")
+
+	for _, h := range []string{"codex", "opencode", "pi"} {
+		out, err = runAgentNetworkCmd(addr, "setup", h)
+		require.NoError(t, err, out)
+		assert.Contains(t, out, "set up for Agent Networks", h)
+	}
+	data, err := os.ReadFile(codexFile)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "model_provider = \"netbird\"\n", "Codex defaults to the netbird provider")
+	data, err = os.ReadFile(openCodeFile)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), `"model": "netbird/gpt-5.5"`)
+	data, err = os.ReadFile(piSettings)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"defaultProvider":"netbird","defaultModel":"gpt-5.5"}`, string(data))
+
+	out, err = runAgentNetworkCmd(addr, "setup", "list")
+	require.NoError(t, err, out)
+	assert.Contains(t, out, "claude-code    Claude Code    not configured")
+	assert.Contains(t, out, "codex          Codex          configured")
+	assert.Contains(t, out, "opencode       OpenCode       configured")
+	assert.Contains(t, out, "pi             Pi             configured ("+piModels+", "+piSettings+")", "list shows both pi files")
+
+	out, err = runAgentNetworkCmd(addr, "setup", "undo", "pi")
+	require.NoError(t, err, out)
+	data, err = os.ReadFile(piModels)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{}`, string(data), "undo empties models.json")
+
+	// A file the codec cannot round-trip is printed instead of written.
+	require.NoError(t, os.WriteFile(openCodeFile, []byte("{\n  // mine\n}\n"), 0o600))
+	out, err = runAgentNetworkCmd(addr, "setup", "opencode", "--force")
+	require.Error(t, err)
+	assert.Contains(t, out, "Add these settings by hand", "JSONC falls back to printing")
+	assert.Contains(t, out, `"npm": "@ai-sdk/openai-compatible"`)
 }
 
 func TestAgentNetworkSetupRefusals(t *testing.T) {

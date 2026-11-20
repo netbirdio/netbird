@@ -4,6 +4,7 @@
 package harness
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
@@ -15,8 +16,12 @@ import (
 // Format is the encoding of a config file.
 type Format string
 
-// FormatJSON is strict JSON, without comments or trailing commas.
-const FormatJSON Format = "json"
+const (
+	// FormatJSON is strict JSON, without comments or trailing commas.
+	FormatJSON Format = "json"
+	// FormatTOML is TOML, edited line by line so comments and layout survive.
+	FormatTOML Format = "toml"
+)
 
 // Var is a placeholder a Key value may reference as {name}.
 type Var string
@@ -35,6 +40,9 @@ const (
 type File struct {
 	// DirEnv names the environment variable that replaces the directory.
 	DirEnv string
+	// DirEnvSuffix is joined to DirEnv's value, for a variable that names a
+	// parent directory such as XDG_CONFIG_HOME.
+	DirEnvSuffix string
 	// Dir is the directory relative to the home directory, slash-separated.
 	Dir string
 	// DirByOS replaces Dir on the given GOOS.
@@ -50,6 +58,9 @@ type Key struct {
 	Path []string
 	// Value is a template with {var} placeholders.
 	Value string
+	// JSON marks Value as a JSON template, for a value that is not a string.
+	// Placeholders are substituted JSON-escaped.
+	JSON bool
 }
 
 // Variant is the set of keys that points a harness at one kind of provider.
@@ -71,6 +82,8 @@ type Definition struct {
 	Variants map[string]Variant
 	// Notice is shown after a write.
 	Notice string
+	// CAEnv names the variable the harness reads a private CA from.
+	CAEnv string
 }
 
 // Env is the host the paths resolve on, injected so tests can resolve
@@ -88,7 +101,7 @@ type Setting struct {
 	File   string
 	Format Format
 	Path   []string
-	Value  string
+	Value  any
 }
 
 // MissingVarError reports a placeholder the variant needs but was not given.
@@ -98,7 +111,7 @@ func (e *MissingVarError) Error() string {
 	return fmt.Sprintf("missing value for %s", e.Var)
 }
 
-var definitions = []*Definition{claudeCode}
+var definitions = []*Definition{claudeCode, codex, openCode, pi}
 
 // All returns the supported harnesses.
 func All() []*Definition {
@@ -142,6 +155,9 @@ func (f File) Path(env Env) string {
 	if f.DirEnv != "" && env.Getenv != nil {
 		dir = env.Getenv(f.DirEnv)
 	}
+	if dir != "" && f.DirEnvSuffix != "" {
+		dir = strings.TrimRight(dir, `/\`) + sep + f.DirEnvSuffix
+	}
 	if dir == "" {
 		rel := f.Dir
 		if d, ok := f.DirByOS[env.GOOS]; ok {
@@ -159,7 +175,7 @@ var placeholder = regexp.MustCompile(`\{([a-z_]+)\}`)
 func (d *Definition) Render(v Variant, vars map[Var]string, env Env) ([]Setting, error) {
 	var out []Setting
 	for _, k := range v.Keys {
-		value, err := expand(k.Value, vars)
+		value, err := renderValue(k, vars)
 		var missing *MissingVarError
 		if errors.As(err, &missing) && missing.Var == VarModel {
 			continue
@@ -173,7 +189,22 @@ func (d *Definition) Render(v Variant, vars map[Var]string, env Env) ([]Setting,
 	return out, nil
 }
 
-func expand(tmpl string, vars map[Var]string) (string, error) {
+func renderValue(k Key, vars map[Var]string) (any, error) {
+	if !k.JSON {
+		return expand(k.Value, vars, func(s string) string { return s })
+	}
+	raw, err := expand(k.Value, vars, jsonEscape)
+	if err != nil {
+		return nil, err
+	}
+	var v any
+	if err := decodeValue([]byte(raw), &v); err != nil {
+		return nil, fmt.Errorf("render %s: %w", PathString(k.Path), err)
+	}
+	return v, nil
+}
+
+func expand(tmpl string, vars map[Var]string, escape func(string) string) (string, error) {
 	var err error
 	value := placeholder.ReplaceAllStringFunc(tmpl, func(m string) string {
 		name := Var(m[1 : len(m)-1])
@@ -181,9 +212,15 @@ func expand(tmpl string, vars map[Var]string) (string, error) {
 		if val == "" && err == nil {
 			err = &MissingVarError{Var: name}
 		}
-		return val
+		return escape(val)
 	})
 	return value, err
+}
+
+// jsonEscape returns s as the inside of a JSON string literal.
+func jsonEscape(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b[1 : len(b)-1])
 }
 
 // Fragments renders settings as the per-file snippet a user can paste.
@@ -201,7 +238,7 @@ func Fragments(settings []Setting) (map[string]string, error) {
 	}
 	out := make(map[string]string, len(docs))
 	for file, doc := range docs {
-		data, err := codecFor(formats[file]).encode(doc)
+		data, err := codecFor(formats[file]).encode(nil, doc)
 		if err != nil {
 			return nil, err
 		}

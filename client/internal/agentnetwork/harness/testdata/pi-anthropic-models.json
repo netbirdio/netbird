@@ -1,0 +1,14 @@
+{
+  "providers": {
+    "netbird": {
+      "api": "anthropic-messages",
+      "apiKey": "not-needed",
+      "baseUrl": "https://an.example.netbird.test",
+      "models": [
+        {
+          "id": "claude-opus-5"
+        }
+      ]
+    }
+  }
+}

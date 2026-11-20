@@ -52,6 +52,7 @@ type fileState struct {
 	target string
 	exists bool
 	mode   fs.FileMode
+	raw    []byte
 	doc    map[string]any
 	owned  []OwnedKey
 	dirty  bool
@@ -292,7 +293,7 @@ func (p *Plan) releasesKeys() bool {
 }
 
 func (st *fileState) write(now time.Time) (string, error) {
-	data, err := codecFor(st.format).encode(st.doc)
+	data, err := codecFor(st.format).encode(st.raw, st.doc)
 	if err != nil {
 		return "", err
 	}
@@ -325,7 +326,7 @@ func loadFile(file string, format Format) (*fileState, error) {
 	if err != nil {
 		return nil, &UnparseableError{File: file, Err: err}
 	}
-	st.exists, st.mode, st.doc = true, info.Mode().Perm(), doc
+	st.exists, st.mode, st.raw, st.doc = true, info.Mode().Perm(), data, doc
 	return st, nil
 }
 

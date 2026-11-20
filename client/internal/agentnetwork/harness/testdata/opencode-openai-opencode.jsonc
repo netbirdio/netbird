@@ -1,0 +1,16 @@
+{
+  "model": "netbird/gpt-5.5",
+  "provider": {
+    "netbird": {
+      "models": {
+        "gpt-5.5": {}
+      },
+      "name": "NetBird",
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "apiKey": "not-needed",
+        "baseURL": "https://an.example.netbird.test/v1"
+      }
+    }
+  }
+}

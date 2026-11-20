@@ -1,0 +1,7 @@
+model = "gpt-5.5"
+model_provider = "netbird"
+
+[model_providers.netbird]
+base_url = "https://an.example.netbird.test/v1"
+name = "NetBird"
+wire_api = "responses"
