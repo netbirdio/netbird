@@ -2,8 +2,10 @@ package geolocation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"path"
 	"path/filepath"
@@ -18,14 +20,18 @@ type Geolocation interface {
 	Lookup(ip net.IP) (*Record, error)
 	GetAllCountries() ([]Country, error)
 	GetCitiesByCountry(countryISOCode string) ([]City, error)
+	CountryPrefixes(countryISOCode string) ([]netip.Prefix, error)
 	Stop() error
 }
+
+var errDatabaseNotAvailable = errors.New("geolocation database is not available")
 
 type geolocationImpl struct {
 	mmdbPath   string
 	mux        sync.RWMutex
 	db         *maxminddb.Reader
 	locationDB *SqliteStore
+	countries  countryPrefixIndex
 	stopCh     chan struct{}
 }
 
@@ -131,7 +137,7 @@ func (gl *geolocationImpl) Lookup(ip net.IP) (*Record, error) {
 	defer gl.mux.RUnlock()
 
 	if gl.db == nil {
-		return nil, fmt.Errorf("geolocation database is not available")
+		return nil, errDatabaseNotAvailable
 	}
 
 	var record Record
@@ -299,6 +305,10 @@ func (g *Mock) GetAllCountries() ([]Country, error) {
 
 func (g *Mock) GetCitiesByCountry(countryISOCode string) ([]City, error) {
 	return []City{}, nil
+}
+
+func (g *Mock) CountryPrefixes(string) ([]netip.Prefix, error) {
+	return nil, nil
 }
 
 func (g *Mock) Stop() error {
