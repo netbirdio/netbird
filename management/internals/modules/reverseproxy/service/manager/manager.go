@@ -1110,7 +1110,7 @@ func (m *Manager) DeleteAllServices(ctx context.Context, accountID, userID strin
 }
 
 // SetCertificateIssuedAt records issuedAt, the NotBefore of the certificate serving the service, and writes
-// only when it differs from the stored value. Proxies that do not report issuedAt pass the zero time, which
+// only when it is newer than the stored value. Proxies that do not report issuedAt pass the zero time, which
 // sets the timestamp to now only when none is stored yet.
 func (m *Manager) SetCertificateIssuedAt(ctx context.Context, accountID, serviceID string, issuedAt time.Time) error {
 	return m.updateServiceMeta(ctx, accountID, serviceID, func(meta *service.Meta) bool {
@@ -1121,7 +1121,7 @@ func (m *Manager) SetCertificateIssuedAt(ctx context.Context, accountID, service
 			}
 			at = time.Now().UTC()
 		}
-                if meta.CertificateIssuedAt != nil && !at.After(*meta.CertificateIssuedAt) {
+		if meta.CertificateIssuedAt != nil && !at.After(*meta.CertificateIssuedAt) {
 			return false
 		}
 		meta.CertificateIssuedAt = &at

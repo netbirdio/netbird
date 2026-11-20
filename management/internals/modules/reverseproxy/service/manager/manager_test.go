@@ -1628,7 +1628,11 @@ func TestServiceMetaReports_WriteChanges(t *testing.T) {
 	require.NoError(t, mgr.SetCertificateIssuedAt(ctx, testAccountID, created.ID, time.Time{}))
 	assert.True(t, legacyStamp.Equal(*stored().CertificateIssuedAt), "a report without issue time must keep an existing timestamp")
 
-	renewedAt := time.Date(2026, 11, 1, 8, 30, 0, 0, time.UTC)
+	olderAt := legacyStamp.Add(-time.Hour).Truncate(time.Second)
+	require.NoError(t, mgr.SetCertificateIssuedAt(ctx, testAccountID, created.ID, olderAt))
+	assert.True(t, legacyStamp.Equal(*stored().CertificateIssuedAt), "an older certificate must not move the timestamp back")
+
+	renewedAt := legacyStamp.Add(time.Hour).Truncate(time.Second)
 	require.NoError(t, mgr.SetCertificateIssuedAt(ctx, testAccountID, created.ID, renewedAt))
 	assert.True(t, renewedAt.Equal(*stored().CertificateIssuedAt), "a renewed certificate must move the timestamp")
 	svc, err := testStore.GetServiceByID(ctx, store.LockingStrengthNone, testAccountID, created.ID)
