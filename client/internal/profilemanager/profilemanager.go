@@ -134,7 +134,11 @@ func (pm *ProfileManager) getActiveProfileState() ID {
 
 	configDir, err := getConfigDir()
 	if err != nil {
-		log.Warnf("failed to get config directory: %v", err)
+		// An uncreatable config directory is expected in read-only containers.
+		// Falling back to the default profile is the intended outcome, so a
+		// warning here would only pollute machine-readable CLI output such as
+		// `netbird status --json`.
+		log.Debugf("failed to get config directory: %v", err)
 		return defaultProfileName
 	}
 
