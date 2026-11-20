@@ -54,6 +54,8 @@ type keycloakProfile struct {
 	CreatedTimestamp int64                  `json:"createdTimestamp"`
 	Username         string                 `json:"username"`
 	Email            string                 `json:"email"`
+	FirstName        string                 `json:"firstName"`
+	LastName         string                 `json:"lastName"`
 	Attributes       keycloakUserAttributes `json:"attributes"`
 }
 
@@ -426,9 +428,16 @@ func (km *KeycloakManager) totalUsersCount(ctx context.Context) (*int, error) {
 
 // userData construct user data from keycloak profile.
 func (kp keycloakProfile) userData() *UserData {
+	// Prefer the profile name: realms with "Email as username" store the
+	// email in username.
+	name := strings.TrimSpace(kp.FirstName + " " + kp.LastName)
+	if name == "" {
+		name = kp.Username
+	}
+
 	return &UserData{
 		Email: kp.Email,
-		Name:  kp.Username,
+		Name:  name,
 		ID:    kp.ID,
 	}
 }
