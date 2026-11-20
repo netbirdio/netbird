@@ -1215,3 +1215,20 @@ metricsPort = 9191
 	assert.ErrorContains(t, err, "cannot unmarshal !!seq into cmd.CombinedConfig",
 		"Legacy yaml.v3 rejected the TOML table header '[server]' as a sequence at the document root")
 }
+
+func TestLoadConfigCopiesAccessLogSettingsWithoutTrustedProxies(t *testing.T) {
+	clearCombinedConfigEnvironment(t)
+	// Only the access-log settings are set, no trusted proxy or peer setting.
+	configPath := writeCombinedConfig(t, "config.yaml", legacyCombinedServerFile+`  reverseProxy:
+    accessLogRetentionDays: 30
+    accessLogCleanupIntervalHours: 12
+`)
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+
+	assert.Equal(t, 30, cfg.Management.ReverseProxy.AccessLogRetentionDays,
+		"Retention set in server.reverseProxy must reach management")
+	assert.Equal(t, 12, cfg.Management.ReverseProxy.AccessLogCleanupIntervalHours,
+		"Cleanup interval set in server.reverseProxy must reach management")
+}
