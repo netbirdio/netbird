@@ -2,7 +2,9 @@ package resources
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -308,6 +310,59 @@ func Test_UpdateResourceSuccessfully(t *testing.T) {
 	require.Equal(t, "new-description", updatedResource.Description)
 	require.Equal(t, "1.2.3.0/24", updatedResource.Address)
 	require.Equal(t, types.NetworkResourceType("subnet"), updatedResource.Type)
+}
+
+func Test_UpdateResourceReloadsServicesDetachedFromRequest(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	accountID := "testAccountId"
+	resource := &types.NetworkResource{
+		AccountID: accountID,
+		NetworkID: "testNetworkId",
+		Name:      "someNewName",
+		ID:        "testResourceId",
+		Address:   "1.2.3.0/24",
+	}
+
+	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanUp)
+	ctrl := gomock.NewController(t)
+	serviceManager := reverseproxy.NewMockManager(ctrl)
+	requestDone := make(chan struct{})
+	reloadErr := make(chan error, 1)
+	serviceManager.EXPECT().ReloadAllServicesForAccount(gomock.Any(), accountID).DoAndReturn(func(reloadCtx context.Context, _ string) error {
+		<-requestDone
+		if _, ok := reloadCtx.Deadline(); !ok {
+			reloadErr <- errors.New("reload context has no deadline")
+			return nil
+		}
+		reloadErr <- reloadCtx.Err()
+		return nil
+	})
+	manager := NewManager(store, permissions.NewManager(store), groups.NewManagerMock(), &mock_server.MockAccountManager{}, serviceManager)
+
+	updateErr := make(chan error, 1)
+	go func() {
+		_, err := manager.UpdateResource(ctx, "testAdminId", resource)
+		updateErr <- err
+	}()
+
+	select {
+	case err := <-updateErr:
+		cancel()
+		close(requestDone)
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		close(requestDone)
+		t.Fatal("UpdateResource blocked on the services reload")
+	}
+
+	select {
+	case err := <-reloadErr:
+		require.NoError(t, err, "reload must not inherit the request cancellation")
+	case <-time.After(5 * time.Second):
+		t.Fatal("services were not reloaded")
+	}
 }
 
 func Test_UpdateResourceFailsWithResourceNotFound(t *testing.T) {

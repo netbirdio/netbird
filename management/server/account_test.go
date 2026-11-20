@@ -3935,6 +3935,42 @@ func createManagerWithNetworkMapStore(t testing.TB) (*DefaultAccountManager, *up
 	return manager, updateManager
 }
 
+func TestNetworkMapStore_LoginExpiredFlagPeerIsOffline(t *testing.T) {
+	manager, _ := createManagerWithNetworkMapStore(t)
+	ctx := context.Background()
+
+	account, err := createAccount(manager, "login_expired_flag", userID, "")
+	require.NoError(t, err)
+	account.Settings.PeerLoginExpirationEnabled = false
+	require.NoError(t, manager.Store.SaveAccountSettings(ctx, account.Id, account.Settings))
+
+	setupKey, err := manager.CreateSetupKey(ctx, account.Id, "expired-flag-key", types.SetupKeyReusable, time.Hour, nil, 999, userID, false, false)
+	require.NoError(t, err)
+	peer1 := addPeerToAccount(t, manager, account.Id, setupKey.Key)
+	peer2 := addPeerToAccount(t, manager, account.Id, setupKey.Key)
+
+	syncPeers := func() ([]string, []string) {
+		_, networkMap, _, _, err := manager.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peer1.Key, Meta: peer1.Meta}, account.Id)
+		require.NoError(t, err)
+		var online, offline []string
+		for _, p := range networkMap.Peers {
+			online = append(online, p.ID)
+		}
+		for _, p := range networkMap.OfflinePeers {
+			offline = append(offline, p.ID)
+		}
+		return online, offline
+	}
+	online, _ := syncPeers()
+	require.Contains(t, online, peer2.ID, "the default policy connects the peers")
+
+	require.NoError(t, manager.Store.SavePeerStatus(ctx, account.Id, peer2.ID, nbpeer.PeerStatus{LoginExpired: true}))
+
+	online, offline := syncPeers()
+	assert.NotContains(t, online, peer2.ID, "a peer flagged login-expired must not be connectable")
+	assert.Contains(t, offline, peer2.ID, "a peer flagged login-expired is listed offline")
+}
+
 func newSettingsMockManager(t testing.TB) *settings.MockManager {
 	t.Helper()
 
@@ -4872,6 +4908,27 @@ func TestDefaultAccountManager_UpdatePeerIP_ReloadsTargetingServices(t *testing.
 		require.NoError(t, manager.UpdatePeerIP(ctx, accountID, userID, peer.ID, newIP))
 	})
 
+	t.Run("request cancellation does not abort the reload", func(t *testing.T) {
+		serviceManager := service.NewMockManager(gomock.NewController(t))
+		manager.SetServiceManager(serviceManager)
+		reqCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		var reloadErr error
+		serviceManager.EXPECT().GetServiceIDByTargetID(gomock.Any(), accountID, peer.ID).Return("svc-1", nil)
+		serviceManager.EXPECT().ReloadAllServicesForAccount(gomock.Any(), accountID).DoAndReturn(func(reloadCtx context.Context, _ string) error {
+			cancel()
+			reloadErr = reloadCtx.Err()
+			return nil
+		})
+
+		current, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peer.ID)
+		require.NoError(t, err)
+		newIP, err := types.AllocatePeerIP(network, []netip.Addr{current.IP})
+		require.NoError(t, err)
+		_ = manager.UpdatePeerIP(reqCtx, accountID, userID, peer.ID, newIP)
+		require.NoError(t, reloadErr, "reload must not inherit the request cancellation")
+	})
+
 	t.Run("network map notification failure still reloads services", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		serviceManager := service.NewMockManager(ctrl)
@@ -5015,6 +5072,33 @@ func TestDefaultAccountManager_UpdateAccountSettings_NetworkRangeChange(t *testi
 	case <-time.After(10 * time.Second):
 		t.Fatal("UpdateAccountSettings deadlocked when changing NetworkRange")
 	}
+}
+
+func TestDefaultAccountManager_UpdateAccountSettings_NetworkRangeChangeReloadsDetached(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	serviceManager := service.NewMockManager(gomock.NewController(t))
+	manager.SetServiceManager(serviceManager)
+	var reloadErr error
+	serviceManager.EXPECT().ReloadAllServicesForAccount(gomock.Any(), accountID).DoAndReturn(func(reloadCtx context.Context, _ string) error {
+		cancel()
+		reloadErr = reloadCtx.Err()
+		return nil
+	})
+
+	_, _ = manager.UpdateAccountSettings(ctx, accountID, userID, &types.Settings{
+		PeerLoginExpiration:        time.Hour,
+		PeerLoginExpirationEnabled: true,
+		NetworkRange:               netip.MustParsePrefix("10.100.0.0/16"),
+		Extra:                      &types.ExtraSettings{},
+	})
+	require.NoError(t, reloadErr, "reload must not inherit the request cancellation")
 }
 
 // TestDefaultAccountManager_UpdateAccountSettings_NetworkRangePreserved guards against

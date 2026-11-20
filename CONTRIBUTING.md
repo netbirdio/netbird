@@ -100,21 +100,21 @@ This project and everyone participating in it are governed by the Code of Conduc
 
 ## Directory structure
 
-The NetBird project monorepo keeps most of each component's code within its own directory, except for a few auxiliary or shared packages. Protocol definitions and the client-side service clients live under [/shared](/shared), because both the agent and the services import them.
+The NetBird project monorepo keeps most of each component's code within its own directory, except for a few auxiliary or shared packages. Protocol definitions and the client-side service clients live under [/shared](/shared), because both the client and the services import them.
 
-**Agent**
+**Client**
 
-- [/client](/client) - NetBird agent code
-- [/client/cmd](/client/cmd) - NetBird agent CLI code
-- [/client/internal](/client/internal) - NetBird agent business logic code
-- [/client/server](/client/server) - NetBird agent daemon code for background execution
-- [/client/proto](/client/proto) - NetBird agent daemon gRPC proto files
+- [/client](/client) - NetBird client code
+- [/client/cmd](/client/cmd) - NetBird client CLI code
+- [/client/internal](/client/internal) - NetBird client business logic code
+- [/client/server](/client/server) - NetBird client daemon code for background execution
+- [/client/proto](/client/proto) - NetBird client daemon gRPC proto files
 - [/client/iface](/client/iface) - WireGuard® interface code
 - [/client/firewall](/client/firewall) - Platform firewall backends (nftables, iptables, pf, WFP, userspace)
 - [/client/ssh](/client/ssh) - Built-in SSH server and client
-- [/client/ui](/client/ui) - NetBird agent UI code (Wails v3 + React)
+- [/client/ui](/client/ui) - NetBird client UI code (Wails v3 + React)
 - [/client/android](/client/android), [/client/ios](/client/ios) - Mobile platform bindings
-- [/client/wasm](/client/wasm) - WebAssembly build of the agent
+- [/client/wasm](/client/wasm) - WebAssembly build of the client
 - [/client/mdm](/client/mdm) - MDM-delivered policy handling
 - [/client/system](/client/system) - Host and system information collection
 
@@ -138,15 +138,15 @@ The NetBird project monorepo keeps most of each component's code within its own 
 **Shared code**
 
 - [/shared/management/proto](/shared/management/proto) - Management service gRPC proto files
-- [/shared/management/client](/shared/management/client) - Management service client code which is imported by the agent code
+- [/shared/management/client](/shared/management/client) - Management service client code which is imported by the NetBird client code
 - [/shared/management/http/api](/shared/management/http/api) - OpenAPI specification and generated REST API types
 - [/shared/signal/proto](/shared/signal/proto) - Signal service gRPC proto files
-- [/shared/signal/client](/shared/signal/client) - Signal service client code which is imported by the agent code
+- [/shared/signal/client](/shared/signal/client) - Signal service client code which is imported by the NetBird client code
 - [/shared/relay](/shared/relay) - Relay client and shared relay types
 - [/shared/auth](/shared/auth), [/shared/sshauth](/shared/sshauth) - Shared authentication primitives
-- [/encryption](/encryption) - Contain main encryption code for agent communication
+- [/encryption](/encryption) - Contain main encryption code for client communication
 - [/dns](/dns), [/route](/route), [/stun](/stun), [/sharedsock](/sharedsock), [/util](/util) - Shared networking and utility primitives
-- [/flow](/flow) - Flow event protocol shared by the agent and Management
+- [/flow](/flow) - Flow event protocol shared by the client and Management
 
 **Build, test, and packaging**
 
@@ -482,7 +482,7 @@ The PR description must link the agreed issue (or the validated discussion it ca
 
 ### Run it locally
 
-**If you can't run it, you can't submit it.** Build the affected components and exercise the change on a real setup — see [Build and start](#build-and-start). "CI will tell me" is not acceptable for a VPN agent that runs as root on other people's machines.
+**If you can't run it, you can't submit it.** Build the affected components and exercise the change on a real setup — see [Build and start](#build-and-start). "CI will tell me" is not acceptable for a VPN client that runs as root on other people's machines.
 
 Record the commands and manual scenarios you ran, the relevant operating systems and component versions or commits, and the observed results. State any cases you could not test, and describe cleanup after privileged or integration tests.
 
@@ -500,7 +500,7 @@ Bug fix, refactor, feature: separate PRs. Mixed PRs are slow to review, hard to 
 
 ### Keep it small
 
-Size is the strongest predictor of how long a PR waits for review. Aim for under roughly 400 changed lines across under 20 files. Past about 1000 lines or 50 files, expect to be asked to split the change — and large PRs from outside the core team may be blocked until the scope has been agreed in a ticket. This is not only about reviewer time: NetBird's agent runs as root on other people's machines, and a sprawling diff cannot be reviewed with the care that deserves.
+Size is the strongest predictor of how long a PR waits for review. Aim for under roughly 400 changed lines across under 20 files. Past about 1000 lines or 50 files, expect to be asked to split the change — and large PRs from outside the core team may be blocked until the scope has been agreed in a ticket. This is not only about reviewer time: NetBird's client runs as root on other people's machines, and a sprawling diff cannot be reviewed with the care that deserves.
 
 Measure by hand-written code, excluding generated output, `go.sum`, and fixtures. If a change genuinely cannot be small — a protocol migration, a cross-component rename — agree the split in the issue before you start, and land it as a series of PRs that each build and make sense on their own.
 
@@ -609,7 +609,7 @@ Choose the repository that owns the behavior you want to change:
 
 | Area | Repository or location |
 | --- | --- |
-| Agent, CLI, control plane, relay, and proxy | This repository; see [Directory structure](#directory-structure) |
+| Client, CLI, control plane, relay, and proxy | This repository; see [Directory structure](#directory-structure) |
 | Desktop application | [client/ui/](client/ui/) in this repository |
 | Web administration dashboard | [netbirdio/dashboard](https://github.com/netbirdio/dashboard) |
 | Android application | [netbirdio/android-client](https://github.com/netbirdio/android-client) |

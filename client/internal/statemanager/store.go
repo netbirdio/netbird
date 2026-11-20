@@ -25,7 +25,7 @@ type store interface {
 	save(ctx context.Context, data []byte) error
 }
 
-// fileStore persists states to a file, which is what an installed agent needs:
+// fileStore persists states to a file, which is what an installed client needs:
 // it changes routing, DNS and firewall rules on the host, and a later run has
 // to know what to put back.
 type fileStore struct {
