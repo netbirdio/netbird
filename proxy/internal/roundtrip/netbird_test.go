@@ -47,12 +47,15 @@ type statusCall struct {
 	// ctx is captured so tests can assert the notifier received a
 	// fresh background context rather than an inherited request ctx.
 	ctx context.Context
+	// ctxErr is ctx.Err() at the time of the call; the status queue ends
+	// a call's ctx once the call returns.
+	ctxErr error
 }
 
 func (m *mockStatusNotifier) NotifyStatus(ctx context.Context, accountID types.AccountID, serviceID types.ServiceID, connected bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.statuses = append(m.statuses, statusCall{accountID, serviceID, connected, ctx})
+	m.statuses = append(m.statuses, statusCall{accountID, serviceID, connected, ctx, ctx.Err()})
 	return nil
 }
 
@@ -325,13 +328,15 @@ func TestNetBird_AddPeer_ExistingStartedClient_NotifiesStatus(t *testing.T) {
 	err = nb.AddPeer(cancelledCtx, accountID, "domain2.test", "key-1", types.ServiceID("svc-2"))
 	require.NoError(t, err)
 
+	require.Eventually(t, func() bool { return len(notifier.calls()) == 1 }, 5*time.Second, 10*time.Millisecond,
+		"the notification is sent in the background")
 	calls := notifier.calls()
 	require.Len(t, calls, 1)
 	assert.Equal(t, accountID, calls[0].accountID)
 	assert.Equal(t, types.ServiceID("svc-2"), calls[0].serviceID)
 	assert.True(t, calls[0].connected)
 	require.NotNil(t, calls[0].ctx, "NotifyStatus must receive a context")
-	require.NoError(t, calls[0].ctx.Err(),
+	require.NoError(t, calls[0].ctxErr,
 		"already-started NotifyStatus must use a background ctx, not the cancelled caller ctx")
 }
 
@@ -384,6 +389,8 @@ func TestNetBird_RemovePeer_NotifiesDisconnection(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, nb.HasClient(accountID))
 
+	require.Eventually(t, func() bool { return len(notifier.calls()) == 1 }, 5*time.Second, 10*time.Millisecond,
+		"the disconnection is sent in the background")
 	calls := notifier.calls()
 	require.Len(t, calls, 1)
 	assert.Equal(t, types.ServiceID("svc-1"), calls[0].serviceID)
@@ -544,9 +551,11 @@ func TestNotifyClientReady_UsesBackgroundCtx(t *testing.T) {
 	deadline, ok := capturedReadyCtx.Deadline()
 	assert.False(t, ok, "readyHandler ctx must have no deadline (background); got %v", deadline)
 
+	require.Eventually(t, func() bool { return len(notifier.calls()) == 1 }, 5*time.Second, 10*time.Millisecond,
+		"the notification is sent in the background")
 	calls := notifier.calls()
 	require.Len(t, calls, 1, "NotifyStatus must be invoked once per registered service")
 	require.NotNil(t, calls[0].ctx, "NotifyStatus must receive a context")
-	require.NoError(t, calls[0].ctx.Err(),
+	require.NoError(t, calls[0].ctxErr,
 		"NotifyStatus must receive a background context, not an inherited cancelled one")
 }

@@ -179,6 +179,9 @@ type NetBird struct {
 	lifecycleMu    sync.Map
 	initLogOnce    sync.Once
 	statusNotifier statusNotifier
+	// statusQueue sends status updates to management in the background, in
+	// order per service. Nil for a NetBird built without NewNetBird.
+	statusQueue *statusQueue
 	// readyHandler runs after the embedded client for an account reports
 	// Ready. The opaque return value is stored on clientEntry and handed
 	// back to stopHandler when the entry is torn down. Nil disables the
@@ -219,7 +222,7 @@ type skipTLSVerifyContextKey struct{}
 func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key ServiceKey, authToken string, serviceID types.ServiceID) error {
 	si := serviceInfo{serviceID: serviceID}
 
-	if n.registerExistingClient(accountID, key, si) {
+	if n.registerExistingClient(ctx, accountID, key, si) {
 		return nil
 	}
 
@@ -232,7 +235,7 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key Se
 		}
 	}()
 
-	if n.registerExistingClient(accountID, key, si) {
+	if n.registerExistingClient(ctx, accountID, key, si) {
 		return nil
 	}
 
@@ -274,7 +277,7 @@ func (n *NetBird) startClientStartup(accountID types.AccountID, client *embed.Cl
 // registerExistingClient registers the service against an already-present
 // client for the account and returns true when it did. It notifies management
 // of the new service when the client is already started.
-func (n *NetBird) registerExistingClient(accountID types.AccountID, key ServiceKey, si serviceInfo) bool {
+func (n *NetBird) registerExistingClient(ctx context.Context, accountID types.AccountID, key ServiceKey, si serviceInfo) bool {
 	n.clientsMux.Lock()
 	entry, exists := n.clients[accountID]
 	if !exists {
@@ -291,12 +294,7 @@ func (n *NetBird) registerExistingClient(accountID types.AccountID, key ServiceK
 	}).Debug("registered service with existing client")
 
 	if started && n.statusNotifier != nil {
-		if err := n.statusNotifier.NotifyStatus(context.Background(), accountID, si.serviceID, true); err != nil {
-			n.logger.WithFields(log.Fields{
-				"account_id":  accountID,
-				"service_key": key,
-			}).WithError(err).Warn("failed to notify status for existing client")
-		}
+		n.notifyConnected(ctx, accountID, key, si.serviceID, "failed to notify status for existing client", "")
 	}
 	return true
 }
@@ -511,18 +509,39 @@ func (n *NetBird) notifyClientReady(accountID types.AccountID, client *embed.Cli
 		return
 	}
 	for _, sn := range toNotify {
-		if err := n.statusNotifier.NotifyStatus(n.ctx, accountID, sn.serviceID, true); err != nil {
-			n.logger.WithFields(log.Fields{
-				"account_id":  accountID,
-				"service_key": sn.key,
-			}).WithError(err).Warn("failed to notify tunnel connection status")
-		} else {
-			n.logger.WithFields(log.Fields{
-				"account_id":  accountID,
-				"service_key": sn.key,
-			}).Info("notified management about tunnel connection")
-		}
+		n.notifyConnected(n.ctx, accountID, sn.key, sn.serviceID, "failed to notify tunnel connection status", "notified management about tunnel connection")
 	}
+}
+
+// notifyConnected queues a notice to management that a service's tunnel is up.
+// ctx only bounds the wait for room in the queue; the call itself never inherits
+// it. An empty okMsg logs nothing on success.
+func (n *NetBird) notifyConnected(ctx context.Context, accountID types.AccountID, key ServiceKey, serviceID types.ServiceID, failMsg, okMsg string) {
+	fields := log.Fields{"account_id": accountID, "service_key": key}
+	err := n.SendStatus(ctx, serviceID, func(callCtx context.Context) error {
+		err := n.statusNotifier.NotifyStatus(callCtx, accountID, serviceID, true)
+		switch {
+		case err != nil:
+			n.logger.WithFields(fields).WithError(err).Warn(failMsg)
+		case okMsg != "":
+			n.logger.WithFields(fields).Info(okMsg)
+		}
+		return err
+	})
+	if err != nil {
+		n.logger.WithFields(fields).WithError(err).Warn(failMsg)
+	}
+}
+
+// SendStatus queues a status call to management behind the other status calls
+// for the same service and returns without waiting for it; the call reports its
+// own result. It returns an error only when the call was dropped. Without a
+// status queue the call runs inline with a background context.
+func (n *NetBird) SendStatus(ctx context.Context, serviceID types.ServiceID, call func(ctx context.Context) error) error {
+	if n.statusQueue == nil {
+		return call(context.Background())
+	}
+	return n.statusQueue.enqueue(ctx, statusUpdate{serviceID: serviceID, call: call})
 }
 
 // RemovePeer unregisters a service from an account. The client is only stopped
@@ -612,16 +631,26 @@ func (n *NetBird) notifyDisconnect(ctx context.Context, accountID types.AccountI
 	if n.statusNotifier == nil {
 		return
 	}
-	if err := n.statusNotifier.NotifyStatus(ctx, accountID, serviceID, false); err != nil {
+	logResult := func(err error) {
+		if err == nil {
+			return
+		}
 		if s, ok := grpcstatus.FromError(err); ok && s.Code() == codes.NotFound {
 			n.logger.WithField("service_key", key).Debug("service already removed, skipping disconnect notification")
-		} else {
-			n.logger.WithFields(log.Fields{
-				"account_id":  accountID,
-				"service_key": key,
-			}).WithError(err).Warn("failed to notify tunnel disconnection status")
+			return
 		}
+		n.logger.WithFields(log.Fields{
+			"account_id":  accountID,
+			"service_key": key,
+		}).WithError(err).Warn("failed to notify tunnel disconnection status")
 	}
+	// Queued behind anything still pending for the service, so it never overtakes
+	// an earlier connect.
+	logResult(n.SendStatus(ctx, serviceID, func(callCtx context.Context) error {
+		err := n.statusNotifier.NotifyStatus(callCtx, accountID, serviceID, false)
+		logResult(err)
+		return err
+	}))
 }
 
 // RoundTrip implements http.RoundTripper. It looks up the client for the account
@@ -681,6 +710,9 @@ func (n *NetBird) RoundTrip(req *http.Request) (*http.Response, error) {
 
 // StopAll stops all clients.
 func (n *NetBird) StopAll(ctx context.Context) error {
+	if n.statusQueue != nil {
+		defer n.statusQueue.stop()
+	}
 	n.clientsMux.Lock()
 	defer n.clientsMux.Unlock()
 
@@ -798,7 +830,7 @@ func NewNetBird(ctx context.Context, proxyID, proxyAddr string, clientCfg Client
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
-	return &NetBird{
+	n := &NetBird{
 		ctx:            ctx,
 		proxyID:        proxyID,
 		proxyAddr:      proxyAddr,
@@ -809,6 +841,10 @@ func NewNetBird(ctx context.Context, proxyID, proxyAddr string, clientCfg Client
 		mgmtClient:     mgmtClient,
 		transportCfg:   loadTransportConfig(logger),
 	}
+	if notifier != nil {
+		n.statusQueue = newStatusQueue(ctx, statusQueueShards, statusQueueDepth)
+	}
+	return n
 }
 
 // SetClientLifecycle registers callbacks that run when an embedded
