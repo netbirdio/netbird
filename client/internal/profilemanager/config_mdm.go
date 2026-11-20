@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/mdm"
 )
 
@@ -76,4 +77,17 @@ func CheckMDMConflicts(input ConfigInput, policy *mdm.Policy) error {
 		return nil
 	}
 	return fmt.Errorf("%w: %v", ErrMDMManagedFields, conflicts)
+}
+
+// ForceRelayInEffect resolves the force relay setting: an MDM policy wins over
+// everything, then NB_FORCE_RELAY in the daemon environment wins over the
+// profile, as environment variables do for every other option.
+func (config *Config) ForceRelayInEffect() bool {
+	if _, managed := config.Policy().GetBool(mdm.KeyForceRelay); managed {
+		return config.ForceRelay
+	}
+	if forced, set := peer.ForceRelayFromEnv(); set {
+		return forced
+	}
+	return config.ForceRelay
 }

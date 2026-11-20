@@ -1,4 +1,6 @@
-package internal
+//go:build !js
+
+package profilemanager
 
 import (
 	"os"
@@ -7,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/mdm"
 )
 
@@ -33,7 +34,7 @@ func TestForceRelayPrecedence(t *testing.T) {
 			if tc.unset {
 				os.Unsetenv(peer.EnvKeyNBForceRelay)
 			}
-			got := forceRelay(&profilemanager.Config{ForceRelay: tc.profile})
+			got := (&Config{ForceRelay: tc.profile}).ForceRelayInEffect()
 			assert.Equal(t, tc.want, got, "effective force relay")
 		})
 	}
@@ -52,9 +53,9 @@ func TestForceRelayMDMWinsOverEnv(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(peer.EnvKeyNBForceRelay, tc.env)
-			cfg := (&profilemanager.Config{ForceRelay: !tc.policy}).WithMDMPolicy(
+			cfg := (&Config{ForceRelay: !tc.policy}).WithMDMPolicy(
 				mdm.NewPolicy(map[string]any{mdm.KeyForceRelay: tc.policy}))
-			assert.Equal(t, tc.policy, forceRelay(cfg), "the policy decides")
+			assert.Equal(t, tc.policy, cfg.ForceRelayInEffect(), "the policy decides")
 		})
 	}
 }

@@ -39,7 +39,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/tunnelnotifier"
 	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/internal/updater/installer"
-	"github.com/netbirdio/netbird/client/mdm"
 	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/netevents"
 	cProto "github.com/netbirdio/netbird/client/proto"
@@ -732,7 +731,7 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		EnableSSHRemotePortForwarding: config.EnableSSHRemotePortForwarding,
 		DisableSSHAuth:                config.DisableSSHAuth,
 		DNSRouteInterval:              config.DNSRouteInterval,
-		ForceRelay:                    forceRelay(config),
+		ForceRelay:                    config.ForceRelayInEffect(),
 
 		DisableClientRoutes: config.DisableClientRoutes,
 		DisableServerRoutes: config.DisableServerRoutes || config.BlockInbound,
@@ -896,17 +895,4 @@ func closeConnWithLog(conn *net.UDPConn) {
 	if time.Since(startClosing) > time.Second {
 		log.Warnf("closing the testing port %d took %s. Usually it is safe to ignore, but continuous warnings may indicate a problem.", conn.LocalAddr().(*net.UDPAddr).Port, time.Since(startClosing))
 	}
-}
-
-// forceRelay resolves the force relay setting: an MDM policy wins over
-// everything, then NB_FORCE_RELAY in the daemon environment wins over the
-// profile, as environment variables do for every other option.
-func forceRelay(config *profilemanager.Config) bool {
-	if _, managed := config.Policy().GetBool(mdm.KeyForceRelay); managed {
-		return config.ForceRelay
-	}
-	if forced, set := peer.ForceRelayFromEnv(); set {
-		return forced
-	}
-	return config.ForceRelay
 }
