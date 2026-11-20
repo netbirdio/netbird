@@ -60,7 +60,7 @@ func TestBuildRestrictions_NetworkKeys(t *testing.T) {
 		KeyInterfaceName, KeyMTU, KeyDisableDNS, KeyDisableIPv6, KeyDisableFirewall,
 		KeyBlockLANAccess, KeyDisableNotifications, KeyNetworkMonitor,
 	} {
-		assert.Equal(t, true, got.MDM[key], "%s must be reported as managed under its policy key name", key)
+		assert.Equal(t, managedHere(key), got.MDM[key] == true, "%s must be reported as managed under its policy key name", key)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/mdm"
 )
 
@@ -418,7 +419,7 @@ func TestApply_MDMExtraIFaceBlackList_InvalidTypeIgnored(t *testing.T) {
 	}))
 
 	assert.ElementsMatch(t, DefaultInterfaceBlacklist, cfg.IFaceBlackList, "a non-list value must leave the blacklist untouched")
-	assert.True(t, cfg.Policy().HasKey(mdm.KeyExtraIFaceBlackList), "the key is still reported as managed")
+	assert.False(t, cfg.Policy().HasKey(mdm.KeyExtraIFaceBlackList), "a non-list value leaves the setting to the user")
 }
 
 func countOf(list []string, item string) int {
@@ -475,7 +476,7 @@ func TestApply_MDMNetworkBoolKeysOverrideOnDiskValue(t *testing.T) {
 	assert.Equal(t, string(before), string(after), "MDM values must not reach the profile file")
 }
 
-func TestApply_MDMNetworkBoolKeys_UnparseableValueKeepsProfileValue(t *testing.T) {
+func TestApply_MDMNetworkBoolKeys_UnparseableValueLeavesSettingToUser(t *testing.T) {
 	cfg := configWithMDM(t, ConfigInput{
 		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
 		DisableDNS: boolPtr(true),
@@ -484,7 +485,7 @@ func TestApply_MDMNetworkBoolKeys_UnparseableValueKeepsProfileValue(t *testing.T
 	}))
 
 	assert.True(t, cfg.DisableDNS, "an unparseable bool must not flip the profile value")
-	assert.True(t, cfg.Policy().HasKey(mdm.KeyDisableDNS), "the key stays managed so user writes are still rejected")
+	assert.False(t, cfg.Policy().HasKey(mdm.KeyDisableDNS), "an unparseable bool must leave the setting to the user")
 }
 
 func TestMDMConflicts_NetworkBoolKeys(t *testing.T) {
@@ -598,7 +599,7 @@ func TestApply_MDMNetworkValueKeys_InvalidValueKeepsProfileValue(t *testing.T) {
 			in.ConfigPath = filepath.Join(t.TempDir(), "config.json")
 			cfg := configWithMDM(t, in, mdm.NewPolicy(map[string]any{tc.key: tc.value}))
 			tc.check(t, cfg)
-			assert.True(t, cfg.Policy().HasKey(tc.key), "the key stays managed so user writes are still rejected")
+			assert.False(t, cfg.Policy().HasKey(tc.key), "an unusable tuning value leaves the setting to the user")
 		})
 	}
 }
@@ -646,20 +647,9 @@ func TestMDMConflicts_NetworkValueKeys(t *testing.T) {
 	}
 }
 
-func TestIsUtunName(t *testing.T) {
-	// macOS only accepts utun followed by the unit number; anything else makes
-	// interface creation fail and would leave the device offline.
-	for name, want := range map[string]bool{
-		"utun100": true,
-		"utun0":   true,
-		"utun":    false,
-		"utunabc": false,
-		"utun1a":  false,
-		"nbmdm":   false,
-		"wt0":     false,
-	} {
-		assert.Equal(t, want, isUtunName(name), "isUtunName(%q)", name)
-	}
+func TestMDMMTUBoundsMatchInterface(t *testing.T) {
+	assert.Equal(t, iface.MinMTU, mdm.MinMTU, "mdm.MinMTU must track iface.MinMTU")
+	assert.Equal(t, iface.MaxMTU, mdm.MaxMTU, "mdm.MaxMTU must track iface.MaxMTU")
 }
 
 func TestApply_MDMSSHKeysOverrideOnDiskValue(t *testing.T) {
@@ -781,4 +771,15 @@ func TestMDMConflicts_ForceRelay(t *testing.T) {
 	assert.Nil(t, MDMConflicts(ConfigInput{}, policy), "an unset value does not conflict")
 	assert.Nil(t, MDMConflicts(ConfigInput{ForceRelay: boolPtr(true)}, policy), "a value matching the policy does not conflict")
 	assert.Equal(t, []string{mdm.KeyForceRelay}, MDMConflicts(ConfigInput{ForceRelay: boolPtr(false)}, policy), "a differing value conflicts")
+}
+
+// An empty managed list is how an administrator enforces no NAT mappings, so it
+// must clear the ones in the profile instead of being ignored.
+func TestApply_MDMEmptyNATExternalIPsClearsProfileMappings(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "config.json")
+	cfg := configWithMDM(t, ConfigInput{ConfigPath: tmp, NATExternalIPs: []string{"198.51.100.1"}},
+		mdm.NewPolicy(map[string]any{mdm.KeyNATExternalIPs: []string{}}))
+
+	assert.Empty(t, cfg.NATExternalIPs, "an empty managed list enforces no mappings")
+	assert.True(t, cfg.Policy().HasKey(mdm.KeyNATExternalIPs), "the empty list stays managed")
 }

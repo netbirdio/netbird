@@ -37,15 +37,10 @@ func shouldEnableAutostartDefault(s autostartDefaultState) (bool, string) {
 	return true, ""
 }
 
-// autostartDisabledByMDM reports whether the MDM policy manages the
-// disableAutostart key in a way that must suppress the default. An
-// unparseable managed value is treated as disabled to stay on the safe side.
+// autostartDisabledByMDM reports whether the MDM policy suppresses the default.
 func autostartDisabledByMDM(policy *mdm.Policy) bool {
-	if !policy.HasKey(mdm.KeyDisableAutostart) {
-		return false
-	}
-	disabled, ok := policy.GetBool(mdm.KeyDisableAutostart)
-	return !ok || disabled
+	disabled, _ := policy.GetBool(mdm.KeyDisableAutostart)
+	return disabled
 }
 
 // netbirdFootprintExists reports whether the machine already carries NetBird

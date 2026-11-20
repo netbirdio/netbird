@@ -211,7 +211,9 @@
                                      forceRelay         : true never tries a direct connection, false allows
                                                           one; either value wins over NB_FORCE_RELAY in the
                                                           daemon environment.
-                                     An invalid value is ignored and the device keeps its own. -->
+                                     An invalid value is ignored and the device keeps its own,
+                                     except that disableFirewall then enforces false and
+                                     blockLANAccess enforces true. -->
                                 <!--
                                 <key>disableDNS</key>
                                 <false/>

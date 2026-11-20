@@ -184,7 +184,7 @@ func NewPolicy(values map[string]any) *Policy {
 	if values == nil {
 		values = map[string]any{}
 	}
-	return &Policy{values: values}
+	return &Policy{values: dropUnusableValues(values)}
 }
 
 // PolicyFetcher supplies the managed configuration to a Loader. Mobile
@@ -261,7 +261,7 @@ func (l *Loader) LoadWithError() (*Policy, error) {
 	} else {
 		log.Infof("MDM enrolled with %d managed key(s): %v", len(values), sortedKeys(values))
 	}
-	return &Policy{values: values}, nil
+	return &Policy{values: dropUnusableValues(values)}, nil
 }
 
 // IsEmpty reports whether the Policy has no managed keys.

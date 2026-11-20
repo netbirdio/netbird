@@ -8,13 +8,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"math"
 	"net"
 	"net/url"
 	"os"
 	"os/user"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -46,9 +44,6 @@ const (
 	// reported by the deprecated mobile admin URL getters.
 	DefaultAdminURL = "https://app.netbird.io:443"
 )
-
-// utunNameRe matches the only interface names macOS accepts: utun plus the unit number.
-var utunNameRe = regexp.MustCompile(`^utun\d+$`)
 
 // mgmProber is the subset of management client needed for URL migration probes.
 type mgmProber interface {
@@ -1012,15 +1007,8 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 	}
 
 	if v, ok := policy.GetInt(mdm.KeyWireguardPort); ok {
-		// REG_DWORD is 32-bit; UDP port range is 1-65535. Clamp at the
-		// upper bound and reject obviously-invalid values to avoid the
-		// engine binding to an unusable port if the admin pushes garbage.
-		if v >= 1 && v <= 65535 {
-			config.WgPort = int(v)
-			logMDMApplied(mdm.KeyWireguardPort, v)
-		} else {
-			log.Warnf("MDM wireguard port %d out of range [1,65535]; keeping previous value", v)
-		}
+		config.WgPort = int(v)
+		logMDMApplied(mdm.KeyWireguardPort, v)
 	}
 
 	if v, ok := policy.GetBool(mdm.KeyLazyConnection); ok {
@@ -1074,24 +1062,14 @@ func (config *Config) applyMDMSSHJWTCacheTTL(policy *mdm.Policy) {
 	if !ok {
 		return
 	}
-	if v < 0 || v > math.MaxInt32 {
-		log.Warnf("MDM %s %d out of range [0,%d]; keeping previous value", mdm.KeySSHJWTCacheTTL, v, math.MaxInt32)
-		return
-	}
 	ttl := int(v)
 	config.SSHJWTCacheTTL = &ttl
 	logMDMApplied(mdm.KeySSHJWTCacheTTL, ttl)
 }
 
-// applyMDMInterfaceName enforces the interface name. A value the platform
-// cannot use is skipped, so the interface keeps coming up under the old name.
 func (config *Config) applyMDMInterfaceName(policy *mdm.Policy) {
 	v, ok := policy.GetString(mdm.KeyInterfaceName)
 	if !ok {
-		return
-	}
-	if err := validateInterfaceName(v); err != nil {
-		log.Warnf("MDM %s %q invalid: %v; keeping previous value", mdm.KeyInterfaceName, v, err)
 		return
 	}
 	config.WgIface = v
@@ -1103,52 +1081,29 @@ func (config *Config) applyMDMMTU(policy *mdm.Policy) {
 	if !ok {
 		return
 	}
-	if v < iface.MinMTU || v > iface.MaxMTU {
-		log.Warnf("MDM %s %d out of range [%d,%d]; keeping previous value", mdm.KeyMTU, v, iface.MinMTU, iface.MaxMTU)
-		return
-	}
 	config.MTU = uint16(v)
 	logMDMApplied(mdm.KeyMTU, v)
 }
 
 func (config *Config) applyMDMDNSRouteInterval(policy *mdm.Policy) {
-	if !policy.HasKey(mdm.KeyDNSRouteInterval) {
-		return
-	}
 	v, ok := policy.GetDuration(mdm.KeyDNSRouteInterval)
-	if !ok || v <= 0 {
-		log.Warnf("MDM %s is not a positive duration such as \"1m30s\"; keeping previous value", mdm.KeyDNSRouteInterval)
+	if !ok {
 		return
 	}
 	config.DNSRouteInterval = v
 	logMDMApplied(mdm.KeyDNSRouteInterval, v)
 }
 
-// applyMDMNATExternalIPs replaces the mappings. Malformed entries are left to
-// the engine, which already skips and logs them when it parses the list.
+// applyMDMNATExternalIPs replaces the mappings. A list with a malformed entry
+// never gets here: the policy drops it when it loads.
 func (config *Config) applyMDMNATExternalIPs(policy *mdm.Policy) {
-	if !policy.HasKey(mdm.KeyNATExternalIPs) {
-		return
-	}
 	values, ok := policy.GetStringSlice(mdm.KeyNATExternalIPs)
 	if !ok {
-		log.Warnf("MDM %s is not a list of mappings; ignoring it", mdm.KeyNATExternalIPs)
 		return
 	}
 	config.NATExternalIPs = mdm.SplitList(values)
-	logMDMApplied(mdm.KeyNATExternalIPs, config.NATExternalIPs)
-}
-
-// validateInterfaceName mirrors the CLI rule: macOS only accepts utun names.
-func isUtunName(name string) bool {
-	return utunNameRe.MatchString(name)
-}
-
-func validateInterfaceName(name string) error {
-	if runtime.GOOS == "darwin" && !isUtunName(name) {
-		return fmt.Errorf("macOS needs the utun prefix followed by a number, e.g. utun100")
-	}
-	return nil
+	log.Infof("MDM override %s = %d mapping(s)", mdm.KeyNATExternalIPs, len(config.NATExternalIPs))
+	log.Debugf("MDM %s mappings: %v", mdm.KeyNATExternalIPs, config.NATExternalIPs)
 }
 
 // logMDMApplied logs the application of a single MDM-managed key. Values for
