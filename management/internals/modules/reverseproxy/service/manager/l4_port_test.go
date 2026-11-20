@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/route"
 )
 
 const testCluster = "test-cluster"
@@ -90,6 +91,9 @@ func setupL4Test(t *testing.T, customPortsSupported *bool) (*Manager, store.Stor
 		UpdateAccountPeersFunc: func(_ context.Context, _ string, _ types.UpdateReason) {},
 		GetGroupByNameFunc: func(ctx context.Context, groupName, accountID, userID string) (*types.Group, error) {
 			return testStore.GetGroupByName(ctx, store.LockingStrengthNone, accountID, groupName)
+		},
+		GetAccountFunc: func(ctx context.Context, accountID string) (*types.Account, error) {
+			return testStore.GetAccount(ctx, accountID)
 		},
 	}
 
@@ -681,6 +685,20 @@ func TestUpdate_AutoAssignsWhenNoPort(t *testing.T) {
 func TestCreateServiceFromPeer_TCP_TargetHost(t *testing.T) {
 	mgr, testStore, _ := setupL4Test(t, boolPtr(true))
 	ctx := context.Background()
+
+	// The exposing peer routes its LAN, so a LAN address is a destination
+	// it may reach.
+	require.NoError(t, testStore.SaveRoute(ctx, &route.Route{
+		ID:          "test-route-lan",
+		AccountID:   testAccountID,
+		Network:     netip.MustParsePrefix("10.0.0.0/24"),
+		NetID:       "lan",
+		Peer:        testPeerID,
+		NetworkType: route.IPv4Network,
+		Enabled:     true,
+		Groups:      []string{testGroupID},
+		Metric:      9999,
+	}))
 
 	resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
 		Port:       5432,

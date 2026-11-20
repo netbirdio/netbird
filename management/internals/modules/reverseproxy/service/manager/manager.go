@@ -1311,6 +1311,10 @@ func (m *Manager) CreateServiceFromPeer(ctx context.Context, accountID, peerID s
 		return nil, err
 	}
 
+	if err := m.validateExposeTargetHost(ctx, accountID, peerID, req.TargetHost); err != nil {
+		return nil, err
+	}
+
 	serviceName, err := service.GenerateExposeName(req.NamePrefix)
 	if err != nil {
 		return nil, status.Errorf(status.InvalidArgument, "generate service name: %v", err)

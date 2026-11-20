@@ -744,6 +744,9 @@ func setupIntegrationTest(t *testing.T) (*Manager, store.Store) {
 		GetGroupByNameFunc: func(ctx context.Context, groupName, accountID, userID string) (*types.Group, error) {
 			return testStore.GetGroupByName(ctx, store.LockingStrengthNone, accountID, groupName)
 		},
+		GetAccountFunc: func(ctx context.Context, accountID string) (*types.Account, error) {
+			return testStore.GetAccount(ctx, accountID)
+		},
 	}
 
 	tokenStore := nbgrpc.NewOneTimeTokenStore(ctx, testCacheStore(t))
@@ -943,19 +946,20 @@ func TestCreateServiceFromPeer_TargetHost(t *testing.T) {
 
 	t.Run("set host produces remote peer target", func(t *testing.T) {
 		mgr, testStore := setupIntegrationTest(t)
+		addTargetHostPeer(t, testStore, true)
 
 		resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
 			Port:       8080,
 			Mode:       "http",
-			TargetHost: "other-service",
+			TargetHost: targetHostPeerLabel,
 		})
 		require.NoError(t, err)
-		assert.Equal(t, "other-service", resp.TargetHost, "applied target host must be echoed")
+		assert.Equal(t, targetHostPeerLabel, resp.TargetHost, "applied target host must be echoed")
 
 		svc, err := testStore.GetServiceByDomain(ctx, resp.Domain)
 		require.NoError(t, err)
 		require.Len(t, svc.Targets, 1)
-		assert.Equal(t, "other-service", svc.Targets[0].Host)
+		assert.Equal(t, targetHostPeerLabel, svc.Targets[0].Host)
 		assert.True(t, svc.Targets[0].HostPinned, "supplied target host is pinned against lookup")
 		assert.Equal(t, rpservice.TargetTypePeer, svc.Targets[0].TargetType)
 		assert.Equal(t, testPeerID, svc.Targets[0].TargetId)
@@ -963,7 +967,66 @@ func TestCreateServiceFromPeer_TargetHost(t *testing.T) {
 		require.NoError(t, svc.Validate(), "remote host target must pass service validation")
 
 		require.NoError(t, mgr.replaceHostByLookup(ctx, testAccountID, svc))
-		assert.Equal(t, "other-service", svc.Targets[0].Host, "ephemeral target host must survive lookup")
+		assert.Equal(t, targetHostPeerLabel, svc.Targets[0].Host, "ephemeral target host must survive lookup")
+	})
+
+	t.Run("peer reachable under policy accepted by IP", func(t *testing.T) {
+		mgr, testStore := setupIntegrationTest(t)
+		addTargetHostPeer(t, testStore, true)
+
+		resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
+			Port:       8080,
+			Mode:       "http",
+			TargetHost: targetHostPeerIP,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, targetHostPeerIP, resp.TargetHost, "a peer the exposer may reach is accepted")
+	})
+
+	t.Run("own overlay IP accepted", func(t *testing.T) {
+		mgr, _ := setupIntegrationTest(t)
+
+		_, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
+			Port:       8080,
+			Mode:       "http",
+			TargetHost: "100.64.0.1",
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("peer outside exposer policies rejected", func(t *testing.T) {
+		mgr, testStore := setupIntegrationTest(t)
+		// Peer B exists but no policy lets the exposing peer reach it, so
+		// naming it as the target must not borrow the proxy's access.
+		addTargetHostPeer(t, testStore, false)
+
+		for _, host := range []string{targetHostPeerIP, targetHostPeerLabel} {
+			_, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
+				Port:       8080,
+				Mode:       "http",
+				TargetHost: host,
+			})
+			require.Error(t, err, "host %s", host)
+			sErr, ok := status.FromError(err)
+			require.True(t, ok, "error for %s must be a status error", host)
+			assert.Equal(t, status.PermissionDenied, sErr.Type(), "unreachable peer %s must be denied", host)
+		}
+
+		services, err := testStore.GetAccountServices(ctx, store.LockingStrengthNone, testAccountID)
+		require.NoError(t, err)
+		assert.Empty(t, services, "a denied expose must not persist a service")
+	})
+
+	t.Run("unknown name rejected", func(t *testing.T) {
+		mgr, _ := setupIntegrationTest(t)
+
+		_, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
+			Port:       8080,
+			Mode:       "http",
+			TargetHost: "other-service",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not reachable by the exposing peer")
 	})
 
 	t.Run("invalid host rejected", func(t *testing.T) {
@@ -989,6 +1052,56 @@ func TestCreateServiceFromPeer_TargetHost(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "loopback")
 	})
+}
+
+const (
+	targetHostPeerID    = "test-peer-2"
+	targetHostPeerIP    = "100.64.0.2"
+	targetHostPeerLabel = "peer-b"
+	targetHostGroupID   = "test-group-2"
+)
+
+// addTargetHostPeer adds a second peer in its own group. With allow set, a
+// policy lets the expose group reach that group.
+func addTargetHostPeer(t *testing.T, testStore store.Store, allow bool) {
+	t.Helper()
+	ctx := context.Background()
+
+	require.NoError(t, testStore.AddPeerToAccount(ctx, &nbpeer.Peer{
+		ID:        targetHostPeerID,
+		AccountID: testAccountID,
+		Key:       "test-key-2",
+		DNSLabel:  targetHostPeerLabel,
+		Name:      targetHostPeerLabel,
+		IP:        netip.MustParseAddr(targetHostPeerIP),
+		Status:    &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now()},
+		Meta:      nbpeer.PeerSystemMeta{Hostname: targetHostPeerLabel},
+	}))
+	require.NoError(t, testStore.CreateGroup(ctx, &types.Group{
+		ID:        targetHostGroupID,
+		AccountID: testAccountID,
+		Name:      "Target Group",
+	}))
+	require.NoError(t, testStore.AddPeerToGroup(ctx, testAccountID, targetHostPeerID, targetHostGroupID))
+
+	if !allow {
+		return
+	}
+	require.NoError(t, testStore.CreatePolicy(ctx, &types.Policy{
+		ID:        "test-policy-target",
+		AccountID: testAccountID,
+		Name:      "expose to target",
+		Enabled:   true,
+		Rules: []*types.PolicyRule{{
+			ID:           "test-rule-target",
+			PolicyID:     "test-policy-target",
+			Enabled:      true,
+			Action:       types.PolicyTrafficActionAccept,
+			Protocol:     types.PolicyRuleProtocolALL,
+			Sources:      []string{testGroupID},
+			Destinations: []string{targetHostGroupID},
+		}},
+	}))
 }
 
 func TestReplaceHostByLookup_PreservesEphemeralTargetHost(t *testing.T) {
