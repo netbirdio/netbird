@@ -419,6 +419,11 @@ func TestOwnerMismatchRefuses(t *testing.T) {
 	record, err := os.ReadFile(h.env.RecordPath)
 	require.NoError(t, err)
 
+	// The error names the written target, which is the resolved path (on
+	// macOS t.TempDir is under /tmp, a symlink to /private/tmp).
+	target, err := filepath.EvalSymlinks(h.settings)
+	require.NoError(t, err)
+
 	fakeOtherUser(t)
 	for name, settings := range map[string][]Setting{
 		"setup": h.render(t, "bedrock_api", ""),
@@ -428,7 +433,7 @@ func TestOwnerMismatchRefuses(t *testing.T) {
 		var notOwner *NotOwnerError
 		require.ErrorAs(t, err, &notOwner, name)
 		assert.Nil(t, p, "%s: no plan to apply", name)
-		assert.Equal(t, h.settings, notOwner.File, "%s: the error names the file", name)
+		assert.Equal(t, target, notOwner.File, "%s: the error names the file", name)
 		assert.Contains(t, err.Error(), "run setup as the file's owner", name)
 	}
 	assert.Equal(t, before, h.read(t), "the file is untouched")
