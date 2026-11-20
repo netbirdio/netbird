@@ -12,6 +12,8 @@ import (
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/shared/alignedhb"
+	"github.com/netbirdio/netbird/shared/alignedhb/keepalive"
 	"github.com/netbirdio/netbird/shared/management/certposture"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -55,10 +57,20 @@ type PeerUpdateHandler struct {
 	encrypter          encryption.Encrypter
 	debouncer          Debouncer
 	cleanupFunc        func()
+	// aligned is the aligned heartbeat confirmed on this stream, nil when off.
+	// Only HandleUpdates touches it once it runs.
+	aligned *alignedHeartbeat
 }
 
 func (pu *PeerUpdateHandler) WithMetrics(appMetrics telemetry.AppMetrics) *PeerUpdateHandler {
 	pu.appMetrics = appMetrics
+	return pu
+}
+
+// WithAlignedHeartbeat turns on the aligned heartbeat confirmed on this
+// stream. A nil aligned leaves the stream stock.
+func (pu *PeerUpdateHandler) WithAlignedHeartbeat(aligned *alignedHeartbeat) *PeerUpdateHandler {
+	pu.aligned = aligned
 	return pu
 }
 
@@ -72,6 +84,21 @@ func (pu *PeerUpdateHandler) HandleUpdates(ctx context.Context) error {
 	log.WithContext(ctx).Tracef("starting to handle updates for peer %s", pu.peerKey.String())
 
 	defer pu.debouncer.Stop()
+
+	// The heartbeat shares this loop so the stream is only written from one
+	// goroutine.
+	hb, stopHB := pu.heartbeatTick(ctx)
+	defer stopHB()
+
+	if pu.aligned != nil {
+		if err := keepalive.SetAlignedStream(pu.srv.Context(), pu.aligned.period); err != nil {
+			log.WithContext(ctx).Debugf("aligned heartbeat keepalive for peer %s: %v", pu.peerKey.String(), err)
+		}
+		if pu.appMetrics != nil {
+			pu.appMetrics.GRPCMetrics().IncAlignedStreams()
+			defer pu.appMetrics.GRPCMetrics().DecAlignedStreams()
+		}
+	}
 
 	for {
 		select {
@@ -111,6 +138,13 @@ func (pu *PeerUpdateHandler) HandleUpdates(ctx context.Context) error {
 				}
 			}
 
+		case <-hb:
+			if err := pu.SendUpdate(ctx, heartbeatUpdate()); err != nil {
+				log.WithContext(ctx).Debugf("error while sending a heartbeat to peer %s: %v", pu.peerKey.String(), err)
+				return err
+			}
+			log.WithContext(ctx).Tracef("sent heartbeat to peer %s", pu.peerKey.String())
+
 		// condition when client <-> server connection has been terminated
 		case <-pu.srv.Context().Done():
 			// happens when connection drops, e.g. client disconnects
@@ -146,4 +180,22 @@ func (pu *PeerUpdateHandler) SendUpdate(ctx context.Context, update *network_map
 	}
 	log.WithContext(ctx).Tracef("sent an update to peer %s", pu.peerKey.String())
 	return nil
+}
+
+// heartbeatTick returns the aligned heartbeat tick and its stop func. The
+// tick is nil (never fires) on a stock stream.
+func (pu *PeerUpdateHandler) heartbeatTick(ctx context.Context) (<-chan time.Time, context.CancelFunc) {
+	if pu.aligned == nil {
+		return nil, func() {}
+	}
+	log.WithContext(ctx).Debugf("aligned heartbeat on for peer %s, period %s, phase %d ms",
+		pu.peerKey.String(), pu.aligned.period, pu.aligned.phase.Milliseconds())
+	tickCtx, cancel := context.WithCancel(ctx)
+	return alignedhb.Ticker(tickCtx, pu.aligned.period, pu.aligned.phase, time.Now), cancel
+}
+
+// heartbeatUpdate returns the aligned heartbeat message. It carries nothing
+// else, so the client never hands it to its network map handler.
+func heartbeatUpdate() *network_map.UpdateMessage {
+	return &network_map.UpdateMessage{Update: &proto.SyncResponse{Heartbeat: &proto.Heartbeat{}}}
 }
