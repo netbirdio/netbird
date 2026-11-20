@@ -84,9 +84,10 @@ type Identity struct {
 	// actually exercise. Empty on Unix.
 	Groups []string
 
-	// Elevated reports whether the Windows client token is elevated (running
-	// as administrator, or an administrator with UAC turned off). Always false
-	// on Unix, where privilege is uid 0.
+	// Elevated reports whether the Windows client token is elevated. It does
+	// not imply administrator rights, since service accounts hold elevated
+	// tokens too: privilege comes from SID and Groups. Always false on Unix,
+	// where privilege is uid 0.
 	Elevated bool
 
 	// PID is the caller's process ID where the platform reports it (Linux's
@@ -114,23 +115,21 @@ func (i Identity) IsWindows() bool {
 // user-to-root boundary.
 //
 // On Windows the decision comes from the caller's token rather than from
-// account names or group RIDs: an elevated token, the LocalSystem SID, or a
-// token with BUILTIN\Administrators enabled. LocalService and NetworkService
-// are not privileged by SID. A UAC-filtered administrator has that group marked deny-only, and
-// deny-only groups are dropped when the identity is captured, so such a
-// caller is correctly reported as unprivileged. Domain group memberships
-// (Domain Admins and friends) are deliberately not consulted: they say
-// nothing about what this token may do on this machine.
+// account names or group RIDs: the LocalSystem SID, or a token with
+// BUILTIN\Administrators enabled. Elevation alone is not enough: the Service
+// Control Manager hands LocalService, NetworkService and virtual service
+// accounts elevated tokens without making them administrators. A UAC-filtered
+// administrator has the group marked deny-only, and deny-only groups are dropped
+// when the identity is captured, so such a caller is correctly reported as
+// unprivileged. Domain group memberships (Domain Admins and friends) are
+// deliberately not consulted: they say nothing about what this token may do on
+// this machine.
 func (i Identity) IsPrivileged() bool {
 	if !i.known {
 		return false
 	}
 	if !i.IsWindows() {
 		return i.UID == 0
-	}
-
-	if i.Elevated {
-		return true
 	}
 
 	if i.SID == sidLocalSystem {

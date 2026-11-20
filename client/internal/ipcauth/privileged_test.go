@@ -57,7 +57,7 @@ func TestIsPrivilegedCaller_SelfRule(t *testing.T) {
 			// carry the same SID but not the same power, so an elevated daemon must
 			// never delegate to its own SID.
 			name:   "an elevated windows daemon does not delegate to its own SID",
-			self:   Identity{known: true, SID: "S-1-5-21-1-2-3-500", Elevated: true},
+			self:   Identity{known: true, SID: "S-1-5-21-1-2-3-500", Elevated: true, Groups: []string{sidAdministrators}},
 			caller: Identity{known: true, SID: "S-1-5-21-1-2-3-500"},
 			want:   false,
 		},
@@ -133,7 +133,7 @@ func TestMayDelegate(t *testing.T) {
 		{name: "unprivileged unix user", self: Identity{known: true, UID: 1000}, want: true},
 		{name: "root", self: Identity{known: true, UID: 0}, want: false},
 		{name: "unprivileged windows user", self: Identity{known: true, SID: "S-1-5-21-1-2-3-1001"}, want: true},
-		{name: "elevated windows user", self: Identity{known: true, SID: "S-1-5-21-1-2-3-1001", Elevated: true}, want: false},
+		{name: "elevated windows administrator", self: Identity{known: true, SID: "S-1-5-21-1-2-3-1001", Elevated: true, Groups: []string{sidAdministrators}}, want: false},
 		{name: "local system", self: Identity{known: true, SID: sidLocalSystem}, want: false},
 		{name: "local service", self: Identity{known: true, SID: sidLocalService}, want: false},
 		{name: "network service", self: Identity{known: true, SID: sidNetworkService}, want: false},
