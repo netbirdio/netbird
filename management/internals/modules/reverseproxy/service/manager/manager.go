@@ -96,6 +96,9 @@ type Manager struct {
 	capabilities       CapabilityProvider
 	clusterDeriver     ClusterDeriver
 	exposeReaper       *exposeReaper
+	// dnsDomain returns the management-wide peer DNS domain used when an
+	// account sets no custom one.
+	dnsDomain func() string
 }
 
 // NewManager creates a new service manager.
@@ -110,6 +113,12 @@ func NewManager(store store.Store, accountManager account.Manager, permissionsMa
 	}
 	mgr.exposeReaper = &exposeReaper{manager: mgr}
 	return mgr
+}
+
+// SetDNSDomainSource sets how the manager reads the management-wide peer DNS
+// domain, which expose target checks use when an account has no custom domain.
+func (m *Manager) SetDNSDomainSource(source func() string) {
+	m.dnsDomain = source
 }
 
 // StartExposeReaper starts the background goroutine that reaps expired ephemeral services.

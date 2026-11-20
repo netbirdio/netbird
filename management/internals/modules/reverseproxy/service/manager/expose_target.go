@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"net/netip"
+	"slices"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -49,10 +50,7 @@ func (m *Manager) validateExposeTargetHost(ctx context.Context, accountID, peerI
 	netMap := account.GetPeerNetworkMapFromComponents(ctx, peerID, dns.CustomZone{}, nil, validatedPeers,
 		account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
 
-	dnsDomain := ""
-	if account.Settings != nil {
-		dnsDomain = strings.ToLower(strings.TrimSuffix(account.Settings.DNSDomain, "."))
-	}
+	dnsDomain := m.effectiveDNSDomain(account.Settings)
 
 	if exposeTargetReachable(account, peer, netMap, dnsDomain, host) {
 		return nil
@@ -87,12 +85,77 @@ func exposeTargetReachable(account *types.Account, peer *nbpeer.Peer, netMap *ty
 	}
 
 	for _, r := range netMap.Routes {
-		if routeMatchesHost(r, host, addr, isIP) {
+		if routeMatchesHost(r, host, addr, isIP) && routeAccessAllowed(account, peer, r) {
 			return true
 		}
 	}
 
 	return false
+}
+
+// effectiveDNSDomain mirrors the network map controller: the account's
+// custom DNS domain, or the management-wide domain when none is set.
+func (m *Manager) effectiveDNSDomain(settings *types.Settings) string {
+	domain := ""
+	if settings != nil {
+		domain = settings.DNSDomain
+	}
+	if domain == "" && m.dnsDomain != nil {
+		domain = m.dnsDomain()
+	}
+	return strings.ToLower(strings.TrimSuffix(domain, "."))
+}
+
+// routeAccessAllowed reports whether the routing peer's firewall admits the
+// exposing peer on r. A route without access control groups is open to every
+// peer it is distributed to, and the routing peer reaches its own networks. Otherwise an enabled accept rule must name the
+// peer or one of its groups as a source and an access control group as a
+// destination. A policy gated by posture checks is not evaluated here and
+// grants nothing, and a matching drop rule denies.
+func routeAccessAllowed(account *types.Account, peer *nbpeer.Peer, r *nmdata.Route) bool {
+	if len(r.AccessControlGroups) == 0 || isRoutingPeer(peer, r) {
+		return true
+	}
+	peerID := peer.ID
+
+	allowed := false
+	for _, policy := range account.Policies {
+		if policy == nil || !policy.Enabled {
+			continue
+		}
+		for _, rule := range policy.Rules {
+			if !ruleCoversRouteAccess(account, peerID, rule, r.AccessControlGroups) {
+				continue
+			}
+			if rule.Action != types.PolicyTrafficActionAccept {
+				return false
+			}
+			if len(policy.SourcePostureChecks) == 0 {
+				allowed = true
+			}
+		}
+	}
+	return allowed
+}
+
+func isRoutingPeer(peer *nbpeer.Peer, r *nmdata.Route) bool {
+	return (r.PeerID != "" && r.PeerID == peer.ID) || (r.Peer != "" && (r.Peer == peer.ID || r.Peer == peer.Key))
+}
+
+func ruleCoversRouteAccess(account *types.Account, peerID string, rule *types.PolicyRule, accessGroups []string) bool {
+	if rule == nil || !rule.Enabled {
+		return false
+	}
+	if !slices.ContainsFunc(rule.Destinations, func(g string) bool { return slices.Contains(accessGroups, g) }) {
+		return false
+	}
+	if rule.SourceResource.Type == types.ResourceTypePeer && rule.SourceResource.ID == peerID {
+		return true
+	}
+	return slices.ContainsFunc(rule.Sources, func(groupID string) bool {
+		group, ok := account.Groups[groupID]
+		return ok && group != nil && slices.Contains(group.Peers, peerID)
+	})
 }
 
 func routeMatchesHost(r *nmdata.Route, host string, addr netip.Addr, isIP bool) bool {
