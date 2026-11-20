@@ -62,8 +62,17 @@ type PKCEAuthProviderConfig struct {
 	LoginHint string
 }
 
-// validatePKCEConfig validates PKCE provider configuration
+// validatePKCEConfig validates PKCE provider configuration. A missing value means management
+// does not have this flow configured, so the error wraps errFlowNotConfigured and the caller can
+// fall back to the other flow.
 func validatePKCEConfig(config *PKCEAuthProviderConfig) error {
+	if err := checkPKCEConfig(config); err != nil {
+		return fmt.Errorf("%w: %w", errFlowNotConfigured, err)
+	}
+	return nil
+}
+
+func checkPKCEConfig(config *PKCEAuthProviderConfig) error {
 	errorMsgFormat := "invalid provider configuration received from management: %s value is empty. Contact your NetBird administrator"
 
 	if config.ClientID == "" {
