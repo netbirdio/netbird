@@ -21,6 +21,8 @@ type connResult struct {
 	RelayClient *Client
 	Url         string
 	Err         error
+	// attempt is the index of the dial in the server list.
+	attempt int
 }
 
 type ServerPicker struct {
@@ -45,37 +47,76 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 	concurrentLimiter := make(chan struct{}, maxConcurrentServers)
 
 	log.Debugf("pick server from list: %v", sp.ServerURLs.Load().([]string))
-	for _, url := range sp.ServerURLs.Load().([]string) {
+	// Each dial gets its own context: the chosen client is bound to its context
+	// for its whole lifetime, so only the dials that lost the race are cancelled
+	// and the chosen client's context is released when the client closes.
+	urls := sp.ServerURLs.Load().([]string)
+	dialCancels := make([]context.CancelFunc, len(urls))
+	dialCtxs := make([]context.Context, len(urls))
+	for i := range urls {
+		dialCtxs[i], dialCancels[i] = context.WithCancel(parentCtx)
+	}
+	for i, url := range urls {
 		// todo check if we have a successful connection so we do not need to connect to other servers
 		concurrentLimiter <- struct{}{}
-		go func(url string) {
+		go func(attempt int, url string) {
 			defer func() {
 				<-concurrentLimiter
 			}()
-			sp.startConnection(parentCtx, connResultChan, url)
-		}(url)
+			sp.startConnection(dialCtxs[attempt], connResultChan, attempt, url)
+		}(i, url)
 	}
 
-	go sp.processConnResults(connResultChan, successChan, errChan)
+	// A dial that finished after the chosen one would register the peer on its
+	// relay and close right away, which that relay reports as the peer going
+	// offline, so the others are cancelled as soon as one is chosen.
+	onChosen := func(cr connResult) {
+		cancelDials(dialCancels, cr.attempt)
+		cr.RelayClient.releaseContextOnClose(dialCancels[cr.attempt])
+	}
+	go sp.processConnResults(connResultChan, successChan, errChan, onChosen)
 
 	select {
 	case cr, ok := <-successChan:
 		if !ok {
+			cancelDials(dialCancels, -1)
 			return nil, <-errChan
 		}
-		instanceURL, serverIP, err := cr.RelayClient.serverInstanceAddress()
-		if err != nil {
-			log.Infof("chosen home Relay server: %s, instance address unavailable: %v", cr.Url, err)
-			return cr.RelayClient, nil
-		}
-		log.Infof("chosen home Relay server: %s, instance URL: %s, server IP: %s", cr.Url, instanceURL, serverIP)
-		return cr.RelayClient, nil
+		return chosenClient(cr), nil
 	case <-ctx.Done():
+		// A dial that succeeded as the timeout fired is already the chosen one.
+		select {
+		case cr, ok := <-successChan:
+			if ok {
+				return chosenClient(cr), nil
+			}
+		default:
+		}
+		cancelDials(dialCancels, -1)
 		return nil, fmt.Errorf("connect to relay server: %w", ctx.Err())
 	}
 }
 
-func (sp *ServerPicker) startConnection(ctx context.Context, resultChan chan connResult, url string) {
+func chosenClient(cr connResult) *Client {
+	instanceURL, serverIP, err := cr.RelayClient.serverInstanceAddress()
+	if err != nil {
+		log.Infof("chosen home Relay server: %s, instance address unavailable: %v", cr.Url, err)
+		return cr.RelayClient
+	}
+	log.Infof("chosen home Relay server: %s, instance URL: %s, server IP: %s", cr.Url, instanceURL, serverIP)
+	return cr.RelayClient
+}
+
+// cancelDials cancels every dial except the attempt to keep; -1 cancels all.
+func cancelDials(dialCancels []context.CancelFunc, keep int) {
+	for attempt, cancel := range dialCancels {
+		if attempt != keep {
+			cancel()
+		}
+	}
+}
+
+func (sp *ServerPicker) startConnection(ctx context.Context, resultChan chan connResult, attempt int, url string) {
 	log.Infof("try to connecting to relay server: %s", url)
 	relayClient := NewClient(url, sp.TokenStore, sp.PeerID, sp.MTU)
 	relayClient.SetTransportFallback(sp.TransportFallback)
@@ -85,10 +126,11 @@ func (sp *ServerPicker) startConnection(ctx context.Context, resultChan chan con
 		RelayClient: relayClient,
 		Url:         url,
 		Err:         err,
+		attempt:     attempt,
 	}
 }
 
-func (sp *ServerPicker) processConnResults(resultChan chan connResult, successChan chan connResult, errChan chan error) {
+func (sp *ServerPicker) processConnResults(resultChan chan connResult, successChan chan connResult, errChan chan error, onChosen func(connResult)) {
 	var hasSuccess bool
 	var errs []error
 	for numOfResults := 0; numOfResults < cap(resultChan); numOfResults++ {
@@ -109,6 +151,7 @@ func (sp *ServerPicker) processConnResults(resultChan chan connResult, successCh
 		}
 
 		hasSuccess = true
+		onChosen(cr)
 		successChan <- cr
 	}
 	if !hasSuccess {
