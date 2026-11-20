@@ -68,6 +68,12 @@ service ManagementService {
 
   // StopExpose terminates an active expose session
   rpc StopExpose(EncryptedMessage) returns (EncryptedMessage) {}
+
+  // GetAgentNetworkInfo returns what Agent Networks offers the calling peer,
+  // computed from the peer's own groups and owning user.
+  // EncryptedMessage of the request has a body of GetAgentNetworkInfoRequest.
+  // EncryptedMessage of the response has a body of GetAgentNetworkInfoResponse.
+  rpc GetAgentNetworkInfo(EncryptedMessage) returns (EncryptedMessage) {}
 }
 
 message EncryptedMessage {
@@ -830,6 +836,37 @@ message StopExposeRequest {
 }
 
 message StopExposeResponse {}
+
+message GetAgentNetworkInfoRequest {}
+
+message GetAgentNetworkInfoResponse {
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    // OK: Agent Networks is set up for the account. An empty providers list
+    // means no policy gives this peer access yet.
+    OK = 1;
+    // NOT_ENABLED: the account has no Agent Network.
+    NOT_ENABLED = 2;
+    // USER_BLOCKED: the owning user is blocked or pending approval.
+    USER_BLOCKED = 3;
+  }
+  State state = 1;
+  // endpoint is the account's proxy base URL, "https://" plus the account's
+  // gateway hostname. Set only when state is OK.
+  string endpoint = 2;
+  repeated AgentNetworkProvider providers = 3;
+}
+
+message AgentNetworkProvider {
+  string id = 1;
+  string name = 2;
+  string catalog_id = 3;
+  // api_flavor is the request-body shape the provider speaks ("anthropic",
+  // "openai"); empty when the proxy dispatches it by URL path.
+  string api_flavor = 4;
+  bool all_models_allowed = 5;
+  repeated string models = 6;
+}
 
 // =====================================================================
 // Component-based NetworkMap wire format (PeerCapabilityComponentNetworkMap).

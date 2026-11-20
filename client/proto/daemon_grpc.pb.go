@@ -66,6 +66,7 @@ const (
 	DaemonService_GetInstallerResult_FullMethodName         = "/daemon.DaemonService/GetInstallerResult"
 	DaemonService_ExposeService_FullMethodName              = "/daemon.DaemonService/ExposeService"
 	DaemonService_WailsUIReady_FullMethodName               = "/daemon.DaemonService/WailsUIReady"
+	DaemonService_GetAgentNetworkInfo_FullMethodName        = "/daemon.DaemonService/GetAgentNetworkInfo"
 )
 
 // DaemonServiceClient is the client API for DaemonService service.
@@ -175,6 +176,9 @@ type DaemonServiceClient interface {
 	// only cares whether the daemon implements it: an Unimplemented response
 	// means the daemon predates this UI and is too old to drive it.
 	WailsUIReady(ctx context.Context, in *WailsUIReadyRequest, opts ...grpc.CallOption) (*WailsUIReadyResponse, error)
+	// GetAgentNetworkInfo relays what Agent Networks offers this peer, as
+	// reported by the management server.
+	GetAgentNetworkInfo(ctx context.Context, in *GetAgentNetworkInfoRequest, opts ...grpc.CallOption) (*GetAgentNetworkInfoResponse, error)
 }
 
 type daemonServiceClient struct {
@@ -692,6 +696,16 @@ func (c *daemonServiceClient) WailsUIReady(ctx context.Context, in *WailsUIReady
 	return out, nil
 }
 
+func (c *daemonServiceClient) GetAgentNetworkInfo(ctx context.Context, in *GetAgentNetworkInfoRequest, opts ...grpc.CallOption) (*GetAgentNetworkInfoResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetAgentNetworkInfoResponse)
+	err := c.cc.Invoke(ctx, DaemonService_GetAgentNetworkInfo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DaemonServiceServer is the server API for DaemonService service.
 // All implementations must embed UnimplementedDaemonServiceServer
 // for forward compatibility.
@@ -799,6 +813,9 @@ type DaemonServiceServer interface {
 	// only cares whether the daemon implements it: an Unimplemented response
 	// means the daemon predates this UI and is too old to drive it.
 	WailsUIReady(context.Context, *WailsUIReadyRequest) (*WailsUIReadyResponse, error)
+	// GetAgentNetworkInfo relays what Agent Networks offers this peer, as
+	// reported by the management server.
+	GetAgentNetworkInfo(context.Context, *GetAgentNetworkInfoRequest) (*GetAgentNetworkInfoResponse, error)
 	mustEmbedUnimplementedDaemonServiceServer()
 }
 
@@ -949,6 +966,9 @@ func (UnimplementedDaemonServiceServer) ExposeService(*ExposeServiceRequest, grp
 }
 func (UnimplementedDaemonServiceServer) WailsUIReady(context.Context, *WailsUIReadyRequest) (*WailsUIReadyResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method WailsUIReady not implemented")
+}
+func (UnimplementedDaemonServiceServer) GetAgentNetworkInfo(context.Context, *GetAgentNetworkInfoRequest) (*GetAgentNetworkInfoResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetAgentNetworkInfo not implemented")
 }
 func (UnimplementedDaemonServiceServer) mustEmbedUnimplementedDaemonServiceServer() {}
 func (UnimplementedDaemonServiceServer) testEmbeddedByValue()                       {}
@@ -1789,6 +1809,24 @@ func _DaemonService_WailsUIReady_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_GetAgentNetworkInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAgentNetworkInfoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).GetAgentNetworkInfo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_GetAgentNetworkInfo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).GetAgentNetworkInfo(ctx, req.(*GetAgentNetworkInfoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DaemonService_ServiceDesc is the grpc.ServiceDesc for DaemonService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1967,6 +2005,10 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "WailsUIReady",
 			Handler:    _DaemonService_WailsUIReady_Handler,
+		},
+		{
+			MethodName: "GetAgentNetworkInfo",
+			Handler:    _DaemonService_GetAgentNetworkInfo_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

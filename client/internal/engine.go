@@ -2330,6 +2330,11 @@ func (e *Engine) GetExposeManager() *expose.Manager {
 	return e.exposeManager
 }
 
+// GetAgentNetworkInfo asks management what Agent Networks offers this peer.
+func (e *Engine) GetAgentNetworkInfo(ctx context.Context) (*mgmProto.GetAgentNetworkInfoResponse, error) {
+	return e.mgmClient.GetAgentNetworkInfo(ctx)
+}
+
 // IsBlockInbound returns whether inbound connections are blocked.
 func (e *Engine) IsBlockInbound() bool {
 	return e.config.BlockInbound

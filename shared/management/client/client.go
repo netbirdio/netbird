@@ -38,4 +38,6 @@ type Client interface {
 	CreateExpose(ctx context.Context, req ExposeRequest) (*ExposeResponse, error)
 	RenewExpose(ctx context.Context, domain string) error
 	StopExpose(ctx context.Context, domain string) error
+	// GetAgentNetworkInfo returns what Agent Networks offers this peer.
+	GetAgentNetworkInfo(ctx context.Context) (*proto.GetAgentNetworkInfoResponse, error)
 }

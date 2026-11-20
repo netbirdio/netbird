@@ -94,6 +94,9 @@ type Manager interface {
 	// through GetUsageOverview / ListAccessLogs, which self-scope when
 	// the account-wide grant is missing.
 	GetAgentConfigForUser(ctx context.Context, accountID, userID string) (*types.AgentConfig, error)
+	// GetAgentNetworkInfoForPeer backs the peer-authenticated management
+	// RPC. Scoped to the calling peer's own groups and owner.
+	GetAgentNetworkInfoForPeer(ctx context.Context, accountID, peerID string) (*types.PeerAgentNetworkInfo, error)
 }
 
 // PolicySelectionInput is the per-request selection envelope. The
