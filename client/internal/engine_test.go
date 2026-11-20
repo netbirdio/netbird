@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -1064,6 +1065,9 @@ func Test_ParseNATExternalIPMappings(t *testing.T) {
 	var testingInterface string
 
 	for _, iface := range ifaceList {
+		if slices.Contains(profilemanager.DefaultInterfaceBlacklist, iface.Name) {
+			continue
+		}
 		addrList, err := iface.Addrs()
 		if err != nil {
 			t.Fatalf("could get the addr list, got error: %s", err)
@@ -1073,9 +1077,14 @@ func Test_ParseNATExternalIPMappings(t *testing.T) {
 			if prefix.Addr().Is4() && !prefix.Addr().IsLoopback() {
 				testingIP = prefix.Addr().String()
 				testingInterface = iface.Name
+				break
 			}
 		}
+		if testingInterface != "" {
+			break
+		}
 	}
+	require.NotEmpty(t, testingInterface, "a non-blacklisted interface with an IPv4 address is required")
 
 	testCases := []struct {
 		name                    string
