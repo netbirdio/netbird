@@ -318,6 +318,10 @@ message SendStatusUpdateRequest {
   ProxyStatus status = 3;
   bool certificate_issued = 4;
   optional string error_message = 5;
+  // NotBefore of the certificate serving the service, set with
+  // certificate_issued. It changes only when a certificate is issued or
+  // renewed, so management can ignore repeated reports.
+  google.protobuf.Timestamp certificate_issued_at = 6;
   // Per-account inbound listener state for the account that owns
   // service_id. Populated only when --private is enabled and the
   // embedded client for the account is up. Field numbers >=50 reserved

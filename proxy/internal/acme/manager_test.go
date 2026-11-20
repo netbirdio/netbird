@@ -228,6 +228,22 @@ func TestWildcardAddDomainSkipsACME(t *testing.T) {
 	assert.Contains(t, mgr.FailedDomains(), "other.net")
 }
 
+func TestWildcardLeaf(t *testing.T) {
+	wcDir := t.TempDir()
+	generateSelfSignedCert(t, wcDir, "example", "*.example.com")
+
+	mgr, err := NewManager(ManagerConfig{CertDir: t.TempDir(), ACMEURL: "https://acme.example.com/directory", WildcardDir: wcDir}, nil, nil, nil)
+	require.NoError(t, err)
+
+	leaf := mgr.WildcardLeaf("foo.example.com")
+	require.NotNil(t, leaf, "a covered domain must return the wildcard leaf")
+	assert.Contains(t, leaf.DNSNames, "*.example.com")
+	assert.False(t, leaf.NotBefore.IsZero(), "the leaf must carry its issue time")
+
+	assert.Nil(t, mgr.WildcardLeaf("a.b.example.com"), "the wildcard covers a single label only")
+	assert.Nil(t, mgr.WildcardLeaf("other.net"), "an uncovered domain must return nil")
+}
+
 func TestWildcardGetCertificate(t *testing.T) {
 	wcDir := t.TempDir()
 	generateSelfSignedCert(t, wcDir, "example", "*.example.com")

@@ -12,6 +12,7 @@ package service
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	proxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	gomock "go.uber.org/mock/gomock"
@@ -276,17 +277,17 @@ func (mr *MockManagerMockRecorder) RenewServiceFromPeer(ctx, accountID, peerID, 
 }
 
 // SetCertificateIssuedAt mocks base method.
-func (m *MockManager) SetCertificateIssuedAt(ctx context.Context, accountID, serviceID string) error {
+func (m *MockManager) SetCertificateIssuedAt(ctx context.Context, accountID, serviceID string, issuedAt time.Time) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetCertificateIssuedAt", ctx, accountID, serviceID)
+	ret := m.ctrl.Call(m, "SetCertificateIssuedAt", ctx, accountID, serviceID, issuedAt)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // SetCertificateIssuedAt indicates an expected call of SetCertificateIssuedAt.
-func (mr *MockManagerMockRecorder) SetCertificateIssuedAt(ctx, accountID, serviceID any) *gomock.Call {
+func (mr *MockManagerMockRecorder) SetCertificateIssuedAt(ctx, accountID, serviceID, issuedAt any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCertificateIssuedAt", reflect.TypeOf((*MockManager)(nil).SetCertificateIssuedAt), ctx, accountID, serviceID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCertificateIssuedAt", reflect.TypeOf((*MockManager)(nil).SetCertificateIssuedAt), ctx, accountID, serviceID, issuedAt)
 }
 
 // SetStatus mocks base method.

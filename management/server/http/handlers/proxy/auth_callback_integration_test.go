@@ -456,7 +456,7 @@ func (m *testServiceManager) DeleteAccountCluster(_ context.Context, _, _, _ str
 	return nil
 }
 
-func (m *testServiceManager) SetCertificateIssuedAt(_ context.Context, _, _ string) error {
+func (m *testServiceManager) SetCertificateIssuedAt(_ context.Context, _, _ string, _ time.Time) error {
 	return nil
 }
 
