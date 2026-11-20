@@ -75,6 +75,7 @@ type Server interface {
 	Initialize() error
 	Stop()
 	DnsIP() netip.Addr
+	ResolverAddress() (netip.AddrPort, bool)
 	UpdateDNSServer(serial uint64, update nbdns.Config) error
 	OnUpdatedHostDNSServer(addrs []netip.AddrPort)
 	SearchDomains() []string
@@ -479,6 +480,11 @@ func (s *DefaultServer) Initialize() (err error) {
 // For bind interface, fake DNS resolver address returned (second last IP address from Nebird network)
 func (s *DefaultServer) DnsIP() netip.Addr {
 	return s.service.RuntimeIP()
+}
+
+// ResolverAddress returns the active NetBird DNS resolver endpoint.
+func (s *DefaultServer) ResolverAddress() (netip.AddrPort, bool) {
+	return s.service.ResolverAddress()
 }
 
 // SetFirewall sets the firewall used for DNS port DNAT rules.
