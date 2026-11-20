@@ -3382,15 +3382,6 @@ type ExitNode struct {
 
 	// Peers Peers that route internet traffic for this exit node. More than one enabled peer enables high availability
 	Peers []ExitNodePeer `json:"peers"`
-
-	// Policies IDs of the access control policies whose destination is this exit node
-	Policies []string `json:"policies"`
-}
-
-// ExitNodeConvertRoutesRequest defines model for ExitNodeConvertRoutesRequest.
-type ExitNodeConvertRoutesRequest struct {
-	// RouteIds IDs of legacy network routes with the 0.0.0.0/0 network to convert
-	RouteIds []string `json:"route_ids"`
 }
 
 // ExitNodePeer defines model for ExitNodePeer.
@@ -6417,9 +6408,6 @@ type UpdateIntegrationJSONRequestBody = CreateIntegrationRequest
 
 // PostApiExitNodesJSONRequestBody defines body for PostApiExitNodes for application/json ContentType.
 type PostApiExitNodesJSONRequestBody = ExitNodeRequest
-
-// PostApiExitNodesConvertRoutesJSONRequestBody defines body for PostApiExitNodesConvertRoutes for application/json ContentType.
-type PostApiExitNodesConvertRoutesJSONRequestBody = ExitNodeConvertRoutesRequest
 
 // PutApiExitNodesExitNodeIdJSONRequestBody defines body for PutApiExitNodesExitNodeId for application/json ContentType.
 type PutApiExitNodesExitNodeIdJSONRequestBody = ExitNodeRequest
