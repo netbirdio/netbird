@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/server/types"
@@ -149,4 +150,41 @@ func TestSqlStore_DeletePolicy(t *testing.T) {
 	policy, err := store.GetPolicyByID(context.Background(), LockingStrengthNone, accountID, policyID)
 	require.Error(t, err)
 	require.Nil(t, policy)
+}
+
+func TestSqlStore_GetPolicyRulesByResourceID(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	otherAccountID := "9439-34653001fc3b-bf1c8084-ba50-4ce7"
+	resource := types.Resource{ID: "shared-peer-id", Type: types.ResourceTypePeer}
+
+	newPolicy := func(policyID, account string, rules ...*types.PolicyRule) *types.Policy {
+		for _, rule := range rules {
+			rule.PolicyID = policyID
+		}
+		return &types.Policy{ID: policyID, AccountID: account, Enabled: true, Rules: rules}
+	}
+	require.NoError(t, store.CreatePolicy(ctx, newPolicy("policy-source", accountID,
+		&types.PolicyRule{ID: "rule-source", Enabled: true, SourceResource: resource, Destinations: []string{"groupA"}, Action: types.PolicyTrafficActionAccept},
+	)))
+	require.NoError(t, store.CreatePolicy(ctx, newPolicy("policy-destination", accountID,
+		&types.PolicyRule{ID: "rule-destination", Enabled: true, Sources: []string{"groupA"}, DestinationResource: resource, Action: types.PolicyTrafficActionAccept},
+		&types.PolicyRule{ID: "rule-unrelated", Enabled: true, Sources: []string{"groupA"}, Destinations: []string{"groupB"}, Action: types.PolicyTrafficActionAccept},
+	)))
+	require.NoError(t, store.CreatePolicy(ctx, newPolicy("policy-other-account", otherAccountID,
+		&types.PolicyRule{ID: "rule-other-account", Enabled: true, SourceResource: resource, Destinations: []string{"groupA"}, Action: types.PolicyTrafficActionAccept},
+	)))
+
+	rules, err := store.GetPolicyRulesByResourceID(ctx, LockingStrengthNone, accountID, resource.ID)
+	require.NoError(t, err)
+
+	ruleIDs := make([]string, 0, len(rules))
+	for _, rule := range rules {
+		ruleIDs = append(ruleIDs, rule.ID)
+	}
+	assert.ElementsMatch(t, []string{"rule-source", "rule-destination"}, ruleIDs, "only rules of the account that reference the resource must be returned")
 }

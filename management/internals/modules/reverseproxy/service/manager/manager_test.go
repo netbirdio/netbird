@@ -1512,6 +1512,76 @@ func TestReplaceHostByLookup_SkipsClusterTarget(t *testing.T) {
 	assert.Equal(t, "127.0.0.1", svc.Targets[0].Host, "operator-supplied host must be preserved for cluster target")
 }
 
+func TestReplaceHostByLookup_PlaceholderOnlyForMissingTarget(t *testing.T) {
+	ctx := context.Background()
+	accountID := "test-account"
+
+	tests := []struct {
+		name      string
+		lookupErr error
+		wantErr   bool
+		wantHost  string
+	}{
+		{name: "peer found", wantHost: "100.70.0.9"},
+		{name: "peer deleted", lookupErr: status.NewPeerNotFoundError("peer-1"), wantHost: unknownHostPlaceholder},
+		{name: "store failure", lookupErr: status.Errorf(status.Internal, "failed to get peer from store"), wantErr: true, wantHost: "100.64.0.1"},
+		{name: "context canceled", lookupErr: context.Canceled, wantErr: true, wantHost: "100.64.0.1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			var peer *nbpeer.Peer
+			if tt.lookupErr == nil {
+				peer = &nbpeer.Peer{ID: "peer-1", IP: netip.MustParseAddr("100.70.0.9")}
+			}
+			mockStore.EXPECT().GetPeerByID(ctx, store.LockingStrengthNone, accountID, "peer-1").Return(peer, tt.lookupErr)
+
+			mgr := &Manager{store: mockStore}
+			svc := &rpservice.Service{
+				ID:      "svc-1",
+				Targets: []*rpservice.Target{{TargetId: "peer-1", TargetType: rpservice.TargetTypePeer, Host: "100.64.0.1"}},
+			}
+
+			err := mgr.replaceHostByLookup(ctx, accountID, svc)
+			if tt.wantErr {
+				require.ErrorIs(t, err, tt.lookupErr)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tt.wantHost, svc.Targets[0].Host)
+		})
+	}
+}
+
+func TestReloadAllServicesForAccount_SkipsServiceOnLookupFailure(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	proxyController := proxy.NewMockController(ctrl)
+	accountID := "test-account"
+
+	svc := &rpservice.Service{
+		ID:           "svc-1",
+		AccountID:    accountID,
+		ProxyCluster: "eu.proxy.netbird.io",
+		Targets:      []*rpservice.Target{{TargetId: "peer-1", TargetType: rpservice.TargetTypePeer, Protocol: "http", Port: 8080, Enabled: true}},
+	}
+
+	mockStore.EXPECT().GetAccountServices(ctx, store.LockingStrengthNone, accountID).Return([]*rpservice.Service{svc}, nil)
+	mockStore.EXPECT().GetPeerByID(ctx, store.LockingStrengthNone, accountID, "peer-1").
+		Return(nil, status.Errorf(status.Internal, "failed to get peer from store"))
+	proxyController.EXPECT().GetOIDCValidationConfig().Return(proxy.OIDCValidationConfig{})
+	proxyController.EXPECT().SendServiceUpdateToCluster(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+
+	mgr := &Manager{store: mockStore, proxyController: proxyController}
+
+	err := mgr.ReloadAllServicesForAccount(ctx, accountID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "svc-1")
+}
+
 func TestReloadAllServicesForAccount_ContinuesAfterFailedService(t *testing.T) {
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)
