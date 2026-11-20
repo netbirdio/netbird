@@ -141,7 +141,7 @@ func buildTestAPI(t testing_tools.TB, sqlFile string, peersUpdateManager network
 	register := func(apiRouter *mux.Router) http.Handler {
 		apiHandler, err := http2.NewAPIHandler(ctx, apiRouter, am, networksManager, resourcesManager, routersManager,
 			groupsManager, geoMock, permissionsManager, settingsManager, customZonesManager, zoneRecordsManager,
-			networkMapController, nil, serviceManager, nil, nil, nil, nil, nil, nil)
+			networkMapController, nil, serviceManager, nil, nil, nil, nil, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("Failed to create API handler: %v", err)
 		}

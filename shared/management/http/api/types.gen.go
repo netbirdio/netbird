@@ -922,16 +922,19 @@ func (e ProxyClusterType) Valid() bool {
 
 // Defines values for ResourceType.
 const (
-	ResourceTypeDomain ResourceType = "domain"
-	ResourceTypeHost   ResourceType = "host"
-	ResourceTypePeer   ResourceType = "peer"
-	ResourceTypeSubnet ResourceType = "subnet"
+	ResourceTypeDomain   ResourceType = "domain"
+	ResourceTypeExitNode ResourceType = "exit_node"
+	ResourceTypeHost     ResourceType = "host"
+	ResourceTypePeer     ResourceType = "peer"
+	ResourceTypeSubnet   ResourceType = "subnet"
 )
 
 // Valid indicates whether the value is a known member of the ResourceType enum.
 func (e ResourceType) Valid() bool {
 	switch e {
 	case ResourceTypeDomain:
+		return true
+	case ResourceTypeExitNode:
 		return true
 	case ResourceTypeHost:
 		return true
@@ -3359,6 +3362,57 @@ type Event struct {
 
 // EventActivityCode The string code of the activity that occurred during the event
 type EventActivityCode string
+
+// ExitNode defines model for ExitNode.
+type ExitNode struct {
+	// AutoApply Select this exit node automatically on the peers that its access control policies allow. When false, users select it in the client
+	AutoApply bool `json:"auto_apply"`
+
+	// Description Exit node description
+	Description *string `json:"description,omitempty"`
+
+	// Enabled Exit node status. A disabled exit node is not distributed to any peer
+	Enabled bool `json:"enabled"`
+
+	// Id Exit node ID
+	Id string `json:"id"`
+
+	// Name Exit node name, shown to users in the NetBird client
+	Name string `json:"name"`
+
+	// Peers Peers that route internet traffic for this exit node. More than one enabled peer enables high availability
+	Peers []ExitNodePeer `json:"peers"`
+}
+
+// ExitNodePeer defines model for ExitNodePeer.
+type ExitNodePeer struct {
+	// Enabled Whether this peer routes traffic for the exit node
+	Enabled bool `json:"enabled"`
+
+	// Metric Peer priority within the exit node. The enabled peer with the lowest metric is the primary, the others take over when it is unavailable
+	Metric int `json:"metric"`
+
+	// PeerId ID of a peer that routes internet traffic for this exit node
+	PeerId string `json:"peer_id"`
+}
+
+// ExitNodeRequest defines model for ExitNodeRequest.
+type ExitNodeRequest struct {
+	// AutoApply Select this exit node automatically on the peers that its access control policies allow. When false, users select it in the client
+	AutoApply bool `json:"auto_apply"`
+
+	// Description Exit node description
+	Description *string `json:"description,omitempty"`
+
+	// Enabled Exit node status. A disabled exit node is not distributed to any peer
+	Enabled bool `json:"enabled"`
+
+	// Name Exit node name, shown to users in the NetBird client
+	Name string `json:"name"`
+
+	// Peers Peers that route internet traffic for this exit node. More than one enabled peer enables high availability
+	Peers []ExitNodePeer `json:"peers"`
+}
 
 // FleetDMMatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open source version. Premium-only attributes are marked accordingly
 type FleetDMMatchAttributes struct {
@@ -6351,6 +6405,12 @@ type CreateIntegrationJSONRequestBody = CreateIntegrationRequest
 
 // UpdateIntegrationJSONRequestBody defines body for UpdateIntegration for application/json ContentType.
 type UpdateIntegrationJSONRequestBody = CreateIntegrationRequest
+
+// PostApiExitNodesJSONRequestBody defines body for PostApiExitNodes for application/json ContentType.
+type PostApiExitNodesJSONRequestBody = ExitNodeRequest
+
+// PutApiExitNodesExitNodeIdJSONRequestBody defines body for PutApiExitNodesExitNodeId for application/json ContentType.
+type PutApiExitNodesExitNodeIdJSONRequestBody = ExitNodeRequest
 
 // PostApiGroupsJSONRequestBody defines body for PostApiGroups for application/json ContentType.
 type PostApiGroupsJSONRequestBody = GroupRequest

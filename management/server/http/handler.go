@@ -23,6 +23,8 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	agentnetworkhandlers "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/handlers"
+	"github.com/netbirdio/netbird/management/internals/modules/exitnodes"
+	exitnodesmanager "github.com/netbirdio/netbird/management/internals/modules/exitnodes/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	zonesManager "github.com/netbirdio/netbird/management/internals/modules/zones/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
@@ -61,7 +63,7 @@ func NewAPIHandler(ctx context.Context, router *mux.Router, accountManager accou
 	permissionsManager permissions.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager,
 	networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager,
 	reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer,
-	trustedHTTPProxies []netip.Prefix, agentNetworkManager agentnetwork.Manager, proxyTokenRevocationGuard proxytoken.RevocationGuard) (http.Handler, error) {
+	trustedHTTPProxies []netip.Prefix, agentNetworkManager agentnetwork.Manager, proxyTokenRevocationGuard proxytoken.RevocationGuard, exitNodesManager exitnodes.Manager) (http.Handler, error) {
 
 	// Register bypass paths for unauthenticated endpoints
 	if err := bypass.AddBypassPath("/api/instance"); err != nil {
@@ -103,6 +105,9 @@ func NewAPIHandler(ctx context.Context, router *mux.Router, accountManager accou
 	networks.AddEndpoints(networksManager, resourceManager, routerManager, groupsManager, accountManager, router)
 	zonesManager.RegisterEndpoints(router, zManager)
 	recordsManager.RegisterEndpoints(router, rManager)
+	if exitNodesManager != nil {
+		exitnodesmanager.RegisterEndpoints(router, exitNodesManager)
+	}
 	idp.AddEndpoints(accountManager, router)
 	if agentNetworkManager != nil {
 		agentnetworkhandlers.RegisterEndpoints(agentNetworkManager, router)
