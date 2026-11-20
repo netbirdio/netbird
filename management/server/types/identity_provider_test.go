@@ -186,3 +186,31 @@ func TestIdentityProviderValidateRejectsBareDelimiters(t *testing.T) {
 		})
 	}
 }
+
+func TestIdentityProviderValidateOIDCOptions(t *testing.T) {
+	claim := "iserv:groups"
+	getUserInfo := true
+	idp := &IdentityProvider{
+		Name: "IServ", Type: IdentityProviderTypeOIDC,
+		Issuer: "https://idp.example.com", ClientID: "client",
+		AdditionalScopes: []string{"iserv:groups"}, GroupsClaim: &claim, GetUserInfo: &getUserInfo,
+	}
+	assert.NoError(t, idp.Validate())
+
+	idp.AdditionalScopes = []string{"iserv:groups extra"}
+	assert.ErrorIs(t, idp.Validate(), ErrIdentityProviderScopeInvalid)
+	idp.AdditionalScopes = []string{}
+	claim = "groups\nother"
+	assert.ErrorIs(t, idp.Validate(), ErrIdentityProviderGroupsClaimInvalid)
+	claim = ""
+	assert.NoError(t, idp.Validate(), "an empty claim clears the mapping")
+
+	idp.Type = IdentityProviderTypeOkta
+	getUserInfo = false
+	assert.NoError(t, idp.Validate(), "empty options are harmless for provider-specific connectors")
+	idp.AdditionalScopes = []string{"iserv:groups"}
+	assert.ErrorIs(t, idp.Validate(), ErrIdentityProviderOIDCOptions)
+	idp.AdditionalScopes = nil
+	getUserInfo = true
+	assert.ErrorIs(t, idp.Validate(), ErrIdentityProviderOIDCOptions)
+}

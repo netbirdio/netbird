@@ -436,3 +436,54 @@ func TestFromAPIRequest(t *testing.T) {
 	assert.Equal(t, "okta-client-id", idp.ClientID)
 	assert.Equal(t, "okta-client-secret", idp.ClientSecret)
 }
+
+func TestOIDCOptionsAPIConversion(t *testing.T) {
+	scopes := []string{"iserv:groups"}
+	claim := "iserv:groups"
+	getUserInfo := true
+	req := &api.IdentityProviderRequest{
+		Type:             api.IdentityProviderTypeOidc,
+		AdditionalScopes: &scopes, GroupsClaim: &claim, GetUserInfo: &getUserInfo,
+	}
+	idp := fromAPIRequest(req)
+	assert.Equal(t, scopes, idp.AdditionalScopes)
+	assert.Equal(t, &claim, idp.GroupsClaim)
+	assert.Equal(t, &getUserInfo, idp.GetUserInfo)
+	resp := toAPIResponse(idp)
+	assert.Equal(t, &scopes, resp.AdditionalScopes)
+	assert.Equal(t, &claim, resp.GroupsClaim)
+	assert.Equal(t, &getUserInfo, resp.GetUserInfo)
+
+	empty := []string{}
+	req.AdditionalScopes = &empty
+	req.GroupsClaim = nil
+	req.GetUserInfo = nil
+	idp = fromAPIRequest(req)
+	assert.NotNil(t, idp.AdditionalScopes, "an empty array must clear additional scopes on update")
+	assert.Empty(t, idp.AdditionalScopes)
+	assert.Nil(t, idp.GroupsClaim, "an omitted claim must retain the existing mapping")
+	assert.Nil(t, idp.GetUserInfo, "an omitted UserInfo setting must retain the existing value")
+}
+
+func TestOIDCOptionsJSONUpdateSemantics(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		body            string
+		wantScopesSet   bool
+		wantClaimSet    bool
+		wantUserInfoSet bool
+	}{
+		{"omitted", `{}`, false, false, false},
+		{"null", `{"additional_scopes":null,"groups_claim":null,"get_user_info":null}`, false, false, false},
+		{"clear", `{"additional_scopes":[],"groups_claim":"","get_user_info":false}`, true, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var req api.IdentityProviderRequest
+			require.NoError(t, json.Unmarshal([]byte(tc.body), &req))
+			idp := fromAPIRequest(&req)
+			assert.Equal(t, tc.wantScopesSet, idp.AdditionalScopes != nil)
+			assert.Equal(t, tc.wantClaimSet, idp.GroupsClaim != nil)
+			assert.Equal(t, tc.wantUserInfoSet, idp.GetUserInfo != nil)
+		})
+	}
+}
