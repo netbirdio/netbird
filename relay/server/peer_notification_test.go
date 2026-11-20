@@ -157,7 +157,7 @@ func TestPeer_StalledSubscriberDoesNotBlockPeerLifecycle(t *testing.T) {
 }
 
 func publishOnline(relay *Relay, name string) *Peer {
-	peer := NewPeer(relay.metrics, messages.HashID(name), messages.CurrentProtocolVersion, newScriptedConn(), relay.store, relay.notifier)
+	peer := NewPeer(relay.metrics, messages.HashID(name), messages.CurrentProtocolVersion, newScriptedConn(), relay.store, relay.notifier, nil)
 	relay.store.AddPeer(peer)
 	relay.notifier.PeerCameOnline(peer.ID())
 	return peer

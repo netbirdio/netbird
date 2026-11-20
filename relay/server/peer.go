@@ -8,6 +8,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/time/rate"
 
 	"github.com/netbirdio/netbird/relay/metrics"
 	"github.com/netbirdio/netbird/relay/server/listener"
@@ -34,6 +35,9 @@ type Peer struct {
 	store    *store.Store
 	notifier *store.PeerNotifier
 
+	// limiter caps the rate the relay forwards to this peer; nil means unlimited.
+	limiter *rate.Limiter
+
 	ctx       context.Context
 	ctxCancel context.CancelFunc
 
@@ -44,7 +48,7 @@ type Peer struct {
 }
 
 // NewPeer creates a new Peer instance and prepare custom logging
-func NewPeer(metrics *metrics.Metrics, id messages.PeerID, version messages.ProtocolVersion, conn listener.Conn, store *store.Store, notifier *store.PeerNotifier) *Peer {
+func NewPeer(metrics *metrics.Metrics, id messages.PeerID, version messages.ProtocolVersion, conn listener.Conn, store *store.Store, notifier *store.PeerNotifier, limiter *rate.Limiter) *Peer {
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &Peer{
 		metrics:   metrics,
@@ -55,6 +59,7 @@ func NewPeer(metrics *metrics.Metrics, id messages.PeerID, version messages.Prot
 		conn:      conn,
 		store:     store,
 		notifier:  notifier,
+		limiter:   limiter,
 		ctx:       ctx,
 		ctxCancel: cancel,
 	}
@@ -236,6 +241,14 @@ func (p *Peer) handleTransportMsg(msg []byte) {
 	err = messages.UpdateTransportMsg(msg, dp.version, p.id)
 	if err != nil {
 		p.log.Errorf("failed to update transport message: %s", err)
+		return
+	}
+
+	// Drop rather than wait: this runs in the sender's read loop, where waiting would
+	// also hold back its traffic to other peers and its healthcheck responses. Relayed
+	// payloads are datagrams, so the sender recovers as from packet loss.
+	if dp.limiter != nil && !dp.limiter.AllowN(time.Now(), len(msg)) {
+		p.log.Tracef("rate limit exceeded, drop transport message to: %s", dp)
 		return
 	}
 

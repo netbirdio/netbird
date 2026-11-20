@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -53,6 +54,12 @@ type Config struct {
 	EnableSTUN   bool
 	STUNPorts    []int
 	STUNLogLevel string
+	// RateLimitDefault caps forwarded bandwidth to each peer without an explicit
+	// per-peer limit. Empty means unlimited.
+	RateLimitDefault string
+	// RateLimitPeers holds "<relay id or WireGuard public key>=<rate>" entries,
+	// e.g. "sha-abc...==50mbps".
+	RateLimitPeers []string
 }
 
 func (c Config) Validate() error {
@@ -124,6 +131,8 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&cobraConfig.EnableSTUN, "enable-stun", false, "enable embedded STUN server")
 	rootCmd.PersistentFlags().IntSliceVar(&cobraConfig.STUNPorts, "stun-ports", []int{3478}, "ports for the embedded STUN server (can be specified multiple times or comma-separated)")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.STUNLogLevel, "stun-log-level", "info", "log level for STUN server (panic, fatal, error, warn, info, debug, trace)")
+	rootCmd.PersistentFlags().StringVar(&cobraConfig.RateLimitDefault, "rate-limit-default", "", "default forwarding rate limit per destination peer (e.g. 50mbps); empty means unlimited")
+	rootCmd.PersistentFlags().StringSliceVar(&cobraConfig.RateLimitPeers, "rate-limit-peers", nil, "per-destination-peer forwarding limits as <relay id or peer public key>=<rate>, e.g. sha-abc...==50mbps (can be specified multiple times or comma-separated)")
 
 	setFlagsFromEnvVars(rootCmd)
 }
@@ -136,6 +145,24 @@ func waitForExitSignal() {
 	osSigs := make(chan os.Signal, 1)
 	signal.Notify(osSigs, syscall.SIGINT, syscall.SIGTERM)
 	<-osSigs
+}
+
+// parseRateLimitPeers splits "<peer>=<rate>" entries at the last "=", because relay
+// ids and public keys end in base64 padding.
+func parseRateLimitPeers(entries []string) (map[string]string, error) {
+	peers := make(map[string]string, len(entries))
+	for _, entry := range entries {
+		i := strings.LastIndex(entry, "=")
+		if i <= 0 || i == len(entry)-1 {
+			return nil, fmt.Errorf("%q is not in the form <peer>=<rate>", entry)
+		}
+		peer := entry[:i]
+		if _, dup := peers[peer]; dup {
+			return nil, fmt.Errorf("duplicate rate limit for peer %q", peer)
+		}
+		peers[peer] = entry[i+1:]
+	}
+	return peers, nil
 }
 
 func execute(cmd *cobra.Command, args []string) error {
@@ -166,6 +193,11 @@ func execute(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse trusted proxies: %s", err)
 	}
 
+	rateLimitPeers, err := parseRateLimitPeers(cobraConfig.RateLimitPeers)
+	if err != nil {
+		return fmt.Errorf("parse rate limit peers: %w", err)
+	}
+
 	srvListenerCfg := server.ListenerConfig{
 		Address:        cobraConfig.ListenAddress,
 		TrustedProxies: trustedProxies,
@@ -192,6 +224,11 @@ func execute(cmd *cobra.Command, args []string) error {
 		ExposedAddress: cobraConfig.ExposedAddress,
 		AuthValidator:  authenticator,
 		TLSSupport:     tlsSupport,
+		RateLimit: server.RateLimitConfig{
+			Enabled: cobraConfig.RateLimitDefault != "" || len(rateLimitPeers) > 0,
+			Default: cobraConfig.RateLimitDefault,
+			Peers:   rateLimitPeers,
+		},
 	}
 
 	srv, err := createRelayServer(cfg)

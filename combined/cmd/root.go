@@ -260,6 +260,11 @@ func (s *serverInstances) createRelayServer(cfg *CombinedConfig, tlsSupport bool
 		ExposedAddress: cfg.Relay.ExposedAddress,
 		AuthValidator:  authenticator,
 		TLSSupport:     tlsSupport,
+		RateLimit: relayServer.RateLimitConfig{
+			Enabled: cfg.Server.RelayRateLimits.Enabled,
+			Default: cfg.Server.RelayRateLimits.Default,
+			Peers:   cfg.Server.RelayRateLimits.Peers,
+		},
 	}
 
 	s.relaySrv, err = createRelayServer(relayCfg, s.stunListeners)

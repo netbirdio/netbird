@@ -32,6 +32,9 @@ type Config struct {
 	ExposedAddress string
 	TLSSupport     bool
 	AuthValidator  Validator
+	// RateLimit optionally caps the bandwidth the relay forwards to a
+	// destination peer. The zero value means unlimited.
+	RateLimit RateLimitConfig
 
 	instanceURL url.URL
 }
@@ -61,6 +64,7 @@ type Relay struct {
 	metrics       *metrics.Metrics
 	metricsCancel context.CancelFunc
 	validator     Validator
+	limiters      *limiterSet
 
 	store          *store.Store
 	notifier       *store.PeerNotifier
@@ -98,10 +102,17 @@ func NewRelay(config Config) (*Relay, error) {
 		return nil, fmt.Errorf("creating app metrics: %v", err)
 	}
 
+	limiters, err := newLimiterSet(config.RateLimit)
+	if err != nil {
+		metricsCancel()
+		return nil, fmt.Errorf("rate limit config: %v", err)
+	}
+
 	r := &Relay{
 		metrics:        m,
 		metricsCancel:  metricsCancel,
 		validator:      config.AuthValidator,
+		limiters:       limiters,
 		instanceURL:    config.instanceURL,
 		exposedAddress: config.ExposedAddress,
 		store:          store.NewStore(),
@@ -159,7 +170,7 @@ func (r *Relay) Accept(conn listener.Conn) {
 	}
 	r.metrics.RecordAuthenticationTime(time.Since(acceptTime))
 
-	peer := NewPeer(r.metrics, *peerID, h.selectedVersion, conn, r.store, r.notifier)
+	peer := NewPeer(r.metrics, *peerID, h.selectedVersion, conn, r.store, r.notifier, r.limiters.forPeer(*peerID))
 	peer.log.Infof("peer connected from: %s, advertised protocol version: %d, selected: %d", conn.RemoteAddr(), h.advertisedVersion, h.selectedVersion)
 	storeTime := time.Now()
 	if isReconnection := r.store.AddPeer(peer); isReconnection {

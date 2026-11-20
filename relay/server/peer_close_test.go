@@ -44,7 +44,7 @@ func TestPeer_CloseDoesNotWaitForStalledWrite(t *testing.T) {
 	conn := newStalledWriteConn()
 	t.Cleanup(func() { _ = conn.Close() })
 	peerID := messages.HashID("stalled")
-	peer := NewPeer(relay.metrics, peerID, messages.CurrentProtocolVersion, conn, relay.store, relay.notifier)
+	peer := NewPeer(relay.metrics, peerID, messages.CurrentProtocolVersion, conn, relay.store, relay.notifier, nil)
 
 	transport, err := messages.MarshalTransportMsg(peerID, []byte("payload"))
 	require.NoError(t, err)
