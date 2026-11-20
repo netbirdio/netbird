@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"testing"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,11 +27,12 @@ func TestManager_RelayInstanceAddressAcrossReconnect(t *testing.T) {
 			ip:   netip.MustParseAddr("192.0.2.2"),
 		},
 	}
-	c := &Client{
-		instanceURL:      relays[0].url,
-		relayConn:        relays[0].conn,
-		serviceIsRunning: true,
+	c := &Client{}
+	sessions := make([]*session, 0, len(relays))
+	for _, relay := range relays {
+		sessions = append(sessions, &session{client: c, instanceURL: relay.url, conn: relay.conn})
 	}
+	c.session = sessions[0]
 	m := &Manager{relayClient: c}
 	started := make(chan struct{})
 	stop := make(chan struct{})
@@ -47,16 +49,12 @@ func TestManager_RelayInstanceAddressAcrossReconnect(t *testing.T) {
 				return
 			default:
 			}
-			// Publish successive connection states using the lifecycle locks.
-			// Yield before publication so a getter using only muInstanceURL
-			// can read the old URL while waiting for the new connection's IP.
+			// Publish successive sessions the way a reconnect does. Yield before
+			// publication so a getter that read the URL and the IP from two
+			// different sessions would pair the old URL with the new IP.
 			c.mu.Lock()
 			runtime.Gosched()
-			relay := relays[i%len(relays)]
-			c.muInstanceURL.Lock()
-			c.instanceURL = relay.url
-			c.muInstanceURL.Unlock()
-			c.relayConn = relay.conn
+			c.session = sessions[i%len(sessions)]
 			c.mu.Unlock()
 			if i == 0 {
 				close(started)
@@ -79,18 +77,24 @@ func TestManager_RelayInstanceAddressAcrossReconnect(t *testing.T) {
 }
 
 func TestManager_RelayInstanceAddressDisconnected(t *testing.T) {
+	closed := &Client{}
+	s := &session{
+		client:      closed,
+		log:         log.WithField("test", t.Name()),
+		conn:        &closeTrackingConn{},
+		instanceURL: &RelayAddr{addr: "rels://relay-a.example:443"},
+		earlyMsgs:   newEarlyMsgBuffer(),
+	}
+	closed.session = s
+	require.NoError(t, s.Close(false))
+
 	for _, tt := range []struct {
 		name   string
 		client *Client
 	}{
 		{name: "no client"},
 		{name: "not connected", client: &Client{}},
-		{
-			name: "closed connection",
-			client: &Client{
-				relayConn: stubConn{remote: staticAddr{s: "192.0.2.1:443"}},
-			},
-		},
+		{name: "closed connection", client: closed},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			m := &Manager{relayClient: tt.client}
