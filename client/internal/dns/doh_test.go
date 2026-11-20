@@ -189,7 +189,7 @@ func TestDoHServer_RejectsBadRequests(t *testing.T) {
 	}
 }
 
-func TestDoHServer_RefusesPlainTLS12Downgrade(t *testing.T) {
+func TestDoHServer_RefusesOldTLS(t *testing.T) {
 	_, url := startTestDoH(t, aHandler{ip: net.ParseIP("10.1.2.3")})
 
 	old := &http.Client{
@@ -198,7 +198,10 @@ func TestDoHServer_RefusesPlainTLS12Downgrade(t *testing.T) {
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MaxVersion: tls.VersionTLS11}, //nolint:gosec
 		},
 	}
-	_, err := old.Get(url)
+	resp, err := old.Get(url)
+	if err == nil {
+		require.NoError(t, resp.Body.Close())
+	}
 	assert.Error(t, err, "TLS versions below 1.2 must be refused")
 }
 
