@@ -419,6 +419,7 @@ func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConf
 		Mode:             s.Mode,
 		ListenPort:       int32(s.ListenPort), //nolint:gosec
 		Private:          s.Private,
+		Disabled:         !s.Enabled,
 	}
 
 	if r := restrictionsToProto(s.Restrictions); r != nil {
