@@ -3,13 +3,11 @@ package cmd
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"net"
 	"os"
 	"os/signal"
 	"os/user"
-	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -45,6 +43,7 @@ var (
 	port                  int
 	username              string
 	host                  string
+	hostUser              string
 	command               string
 	localForwards         []string
 	remoteForwards        []string
@@ -54,6 +53,7 @@ var (
 	skipCachedToken       bool
 	requestPTY            bool
 	sshNoBrowser          bool
+	sshLogin              string
 )
 
 var (
@@ -75,20 +75,20 @@ func init() {
 	upCmd.PersistentFlags().BoolVar(&disableSSHAuth, disableSSHAuthFlag, false, "Disable SSH authentication")
 	upCmd.PersistentFlags().IntVar(&sshJWTCacheTTL, sshJWTCacheTTLFlag, 0, "SSH JWT token cache TTL in seconds (0=disabled)")
 
-	sshCmd.PersistentFlags().IntVarP(&port, "port", "p", sshserver.DefaultSSHPort, "Remote SSH port")
-	sshCmd.PersistentFlags().StringVarP(&username, "user", "u", "", sshUsernameDesc)
-	sshCmd.PersistentFlags().StringVar(&username, sshLoginFlag, "", sshUsernameDesc+" (alias for --user)")
-	_ = sshCmd.PersistentFlags().MarkDeprecated(sshLoginFlag, sshLoginDeprecation)
-	sshCmd.PersistentFlags().BoolVarP(&requestPTY, "tty", "t", false, "Force pseudo-terminal allocation")
-	sshCmd.PersistentFlags().BoolVar(&strictHostKeyChecking, "strict-host-key-checking", true, "Enable strict host key checking (default: true)")
-	sshCmd.PersistentFlags().StringVarP(&knownHostsFile, "known-hosts", "o", "", "Path to known_hosts file (default: ~/.ssh/known_hosts)")
-	sshCmd.PersistentFlags().StringVarP(&identityFile, "identity", "i", "", "Path to SSH private key file (deprecated)")
-	_ = sshCmd.PersistentFlags().MarkDeprecated("identity", "this flag is no longer used")
-	sshCmd.PersistentFlags().BoolVar(&skipCachedToken, "no-cache", false, "Skip cached JWT token and force fresh authentication")
-	sshCmd.PersistentFlags().BoolVar(&sshNoBrowser, noBrowserFlag, false, noBrowserDesc)
-
-	sshCmd.PersistentFlags().StringArrayP("L", "L", []string{}, "Local port forwarding [bind_address:]port:host:hostport")
-	sshCmd.PersistentFlags().StringArrayP("R", "R", []string{}, "Remote port forwarding [bind_address:]port:host:hostport")
+	// Stop at the host so the remote command keeps its own flags.
+	sshCmd.Flags().SetInterspersed(false)
+	sshCmd.Flags().IntVarP(&port, "port", "p", sshserver.DefaultSSHPort, "Remote SSH port")
+	sshCmd.Flags().StringVarP(&username, "user", "u", "", sshUsernameDesc)
+	sshCmd.Flags().StringVar(&sshLogin, sshLoginFlag, "", sshUsernameDesc+" (alias for --user)")
+	_ = sshCmd.Flags().MarkDeprecated(sshLoginFlag, sshLoginDeprecation)
+	sshCmd.Flags().BoolVarP(&requestPTY, "tty", "t", false, "Force pseudo-terminal allocation")
+	sshCmd.Flags().BoolVar(&strictHostKeyChecking, "strict-host-key-checking", true, "Enable strict host key checking")
+	sshCmd.Flags().StringVarP(&knownHostsFile, "known-hosts", "o", "", "Path to known_hosts file (default: ~/.ssh/known_hosts)")
+	sshCmd.Flags().StringVarP(&identityFile, "identity", "i", "", "Path to SSH private key file")
+	sshCmd.Flags().BoolVar(&skipCachedToken, "no-cache", false, "Skip cached JWT token and force fresh authentication")
+	sshCmd.Flags().BoolVar(&sshNoBrowser, noBrowserFlag, false, noBrowserDesc)
+	sshCmd.Flags().StringArrayVarP(&localForwards, "local-forward", "L", nil, "Local port forwarding [bind_address:]port:host:hostport or [bind_address:]port:/path/to/socket. Can be repeated")
+	sshCmd.Flags().StringArrayVarP(&remoteForwards, "remote-forward", "R", nil, "Remote port forwarding [bind_address:]port:host:hostport or [bind_address:]port:/path/to/socket. Can be repeated")
 
 	sshCmd.AddCommand(sshSftpCmd)
 	sshCmd.AddCommand(sshProxyCmd)
@@ -100,21 +100,10 @@ var sshCmd = &cobra.Command{
 	Short: "Connect to a NetBird peer via SSH",
 	Long: `Connect to a NetBird peer using SSH with support for port forwarding.
 
-Port Forwarding:
-  -L [bind_address:]port:host:hostport   Local port forwarding
-  -L [bind_address:]port:/path/to/socket Local port forwarding to Unix socket
-  -R [bind_address:]port:host:hostport   Remote port forwarding
-  -R [bind_address:]port:/path/to/socket Remote port forwarding to Unix socket
+Flags go before the host. Everything after the host is the command to run on the peer.
 
-SSH Options:
-  -p, --port int                       Remote SSH port (default 22)
-  -u, --user string                    SSH username
-  -t, --tty                            Force pseudo-terminal allocation
-      --strict-host-key-checking       Enable strict host key checking (default: true)
-  -o, --known-hosts string             Path to known_hosts file
-
-Examples:
-  netbird ssh peer-hostname
+Unlike OpenSSH, -l sets the NetBird log level and -o sets the known_hosts file. Use -u or user@host to set the login name.`,
+	Example: `  netbird ssh peer-hostname
   netbird ssh root@peer-hostname
   netbird ssh --user root peer-hostname
   netbird ssh peer-hostname ls -la
@@ -125,20 +114,17 @@ Examples:
   netbird ssh -R 9090:localhost:3000 peer-hostname   # Remote port forwarding
   netbird ssh -L "*:8080:localhost:80" peer-hostname # Bind to all interfaces
   netbird ssh -L 8080:/tmp/socket peer-hostname      # Unix socket forwarding`,
-	DisableFlagParsing: true,
-	Args:               validateSSHArgsWithoutFlagParsing,
-	RunE:               sshFn,
-	Aliases:            []string{"ssh"},
+	Args:    validateSSHArgs,
+	RunE:    sshFn,
+	Aliases: []string{"ssh"},
 }
 
 func sshFn(cmd *cobra.Command, args []string) error {
-	for _, arg := range args {
-		if arg == "-h" || arg == "--help" {
-			return cmd.Help()
-		}
-	}
-
 	cmd.SetOut(cmd.OutOrStdout())
+
+	// Resolved here because the root PersistentPreRunE applies NB_* env vars after
+	// argument validation.
+	username = resolveSSHUsername()
 
 	logOutput := "console"
 	if firstLogFile := util.FindFirstLogPath(logFiles); firstLogFile != "" && firstLogFile != defaultLogFile {
@@ -201,295 +187,34 @@ func getBoolEnvOrDefault(flagName string, defaultValue bool) bool {
 	return defaultValue
 }
 
-// resetSSHGlobals sets SSH globals to their default values
-func resetSSHGlobals() {
-	port = sshserver.DefaultSSHPort
-	username = ""
+// validateSSHArgs parses the host and remote command from the arguments left
+// after flag parsing.
+func validateSSHArgs(_ *cobra.Command, args []string) error {
 	host = ""
+	hostUser = ""
 	command = ""
-	localForwards = nil
-	remoteForwards = nil
-	strictHostKeyChecking = true
-	knownHostsFile = ""
-	identityFile = ""
-	sshNoBrowser = false
+	return parseHostnameAndCommand(args)
 }
 
-// parseCustomSSHFlags extracts -L, -R flags and returns filtered args
-func parseCustomSSHFlags(args []string) ([]string, []string, []string) {
-	var localForwardFlags []string
-	var remoteForwardFlags []string
-	var filteredArgs []string
-
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		switch {
-		case strings.HasPrefix(arg, "-L"):
-			localForwardFlags, i = parseForwardFlag(arg, args, i, localForwardFlags)
-		case strings.HasPrefix(arg, "-R"):
-			remoteForwardFlags, i = parseForwardFlag(arg, args, i, remoteForwardFlags)
-		default:
-			filteredArgs = append(filteredArgs, arg)
-		}
+// resolveSSHUsername returns the SSH user from --user, --login, user@host or the
+// invoking account, in that order.
+func resolveSSHUsername() string {
+	switch {
+	case username != "":
+		return username
+	case sshLogin != "":
+		return sshLogin
+	case hostUser != "":
+		return hostUser
 	}
 
-	return filteredArgs, localForwardFlags, remoteForwardFlags
-}
-
-func parseForwardFlag(arg string, args []string, i int, flags []string) ([]string, int) {
-	if arg == "-L" || arg == "-R" {
-		if i+1 < len(args) {
-			flags = append(flags, args[i+1])
-			i++
-		}
-	} else if len(arg) > 2 {
-		flags = append(flags, arg[2:])
+	if sudoUser := os.Getenv("SUDO_USER"); sudoUser != "" {
+		return sudoUser
 	}
-	return flags, i
-}
-
-// extractGlobalFlags parses global flags that were passed before 'ssh' command
-func extractGlobalFlags(args []string) {
-	sshPos := findSSHCommandPosition(args)
-	if sshPos == -1 {
-		return
+	if currentUser, err := user.Current(); err == nil {
+		return currentUser.Username
 	}
-
-	globalArgs := args[:sshPos]
-	parseGlobalArgs(globalArgs)
-}
-
-// findSSHCommandPosition locates the 'ssh' command in the argument list
-func findSSHCommandPosition(args []string) int {
-	for i, arg := range args {
-		if arg == "ssh" {
-			return i
-		}
-	}
-	return -1
-}
-
-const (
-	logLevelFlag = "log-level"
-	logFileFlag  = "log-file"
-)
-
-// parseGlobalArgs processes the global arguments and sets the corresponding variables
-func parseGlobalArgs(globalArgs []string) {
-	flagHandlers := map[string]func(string){
-		logLevelFlag: func(value string) { logLevel = value },
-		logFileFlag: func(value string) {
-			if !slices.Contains(logFiles, value) {
-				logFiles = append(logFiles, value)
-			}
-		},
-	}
-
-	shortFlags := map[string]string{
-		"l": logLevelFlag,
-	}
-
-	for i := 0; i < len(globalArgs); i++ {
-		arg := globalArgs[i]
-
-		if handled, nextIndex := parseFlag(arg, globalArgs, i, flagHandlers, shortFlags); handled {
-			i = nextIndex
-		}
-	}
-}
-
-// parseFlag handles generic flag parsing for both long and short forms
-func parseFlag(arg string, args []string, currentIndex int, flagHandlers map[string]func(string), shortFlags map[string]string) (bool, int) {
-	if parsedValue, found := parseEqualsFormat(arg, flagHandlers, shortFlags); found {
-		flagHandlers[parsedValue.flagName](parsedValue.value)
-		return true, currentIndex
-	}
-
-	if parsedValue, found := parseSpacedFormat(arg, args, currentIndex, flagHandlers, shortFlags); found {
-		flagHandlers[parsedValue.flagName](parsedValue.value)
-		return true, currentIndex + 1
-	}
-
-	return false, currentIndex
-}
-
-type parsedFlag struct {
-	flagName string
-	value    string
-}
-
-// parseEqualsFormat handles --flag=value and -f=value formats
-func parseEqualsFormat(arg string, flagHandlers map[string]func(string), shortFlags map[string]string) (parsedFlag, bool) {
-	if !strings.Contains(arg, "=") {
-		return parsedFlag{}, false
-	}
-
-	parts := strings.SplitN(arg, "=", 2)
-	if len(parts) != 2 {
-		return parsedFlag{}, false
-	}
-
-	if strings.HasPrefix(parts[0], "--") {
-		flagName := strings.TrimPrefix(parts[0], "--")
-		if _, exists := flagHandlers[flagName]; exists {
-			return parsedFlag{flagName: flagName, value: parts[1]}, true
-		}
-	}
-
-	if strings.HasPrefix(parts[0], "-") && len(parts[0]) == 2 {
-		shortFlag := strings.TrimPrefix(parts[0], "-")
-		if longFlag, exists := shortFlags[shortFlag]; exists {
-			if _, exists := flagHandlers[longFlag]; exists {
-				return parsedFlag{flagName: longFlag, value: parts[1]}, true
-			}
-		}
-	}
-
-	return parsedFlag{}, false
-}
-
-// parseSpacedFormat handles --flag value and -f value formats
-func parseSpacedFormat(arg string, args []string, currentIndex int, flagHandlers map[string]func(string), shortFlags map[string]string) (parsedFlag, bool) {
-	if currentIndex+1 >= len(args) {
-		return parsedFlag{}, false
-	}
-
-	if strings.HasPrefix(arg, "--") {
-		flagName := strings.TrimPrefix(arg, "--")
-		if _, exists := flagHandlers[flagName]; exists {
-			return parsedFlag{flagName: flagName, value: args[currentIndex+1]}, true
-		}
-	}
-
-	if strings.HasPrefix(arg, "-") && len(arg) == 2 {
-		shortFlag := strings.TrimPrefix(arg, "-")
-		if longFlag, exists := shortFlags[shortFlag]; exists {
-			if _, exists := flagHandlers[longFlag]; exists {
-				return parsedFlag{flagName: longFlag, value: args[currentIndex+1]}, true
-			}
-		}
-	}
-
-	return parsedFlag{}, false
-}
-
-// createSSHFlagSet creates and configures the flag set for SSH command parsing
-// sshFlags contains all SSH-related flags and parameters
-type sshFlags struct {
-	Port                  int
-	Username              string
-	Login                 string
-	RequestPTY            bool
-	StrictHostKeyChecking bool
-	KnownHostsFile        string
-	IdentityFile          string
-	SkipCachedToken       bool
-	NoBrowser             bool
-	LogLevel              string
-	LocalForwards         []string
-	RemoteForwards        []string
-	Host                  string
-	Command               string
-}
-
-func createSSHFlagSet() (*flag.FlagSet, *sshFlags) {
-	defaultLogLevel := getEnvOrDefault("LOG_LEVEL", logLevel)
-	defaultNoBrowser := getBoolEnvOrDefault("NO_BROWSER", false)
-
-	fs := flag.NewFlagSet("ssh-flags", flag.ContinueOnError)
-	fs.SetOutput(nil)
-
-	flags := &sshFlags{}
-
-	fs.IntVar(&flags.Port, "p", sshserver.DefaultSSHPort, "SSH port")
-	fs.IntVar(&flags.Port, "port", sshserver.DefaultSSHPort, "SSH port")
-	fs.StringVar(&flags.Username, "u", "", sshUsernameDesc)
-	fs.StringVar(&flags.Username, "user", "", sshUsernameDesc)
-	fs.StringVar(&flags.Login, sshLoginFlag, "", sshUsernameDesc+" (alias for --user)")
-	fs.BoolVar(&flags.RequestPTY, "t", false, "Force pseudo-terminal allocation")
-	fs.BoolVar(&flags.RequestPTY, "tty", false, "Force pseudo-terminal allocation")
-
-	fs.BoolVar(&flags.StrictHostKeyChecking, "strict-host-key-checking", true, "Enable strict host key checking")
-	fs.StringVar(&flags.KnownHostsFile, "o", "", "Path to known_hosts file")
-	fs.StringVar(&flags.KnownHostsFile, "known-hosts", "", "Path to known_hosts file")
-	fs.StringVar(&flags.IdentityFile, "i", "", "Path to SSH private key file")
-	fs.StringVar(&flags.IdentityFile, "identity", "", "Path to SSH private key file")
-	fs.BoolVar(&flags.SkipCachedToken, "no-cache", false, "Skip cached JWT token and force fresh authentication")
-	fs.BoolVar(&flags.NoBrowser, "no-browser", defaultNoBrowser, noBrowserDesc)
-
-	fs.StringVar(&flags.LogLevel, "l", defaultLogLevel, "sets Netbird log level")
-	fs.StringVar(&flags.LogLevel, "log-level", defaultLogLevel, "sets Netbird log level")
-
-	return fs, flags
-}
-
-// isFlagSet reports whether name was passed on the command line, even with an
-// empty value.
-func isFlagSet(fs *flag.FlagSet, name string) bool {
-	set := false
-	fs.Visit(func(f *flag.Flag) {
-		if f.Name == name {
-			set = true
-		}
-	})
-	return set
-}
-
-func validateSSHArgsWithoutFlagParsing(cmd *cobra.Command, args []string) error {
-	if len(args) < 1 {
-		return errors.New(hostArgumentRequired)
-	}
-
-	resetSSHGlobals()
-
-	if len(os.Args) > 2 {
-		extractGlobalFlags(os.Args[1:])
-	}
-
-	filteredArgs, localForwardFlags, remoteForwardFlags := parseCustomSSHFlags(args)
-
-	fs, flags := createSSHFlagSet()
-
-	if err := fs.Parse(filteredArgs); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return nil
-		}
-		return err
-	}
-
-	remaining := fs.Args()
-	if len(remaining) < 1 {
-		return errors.New(hostArgumentRequired)
-	}
-
-	// Cobra does not parse the flags of this command, so it cannot print the
-	// deprecation notice itself.
-	if isFlagSet(fs, sshLoginFlag) {
-		cmd.PrintErrf("Flag --%s has been deprecated, %s\n", sshLoginFlag, sshLoginDeprecation)
-	}
-
-	port = flags.Port
-	if flags.Username != "" {
-		username = flags.Username
-	} else if flags.Login != "" {
-		username = flags.Login
-	}
-
-	requestPTY = flags.RequestPTY
-	strictHostKeyChecking = flags.StrictHostKeyChecking
-	knownHostsFile = flags.KnownHostsFile
-	identityFile = flags.IdentityFile
-	skipCachedToken = flags.SkipCachedToken
-	sshNoBrowser = flags.NoBrowser
-
-	if flags.LogLevel != getEnvOrDefault("LOG_LEVEL", logLevel) {
-		logLevel = flags.LogLevel
-	}
-
-	localForwards = localForwardFlags
-	remoteForwards = remoteForwardFlags
-
-	return parseHostnameAndCommand(remaining)
+	return "root"
 }
 
 func parseHostnameAndCommand(args []string) error {
@@ -503,22 +228,10 @@ func parseHostnameAndCommand(args []string) error {
 		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 			return errors.New("invalid user@host format")
 		}
-		if username == "" {
-			username = parts[0]
-		}
+		hostUser = parts[0]
 		host = parts[1]
 	} else {
 		host = arg
-	}
-
-	if username == "" {
-		if sudoUser := os.Getenv("SUDO_USER"); sudoUser != "" {
-			username = sudoUser
-		} else if currentUser, err := user.Current(); err == nil {
-			username = currentUser.Username
-		} else {
-			username = "root"
-		}
 	}
 
 	// Everything after hostname becomes the command
