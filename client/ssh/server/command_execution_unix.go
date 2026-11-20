@@ -192,6 +192,8 @@ func (s *Server) handlePtyLogin(logger *log.Entry, session ssh.Session, privileg
 
 // runPtyCommand runs a command with PTY management (common code for interactive and command execution)
 func (s *Server) runPtyCommand(logger *log.Entry, session ssh.Session, execCmd *exec.Cmd, ptyReq ssh.Pty, winCh <-chan ssh.Window) bool {
+	fallbackMissingWorkingDir(logger, execCmd)
+
 	ptmx, err := s.startPtyCommandWithSize(execCmd, ptyReq)
 	if err != nil {
 		logger.Errorf("Pty start failed: %v", err)
