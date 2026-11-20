@@ -68,6 +68,62 @@ type MockWGIface struct {
 	LastActivitiesFunc         func() map[string]monotime.Time
 }
 
+func TestEngineGetRouteManagerBeforePublish(t *testing.T) {
+	manager := &routemanager.MockManager{}
+	engine := &Engine{routeManager: manager}
+
+	assert.Nil(t, engine.GetRouteManager())
+}
+
+func TestEngineGetRouteManagerAfterPublish(t *testing.T) {
+	manager := &routemanager.MockManager{}
+	engine := &Engine{routeManager: manager}
+
+	engine.publishRouteManager()
+
+	assert.Same(t, manager, engine.GetRouteManager())
+}
+
+func TestEngineGetRouteManagerAfterUnpublish(t *testing.T) {
+	manager := &routemanager.MockManager{}
+	engine := &Engine{routeManager: manager}
+	engine.publishRouteManager()
+
+	engine.unpublishRouteManager()
+
+	assert.Nil(t, engine.GetRouteManager())
+}
+
+func TestEngineRouteManagerPublicationConcurrent(t *testing.T) {
+	manager := &routemanager.MockManager{}
+	engine := &Engine{routeManager: manager}
+
+	const iterations = 1000
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		for range iterations {
+			engine.publishRouteManager()
+			engine.unpublishRouteManager()
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		for range iterations {
+			got := engine.GetRouteManager()
+			if got != nil && got != manager {
+				t.Errorf("unexpected route manager: got %p, want %p", got, manager)
+				return
+			}
+		}
+	}()
+
+	wg.Wait()
+}
+
 func (m *MockWGIface) RenewTun(_ int) error {
 	return nil
 }
