@@ -10,6 +10,8 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/management/internals/modules/exitnodes"
+	"github.com/netbirdio/netbird/management/internals/shared/db"
+	"github.com/netbirdio/netbird/management/internals/shared/db/dbtest"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
@@ -28,15 +30,8 @@ const (
 
 var testPeerIDs = []string{"peer-a", "peer-b", "peer-c", "peer-d"}
 
-type testEnv struct {
-	manager         *managerImpl
-	store           store.Store
-	perms           *permissions.MockManager
-	deletedPolicies []string
-	deletePolicyErr error
-}
-
-func setupTest(t *testing.T) *testEnv {
+// newTestStore returns a store holding one account with the test peers.
+func newTestStore(t *testing.T) store.Store {
 	t.Helper()
 
 	ctx := context.Background()
@@ -61,30 +56,52 @@ func setupTest(t *testing.T) *testEnv {
 		Id:    testAccountID,
 		Peers: peers,
 		Groups: map[string]*types.Group{
-			testGroupID: {ID: testGroupID, AccountID: testAccountID, Name: "Exit peers", Peers: []string{"peer-c", "peer-d"}},
+			testGroupID: {ID: testGroupID, AccountID: testAccountID, Name: "Users"},
 		},
 	})
 	require.NoError(t, err)
+	return testStore
+}
 
-	ctrl := gomock.NewController(t)
-	perms := permissions.NewMockManager(ctrl)
+func allowAll(t *testing.T) *permissions.MockManager {
+	t.Helper()
+	perms := permissions.NewMockManager(gomock.NewController(t))
 	perms.EXPECT().
 		ValidateUserPermissions(gomock.Any(), testAccountID, testUserID, modules.Routes, gomock.Any()).
 		DoAndReturn(func(ctx context.Context, _, _ string, _ modules.Module, _ operations.Operation) (bool, context.Context, error) {
 			return true, ctx, nil
 		}).AnyTimes()
+	return perms
+}
 
-	env := &testEnv{store: testStore, perms: perms}
+type managerEnv struct {
+	manager *managerImpl
+	repo    *exitnodes.MockRepository
+	store   store.Store
+	// deletedPolicies records the policies the account manager was asked to delete.
+	deletedPolicies []string
+	deletePolicyErr error
+}
+
+func setupManager(t *testing.T) *managerEnv {
+	t.Helper()
+
+	repo := exitnodes.NewMockRepository(gomock.NewController(t))
+	repo.EXPECT().WithTx(gomock.Any()).Return(repo).AnyTimes()
+
+	env := &managerEnv{repo: repo, store: newTestStore(t)}
 	accountManager := &mock_server.MockAccountManager{
 		DeletePolicyFunc: func(ctx context.Context, accountID, policyID, userID string) error {
 			if env.deletePolicyErr != nil {
 				return env.deletePolicyErr
 			}
 			env.deletedPolicies = append(env.deletedPolicies, policyID)
-			return testStore.DeletePolicy(ctx, accountID, policyID)
+			return env.store.DeletePolicy(ctx, accountID, policyID)
 		},
 	}
-	env.manager = NewManager(testStore, accountManager, perms).(*managerImpl)
+
+	conn := dbtest.NewConn(t)
+	env.manager = NewManager(repo, conn, env.store, accountManager, allowAll(t)).(*managerImpl)
 	return env
 }
 
@@ -96,6 +113,14 @@ func exitNode(name string, peerIDs ...string) *exitnodes.ExitNode {
 	return node
 }
 
+func storedExitNode(id exitnodes.ID, name string, peerIDs ...string) *exitnodes.ExitNode {
+	node := exitNode(name, peerIDs...)
+	node.ID = id
+	node.AccountID = testAccountID
+	node.BindPeers()
+	return node
+}
+
 func assertStatus(t *testing.T, err error, want status.Type) {
 	t.Helper()
 	require.Error(t, err)
@@ -104,168 +129,245 @@ func assertStatus(t *testing.T, err error, want status.Type) {
 	assert.Equal(t, want, s.Type(), "unexpected status type for %v", err)
 }
 
-func TestManager_SeedsMockExitNodeFromAccountPeers(t *testing.T) {
-	env := setupTest(t)
-
-	nodes, err := env.manager.GetAllExitNodes(context.Background(), testAccountID, testUserID)
-	require.NoError(t, err)
-	require.Len(t, nodes, 1, "account should start with one mock exit node")
-
-	node := nodes[0]
-	assert.Equal(t, mockExitNodeName, node.Name)
-	assert.Equal(t, []exitnodes.Peer{
-		{PeerID: "peer-a", Metric: 100, Enabled: true},
-		{PeerID: "peer-b", Metric: 200, Enabled: true},
-	}, node.Peers, "mock should use the first two account peers by name")
-}
-
-func TestManager_CreateGetUpdateDelete(t *testing.T) {
-	env := setupTest(t)
+func TestManager_CreateStoresBoundExitNode(t *testing.T) {
+	env := setupManager(t)
 	ctx := context.Background()
 
-	created, err := env.manager.CreateExitNode(ctx, testAccountID, testUserID, exitNode("US Egress", "peer-c"))
-	require.NoError(t, err)
-	require.NotEmpty(t, created.ID, "create should generate an ID")
-	assert.Equal(t, "US Egress", created.Name)
+	env.repo.EXPECT().ListByAccount(gomock.Any(), db.LockingStrengthUpdate, testAccountID).
+		Return([]*exitnodes.ExitNode{storedExitNode("other", "EU Egress", "peer-a")}, nil)
 
-	got, err := env.manager.GetExitNode(ctx, testAccountID, testUserID, created.ID)
-	require.NoError(t, err)
-	assert.Equal(t, created.Peers, got.Peers)
+	var stored *exitnodes.ExitNode
+	env.repo.EXPECT().Create(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, node *exitnodes.ExitNode) error {
+			stored = node
+			return nil
+		})
 
-	update := exitNode("US Egress HA", "peer-c", "peer-d")
-	update.ID = created.ID
-	update.AutoApply = false
+	created, err := env.manager.CreateExitNode(ctx, testAccountID, testUserID, exitNode("US Egress", "peer-c", "peer-d"))
+	require.NoError(t, err)
+
+	require.NotNil(t, stored)
+	assert.NotEmpty(t, created.ID, "create should generate an ID")
+	assert.Equal(t, created.ID, stored.ID)
+	assert.Equal(t, testAccountID, stored.AccountID)
+	assert.NotEmpty(t, stored.PublicID, "create should generate a public ID")
+	assert.NotEqual(t, string(stored.ID), stored.PublicID, "the public ID should be generated separately")
+	require.Len(t, stored.Peers, 2)
+	for _, p := range stored.Peers {
+		assert.Equal(t, created.ID, p.ExitNodeID, "peers should be bound to the new exit node")
+		assert.Equal(t, testAccountID, p.AccountID, "peers should carry the account for the unique index")
+		assert.NotEmpty(t, p.PublicID, "every peer should get a public ID")
+	}
+	assert.NotEqual(t, stored.Peers[0].PublicID, stored.Peers[1].PublicID, "peer public IDs should be unique")
+}
+
+func TestManager_UpdateKeepsPublicIDs(t *testing.T) {
+	env := setupManager(t)
+	ctx := context.Background()
+
+	current := storedExitNode("en-1", "EU Egress", "peer-a", "peer-b")
+	current.PublicID = "node-public"
+	current.Peers[0].PublicID = "peer-a-public"
+	current.Peers[1].PublicID = "peer-b-public"
+	env.repo.EXPECT().Get(gomock.Any(), gomock.Any(), testAccountID, exitnodes.ID("en-1")).Return(current, nil).Times(2)
+	env.repo.EXPECT().ListByAccount(gomock.Any(), db.LockingStrengthUpdate, testAccountID).Return([]*exitnodes.ExitNode{current}, nil)
+
+	var stored *exitnodes.ExitNode
+	env.repo.EXPECT().Update(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, node *exitnodes.ExitNode) error {
+			stored = node
+			return nil
+		})
+
+	// The request drops peer-b, keeps peer-a and adds peer-c. Public IDs sent in the
+	// request are ignored.
+	update := storedExitNode("en-1", "EU Egress", "peer-a", "peer-c")
+	update.PublicID = "from-request"
+	update.Peers[1].PublicID = "from-request"
 	updated, err := env.manager.UpdateExitNode(ctx, testAccountID, testUserID, update)
 	require.NoError(t, err)
-	assert.Equal(t, "US Egress HA", updated.Name)
-	assert.False(t, updated.AutoApply, "update should be a full replace")
-	assert.Len(t, updated.Peers, 2)
 
-	require.NoError(t, env.manager.DeleteExitNode(ctx, testAccountID, testUserID, created.ID))
-	_, err = env.manager.GetExitNode(ctx, testAccountID, testUserID, created.ID)
-	assertStatus(t, err, status.NotFound)
+	require.NotNil(t, stored)
+	assert.Equal(t, "node-public", stored.PublicID, "update should keep the exit node's public ID")
+	assert.Equal(t, "node-public", updated.PublicID, "the returned exit node should carry the stored public ID")
+	require.Len(t, stored.Peers, 2)
+	assert.Equal(t, "peer-a-public", stored.Peers[0].PublicID, "a kept peer should keep its public ID")
+	assert.NotEmpty(t, stored.Peers[1].PublicID, "a new peer should get a public ID")
+	assert.NotEqual(t, "from-request", stored.Peers[1].PublicID, "a public ID from the request should be ignored")
+	assert.NotEqual(t, "peer-b-public", stored.Peers[1].PublicID, "a removed peer's public ID should not be reused")
 }
 
-func TestManager_ReturnedExitNodeIsACopy(t *testing.T) {
-	env := setupTest(t)
-	ctx := context.Background()
-
-	created, err := env.manager.CreateExitNode(ctx, testAccountID, testUserID, exitNode("US Egress", "peer-c"))
-	require.NoError(t, err)
-	created.Peers[0].Metric = 9999
-
-	got, err := env.manager.GetExitNode(ctx, testAccountID, testUserID, created.ID)
-	require.NoError(t, err)
-	assert.Equal(t, 100, got.Peers[0].Metric, "mutating a returned exit node must not change the stored one")
-}
-
-func TestManager_ValidationAndConflicts(t *testing.T) {
+func TestManager_CreateRejectsInvalidInput(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
 		name string
 		node *exitnodes.ExitNode
-		want status.Type
 	}{
 		{name: "invalid metric", node: func() *exitnodes.ExitNode {
 			n := exitNode("US Egress", "peer-c")
 			n.Peers[0].Metric = 0
 			return n
-		}(), want: status.InvalidArgument},
-		{name: "no peers", node: exitNode("US Egress"), want: status.InvalidArgument},
-		{name: "unknown peer", node: exitNode("US Egress", "peer-unknown"), want: status.InvalidArgument},
-		{name: "duplicate name ignoring case", node: exitNode("default EGRESS", "peer-c"), want: status.AlreadyExists},
-		{name: "peer already in another exit node", node: exitNode("US Egress", "peer-a"), want: status.AlreadyExists},
+		}()},
+		{name: "no peers", node: exitNode("US Egress")},
+		{name: "unknown peer", node: exitNode("US Egress", "peer-unknown")},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			env := setupTest(t)
+			// The mock has no ListByAccount or Create expectation: invalid input must not reach the repository.
+			env := setupManager(t)
 			_, err := env.manager.CreateExitNode(ctx, testAccountID, testUserID, tt.node)
-			assertStatus(t, err, tt.want)
+			assertStatus(t, err, status.InvalidArgument)
+		})
+	}
+}
 
-			nodes, err := env.manager.GetAllExitNodes(ctx, testAccountID, testUserID)
-			require.NoError(t, err)
-			assert.Len(t, nodes, 1, "a rejected create must not add an exit node")
+func TestManager_CreateConflicts(t *testing.T) {
+	ctx := context.Background()
+	existing := []*exitnodes.ExitNode{storedExitNode("en-1", "EU Egress", "peer-a")}
+
+	tests := []struct {
+		name string
+		node *exitnodes.ExitNode
+	}{
+		{name: "duplicate name ignoring case", node: exitNode("eu EGRESS", "peer-c")},
+		{name: "peer already in another exit node", node: exitNode("US Egress", "peer-a")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// No Create expectation: a conflicting exit node must not be written.
+			env := setupManager(t)
+			env.repo.EXPECT().ListByAccount(gomock.Any(), db.LockingStrengthUpdate, testAccountID).Return(existing, nil)
+
+			_, err := env.manager.CreateExitNode(ctx, testAccountID, testUserID, tt.node)
+			assertStatus(t, err, status.AlreadyExists)
 		})
 	}
 }
 
 func TestManager_UpdateKeepsOwnNameAndPeers(t *testing.T) {
-	env := setupTest(t)
+	env := setupManager(t)
 	ctx := context.Background()
 
-	nodes, err := env.manager.GetAllExitNodes(ctx, testAccountID, testUserID)
-	require.NoError(t, err)
-	seeded := nodes[0]
+	current := storedExitNode("en-1", "EU Egress", "peer-a", "peer-b")
+	env.repo.EXPECT().Get(gomock.Any(), gomock.Any(), testAccountID, exitnodes.ID("en-1")).Return(current, nil).Times(2)
+	env.repo.EXPECT().ListByAccount(gomock.Any(), db.LockingStrengthUpdate, testAccountID).Return([]*exitnodes.ExitNode{current}, nil)
+	env.repo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
 
 	// Toggling a single flag resends the same name and peers, which must not
 	// conflict with the exit node itself.
-	seeded.Enabled = false
-	updated, err := env.manager.UpdateExitNode(ctx, testAccountID, testUserID, seeded)
+	update := storedExitNode("en-1", "EU Egress", "peer-a", "peer-b")
+	update.Enabled = false
+	updated, err := env.manager.UpdateExitNode(ctx, testAccountID, testUserID, update)
 	require.NoError(t, err)
 	assert.False(t, updated.Enabled)
+}
 
-	missing := exitNode("Other", "peer-c")
-	missing.ID = "does-not-exist"
-	_, err = env.manager.UpdateExitNode(ctx, testAccountID, testUserID, missing)
+func TestManager_UpdateKeepsDeletedPeer(t *testing.T) {
+	env := setupManager(t)
+	ctx := context.Background()
+
+	// peer-gone was deleted from the account after it was added to the exit node.
+	current := storedExitNode("en-1", "EU Egress", "peer-a", "peer-gone")
+	env.repo.EXPECT().Get(gomock.Any(), gomock.Any(), testAccountID, exitnodes.ID("en-1")).Return(current, nil).Times(2)
+	env.repo.EXPECT().ListByAccount(gomock.Any(), db.LockingStrengthUpdate, testAccountID).Return([]*exitnodes.ExitNode{current}, nil)
+	env.repo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+
+	update := storedExitNode("en-1", "EU Egress", "peer-a", "peer-gone")
+	update.AutoApply = false
+	_, err := env.manager.UpdateExitNode(ctx, testAccountID, testUserID, update)
+	assert.NoError(t, err, "an exit node that lists a deleted peer should stay editable")
+}
+
+func TestManager_UpdateRejectsNewUnknownPeer(t *testing.T) {
+	env := setupManager(t)
+
+	current := storedExitNode("en-1", "EU Egress", "peer-a")
+	env.repo.EXPECT().Get(gomock.Any(), db.LockingStrengthNone, testAccountID, exitnodes.ID("en-1")).Return(current, nil)
+
+	_, err := env.manager.UpdateExitNode(context.Background(), testAccountID, testUserID, storedExitNode("en-1", "EU Egress", "peer-a", "peer-unknown"))
+	assertStatus(t, err, status.InvalidArgument)
+}
+
+func TestManager_UpdateUnknownExitNode(t *testing.T) {
+	env := setupManager(t)
+
+	env.repo.EXPECT().Get(gomock.Any(), db.LockingStrengthNone, testAccountID, exitnodes.ID("missing")).
+		Return(nil, exitnodes.NewNotFoundError("missing"))
+
+	_, err := env.manager.UpdateExitNode(context.Background(), testAccountID, testUserID, storedExitNode("missing", "EU Egress", "peer-a"))
 	assertStatus(t, err, status.NotFound)
 }
 
-func TestManager_DeleteRemovesPolicies(t *testing.T) {
-	env := setupTest(t)
-	ctx := context.Background()
-
-	created, err := env.manager.CreateExitNode(ctx, testAccountID, testUserID, exitNode("US Egress", "peer-c"))
-	require.NoError(t, err)
-
-	policy := &types.Policy{
-		ID:        "policy-1",
+func exitNodePolicy(id, exitNodeID string) *types.Policy {
+	return &types.Policy{
+		ID:        id,
 		AccountID: testAccountID,
-		Name:      "US Egress Access",
+		Name:      id,
 		Enabled:   true,
 		Rules: []*types.PolicyRule{{
-			ID:                  "policy-1",
-			PolicyID:            "policy-1",
+			ID:                  id,
+			PolicyID:            id,
 			Enabled:             true,
 			Action:              types.PolicyTrafficActionAccept,
 			Protocol:            types.PolicyRuleProtocolALL,
 			Sources:             []string{testGroupID},
-			DestinationResource: types.Resource{ID: string(created.ID), Type: exitnodes.PolicyResourceType},
+			DestinationResource: types.Resource{ID: exitNodeID, Type: exitnodes.PolicyResourceType},
 		}},
 	}
-	require.NoError(t, env.store.SavePolicy(ctx, policy))
+}
 
-	// A failed policy delete keeps the exit node so the delete can be retried.
+func TestManager_DeleteRemovesPolicies(t *testing.T) {
+	env := setupManager(t)
+	ctx := context.Background()
+
+	require.NoError(t, env.store.SavePolicy(ctx, exitNodePolicy("policy-1", "en-1")))
+	require.NoError(t, env.store.SavePolicy(ctx, exitNodePolicy("policy-2", "en-2")))
+
+	env.repo.EXPECT().Get(gomock.Any(), db.LockingStrengthNone, testAccountID, exitnodes.ID("en-1")).
+		Return(storedExitNode("en-1", "EU Egress", "peer-a"), nil).Times(2)
+
+	// A failed policy delete keeps the exit node so the delete can be retried:
+	// the mock has no Delete expectation yet.
 	env.deletePolicyErr = status.NewPermissionDeniedError()
-	err = env.manager.DeleteExitNode(ctx, testAccountID, testUserID, created.ID)
+	err := env.manager.DeleteExitNode(ctx, testAccountID, testUserID, "en-1")
 	assertStatus(t, err, status.PermissionDenied)
-	_, err = env.manager.GetExitNode(ctx, testAccountID, testUserID, created.ID)
-	require.NoError(t, err, "a failed delete must keep the exit node")
 
 	env.deletePolicyErr = nil
-	require.NoError(t, env.manager.DeleteExitNode(ctx, testAccountID, testUserID, created.ID))
-	assert.Equal(t, []string{"policy-1"}, env.deletedPolicies, "delete should remove the policies targeting the exit node")
+	env.repo.EXPECT().Delete(gomock.Any(), testAccountID, exitnodes.ID("en-1")).Return(nil)
+	require.NoError(t, env.manager.DeleteExitNode(ctx, testAccountID, testUserID, "en-1"))
 
-	_, err = env.store.GetPolicyByID(ctx, store.LockingStrengthNone, testAccountID, "policy-1")
+	assert.Equal(t, []string{"policy-1"}, env.deletedPolicies, "only the policy targeting the exit node should be deleted")
+	_, err = env.store.GetPolicyByID(ctx, store.LockingStrengthNone, testAccountID, "policy-2")
+	assert.NoError(t, err, "a policy targeting another exit node must survive")
+}
+
+func TestManager_DeleteUnknownExitNode(t *testing.T) {
+	env := setupManager(t)
+
+	env.repo.EXPECT().Get(gomock.Any(), db.LockingStrengthNone, testAccountID, exitnodes.ID("missing")).
+		Return(nil, exitnodes.NewNotFoundError("missing"))
+
+	err := env.manager.DeleteExitNode(context.Background(), testAccountID, testUserID, "missing")
 	assertStatus(t, err, status.NotFound)
-	_, err = env.manager.GetExitNode(ctx, testAccountID, testUserID, created.ID)
-	assertStatus(t, err, status.NotFound)
+	assert.Empty(t, env.deletedPolicies, "no policy should be deleted for an unknown exit node")
 }
 
 func TestManager_PermissionDenied(t *testing.T) {
 	ctx := context.Background()
-	testStore, cleanup, err := store.NewTestStoreFromSQL(ctx, "", t.TempDir())
-	require.NoError(t, err)
-	t.Cleanup(cleanup)
-
 	ctrl := gomock.NewController(t)
+
 	perms := permissions.NewMockManager(ctrl)
 	perms.EXPECT().
 		ValidateUserPermissions(gomock.Any(), testAccountID, testUserID, modules.Routes, operations.Create).
 		Return(false, ctx, nil)
 
-	m := NewManager(testStore, &mock_server.MockAccountManager{}, perms)
-	_, err = m.CreateExitNode(ctx, testAccountID, testUserID, exitNode("US Egress", "peer-c"))
+	// No repository expectations: a denied request must not touch the database.
+	repo := exitnodes.NewMockRepository(ctrl)
+	m := NewManager(repo, dbtest.NewConn(t), newTestStore(t), &mock_server.MockAccountManager{}, perms)
+
+	_, err := m.CreateExitNode(ctx, testAccountID, testUserID, exitNode("US Egress", "peer-c"))
 	assertStatus(t, err, status.PermissionDenied)
 }

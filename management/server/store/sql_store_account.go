@@ -19,6 +19,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
+	"github.com/netbirdio/netbird/management/internals/modules/exitnodes"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
@@ -178,6 +179,10 @@ func (s *SqlStore) DeleteAccount(ctx context.Context, account *types.Account) er
 			return err
 		}
 
+		if err := deleteAccountExitNodes(tx, account.Id); err != nil {
+			return err
+		}
+
 		result = tx.Delete(&nbpeer.Connection{}, "account_id = ?", account.Id)
 		if result.Error != nil {
 			return result.Error
@@ -198,6 +203,14 @@ func (s *SqlStore) DeleteAccount(ctx context.Context, account *types.Account) er
 	log.WithContext(ctx).Tracef("took %d ms to delete an account to the store", took.Milliseconds())
 
 	return err
+}
+
+// deleteAccountExitNodes removes the account's exit nodes, which are not account associations.
+func deleteAccountExitNodes(tx *gorm.DB, accountID string) error {
+	if err := tx.Delete(&exitnodes.Peer{}, "account_id = ?", accountID).Error; err != nil {
+		return err
+	}
+	return tx.Delete(&exitnodes.ExitNode{}, "account_id = ?", accountID).Error
 }
 
 // deleteAgentNetworkAccountConfig removes the account's agent network configuration. These
