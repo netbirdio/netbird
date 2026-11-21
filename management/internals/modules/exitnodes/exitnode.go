@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -106,7 +107,7 @@ func (e *ExitNode) Validate() error {
 	if e.Name == "" {
 		return errors.New("exit node name is required")
 	}
-	if len(e.Name) > MaxNameLength {
+	if utf8.RuneCountInString(e.Name) > MaxNameLength {
 		return fmt.Errorf("exit node name must be at most %d characters", MaxNameLength)
 	}
 	if len(e.Peers) == 0 {

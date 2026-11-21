@@ -31,6 +31,9 @@ func TestExitNode_Validate(t *testing.T) {
 		{name: "empty name", mutate: func(e *ExitNode) { e.Name = "" }, wantErr: "name is required"},
 		{name: "name at limit", mutate: func(e *ExitNode) { e.Name = strings.Repeat("a", MaxNameLength) }},
 		{name: "name too long", mutate: func(e *ExitNode) { e.Name = strings.Repeat("a", MaxNameLength+1) }, wantErr: "at most 40"},
+		// 40 CJK characters take 120 bytes: the limit counts characters.
+		{name: "multibyte name at limit", mutate: func(e *ExitNode) { e.Name = strings.Repeat("出", MaxNameLength) }},
+		{name: "multibyte name too long", mutate: func(e *ExitNode) { e.Name = strings.Repeat("出", MaxNameLength+1) }, wantErr: "at most 40"},
 		{name: "no peers", mutate: func(e *ExitNode) { e.Peers = nil }, wantErr: "at least one peer"},
 		{name: "empty peer ID", mutate: func(e *ExitNode) { e.Peers[0].PeerID = "" }, wantErr: "peer ID is required"},
 		{name: "metric zero", mutate: func(e *ExitNode) { e.Peers[0].Metric = 0 }, wantErr: "between 1 and 9999"},
