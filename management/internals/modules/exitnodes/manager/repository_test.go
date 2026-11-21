@@ -14,9 +14,23 @@ import (
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
-func newTestRepository(t *testing.T) (exitnodes.Repository, *db.Conn) {
+// newTestConn returns a connection with the exit node tables and a minimal accounts table
+// holding accountIDs, whose rows LockAccount locks. In production the exit node tables
+// live in the store's database next to the real accounts table.
+func newTestConn(t *testing.T, accountIDs ...string) *db.Conn {
 	t.Helper()
 	conn := dbtest.NewConn(t, &exitnodes.ExitNode{}, &exitnodes.Peer{})
+	gormDB := conn.DB(nil)
+	require.NoError(t, gormDB.Exec("CREATE TABLE accounts (id VARCHAR(255) PRIMARY KEY)").Error)
+	for _, id := range accountIDs {
+		require.NoError(t, gormDB.Exec("INSERT INTO accounts (id) VALUES (?)", id).Error)
+	}
+	return conn
+}
+
+func newTestRepository(t *testing.T) (exitnodes.Repository, *db.Conn) {
+	t.Helper()
+	conn := newTestConn(t, "acc-a", "acc-b")
 	return NewRepository(conn), conn
 }
 
@@ -73,6 +87,21 @@ func TestSqlRepository_CreateAndGet(t *testing.T) {
 	}, got.Peers, "peers should come back ordered by metric with every field stored")
 
 	_, err = repo.Get(ctx, db.LockingStrengthNone, "acc-b", "en-1")
+	assertStatus(t, err, status.NotFound)
+}
+
+func TestSqlRepository_LockAccount(t *testing.T) {
+	repo, conn := newTestRepository(t)
+	ctx := context.Background()
+
+	err := conn.RunInTx(ctx, func(tx *db.Tx) error {
+		return repo.WithTx(tx).LockAccount(ctx, "acc-a")
+	})
+	assert.NoError(t, err, "an existing account should be locked")
+
+	err = conn.RunInTx(ctx, func(tx *db.Tx) error {
+		return repo.WithTx(tx).LockAccount(ctx, "acc-missing")
+	})
 	assertStatus(t, err, status.NotFound)
 }
 

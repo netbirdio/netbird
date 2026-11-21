@@ -78,7 +78,10 @@ func (m *managerImpl) CreateExitNode(ctx context.Context, accountID, userID stri
 
 	err = m.conn.RunInTx(ctx, func(tx *db.Tx) error {
 		repo := m.repo.WithTx(tx)
-		existing, err := repo.ListByAccount(ctx, db.LockingStrengthUpdate, accountID)
+		if err := repo.LockAccount(ctx, accountID); err != nil {
+			return err
+		}
+		existing, err := repo.ListByAccount(ctx, db.LockingStrengthNone, accountID)
 		if err != nil {
 			return err
 		}
@@ -116,10 +119,13 @@ func (m *managerImpl) UpdateExitNode(ctx context.Context, accountID, userID stri
 
 	err = m.conn.RunInTx(ctx, func(tx *db.Tx) error {
 		repo := m.repo.WithTx(tx)
-		if _, err := repo.Get(ctx, db.LockingStrengthUpdate, accountID, node.ID); err != nil {
+		if err := repo.LockAccount(ctx, accountID); err != nil {
 			return err
 		}
-		existing, err := repo.ListByAccount(ctx, db.LockingStrengthUpdate, accountID)
+		if _, err := repo.Get(ctx, db.LockingStrengthNone, accountID, node.ID); err != nil {
+			return err
+		}
+		existing, err := repo.ListByAccount(ctx, db.LockingStrengthNone, accountID)
 		if err != nil {
 			return err
 		}
@@ -159,7 +165,11 @@ func (m *managerImpl) DeleteExitNode(ctx context.Context, accountID, userID stri
 	}
 
 	return m.conn.RunInTx(ctx, func(tx *db.Tx) error {
-		return m.repo.WithTx(tx).Delete(ctx, accountID, exitNodeID)
+		repo := m.repo.WithTx(tx)
+		if err := repo.LockAccount(ctx, accountID); err != nil {
+			return err
+		}
+		return repo.Delete(ctx, accountID, exitNodeID)
 	})
 }
 

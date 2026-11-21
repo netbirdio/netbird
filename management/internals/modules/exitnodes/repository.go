@@ -11,6 +11,9 @@ import (
 // Repository persists exit nodes and their peers.
 type Repository interface {
 	WithTx(tx *db.Tx) Repository
+	// LockAccount locks the account row until the transaction ends, so the exit node writes
+	// of one account run one at a time. Run it in a transaction.
+	LockAccount(ctx context.Context, accountID string) error
 	ListByAccount(ctx context.Context, lockStrength db.LockingStrength, accountID string) ([]*ExitNode, error)
 	Get(ctx context.Context, lockStrength db.LockingStrength, accountID string, exitNodeID ID) (*ExitNode, error)
 	// Create inserts the exit node and its peers. Run it in a transaction.

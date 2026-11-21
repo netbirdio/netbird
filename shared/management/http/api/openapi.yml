@@ -2022,11 +2022,10 @@ components:
         - id
         - type
     ResourceType:
-      allOf:
-        - $ref: '#/components/schemas/NetworkResourceType'
-        - type: string
-          enum: [ "peer", "exit_node" ]
-          example: peer
+      description: Type of a policy rule resource. host, subnet and domain are network resource types
+      type: string
+      enum: [ "host", "subnet", "domain", "peer", "exit_node" ]
+      example: peer
     NetworkRequest:
       type: object
       properties:
