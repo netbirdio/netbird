@@ -88,6 +88,7 @@ func setupManager(t *testing.T) *managerEnv {
 
 	repo := exitnodes.NewMockRepository(gomock.NewController(t))
 	repo.EXPECT().WithTx(gomock.Any()).Return(repo).AnyTimes()
+	repo.EXPECT().LockAccount(gomock.Any(), testAccountID).Return(nil).AnyTimes()
 
 	env := &managerEnv{repo: repo, store: newTestStore(t)}
 	accountManager := &mock_server.MockAccountManager{
@@ -133,7 +134,7 @@ func TestManager_CreateStoresBoundExitNode(t *testing.T) {
 	env := setupManager(t)
 	ctx := context.Background()
 
-	env.repo.EXPECT().ListByAccount(gomock.Any(), db.LockingStrengthUpdate, testAccountID).
+	env.repo.EXPECT().ListByAccount(gomock.Any(), db.LockingStrengthNone, testAccountID).
 		Return([]*exitnodes.ExitNode{storedExitNode("other", "EU Egress", "peer-a")}, nil)
 
 	var stored *exitnodes.ExitNode
@@ -170,7 +171,7 @@ func TestManager_UpdateKeepsPublicIDs(t *testing.T) {
 	current.Peers[0].PublicID = "peer-a-public"
 	current.Peers[1].PublicID = "peer-b-public"
 	env.repo.EXPECT().Get(gomock.Any(), gomock.Any(), testAccountID, exitnodes.ID("en-1")).Return(current, nil).Times(2)
-	env.repo.EXPECT().ListByAccount(gomock.Any(), db.LockingStrengthUpdate, testAccountID).Return([]*exitnodes.ExitNode{current}, nil)
+	env.repo.EXPECT().ListByAccount(gomock.Any(), db.LockingStrengthNone, testAccountID).Return([]*exitnodes.ExitNode{current}, nil)
 
 	var stored *exitnodes.ExitNode
 	env.repo.EXPECT().Update(gomock.Any(), gomock.Any()).
@@ -239,7 +240,7 @@ func TestManager_CreateConflicts(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// No Create expectation: a conflicting exit node must not be written.
 			env := setupManager(t)
-			env.repo.EXPECT().ListByAccount(gomock.Any(), db.LockingStrengthUpdate, testAccountID).Return(existing, nil)
+			env.repo.EXPECT().ListByAccount(gomock.Any(), db.LockingStrengthNone, testAccountID).Return(existing, nil)
 
 			_, err := env.manager.CreateExitNode(ctx, testAccountID, testUserID, tt.node)
 			assertStatus(t, err, status.AlreadyExists)
@@ -253,7 +254,7 @@ func TestManager_UpdateKeepsOwnNameAndPeers(t *testing.T) {
 
 	current := storedExitNode("en-1", "EU Egress", "peer-a", "peer-b")
 	env.repo.EXPECT().Get(gomock.Any(), gomock.Any(), testAccountID, exitnodes.ID("en-1")).Return(current, nil).Times(2)
-	env.repo.EXPECT().ListByAccount(gomock.Any(), db.LockingStrengthUpdate, testAccountID).Return([]*exitnodes.ExitNode{current}, nil)
+	env.repo.EXPECT().ListByAccount(gomock.Any(), db.LockingStrengthNone, testAccountID).Return([]*exitnodes.ExitNode{current}, nil)
 	env.repo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
 
 	// Toggling a single flag resends the same name and peers, which must not
@@ -272,7 +273,7 @@ func TestManager_UpdateKeepsDeletedPeer(t *testing.T) {
 	// peer-gone was deleted from the account after it was added to the exit node.
 	current := storedExitNode("en-1", "EU Egress", "peer-a", "peer-gone")
 	env.repo.EXPECT().Get(gomock.Any(), gomock.Any(), testAccountID, exitnodes.ID("en-1")).Return(current, nil).Times(2)
-	env.repo.EXPECT().ListByAccount(gomock.Any(), db.LockingStrengthUpdate, testAccountID).Return([]*exitnodes.ExitNode{current}, nil)
+	env.repo.EXPECT().ListByAccount(gomock.Any(), db.LockingStrengthNone, testAccountID).Return([]*exitnodes.ExitNode{current}, nil)
 	env.repo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
 
 	update := storedExitNode("en-1", "EU Egress", "peer-a", "peer-gone")
@@ -323,8 +324,8 @@ func TestManager_DeleteRemovesPolicies(t *testing.T) {
 	env := setupManager(t)
 	ctx := context.Background()
 
-	require.NoError(t, env.store.SavePolicy(ctx, exitNodePolicy("policy-1", "en-1")))
-	require.NoError(t, env.store.SavePolicy(ctx, exitNodePolicy("policy-2", "en-2")))
+	require.NoError(t, env.store.CreatePolicy(ctx, exitNodePolicy("policy-1", "en-1")))
+	require.NoError(t, env.store.CreatePolicy(ctx, exitNodePolicy("policy-2", "en-2")))
 
 	env.repo.EXPECT().Get(gomock.Any(), db.LockingStrengthNone, testAccountID, exitnodes.ID("en-1")).
 		Return(storedExitNode("en-1", "EU Egress", "peer-a"), nil).Times(2)

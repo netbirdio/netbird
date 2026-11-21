@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/management/internals/modules/exitnodes"
-	"github.com/netbirdio/netbird/management/internals/shared/db/dbtest"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/shared/auth"
@@ -23,7 +21,7 @@ import (
 // sees what the database stored.
 func newTestRouter(t *testing.T) *mux.Router {
 	t.Helper()
-	conn := dbtest.NewConn(t, &exitnodes.ExitNode{}, &exitnodes.Peer{})
+	conn := newTestConn(t, testAccountID)
 	m := NewManager(NewRepository(conn), conn, newTestStore(t), &mock_server.MockAccountManager{}, allowAll(t))
 	router := mux.NewRouter()
 	RegisterEndpoints(router, m)

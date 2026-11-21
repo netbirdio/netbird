@@ -99,6 +99,20 @@ func (mr *MockRepositoryMockRecorder) ListByAccount(ctx, lockStrength, accountID
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByAccount", reflect.TypeOf((*MockRepository)(nil).ListByAccount), ctx, lockStrength, accountID)
 }
 
+// LockAccount mocks base method.
+func (m *MockRepository) LockAccount(ctx context.Context, accountID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockAccount", ctx, accountID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// LockAccount indicates an expected call of LockAccount.
+func (mr *MockRepositoryMockRecorder) LockAccount(ctx, accountID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockAccount", reflect.TypeOf((*MockRepository)(nil).LockAccount), ctx, accountID)
+}
+
 // Update mocks base method.
 func (m *MockRepository) Update(ctx context.Context, exitNode *ExitNode) error {
 	m.ctrl.T.Helper()

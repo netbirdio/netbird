@@ -27,6 +27,19 @@ func (r *sqlRepository) WithTx(tx *db.Tx) exitnodes.Repository {
 	return &sqlRepository{conn: r.conn, db: r.conn.DB(tx)}
 }
 
+func (r *sqlRepository) LockAccount(ctx context.Context, accountID string) error {
+	var ids []string
+	err := withLock(r.db, db.LockingStrengthUpdate).Table("accounts").Where("id = ?", accountID).Pluck("id", &ids).Error
+	if err != nil {
+		log.WithContext(ctx).WithField("account_id", accountID).Errorf("failed to lock account: %v", err)
+		return status.Errorf(status.Internal, "failed to lock account")
+	}
+	if len(ids) == 0 {
+		return status.NewAccountNotFoundError(accountID)
+	}
+	return nil
+}
+
 func (r *sqlRepository) ListByAccount(ctx context.Context, lockStrength db.LockingStrength, accountID string) ([]*exitnodes.ExitNode, error) {
 	query := withLock(r.db, lockStrength).Preload("Peers", orderPeers)
 

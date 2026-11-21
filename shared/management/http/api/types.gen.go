@@ -4993,11 +4993,13 @@ type ProxyTokenRequest struct {
 // Resource defines model for Resource.
 type Resource struct {
 	// Id ID of the resource
-	Id   string       `json:"id"`
+	Id string `json:"id"`
+
+	// Type Type of a policy rule resource. host, subnet and domain are network resource types
 	Type ResourceType `json:"type"`
 }
 
-// ResourceType defines model for ResourceType.
+// ResourceType Type of a policy rule resource. host, subnet and domain are network resource types
 type ResourceType string
 
 // ReverseProxyDomain defines model for ReverseProxyDomain.
