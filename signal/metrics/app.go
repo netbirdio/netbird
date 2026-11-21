@@ -21,7 +21,12 @@ type AppMetrics struct {
 	MessageForwardFailures metric.Int64Counter
 	MessageForwardLatency  metric.Float64Histogram
 
-	MessageSize metric.Int64Histogram
+	MessagesReceived metric.Int64Counter
+	MessageSize      metric.Int64Histogram
+	ProbeMessages    metric.Int64Counter
+	SendSuccess      metric.Int64Counter
+	SendFailures     metric.Int64Counter
+	SendInflight     metric.Int64UpDownCounter
 }
 
 func NewAppMetrics(meter metric.Meter, prefix ...string) (*AppMetrics, error) {
@@ -45,7 +50,7 @@ func NewAppMetrics(meter metric.Meter, prefix ...string) (*AppMetrics, error) {
 	}
 
 	registrations, err := meter.Int64Counter(p+"registrations_total",
-		metric.WithDescription("Total number of peer registrations"),
+		metric.WithDescription("Total number of peer registrations, including streams that replace an existing registration"),
 	)
 	if err != nil {
 		return nil, err
@@ -67,7 +72,7 @@ func NewAppMetrics(meter metric.Meter, prefix ...string) (*AppMetrics, error) {
 
 	registrationDelay, err := meter.Float64Histogram(p+"registration_delay_milliseconds",
 		metric.WithExplicitBucketBoundaries(getStandardBucketBoundaries()...),
-		metric.WithDescription("Duration of how long it takes to register a peer"),
+		metric.WithDescription("Duration of a peer registration including the dispatcher subscription"),
 	)
 	if err != nil {
 		return nil, err
@@ -82,14 +87,14 @@ func NewAppMetrics(meter metric.Meter, prefix ...string) (*AppMetrics, error) {
 	}
 
 	messagesForwarded, err := meter.Int64Counter(p+"messages_forwarded_total",
-		metric.WithDescription("Total number of messages forwarded to peers"),
+		metric.WithDescription("Total number of messages delivered to a peer stream on this node"),
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	messageForwardFailures, err := meter.Int64Counter(p+"message_forward_failures_total",
-		metric.WithDescription("Total number of message forwarding failures"),
+		metric.WithDescription("Total number of failed deliveries to a peer stream on this node"),
 	)
 	if err != nil {
 		return nil, err
@@ -97,7 +102,14 @@ func NewAppMetrics(meter metric.Meter, prefix ...string) (*AppMetrics, error) {
 
 	messageForwardLatency, err := meter.Float64Histogram(p+"message_forward_latency_milliseconds",
 		metric.WithExplicitBucketBoundaries(getStandardBucketBoundaries()...),
-		metric.WithDescription("Duration of how long it takes to forward a message to a peer"),
+		metric.WithDescription("Duration of a delivery attempt to a peer stream on this node, labelled by result"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	messagesReceived, err := meter.Int64Counter(p+"messages_received_total",
+		metric.WithDescription("Total number of messages received through Send, counted before routing"),
 	)
 	if err != nil {
 		return nil, err
@@ -107,7 +119,35 @@ func NewAppMetrics(meter metric.Meter, prefix ...string) (*AppMetrics, error) {
 		p+"message.size.bytes",
 		metric.WithUnit("bytes"),
 		metric.WithExplicitBucketBoundaries(getMessageSizeBucketBoundaries()...),
-		metric.WithDescription("Records the size of each message sent"),
+		metric.WithDescription("Records the size of each message received through Send"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	probeMessages, err := meter.Int64Counter(p+"probe_messages_total",
+		metric.WithDescription("Total number of self-addressed probe messages received through Send"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	sendSuccess, err := meter.Int64Counter(p+"send_success_total",
+		metric.WithDescription("Total number of messages received through Send that were delivered to a peer stream on this node or published to the dispatcher"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	sendFailures, err := meter.Int64Counter(p+"send_failures_total",
+		metric.WithDescription("Total number of messages received through Send that could not be delivered or published"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	sendInflight, err := meter.Int64UpDownCounter(p+"send_inflight",
+		metric.WithDescription("Number of Send requests currently being processed"),
 	)
 	if err != nil {
 		return nil, err
@@ -129,7 +169,12 @@ func NewAppMetrics(meter metric.Meter, prefix ...string) (*AppMetrics, error) {
 		MessageForwardFailures: messageForwardFailures,
 		MessageForwardLatency:  messageForwardLatency,
 
-		MessageSize: messageSize,
+		MessagesReceived: messagesReceived,
+		MessageSize:      messageSize,
+		ProbeMessages:    probeMessages,
+		SendSuccess:      sendSuccess,
+		SendFailures:     sendFailures,
+		SendInflight:     sendInflight,
 	}, nil
 }
 
