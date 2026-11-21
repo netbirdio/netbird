@@ -17,6 +17,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
+	"github.com/netbirdio/netbird/management/internals/modules/exitnodes"
 	proxydomain "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -1007,5 +1008,35 @@ func TestSqlStore_GetAnyAccountID(t *testing.T) {
 		assert.True(t, ok)
 		assert.Equal(t, sErr.Type(), status.NotFound)
 		assert.Empty(t, accountID)
+	})
+}
+
+func TestSqlStore_DeleteAccountRemovesExitNodes(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		gormDB := store.(*SqlStore).db
+
+		const otherAccountID = "other-account"
+		require.NoError(t, gormDB.Exec("INSERT INTO accounts (id) VALUES (?)", otherAccountID).Error)
+
+		for _, node := range []*exitnodes.ExitNode{
+			{ID: "en-deleted", AccountID: peerConnectionAccountID, Name: "Deleted", Peers: []exitnodes.Peer{{PeerID: "peer-1", Metric: 100}}},
+			{ID: "en-kept", AccountID: otherAccountID, Name: "Kept", Peers: []exitnodes.Peer{{PeerID: "peer-1", Metric: 100}}},
+		} {
+			node.BindPeers()
+			require.NoError(t, gormDB.Create(node).Error)
+		}
+
+		account, err := store.GetAccount(ctx, peerConnectionAccountID)
+		require.NoError(t, err)
+		require.NoError(t, store.DeleteAccount(ctx, account))
+
+		var nodeIDs []string
+		require.NoError(t, gormDB.Model(&exitnodes.ExitNode{}).Order("id").Pluck("id", &nodeIDs).Error)
+		assert.Equal(t, []string{"en-kept"}, nodeIDs, "only the deleted account's exit nodes should be removed")
+
+		var peerAccounts []string
+		require.NoError(t, gormDB.Model(&exitnodes.Peer{}).Pluck("account_id", &peerAccounts).Error)
+		assert.Equal(t, []string{otherAccountID}, peerAccounts, "only the deleted account's exit node peers should be removed")
 	})
 }

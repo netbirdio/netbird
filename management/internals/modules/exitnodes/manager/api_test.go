@@ -11,16 +11,22 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/internals/modules/exitnodes"
+	"github.com/netbirdio/netbird/management/internals/shared/db/dbtest"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
+// newTestRouter serves the API from a real manager and repository, so a test
+// sees what the database stored.
 func newTestRouter(t *testing.T) *mux.Router {
 	t.Helper()
-	env := setupTest(t)
+	conn := dbtest.NewConn(t, &exitnodes.ExitNode{}, &exitnodes.Peer{})
+	m := NewManager(NewRepository(conn), conn, newTestStore(t), &mock_server.MockAccountManager{}, allowAll(t))
 	router := mux.NewRouter()
-	RegisterEndpoints(router, env.manager)
+	RegisterEndpoints(router, m)
 	return router
 }
 
@@ -63,7 +69,8 @@ func TestAPI_ExitNodeLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var all []api.ExitNode
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &all))
-	assert.Len(t, all, 2, "list should hold the mock exit node and the created one")
+	require.Len(t, all, 1, "list should hold the created exit node")
+	assert.Equal(t, created, all[0], "list should return what create stored")
 
 	req.Enabled = false
 	rec = doRequest(t, router, http.MethodPut, "/exit-nodes/"+created.Id, req)
@@ -72,6 +79,12 @@ func TestAPI_ExitNodeLifecycle(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
 	assert.Equal(t, created.Id, updated.Id)
 	assert.False(t, updated.Enabled)
+
+	rec = doRequest(t, router, http.MethodGet, "/exit-nodes/"+created.Id, nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var got api.ExitNode
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	assert.Equal(t, updated, got, "get should return what update stored")
 
 	rec = doRequest(t, router, http.MethodDelete, "/exit-nodes/"+created.Id, nil)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -83,6 +96,14 @@ func TestAPI_ExitNodeLifecycle(t *testing.T) {
 
 func TestAPI_ErrorStatusCodes(t *testing.T) {
 	router := newTestRouter(t)
+
+	existing := api.ExitNodeRequest{
+		Name:    "EU Egress",
+		Enabled: true,
+		Peers:   []api.ExitNodePeer{{PeerId: "peer-a", Metric: 100, Enabled: true}},
+	}
+	rec := doRequest(t, router, http.MethodPost, "/exit-nodes", existing)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	valid := func() api.ExitNodeRequest {
 		return api.ExitNodeRequest{
@@ -100,7 +121,7 @@ func TestAPI_ErrorStatusCodes(t *testing.T) {
 		{name: "blank name", mutate: func(r *api.ExitNodeRequest) { r.Name = "  " }, want: http.StatusUnprocessableEntity},
 		{name: "metric out of range", mutate: func(r *api.ExitNodeRequest) { r.Peers[0].Metric = 10000 }, want: http.StatusUnprocessableEntity},
 		{name: "no peers", mutate: func(r *api.ExitNodeRequest) { r.Peers = nil }, want: http.StatusUnprocessableEntity},
-		{name: "duplicate name", mutate: func(r *api.ExitNodeRequest) { r.Name = "Default Egress" }, want: http.StatusConflict},
+		{name: "duplicate name", mutate: func(r *api.ExitNodeRequest) { r.Name = "eu egress" }, want: http.StatusConflict},
 		{name: "peer in another exit node", mutate: func(r *api.ExitNodeRequest) { r.Peers[0].PeerId = "peer-a" }, want: http.StatusConflict},
 	}
 
@@ -113,7 +134,7 @@ func TestAPI_ErrorStatusCodes(t *testing.T) {
 		})
 	}
 
-	rec := doRequest(t, router, http.MethodPut, "/exit-nodes/unknown", valid())
+	rec = doRequest(t, router, http.MethodPut, "/exit-nodes/unknown", valid())
 	assert.Equal(t, http.StatusNotFound, rec.Code, "update of an unknown exit node")
 
 	rec = doRequest(t, router, http.MethodDelete, "/exit-nodes/unknown", nil)
