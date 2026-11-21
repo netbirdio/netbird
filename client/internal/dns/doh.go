@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	stdlog "log"
 	"net"
 	"net/http"
 	"net/netip"
@@ -36,6 +37,8 @@ const (
 	dohContentType = "application/dns-message"
 
 	dohReadHeaderTimeout = 5 * time.Second
+	dohReadTimeout       = 10 * time.Second
+	dohWriteTimeout      = 10 * time.Second
 	dohIdleTimeout       = 60 * time.Second
 	dohShutdownTimeout   = 2 * time.Second
 )
@@ -74,7 +77,7 @@ func (c dohConfig) resolveAddr(serviceIP netip.Addr) (string, error) {
 
 	if host == "" {
 		if !serviceIP.IsValid() {
-			return "", errors.New("DNS service address is not available")
+			return "", fmt.Errorf("%s with only a port needs the DNS service to listen on a host address, use host:port", EnvDoHListen)
 		}
 		return net.JoinHostPort(serviceIP.String(), portStr), nil
 	}
@@ -103,13 +106,24 @@ type dohServer struct {
 	handler dns.Handler
 	cert    tls.Certificate
 
+	readTimeout time.Duration
+
 	mu      sync.Mutex
 	srv     *http.Server
 	stopped chan struct{}
 }
 
 func newDoHServer(handler dns.Handler, cert tls.Certificate) *dohServer {
-	return &dohServer{handler: handler, cert: cert}
+	return &dohServer{handler: handler, cert: cert, readTimeout: dohReadTimeout}
+}
+
+// dohErrorLog routes the HTTP server's own error output to the debug level, as
+// it names the remote address of failed handshakes.
+type dohErrorLog struct{}
+
+func (dohErrorLog) Write(p []byte) (int, error) {
+	log.Debugf("DoH server: %s", strings.TrimSpace(string(p)))
+	return len(p), nil
 }
 
 // start serves on ln until stop is called. The listener is closed by stop.
@@ -127,7 +141,10 @@ func (d *dohServer) start(ln net.Listener) error {
 	srv := &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: dohReadHeaderTimeout,
+		ReadTimeout:       d.readTimeout,
+		WriteTimeout:      dohWriteTimeout,
 		IdleTimeout:       dohIdleTimeout,
+		ErrorLog:          stdlog.New(dohErrorLog{}, "", 0),
 		TLSConfig: &tls.Config{
 			MinVersion:   tls.VersionTLS12,
 			Certificates: []tls.Certificate{d.cert},
@@ -332,7 +349,7 @@ func (s *DefaultServer) startDoH() {
 		return
 	}
 
-	addr, err := cfg.resolveAddr(s.service.RuntimeIP())
+	addr, err := cfg.resolveAddr(s.listenerServiceIP())
 	if err != nil {
 		log.Warnf("DoH listener not started: %v", err)
 		return
@@ -353,6 +370,16 @@ func (s *DefaultServer) startDoH() {
 	s.doh = doh
 
 	log.Infof("DoH listener started on %s%s, certificate sha256 %s", ln.Addr(), dohPath, certFingerprint(cert))
+}
+
+// listenerServiceIP returns the host address the DNS service listens on. It is
+// invalid for services whose runtime address is not owned by the host, such as
+// the in-memory service of userspace-bind clients.
+func (s *DefaultServer) listenerServiceIP() netip.Addr {
+	if _, ok := s.service.(*serviceViaListener); !ok {
+		return netip.Addr{}
+	}
+	return s.service.RuntimeIP()
 }
 
 // stopDoH stops the DNS over HTTPS listener. The caller must hold s.mux.

@@ -10,6 +10,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"io"
 	"math/big"
 	"net"
@@ -17,10 +18,13 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/miekg/dns"
+	log "github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -190,19 +194,117 @@ func TestDoHServer_RejectsBadRequests(t *testing.T) {
 }
 
 func TestDoHServer_RefusesOldTLS(t *testing.T) {
+	hook := logtest.NewGlobal()
+	prevLevel := log.GetLevel()
+	log.SetLevel(log.DebugLevel)
+	t.Cleanup(func() {
+		log.SetLevel(prevLevel)
+		log.StandardLogger().ReplaceHooks(make(log.LevelHooks))
+	})
+
 	_, url := startTestDoH(t, aHandler{ip: net.ParseIP("10.1.2.3")})
 
+	// Both bounds are set to TLS 1.1: with only MaxVersion the client's default
+	// minimum of TLS 1.2 leaves it no usable version and never reaches the server.
 	old := &http.Client{
 		Timeout: 5 * time.Second,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MaxVersion: tls.VersionTLS11}, //nolint:gosec
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true, //nolint:gosec
+				MinVersion:         tls.VersionTLS11,
+				MaxVersion:         tls.VersionTLS11,
+			},
 		},
 	}
 	resp, err := old.Get(url)
 	if err == nil {
 		require.NoError(t, resp.Body.Close())
 	}
-	assert.Error(t, err, "TLS versions below 1.2 must be refused")
+	require.Error(t, err, "TLS versions below 1.2 must be refused")
+	assert.Contains(t, err.Error(), "protocol version", "the server must reject the version, not the client")
+
+	// The server's own handshake error names the peer address, so it must stay at debug.
+	assert.Eventually(t, func() bool {
+		for _, e := range hook.AllEntries() {
+			if strings.Contains(e.Message, "TLS handshake error") {
+				return true
+			}
+		}
+		return false
+	}, 2*time.Second, 20*time.Millisecond, "handshake error must be logged")
+	for _, e := range hook.AllEntries() {
+		if strings.Contains(e.Message, "TLS handshake error") {
+			assert.Equal(t, log.DebugLevel, e.Level, "handshake errors carry the peer address and must stay at debug level")
+		}
+	}
+}
+
+func TestDoHServer_BoundsSlowBodies(t *testing.T) {
+	certFile, keyFile, leaf := writeSelfSignedCert(t)
+	cert, err := dohConfig{certFile: certFile, keyFile: keyFile}.loadCertificate()
+	require.NoError(t, err)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	srv := newDoHServer(aHandler{ip: net.ParseIP("10.1.2.3")}, cert)
+	srv.readTimeout = 300 * time.Millisecond
+	require.NoError(t, srv.start(ln))
+	t.Cleanup(srv.stop)
+
+	pool := x509.NewCertPool()
+	pool.AddCert(leaf)
+
+	// The request promises a body that never arrives: the server must give up on
+	// it well before the client's own deadline.
+	t.Run("http1", func(t *testing.T) {
+		conn, err := tls.Dial("tcp", ln.Addr().String(), &tls.Config{
+			RootCAs:    pool,
+			ServerName: "127.0.0.1",
+			MinVersion: tls.VersionTLS12,
+			NextProtos: []string{"http/1.1"},
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = conn.Close() })
+
+		_, err = conn.Write([]byte("POST " + dohPath + " HTTP/1.1\r\nHost: x\r\nContent-Type: " + dohContentType +
+			"\r\nContent-Length: 100\r\n\r\n"))
+		require.NoError(t, err)
+
+		require.NoError(t, conn.SetReadDeadline(time.Now().Add(3*time.Second)))
+		start := time.Now()
+		_, err = io.ReadAll(conn)
+		var nerr net.Error
+		if errors.As(err, &nerr) {
+			assert.False(t, nerr.Timeout(), "server must close or answer instead of waiting for the body")
+		}
+		assert.Less(t, time.Since(start), 3*time.Second, "server must bound the body read")
+	})
+
+	t.Run("http2", func(t *testing.T) {
+		client := &http.Client{
+			Timeout: 3 * time.Second,
+			Transport: &http.Transport{
+				ForceAttemptHTTP2: true,
+				TLSClientConfig:   &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12},
+			},
+		}
+
+		pr, pw := io.Pipe()
+		t.Cleanup(func() { _ = pw.Close() })
+		req, err := http.NewRequest(http.MethodPost, "https://"+ln.Addr().String()+dohPath, pr)
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", dohContentType)
+		req.ContentLength = 100
+
+		start := time.Now()
+		resp, err := client.Do(req)
+		if err == nil {
+			require.NoError(t, resp.Body.Close())
+			assert.GreaterOrEqual(t, resp.StatusCode, 400, "an unfinished body must not be answered as a query")
+		}
+		assert.Less(t, time.Since(start), 2*time.Second, "server must bound the body read")
+	})
 }
 
 func TestDoHServer_StopIsIdempotent(t *testing.T) {
@@ -279,6 +381,15 @@ func TestDefaultServerStartDoH(t *testing.T) {
 		s := newDoHTestServer()
 		s.startDoH()
 		assert.Nil(t, s.doh, "listener must stay off when not configured")
+	})
+
+	t.Run("bare port is rejected for services without a host address", func(t *testing.T) {
+		t.Setenv(EnvDoHListen, ":18443")
+		t.Setenv(EnvDoHCertFile, certFile)
+		t.Setenv(EnvDoHKeyFile, keyFile)
+		s := newDoHTestServer()
+		s.startDoH()
+		assert.Nil(t, s.doh, "a runtime address the host does not own must not be bound")
 	})
 
 	t.Run("does not start without a certificate", func(t *testing.T) {
