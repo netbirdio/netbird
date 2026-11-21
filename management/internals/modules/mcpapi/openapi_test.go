@@ -146,6 +146,16 @@ var notExposed = []struct {
 		},
 	},
 	{
+		reason: "Exit nodes are not sent to clients yet, so a tool could create one that routes nothing.",
+		operations: []string{
+			"GET /api/exit-nodes",
+			"POST /api/exit-nodes",
+			"GET /api/exit-nodes/{exitNodeId}",
+			"PUT /api/exit-nodes/{exitNodeId}",
+			"DELETE /api/exit-nodes/{exitNodeId}",
+		},
+	},
+	{
 		reason: "Reverse proxy services, domains and clusters are not exposed yet, and self-hosted proxy tokens are credentials.",
 		operations: []string{
 			"GET /api/reverse-proxies/clusters",
