@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -33,7 +34,7 @@ type Config struct {
 	// in HA every peer connect to a common domain, the instance domain has been distributed during the p2p connection
 	// it is a domain:port or ip:port
 	ExposedAddress     string
-	MetricsPort        int
+	MetricsPort        string
 	LetsencryptEmail   string
 	LetsencryptDataDir string
 	LetsencryptDomains []string
@@ -62,6 +63,9 @@ func (c Config) Validate() error {
 	if c.AuthSecret == "" {
 		return fmt.Errorf("auth secret is required")
 	}
+	if _, err := c.metricsListenAddress(); err != nil {
+		return err
+	}
 
 	// Validate STUN configuration
 	if c.EnableSTUN {
@@ -82,6 +86,22 @@ func (c Config) Validate() error {
 	}
 
 	return nil
+}
+
+func (c Config) metricsListenAddress() (string, error) {
+	address := c.MetricsPort
+	// Preserve the integer formats accepted by the original pflag.Int flag.
+	if port, err := strconv.ParseInt(address, 0, strconv.IntSize); err == nil {
+		address = net.JoinHostPort("", strconv.FormatInt(port, 10))
+	}
+	_, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return "", fmt.Errorf("metrics listen address: %w", err)
+	}
+	if _, err := strconv.ParseUint(port, 10, 16); err != nil {
+		return "", fmt.Errorf("metrics port: %w", err)
+	}
+	return address, nil
 }
 
 func (c Config) HasCertConfig() bool {
@@ -109,7 +129,7 @@ func init() {
 	cobraConfig = &Config{}
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.ListenAddress, "listen-address", "l", ":443", "listen address")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.ExposedAddress, "exposed-address", "e", "", "instance domain address (or ip) and port, it will be distributes between peers")
-	rootCmd.PersistentFlags().IntVar(&cobraConfig.MetricsPort, "metrics-port", 9090, "metrics endpoint http port. Metrics are accessible under host:metrics-port/metrics")
+	rootCmd.PersistentFlags().StringVar(&cobraConfig.MetricsPort, "metrics-port", "9090", "metrics endpoint port or host:port listen address (e.g. 127.0.0.1:9090). Metrics are accessible under /metrics")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.LetsencryptDataDir, "letsencrypt-data-dir", "d", "", "a directory to store Let's Encrypt data. Required if Let's Encrypt is enabled.")
 	rootCmd.PersistentFlags().StringSliceVarP(&cobraConfig.LetsencryptDomains, "letsencrypt-domains", "a", nil, "list of domains to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.LetsencryptEmail, "letsencrypt-email", "", "email address to use for Let's Encrypt certificate registration")
@@ -154,7 +174,11 @@ func execute(cmd *cobra.Command, args []string) error {
 
 	// Resource creation phase (fail fast before starting any goroutines)
 
-	metricsServer, err := metrics.NewServer(cobraConfig.MetricsPort, "")
+	metricsAddress, err := cobraConfig.metricsListenAddress()
+	if err != nil {
+		return err
+	}
+	metricsServer, err := metrics.NewServer(metricsAddress, "")
 	if err != nil {
 		log.Debugf("setup metrics: %v", err)
 		return fmt.Errorf("setup metrics: %v", err)
