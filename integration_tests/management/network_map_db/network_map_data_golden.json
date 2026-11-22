@@ -358,7 +358,8 @@
       "Address": "",
       "Domain": "",
       "Prefix": "10.0.0.0/16",
-      "Enabled": true
+      "Enabled": true,
+      "SkipAutoApply": false
     },
     {
       "ID": "net-resource-332",
@@ -371,7 +372,8 @@
       "Address": "",
       "Domain": "test.com",
       "Prefix": "",
-      "Enabled": true
+      "Enabled": true,
+      "SkipAutoApply": false
     }
   ],
   "Network": {
