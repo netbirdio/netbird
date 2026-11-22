@@ -565,13 +565,14 @@ func (e *componentEncoder) encodeNetworkResources(resources []*nmdata.NetworkRes
 			continue
 		}
 		entry := &proto.NetworkResourceRaw{
-			Id:          r.PublicID,
-			Name:        r.Name,
-			Description: r.Description,
-			Type:        string(r.Type),
-			Address:     r.Address,
-			DomainValue: r.Domain,
-			Enabled:     r.Enabled,
+			Id:            r.PublicID,
+			Name:          r.Name,
+			Description:   r.Description,
+			Type:          string(r.Type),
+			Address:       r.Address,
+			DomainValue:   r.Domain,
+			Enabled:       r.Enabled,
+			SkipAutoApply: r.SkipAutoApply,
 		}
 		if id, ok := e.networkPublicId(r.NetworkID); ok {
 			entry.NetworkSeq = id

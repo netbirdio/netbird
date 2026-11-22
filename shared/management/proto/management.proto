@@ -1232,6 +1232,9 @@ message NetworkResourceRaw {
   string domain_value = 7;  // resource.Domain
   string prefix_cidr = 8;
   bool enabled = 9;
+  // Clients that know this field leave routes of the resource unselected until the user
+  // selects them. Older clients ignore it and apply the routes automatically.
+  bool skip_auto_apply = 10;
 }
 
 // NetworkRouterList carries the routers backing one network.
