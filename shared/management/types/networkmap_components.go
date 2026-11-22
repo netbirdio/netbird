@@ -907,16 +907,17 @@ func (c *NetworkMapComponents) getNetworkResourcesRoutes(resource *nmdata.Networ
 
 func (c *NetworkMapComponents) networkResourceToRoute(resource *nmdata.NetworkResource, peer *nmdata.Peer, router *nmdata.NetworkRouter) *nmdata.Route {
 	r := &nmdata.Route{
-		ID:          resource.ID + ":" + peer.ID,
-		AccountID:   resource.AccountID,
-		Peer:        peer.Key,
-		PeerID:      peer.ID,
-		Metric:      router.Metric,
-		Masquerade:  router.Masquerade,
-		Enabled:     resource.Enabled,
-		KeepRoute:   true,
-		NetID:       resource.Name,
-		Description: resource.Description,
+		ID:            resource.ID + ":" + peer.ID,
+		AccountID:     resource.AccountID,
+		Peer:          peer.Key,
+		PeerID:        peer.ID,
+		Metric:        router.Metric,
+		Masquerade:    router.Masquerade,
+		Enabled:       resource.Enabled,
+		KeepRoute:     true,
+		NetID:         resource.Name,
+		Description:   resource.Description,
+		SkipAutoApply: resource.SkipAutoApply,
 	}
 
 	if resource.Type == string(ResourceTypeHost) || resource.Type == string(ResourceTypeSubnet) {
