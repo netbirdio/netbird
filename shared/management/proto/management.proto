@@ -1232,8 +1232,9 @@ message NetworkResourceRaw {
   string domain_value = 7;  // resource.Domain
   string prefix_cidr = 8;
   bool enabled = 9;
-  // Clients that know this field leave routes of the resource unselected until the user
-  // selects them. Older clients ignore it and apply the routes automatically.
+  // Only takes effect on exit node resources (0.0.0.0/0 or ::/0): clients that know this
+  // field leave them unselected until the user selects them. Other resources are always
+  // applied, and older clients ignore the field.
   bool skip_auto_apply = 10;
 }
 
