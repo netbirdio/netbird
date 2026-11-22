@@ -10,8 +10,8 @@
     <a href="https://github.com/netbirdio/netbird/blob/main/LICENSE">
       <img src="https://img.shields.io/badge/license-BSD--3-blue" alt="BSD-3 License"/>
     </a>
-    <a href="https://docs.netbird.io/slack-url">
-      <img src="https://img.shields.io/badge/slack-@netbird-red.svg?logo=slack" alt="NetBird Slack"/>
+    <a href="https://docs.netbird.io/discord-url">
+      <img src="https://img.shields.io/badge/discord-@netbird-5865F2.svg?logo=discord&logoColor=white" alt="NetBird Discord"/>
     </a>
     <a href="https://forum.netbird.io">
       <img src="https://img.shields.io/badge/community%20forum-@netbird-red.svg?logo=discourse" alt="Community forum"/>
@@ -28,7 +28,7 @@
     <br/>
     See <a href="https://docs.netbird.io/">Documentation</a>
     <br/>
-    Join our <a href="https://docs.netbird.io/slack-url">Slack channel</a> or our <a href="https://forum.netbird.io">Community forum</a>
+    Join our <a href="https://docs.netbird.io/discord-url">Discord server</a> or our <a href="https://forum.netbird.io">Community forum</a>
   </strong>
   <br/>
   <br/>
@@ -69,9 +69,10 @@ https://github.com/user-attachments/assets/10cec749-bb56-4ab3-97af-4e38850108d2
 | ✓ [Reverse proxy with auto-TLS](https://docs.netbird.io/manage/reverse-proxy) | | ✓ [Periodic re-authentication](https://docs.netbird.io/how-to/enforce-periodic-user-authentication) | | ✓ [pfSense](https://docs.netbird.io/get-started/install/pfsense) |
 | | | | | ✓ [OPNsense](https://docs.netbird.io/get-started/install/opnsense) |
 | | | | | ✓ [MikroTik RouterOS](https://docs.netbird.io/use-cases/homelab/client-on-mikrotik-router) |
-| | | | | ✓ OpenWRT |
+| | | | | ✓ [OpenWrt](https://docs.netbird.io/get-started/install/openwrt) |
 | | | | | ✓ [Synology](https://docs.netbird.io/get-started/install/synology) |
 | | | | | ✓ [TrueNAS](https://docs.netbird.io/get-started/install/truenas) |
+| | | | | ✓ [Unraid](https://docs.netbird.io/get-started/install/unraid) |
 | | | | | ✓ [Proxmox](https://docs.netbird.io/get-started/install/proxmox-ve) |
 | | | | | ✓ [Raspberry Pi](https://docs.netbird.io/get-started/install/raspberrypi) |
 | | | | | ✓ [Serverless](https://docs.netbird.io/how-to/netbird-on-faas) |
