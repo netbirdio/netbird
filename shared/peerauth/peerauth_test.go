@@ -166,6 +166,28 @@ func TestVerify_InternationalizedHostname(t *testing.T) {
 	}
 }
 
+// The dialed address comes from Management's config and the allowlist from a flag, so an
+// operator may spell one IP address two ways.
+func TestVerify_IPAddressSpellings(t *testing.T) {
+	tests := []struct{ dialed, allowed string }{
+		{"2001:db8::1", "2001:DB8:0:0:0:0:0:1"},
+		{"2001:0db8::0001", "2001:db8::1"},
+		{"::ffff:10.0.0.1", "10.0.0.1"},
+		{"10.0.0.1", " 10.0.0.1"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.dialed+" vs "+tc.allowed, func(t *testing.T) {
+			f := newFixture(t, ServiceRelay)
+			f.verifier.Hostnames = []string{tc.allowed}
+
+			p, err := SignProof(f.authPriv, ServiceRelay, f.token, tc.dialed, f.now)
+			require.NoError(t, err)
+			_, err = f.verifier.Verify(f.token, p, f.now)
+			assert.NoError(t, err, "two spellings of one address must match")
+		})
+	}
+}
+
 func TestValidateHostnames(t *testing.T) {
 	assert.NoError(t, ValidateHostnames(nil), "no list")
 	assert.NoError(t, ValidateHostnames([]string{"relay.example.com", "Relay.Example.com.", "2001:db8::1"}), "bare names")

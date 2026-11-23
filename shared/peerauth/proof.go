@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -80,11 +81,15 @@ func VerifyProof(authPub ed25519.PublicKey, svc Service, token []byte, p Proof, 
 
 // NormalizeHostname reduces a dialed host, as url.URL.Hostname returns it, to the form both
 // sides sign: lower case punycode, no trailing dot. Lowercasing comes first because punycode
-// encodes case, and the A-label is what fits a gRPC header.
+// encodes case, and the A-label is what fits a gRPC header. An IP address takes its canonical
+// form, so every spelling of one address matches.
 func NormalizeHostname(host string) (string, error) {
-	h := strings.TrimSuffix(strings.ToLower(host), ".")
+	h := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
 	if h == "" || strings.ContainsAny(h, "/[] ") {
 		return "", fmt.Errorf("%q: %w", host, ErrMalformedHost)
+	}
+	if addr, err := netip.ParseAddr(h); err == nil {
+		return addr.Unmap().String(), nil
 	}
 	d, err := domain.FromString(h)
 	if err != nil || len(d) > math.MaxUint8 {
