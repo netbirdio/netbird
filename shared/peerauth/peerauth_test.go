@@ -3,6 +3,7 @@ package peerauth
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"strings"
 	"testing"
 	"time"
 
@@ -195,6 +196,20 @@ func TestValidateHostnames(t *testing.T) {
 	assert.Error(t, ValidateHostnames([]string{"[2001:db8::1]:443"}), "a bracketed address with a port")
 	assert.Error(t, ValidateHostnames([]string{"https://relay.example.com"}), "a URL is not a hostname")
 	assert.Error(t, ValidateHostnames([]string{""}), "an empty entry")
+}
+
+// The proof encodes the hostname length in one byte, so no form of the name may exceed 255 bytes.
+func TestNormalizeHostname_LengthCap(t *testing.T) {
+	longZone := "fe80::1%" + strings.Repeat("z", 300)
+	_, err := NormalizeHostname(longZone)
+	assert.ErrorIs(t, err, ErrMalformedHost, "an IP address with a long zone")
+
+	_, err = SignProof(make(ed25519.PrivateKey, ed25519.PrivateKeySize), ServiceRelay, []byte("token"), longZone, time.Now())
+	assert.ErrorIs(t, err, ErrMalformedHost, "a proof must not carry a truncated hostname length")
+
+	long := strings.Repeat("a.", 128) + "example"
+	_, err = NormalizeHostname(long)
+	assert.ErrorIs(t, err, ErrMalformedHost, "a name over 255 bytes")
 }
 
 // A malformed key must be an error, not a panic inside ed25519.Sign.

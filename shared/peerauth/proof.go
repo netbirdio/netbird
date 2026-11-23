@@ -88,12 +88,20 @@ func NormalizeHostname(host string) (string, error) {
 	if h == "" || strings.ContainsAny(h, "/[] ") {
 		return "", fmt.Errorf("%q: %w", host, ErrMalformedHost)
 	}
+	normalized, err := canonicalHost(h)
+	if err != nil || len(normalized) > math.MaxUint8 {
+		return "", fmt.Errorf("%q: %w", host, ErrMalformedHost)
+	}
+	return normalized, nil
+}
+
+func canonicalHost(h string) (string, error) {
 	if addr, err := netip.ParseAddr(h); err == nil {
 		return addr.Unmap().String(), nil
 	}
 	d, err := domain.FromString(h)
-	if err != nil || len(d) > math.MaxUint8 {
-		return "", fmt.Errorf("%q: %w", host, ErrMalformedHost)
+	if err != nil {
+		return "", err
 	}
 	return d.PunycodeString(), nil
 }
