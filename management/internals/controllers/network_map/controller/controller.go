@@ -78,14 +78,10 @@ type ExitNodeLister interface {
 	ListByAccount(ctx context.Context, lockStrength db.LockingStrength, accountID string) ([]*exitnodes.ExitNode, error)
 }
 
-// Option configures an optional dependency of the Controller.
-type Option func(*Controller)
-
-// WithExitNodes makes the network maps route internet traffic through the account's exit nodes.
-func WithExitNodes(lister ExitNodeLister) Option {
-	return func(c *Controller) {
-		c.exitNodes = lister
-	}
+// SetExitNodes makes the network maps route internet traffic through the account's exit
+// nodes. The field is read without a lock, so call it before the controller serves requests.
+func (c *Controller) SetExitNodes(lister ExitNodeLister) {
+	c.exitNodes = lister
 }
 
 type bufferUpdate struct {
@@ -103,7 +99,7 @@ type bufferAffectedUpdate struct {
 
 var _ network_map.Controller = (*Controller)(nil)
 
-func NewController(ctx context.Context, store store.Store, metrics telemetry.AppMetrics, peersUpdateManager network_map.PeersUpdateManager, requestBuffer account.RequestBuffer, integratedPeerValidator integrated_validator.IntegratedValidator, settingsManager settings.Manager, dnsDomain string, ephemeralPeersManager ephemeral.Manager, config *config.Config, nmdataStore *networkmapdb.NetworkMapDBStoreImpl, opts ...Option) *Controller {
+func NewController(ctx context.Context, store store.Store, metrics telemetry.AppMetrics, peersUpdateManager network_map.PeersUpdateManager, requestBuffer account.RequestBuffer, integratedPeerValidator integrated_validator.IntegratedValidator, settingsManager settings.Manager, dnsDomain string, ephemeralPeersManager ephemeral.Manager, config *config.Config, nmdataStore *networkmapdb.NetworkMapDBStoreImpl) *Controller {
 	nMetrics, err := newMetrics(metrics.UpdateChannelMetrics())
 	if err != nil {
 		log.Fatal(fmt.Errorf("error creating metrics: %w", err))
@@ -124,9 +120,6 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 		serverSupportedSyncMessageVersion:            sharedgrpc.SyncMessageVersionFromConfig(config.HighestSupportedSyncMessageVersion),
 		perAccountServerSupportedSyncMessageVersions: sharedgrpc.SyncMessageVersionsFromMap(config.PerAccountHighestSupportedSyncMessageVersion),
 		nmdataStore: nmdataStore,
-	}
-	for _, opt := range opts {
-		opt(c)
 	}
 
 	if nmdataStore != nil {
