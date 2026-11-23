@@ -78,6 +78,7 @@ var methodPolicies = map[string]MethodPolicy{
 	servicePath + "GetActiveProfile": {Level: AuthzLevelIdentified, Action: "reading the active profile"},
 	servicePath + "GetFeatures":      {Level: AuthzLevelIdentified, Action: "reading feature flags"},
 	servicePath + "WailsUIReady":     {Level: AuthzLevelIdentified, Action: "starting the UI"},
+	servicePath + "RespondApproval":  {Level: AuthzLevelIdentified, Audit: true, Action: "answering a connection approval"},
 	// If a higher level is used, the deny logs message is spammed on frequent UI polls.
 	servicePath + "RegisterUILog": {Level: AuthzLevelIdentified, Action: "registering the UI log"},
 

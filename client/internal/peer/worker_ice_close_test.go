@@ -32,6 +32,7 @@ func (stubSignalClient) WaitStreamConnected(context.Context)                    
 func (stubSignalClient) SendToStream(*sProto.EncryptedMessage) error                { return nil }
 func (stubSignalClient) Send(*sProto.Message) error                                 { return nil }
 func (stubSignalClient) SetOnReconnectedListener(func())                            {}
+func (stubSignalClient) UpdateAuthToken([]byte)                                     {}
 
 // newTestWorkerICE builds a worker with real pion plumbing and no-op signaling.
 func newTestWorkerICE(t *testing.T) *WorkerICE {
