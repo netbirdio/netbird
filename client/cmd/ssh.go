@@ -14,6 +14,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/netbirdio/netbird/client/internal"
@@ -75,7 +76,7 @@ func init() {
 	upCmd.PersistentFlags().BoolVar(&disableSSHAuth, disableSSHAuthFlag, false, "Disable SSH authentication")
 	upCmd.PersistentFlags().IntVar(&sshJWTCacheTTL, sshJWTCacheTTLFlag, 0, "SSH JWT token cache TTL in seconds (0=disabled)")
 
-	// Stop at the host so the remote command keeps its own flags.
+	// Stop at the host. validateSSHArgs parses the flags right after it.
 	sshCmd.Flags().SetInterspersed(false)
 	sshCmd.Flags().IntVarP(&port, "port", "p", sshserver.DefaultSSHPort, "Remote SSH port")
 	sshCmd.Flags().StringVarP(&username, "user", "u", "", sshUsernameDesc)
@@ -100,7 +101,7 @@ var sshCmd = &cobra.Command{
 	Short: "Connect to a NetBird peer via SSH",
 	Long: `Connect to a NetBird peer using SSH with support for port forwarding.
 
-Flags go before the host. Everything after the host is the command to run on the peer.
+Flags go before the host or right after it, as in OpenSSH. The command to run on the peer starts at the first argument after the host that is not a flag.
 
 Unlike OpenSSH, -l sets the NetBird log level and -o sets the known_hosts file. Use -u or user@host to set the login name.`,
 	Example: `  netbird ssh peer-hostname
@@ -189,11 +190,44 @@ func getBoolEnvOrDefault(flagName string, defaultValue bool) bool {
 
 // validateSSHArgs parses the host and remote command from the arguments left
 // after flag parsing.
-func validateSSHArgs(_ *cobra.Command, args []string) error {
+func validateSSHArgs(cmd *cobra.Command, args []string) error {
 	host = ""
 	hostUser = ""
 	command = ""
+
+	args, err := parseFlagsAfterHost(cmd, args)
+	if err != nil {
+		return err
+	}
 	return parseHostnameAndCommand(args)
+}
+
+// parseFlagsAfterHost parses the ssh flags between the host and the remote
+// command, like OpenSSH. A "--" before the host turns this off.
+func parseFlagsAfterHost(cmd *cobra.Command, args []string) ([]string, error) {
+	if len(args) < 2 || cmd.Flags().ArgsLenAtDash() != -1 {
+		return args, nil
+	}
+
+	// Root flags are left out, so -l here is an error rather than a log level.
+	flags := pflag.NewFlagSet(cmd.Name(), pflag.ContinueOnError)
+	flags.SetInterspersed(false)
+	flags.SetOutput(cmd.OutOrStderr())
+	flags.AddFlagSet(cmd.LocalFlags())
+
+	if err := flags.Parse(args[1:]); err != nil {
+		var notExist *pflag.NotExistError
+		if errors.As(err, &notExist) && notExist.GetSpecifiedName() == "l" {
+			return nil, fmt.Errorf("%w after the host, use -u or user@host to set the login name", err)
+		}
+		return nil, err
+	}
+
+	if help, _ := flags.GetBool("help"); help {
+		return nil, pflag.ErrHelp
+	}
+
+	return append([]string{args[0]}, flags.Args()...), nil
 }
 
 // resolveSSHUsername returns the SSH user from --user, --login, user@host or the

@@ -26,6 +26,8 @@ func parseSSHCommandLine(t *testing.T, args []string) error {
 	host = ""
 	hostUser = ""
 	command = ""
+	// Parse keeps the position of an earlier "--", Init clears it.
+	sshCmd.Flags().Init(sshCmd.Name(), pflag.ContinueOnError)
 
 	if err := sshCmd.ParseFlags(args); err != nil {
 		return err
@@ -94,7 +96,7 @@ func TestSSHCommand_FlagParsing(t *testing.T) {
 			expectedHost: "hostname",
 			expectedUser: "",
 			expectedPort: 22,
-			expectedCmd:  "-- ls -la",
+			expectedCmd:  "ls -la",
 		},
 	}
 
@@ -147,8 +149,8 @@ func TestSSHCommand_FlagConflictPrevention(t *testing.T) {
 		{
 			name:        "command with double dash",
 			args:        []string{"hostname", "--", "ls", "-la"},
-			expectedCmd: "-- ls -la",
-			description: "double dash should be preserved in command",
+			expectedCmd: "ls -la",
+			description: "double dash after the host ends the flags, as in OpenSSH",
 		},
 	}
 
@@ -613,37 +615,19 @@ func TestSSHCommand_IntegrationPortForwarding(t *testing.T) {
 }
 
 func TestSSHCommand_ParameterIsolation(t *testing.T) {
-	tests := []struct {
-		name        string
-		args        []string
-		expectedCmd string
-	}{
-		{
-			name:        "cmd flag passed as command",
-			args:        []string{"hostname", "--cmd", "echo test"},
-			expectedCmd: "--cmd echo test",
-		},
-		{
-			name:        "uid flag passed as command",
-			args:        []string{"hostname", "--uid", "1000"},
-			expectedCmd: "--uid 1000",
-		},
-		{
-			name:        "shell flag passed as command",
-			args:        []string{"hostname", "--shell", "/bin/bash"},
-			expectedCmd: "--shell /bin/bash",
-		},
+	// Flags of other commands right after the host are rejected, as OpenSSH rejects
+	// unknown options there. After a remote command they belong to that command.
+	for _, args := range [][]string{
+		{"hostname", "--cmd", "echo test"},
+		{"hostname", "--uid", "1000"},
+		{"hostname", "--shell", "/bin/bash"},
+	} {
+		assert.Error(t, parseSSHCommandLine(t, args), "args %v must be rejected", args)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := parseSSHCommandLine(t, tt.args)
-			require.NoError(t, err)
-
-			assert.Equal(t, "hostname", host)
-			assert.Equal(t, tt.expectedCmd, command)
-		})
-	}
+	require.NoError(t, parseSSHCommandLine(t, []string{"hostname", "sh", "--cmd", "echo test"}))
+	assert.Equal(t, "hostname", host, "host mismatch")
+	assert.Equal(t, "sh --cmd echo test", command, "command mismatch")
 }
 
 func TestSSHCommand_InvalidFlagRejection(t *testing.T) {
@@ -838,4 +822,99 @@ func TestSSHCommand_UsernameAfterEnvVars(t *testing.T) {
 			assert.Equal(t, "hostname", host, "host mismatch")
 		})
 	}
+}
+
+func TestSSHCommand_FlagsAfterHost(t *testing.T) {
+	// OpenSSH parses options before the host and right after it. The remote
+	// command starts at the first argument after the host that is not an option.
+	tests := []struct {
+		name          string
+		args          []string
+		expectedPort  int
+		expectedTTY   bool
+		expectedLocal []string
+		expectedCmd   string
+	}{
+		{
+			name:         "port after host",
+			args:         []string{"hostname", "-p", "2222"},
+			expectedPort: 2222,
+		},
+		{
+			name:          "forward after host",
+			args:          []string{"hostname", "-L", "8080:localhost:80"},
+			expectedPort:  22,
+			expectedLocal: []string{"8080:localhost:80"},
+		},
+		{
+			name:          "flags after host then command",
+			args:          []string{"hostname", "-t", "-L", "8080:localhost:80", "ls", "-la"},
+			expectedPort:  22,
+			expectedTTY:   true,
+			expectedLocal: []string{"8080:localhost:80"},
+			expectedCmd:   "ls -la",
+		},
+		{
+			name:         "flag after command belongs to command",
+			args:         []string{"hostname", "ls", "-p", "2222"},
+			expectedPort: 22,
+			expectedCmd:  "ls -p 2222",
+		},
+		{
+			name:         "double dash before host stops flag parsing",
+			args:         []string{"--", "hostname", "-p", "2222"},
+			expectedPort: 22,
+			expectedCmd:  "-p 2222",
+		},
+		{
+			name:         "double dash after host passes flags to command",
+			args:         []string{"hostname", "--", "-p", "2222"},
+			expectedPort: 22,
+			expectedCmd:  "-p 2222",
+		},
+		{
+			name:         "flag after host overrides flag before host",
+			args:         []string{"-p", "2200", "hostname", "-p", "2222"},
+			expectedPort: 2222,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.NoError(t, parseSSHCommandLine(t, tt.args))
+
+			assert.Equal(t, "hostname", host, "host mismatch")
+			assert.Equal(t, tt.expectedPort, port, "port mismatch")
+			assert.Equal(t, tt.expectedTTY, requestPTY, "tty mismatch")
+			assert.Equal(t, len(tt.expectedLocal), len(localForwards), "local forward count")
+			if len(tt.expectedLocal) > 0 {
+				assert.Equal(t, tt.expectedLocal, localForwards, "local forwards")
+			}
+			assert.Equal(t, tt.expectedCmd, command, "command mismatch")
+		})
+	}
+}
+
+func TestSSHCommand_UserAfterHost(t *testing.T) {
+	require.NoError(t, parseSSHCommandLine(t, []string{"hostname", "-u", "alice", "whoami"}))
+
+	assert.Equal(t, "alice", resolveSSHUsername(), "username mismatch")
+	assert.Equal(t, "whoami", command, "command mismatch")
+}
+
+func TestSSHCommand_LogLevelFlagAfterHost(t *testing.T) {
+	// OpenSSH users write "-l user" after the host. In netbird -l is the log level,
+	// which is only accepted before the host.
+	err := parseSSHCommandLine(t, []string{"hostname", "-l", "alice"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "-u or user@host", "error should point to -u")
+}
+
+func TestSSHCommand_HelpAfterHost(t *testing.T) {
+	sshCmd.InitDefaultHelpFlag()
+
+	err := parseSSHCommandLine(t, []string{"hostname", "-h"})
+
+	assert.ErrorIs(t, err, pflag.ErrHelp, "-h after the host should request help")
 }
