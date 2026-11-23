@@ -1865,19 +1865,19 @@
     },
     "settings.privilege.hint": {
         "message": "需要{actor}。請改為執行：",
-        "description": "Help text under an SSH setting the user cannot change: it needs elevated privileges. {actor} is 'root' on Linux/macOS or 'administrator privileges' on Windows. Followed by a copyable command."
+        "description": "Help text under a remote-access setting (SSH or VNC) the user cannot change: it needs elevated privileges. {actor} is 'root' on Linux/macOS or 'administrator privileges' on Windows. Followed by a copyable command."
     },
     "settings.privilege.oneWay": {
         "message": "你可以關閉此項，但重新開啟需要{actor}。",
-        "description": "Help text under an SSH setting that is already on: an unprivileged user may switch it off freely, and switching it on again is what needs the privileges. No command follows, since the direction they can take is theirs to take. {actor} is 'root' on Linux/macOS or 'administrator privileges' on Windows."
+        "description": "Help text under a remote-access setting (SSH or VNC) that is already on: an unprivileged user may switch it off freely, and switching it on again is what needs the privileges. No command follows, since the direction they can take is theirs to take. {actor} is 'root' on Linux/macOS or 'administrator privileges' on Windows."
     },
     "settings.privilege.oneWayInverted": {
         "message": "你可以開啟此項，但再次關閉需要{actor}。",
-        "description": "Same as settings.privilege.oneWay, for the SSH authentication setting once it has been switched off: switching it off again is what needs the privileges."
+        "description": "Same as settings.privilege.oneWay, for a safeguard setting (SSH authentication, VNC approval) once it has been switched off: switching it off again is what needs the privileges."
     },
     "settings.privilege.authorizePending": {
         "message": "正在等待授權…",
-        "description": "Replaces the help text under a guarded SSH setting while the authorization prompt is open, which can take a few seconds to appear. Keep the trailing ellipsis."
+        "description": "Replaces the help text under a guarded remote-access setting while the authorization prompt is open, which can take a few seconds to appear. Keep the trailing ellipsis."
     },
     "profile.ownedByAnother.name": {
         "message": "他使用者",
