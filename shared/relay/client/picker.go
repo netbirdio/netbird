@@ -21,6 +21,8 @@ type connResult struct {
 	RelayClient *Client
 	Url         string
 	Err         error
+	// transport is the connection that still has to authenticate; nil when Err is set.
+	transport *transportDial
 	// attempt is the index of the dial in the server list.
 	attempt int
 }
@@ -56,9 +58,26 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 	for i := range urls {
 		dialCtxs[i], dialCancels[i] = context.WithCancel(parentCtx)
 	}
+	// Only the dial of the transport connections is raced. The auth message
+	// registers the peer on the relay, so it is sent on the chosen one alone: a
+	// relay never sees a peer from a dial that lost, and closing that dial cannot
+	// be reported as the peer going offline.
+	onChosen := func(cr connResult) {
+		cancelDials(dialCancels, cr.attempt)
+		cr.RelayClient.releaseContextOnClose(dialCancels[cr.attempt])
+	}
+	go sp.processConnResults(connResultChan, successChan, errChan, onChosen)
+
 	for i, url := range urls {
 		// todo check if we have a successful connection so we do not need to connect to other servers
-		concurrentLimiter <- struct{}{}
+		select {
+		case concurrentLimiter <- struct{}{}:
+		case <-ctx.Done():
+			for ; i < len(urls); i++ {
+				connResultChan <- connResult{Url: urls[i], Err: ctx.Err(), attempt: i}
+			}
+			continue
+		}
 		go func(attempt int, url string) {
 			defer func() {
 				<-concurrentLimiter
@@ -66,15 +85,6 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 			sp.startConnection(dialCtxs[attempt], connResultChan, attempt, url)
 		}(i, url)
 	}
-
-	// A dial that finished after the chosen one would register the peer on its
-	// relay and close right away, which that relay reports as the peer going
-	// offline, so the others are cancelled as soon as one is chosen.
-	onChosen := func(cr connResult) {
-		cancelDials(dialCancels, cr.attempt)
-		cr.RelayClient.releaseContextOnClose(dialCancels[cr.attempt])
-	}
-	go sp.processConnResults(connResultChan, successChan, errChan, onChosen)
 
 	select {
 	case cr, ok := <-successChan:
@@ -121,11 +131,12 @@ func (sp *ServerPicker) startConnection(ctx context.Context, resultChan chan con
 	relayClient := NewClient(url, sp.TokenStore, sp.PeerID, sp.MTU)
 	relayClient.SetTransportFallback(sp.TransportFallback)
 	relayClient.netEvents = sp.NetEvents
-	err := relayClient.Connect(ctx)
+	td, err := relayClient.dialTransport(ctx)
 	resultChan <- connResult{
 		RelayClient: relayClient,
 		Url:         url,
 		Err:         err,
+		transport:   td,
 		attempt:     attempt,
 	}
 }
@@ -140,15 +151,19 @@ func (sp *ServerPicker) processConnResults(resultChan chan connResult, successCh
 			errs = append(errs, cr.Err)
 			continue
 		}
-		log.Infof("connected to Relay server: %s", cr.Url)
 
 		if hasSuccess {
-			log.Infof("closing unnecessary Relay connection to: %s", cr.Url)
-			if err := cr.RelayClient.Close(); err != nil {
-				log.Errorf("failed to close connection to %s: %v", cr.Url, err)
-			}
+			log.Infof("dropping unnecessary Relay connection to: %s", cr.Url)
+			cr.transport.discard()
 			continue
 		}
+
+		if err := cr.RelayClient.connectOn(cr.transport); err != nil {
+			log.Tracef("failed to authenticate on Relay server: %s: %v", cr.Url, err)
+			errs = append(errs, err)
+			continue
+		}
+		log.Infof("connected to Relay server: %s", cr.Url)
 
 		hasSuccess = true
 		onChosen(cr)

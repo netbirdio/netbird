@@ -5,16 +5,20 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/relay/server"
+	"github.com/netbirdio/netbird/shared/relay"
 )
 
 // A relay dial that loses the race must stop once a home relay is chosen.
@@ -206,4 +210,133 @@ func TestServerPicker_ReleasesWinnerContextOnClose(t *testing.T) {
 
 	require.NoError(t, client.Close())
 	assert.Equal(t, 0, parent.pending(), "closing the chosen client should release its context")
+}
+
+// A dial that loses the race must not authenticate: the relay registers the peer
+// when it reads the auth message, replacing any registration the peer holds there,
+// and closing that connection is reported as the peer going offline. The loser
+// here completes its transport handshake while the winner is still authenticating.
+func TestServerPicker_LoserDoesNotSendAuth(t *testing.T) {
+	t.Setenv(EnvRelayTransport, "ws")
+	ctx := context.Background()
+
+	cfg := server.ListenerConfig{Address: "localhost:52173"}
+	srv, err := server.NewServer(newManagerTestServerConfig(cfg.Address))
+	require.NoError(t, err)
+	errChan := make(chan error, 1)
+	go func() {
+		if err := srv.Listen(cfg); err != nil {
+			errChan <- err
+		}
+	}()
+	t.Cleanup(func() {
+		if err := srv.Shutdown(ctx); err != nil {
+			t.Errorf("failed to close server: %s", err)
+		}
+	})
+	require.NoError(t, waitForServerToStart(errChan))
+
+	// The losing relay upgrades the WebSocket, once the winner has, and records
+	// what the client sends.
+	winnerUp := make(chan struct{})
+	upgraded := make(chan struct{})
+	received := make(chan []byte, 4)
+	var once sync.Once
+	mux := http.NewServeMux()
+	mux.HandleFunc(relay.WebSocketURLPath, func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-winnerUp:
+		case <-time.After(5 * time.Second):
+		}
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = c.CloseNow() }()
+		once.Do(func() { close(upgraded) })
+		for {
+			_, msg, err := c.Read(r.Context())
+			if err != nil {
+				return
+			}
+			received <- msg
+		}
+	})
+	loser := httptest.NewServer(mux)
+	t.Cleanup(loser.Close)
+
+	// The winner connects first, but its replies after the upgrade are held until
+	// the loser has finished its transport handshake, so the loser is past the dial
+	// step while the winner authenticates.
+	winnerAddr := delayReplies(t, cfg.Address, winnerUp, upgraded, 300*time.Millisecond)
+
+	sp := ServerPicker{
+		TokenStore:        hmacTokenStore,
+		PeerID:            "alice",
+		MTU:               iface.DefaultMTU,
+		ConnectionTimeout: 30 * time.Second,
+	}
+	sp.ServerURLs.Store([]string{"rel://" + winnerAddr, "rel://" + loser.Listener.Addr().String()})
+
+	client, err := sp.PickServer(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+
+	select {
+	case <-upgraded:
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "the losing relay was never dialled")
+	}
+	select {
+	case msg := <-received:
+		assert.Fail(t, "the losing relay received a message", "%d bytes", len(msg))
+	case <-time.After(time.Second):
+	}
+}
+
+// delayReplies listens on a local port and forwards each connection to target.
+// It closes upgraded once the first reply, the WebSocket upgrade, went through and
+// holds every later reply until ready is closed and delay has passed.
+func delayReplies(t *testing.T, target string, upgraded chan<- struct{}, ready <-chan struct{}, delay time.Duration) string {
+	t.Helper()
+	l, err := net.Listen("tcp", "localhost:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = l.Close() })
+
+	var once sync.Once
+	go func() {
+		for {
+			in, err := l.Accept()
+			if err != nil {
+				return
+			}
+			out, err := net.Dial("tcp", target)
+			if err != nil {
+				_ = in.Close()
+				continue
+			}
+			t.Cleanup(func() { _ = in.Close(); _ = out.Close() })
+			go func() { _, _ = io.Copy(out, in) }()
+			go func() {
+				// The first reply is the WebSocket upgrade, which must go through for
+				// the transport to come up; everything after it is held.
+				buf := make([]byte, 4096)
+				n, err := out.Read(buf)
+				if err != nil {
+					return
+				}
+				if _, err := in.Write(buf[:n]); err != nil {
+					return
+				}
+				once.Do(func() { close(upgraded) })
+				select {
+				case <-ready:
+				case <-time.After(5 * time.Second):
+				}
+				time.Sleep(delay)
+				_, _ = io.Copy(in, out)
+			}()
+		}
+	}()
+	return l.Addr().String()
 }
