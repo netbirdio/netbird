@@ -1062,6 +1062,9 @@ func (c *Client) close(gracefullyExit bool) error {
 
 	c.log.Infof("waiting for read loop to close")
 	c.wgReadLoop.Wait()
+	// Reset only once the read loop is gone: a frame it still drains would
+	// store the period again.
+	c.alignedPeriod.Store(0)
 	c.log.Infof("relay connection closed")
 	return err
 }

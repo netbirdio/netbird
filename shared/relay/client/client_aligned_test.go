@@ -153,6 +153,20 @@ func TestHealthCheckOfReplacedConnectionIsIgnored(t *testing.T) {
 	assert.Equal(t, time.Minute, c.AlignedPeriod(), "the current connection switches at its own frame")
 }
 
+// TestCloseResetsAlignedPeriod checks that a closed relay client reports no
+// confirmed period: AlignedPeriod describes the current connection.
+func TestCloseResetsAlignedPeriod(t *testing.T) {
+	c, conn := newAlignedTestClient(t, true)
+	hc := healthcheck.NewReceiver(c.log)
+	defer hc.Stop()
+
+	c.handleHealthCheck(messages.MarshalHealthcheckWithPeriod(60), hc, conn, c.watchSeq, newInternalStopFlag())
+	require.Equal(t, time.Minute, c.AlignedPeriod(), "the connection is aligned before the close")
+
+	require.NoError(t, c.close(false))
+	assert.Zero(t, c.AlignedPeriod(), "a closed client has no confirmed period")
+}
+
 // tcpConn returns the client end of a loopback TCP connection.
 func tcpConn(t *testing.T) net.Conn {
 	t.Helper()
