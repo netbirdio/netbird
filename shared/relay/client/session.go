@@ -28,6 +28,8 @@ type session struct {
 	conn        net.Conn
 	instanceURL *RelayAddr
 	transport   string
+	// encoder stamps the protocol version the relay selected for this connection.
+	encoder messages.Encoder
 
 	stateSubscription *PeersStateSubscription
 	hc                *healthcheck.Receiver
@@ -46,19 +48,20 @@ type session struct {
 	done chan struct{}
 }
 
-func newSession(c *Client, conn net.Conn, instanceURL *RelayAddr, transport string, maxMsgSize int) *session {
+func newSession(c *Client, conn net.Conn, instanceURL *RelayAddr, transport string, encoder messages.Encoder) *session {
 	s := &session{
 		client:            c,
 		log:               c.log.WithField("relay", instanceURL.String()),
 		conn:              conn,
 		instanceURL:       instanceURL,
 		transport:         transport,
+		encoder:           encoder,
 		internallyStopped: newInternalStopFlag(),
 		conns:             make(map[messages.PeerID]*connContainer),
 		earlyMsgs:         newEarlyMsgBuffer(),
 		done:              make(chan struct{}),
 	}
-	s.stateSubscription = NewPeersStateSubscription(s.log, conn, maxMsgSize, s.closeConnsByPeerID)
+	s.stateSubscription = NewPeersStateSubscription(s.log, conn, encoder, s.closeConnsByPeerID)
 	s.hc = healthcheck.NewReceiver(s.log)
 	return s
 }
@@ -141,7 +144,7 @@ func (s *session) ReadLoop() {
 
 		buf = buf[:n]
 
-		_, err := messages.ValidateVersion(buf)
+		err := messages.ValidateConnectionVersion(buf, s.encoder.Version())
 		if err != nil {
 			s.log.Errorf("failed to validate protocol version: %s", err)
 			s.client.bufPool.Put(bufPtr)
@@ -237,7 +240,7 @@ func (s *session) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte
 }
 
 func (s *session) handleHealthCheck() {
-	msg := messages.MarshalHealthcheck()
+	msg := s.encoder.Healthcheck()
 	_, wErr := s.conn.Write(msg)
 	if wErr != nil {
 		if !s.stopping() {
@@ -302,7 +305,7 @@ func (s *session) writeTo(containerRef *connContainer, dstID messages.PeerID, pa
 	}
 
 	// todo: use buffer pool instead of create new transport msg.
-	msg, err := messages.MarshalTransportMsg(dstID, payload)
+	msg, err := messages.MarshalTransportMsg(s.encoder.Version(), dstID, payload)
 	if err != nil {
 		s.log.Errorf("failed to marshal transport message: %s", err)
 		return 0, err
@@ -439,7 +442,7 @@ func (s *session) teardown(gracefullyExit bool) error {
 }
 
 func (s *session) writeCloseMsg() {
-	msg := messages.MarshalCloseMsg()
+	msg := s.encoder.CloseMsg()
 	_, err := s.conn.Write(msg)
 	if err != nil {
 		s.log.Errorf("failed to send close message: %s", err)

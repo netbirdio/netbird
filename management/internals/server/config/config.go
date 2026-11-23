@@ -40,6 +40,8 @@ type Config struct {
 	Relay      *Relay
 	Signal     *Host
 
+	PeerAuth PeerAuth
+
 	Datadir                string
 	DataStoreEncryptionKey string
 
@@ -97,6 +99,15 @@ type Relay struct {
 	Addresses      []string
 	CredentialsTTL util.Duration
 	Secret         string
+}
+
+// PeerAuth configures the Signal and Relay tokens bound to the peer's WireGuard and auth keys.
+type PeerAuth struct {
+	// SigningKeyFile is the PEM PKCS#8 Ed25519 private key that signs the bound token. Set, every
+	// peer that sends an auth key gets the bound token instead of the legacy relay token; unset,
+	// peers keep the legacy relay token. Set it only once every Relay and Signal lists its public
+	// key in --peer-auth-public-keys. A set but unreadable file fails startup.
+	SigningKeyFile string
 }
 
 // HttpServerConfig is a config of the HTTP Management service server

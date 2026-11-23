@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"net"
@@ -14,6 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/netevents/sweep"
+	"github.com/netbirdio/netbird/shared/peerauth"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	"github.com/netbirdio/netbird/shared/relay/client/dialer"
 	"github.com/netbirdio/netbird/shared/relay/messages"
@@ -173,6 +175,8 @@ type Client struct {
 	serverIP       netip.Addr
 	authTokenStore *auth.TokenStore
 	hashedID       messages.PeerID
+	// authKey signs the proof presented with the auth token. Shared via the manager.
+	authKey ed25519.PrivateKey
 
 	bufPool *sync.Pool
 
@@ -376,7 +380,7 @@ func (c *Client) connect(ctx context.Context) (*session, error) {
 		return nil, fmt.Errorf("register connection: %w", err)
 	}
 
-	instanceURL, err := c.handShake(ctx, conn)
+	instanceURL, version, err := c.handShake(ctx, conn)
 	if err != nil {
 		cErr := conn.Close()
 		if cErr != nil {
@@ -385,7 +389,7 @@ func (c *Client) connect(ctx context.Context) (*session, error) {
 		return nil, err
 	}
 
-	return newSession(c, conn, instanceURL, transport, maxMsgSize), nil
+	return newSession(c, conn, instanceURL, transport, messages.NewEncoder(version, maxMsgSize)), nil
 }
 
 // dialRaceDirect dials c.serverIP, preserving the original FQDN as the TLS ServerName for SNI.
@@ -437,47 +441,75 @@ func substituteHost(serverURL string, ip netip.Addr) (string, string, error) {
 	return u.String(), origHost, nil
 }
 
-func (c *Client) handShake(ctx context.Context, conn net.Conn) (*RelayAddr, error) {
-	msg, err := messages.MarshalAuthMsg(c.hashedID, c.authTokenStore.TokenBinary())
+func (c *Client) handShake(ctx context.Context, conn net.Conn) (*RelayAddr, messages.ProtocolVersion, error) {
+	msg, advertised, err := c.authMsg()
 	if err != nil {
 		c.log.Errorf("failed to marshal auth message: %s", err)
-		return nil, err
+		return nil, 0, err
 	}
 
 	_, err = conn.Write(msg)
 	if err != nil {
 		c.log.Errorf("failed to send auth message: %s", err)
-		return nil, err
+		return nil, 0, err
 	}
 	buf := make([]byte, messages.MaxHandshakeRespSize)
 	n, err := c.readWithTimeout(ctx, conn, buf)
 	if err != nil {
-		c.log.Errorf("failed to read auth response: %s", err)
-		return nil, err
+		c.log.Errorf("failed to read auth response, bound token presented: %t: %s", advertised == messages.ProtocolV2, err)
+		return nil, 0, err
 	}
 
-	_, err = messages.ValidateVersion(buf[:n])
+	version, err := messages.ValidateSelectedVersion(buf[:n], advertised)
 	if err != nil {
-		return nil, fmt.Errorf("validate version: %w", err)
+		return nil, 0, fmt.Errorf("validate version: %w", err)
 	}
 
 	msgType, err := messages.DetermineServerMessageType(buf[:n])
 	if err != nil {
 		c.log.Errorf("failed to determine message type: %s", err)
-		return nil, err
+		return nil, 0, err
 	}
 
 	if msgType != messages.MsgTypeAuthResponse {
 		c.log.Errorf("unexpected message type: %s", msgType)
-		return nil, fmt.Errorf("unexpected message type")
+		return nil, 0, fmt.Errorf("unexpected message type")
 	}
 
 	addr, err := messages.UnmarshalAuthResponse(buf[:n])
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return &RelayAddr{addr: addr}, nil
+	return &RelayAddr{addr: addr}, version, nil
+}
+
+// authMsg builds the auth envelope with a proof when the store holds the auth token, otherwise
+// the legacy auth message, and returns the version it advertises.
+func (c *Client) authMsg() ([]byte, messages.ProtocolVersion, error) {
+	token, isAuthToken := c.authTokenStore.Credentials()
+	if !isAuthToken {
+		msg, err := messages.MarshalAuthMsg(c.hashedID, token)
+		return msg, messages.CurrentProtocolVersion, err
+	}
+	if c.authKey == nil {
+		return nil, 0, errors.New("auth token without auth key")
+	}
+
+	u, err := url.Parse(c.connectionURL)
+	if err != nil {
+		return nil, 0, fmt.Errorf("parse relay URL: %w", err)
+	}
+	proof, err := peerauth.SignProof(c.authKey, peerauth.ServiceRelay, token, u.Hostname(), time.Now())
+	if err != nil {
+		return nil, 0, fmt.Errorf("sign proof: %w", err)
+	}
+	ext, err := peerauth.MarshalRelayExtension(proof)
+	if err != nil {
+		return nil, 0, fmt.Errorf("marshal proof: %w", err)
+	}
+	msg, err := messages.MarshalAuthEnvelope(messages.ProtocolV2, c.hashedID, token, ext)
+	return msg, messages.ProtocolV2, err
 }
 
 func (c *Client) serverInstanceAddress() (string, netip.Addr, error) {
