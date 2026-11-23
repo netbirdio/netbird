@@ -127,6 +127,10 @@ func sshFn(cmd *cobra.Command, args []string) error {
 	// argument validation.
 	username = resolveSSHUsername()
 
+	if err := validateKnownHostsFile(knownHostsFile); err != nil {
+		return err
+	}
+
 	logOutput := "console"
 	if firstLogFile := util.FindFirstLogPath(logFiles); firstLogFile != "" && firstLogFile != defaultLogFile {
 		logOutput = firstLogFile
@@ -228,6 +232,24 @@ func parseFlagsAfterHost(cmd *cobra.Command, args []string) ([]string, error) {
 	}
 
 	return append([]string{args[0]}, flags.Args()...), nil
+}
+
+// validateKnownHostsFile fails on a --known-hosts file that cannot be read. An
+// OpenSSH option passed with -o, such as StrictHostKeyChecking=no, ends up here.
+func validateKnownHostsFile(path string) error {
+	if path == "" {
+		return nil
+	}
+
+	_, err := os.Stat(path)
+	switch {
+	case err == nil:
+		return nil
+	case strings.Contains(path, "="):
+		return fmt.Errorf("known_hosts file: %w (-o sets the known_hosts file, not an OpenSSH option)", err)
+	default:
+		return fmt.Errorf("known_hosts file: %w", err)
+	}
 }
 
 // resolveSSHUsername returns the SSH user from --user, --login, user@host or the

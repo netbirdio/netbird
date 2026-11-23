@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/pflag"
@@ -917,4 +918,21 @@ func TestSSHCommand_HelpAfterHost(t *testing.T) {
 	err := parseSSHCommandLine(t, []string{"hostname", "-h"})
 
 	assert.ErrorIs(t, err, pflag.ErrHelp, "-h after the host should request help")
+}
+
+func TestValidateKnownHostsFile(t *testing.T) {
+	existing := filepath.Join(t.TempDir(), "known_hosts")
+	require.NoError(t, os.WriteFile(existing, nil, 0o600))
+
+	assert.NoError(t, validateKnownHostsFile(""), "unset path")
+	assert.NoError(t, validateKnownHostsFile(existing), "existing file")
+
+	err := validateKnownHostsFile(filepath.Join(t.TempDir(), "missing"))
+	require.Error(t, err, "missing file")
+	assert.NotContains(t, err.Error(), "OpenSSH option", "a plain path gets no -o hint")
+
+	// An OpenSSH habit: "-o StrictHostKeyChecking=no" sets --known-hosts in netbird.
+	err = validateKnownHostsFile("StrictHostKeyChecking=no")
+	require.Error(t, err, "OpenSSH option as path")
+	assert.Contains(t, err.Error(), "not an OpenSSH option", "error should explain -o")
 }
