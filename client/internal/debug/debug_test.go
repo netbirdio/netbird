@@ -23,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/client/configs"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/netiputil"
@@ -1222,4 +1223,29 @@ func TestAddConfig_ReportsForceRelayInEffect(t *testing.T) {
 
 	assert.Contains(t, sb.String(), "ForceRelay: false\n", "the profile value")
 	assert.Contains(t, sb.String(), "ForceRelayInEffect: true\n", "the value the engine runs with")
+}
+
+// Keys without a Config field are listed in MDMManagedFields by name only, so
+// the bundle writes their values too; group names are anonymized.
+func TestAddMDMOnlyValues(t *testing.T) {
+	cfg := (&profilemanager.Config{}).WithMDMPolicy(mdm.NewPolicy(map[string]any{
+		mdm.KeyDisableProfiles:  true,
+		mdm.KeyDefaultLanguage:  "it",
+		mdm.KeyAllowGroups:      "corp-netbird-admins",
+		mdm.KeyDisableAutostart: false,
+	}))
+
+	for _, anonymize := range []bool{false, true} {
+		g := &BundleGenerator{anonymizer: newAnonymizerForTest(), internalConfig: cfg, anonymize: anonymize}
+
+		var sb strings.Builder
+		g.addMDMOnlyValues(&sb)
+		out := sb.String()
+
+		assert.Contains(t, out, "MDM disableProfiles: true\n", "anonymize=%v", anonymize)
+		assert.Contains(t, out, "MDM defaultLanguage: it\n", "anonymize=%v", anonymize)
+		assert.Contains(t, out, "MDM disableAutostart: false\n", "a pinned false must be reported, anonymize=%v", anonymize)
+		assert.Contains(t, out, "MDM allowGroups: ", "anonymize=%v", anonymize)
+		assert.Equal(t, !anonymize, strings.Contains(out, "corp-netbird-admins"), "group names only in the clear without anonymize")
+	}
 }

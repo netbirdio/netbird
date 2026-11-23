@@ -29,6 +29,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/updater/installer"
+	"github.com/netbirdio/netbird/client/mdm"
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/netiputil"
@@ -597,6 +598,43 @@ func (g *BundleGenerator) addStatus() error {
 	return nil
 }
 
+// mdmOnlyKeys are the policy keys with no Config field: config.txt would
+// otherwise show that they are managed but not their value.
+var mdmOnlyKeys = []string{
+	mdm.KeyDisableUpdateSettings,
+	mdm.KeyDisableProfiles,
+	mdm.KeyDisableNetworks,
+	mdm.KeyDisableAdvancedView,
+	mdm.KeyDisableAutostart,
+	mdm.KeyDisableMetricsCollection,
+	mdm.KeyKeepConnectedOnQuit,
+	mdm.KeyDefaultLanguage,
+	mdm.KeyDefaultViewMode,
+	mdm.KeyDefaultTheme,
+	mdm.KeySplitTunnelMode,
+	mdm.KeySplitTunnelApps,
+	mdm.KeyAllowGroups,
+}
+
+// addMDMOnlyValues writes the values of the managed keys that have no Config
+// field. Group names can identify the organization, so an anonymized bundle
+// only counts them.
+func (g *BundleGenerator) addMDMOnlyValues(sb *strings.Builder) {
+	policy := g.internalConfig.Policy()
+	for _, key := range mdmOnlyKeys {
+		v, ok := policy.Value(key)
+		if !ok {
+			continue
+		}
+		rendered := fmt.Sprint(v)
+		if key == mdm.KeyAllowGroups && g.anonymize {
+			groups, _ := policy.GetStringSlice(key)
+			rendered = fmt.Sprintf("<%d group(s) redacted>", len(mdm.SplitList(groups)))
+		}
+		sb.WriteString(fmt.Sprintf("MDM %s: %s\n", key, rendered))
+	}
+}
+
 func (g *BundleGenerator) addConfig() error {
 	if g.internalConfig == nil {
 		log.Debug("skipping empty config in debug bundle")
@@ -631,6 +669,7 @@ func (g *BundleGenerator) addConfig() error {
 	if managed := g.internalConfig.Policy().ManagedKeys(); len(managed) > 0 {
 		configContent.WriteString(fmt.Sprintf("MDMManagedFields: %v\n", managed))
 	}
+	g.addMDMOnlyValues(&configContent)
 
 	configReader := strings.NewReader(configContent.String())
 	if err := g.addFileToZip(configReader, "config.txt"); err != nil {

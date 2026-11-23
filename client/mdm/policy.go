@@ -287,6 +287,16 @@ func (p *Policy) ManagedKeys() []string {
 	return sortedKeys(p.values)
 }
 
+// Value returns the managed value for key as the platform delivered it, and
+// whether the key was set.
+func (p *Policy) Value(key string) (any, bool) {
+	if p == nil {
+		return nil, false
+	}
+	v, ok := p.values[key]
+	return v, ok
+}
+
 // GetString returns the managed value for key coerced to string, and whether
 // the key was set. A non-string value returns ("", false).
 func (p *Policy) GetString(key string) (string, bool) {
