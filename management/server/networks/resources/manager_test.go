@@ -483,6 +483,67 @@ func Test_DeleteResourceSuccessfully(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func Test_DeleteResourceDeletesPoliciesNamingIt(t *testing.T) {
+	ctx := context.Background()
+	accountID := "testAccountId"
+	userID := "testAdminId"
+	networkID := "testNetworkId"
+	resourceID := "testResourceId"
+
+	s, cleanUp, err := store.NewTestStoreFromSQL(ctx, "../../testdata/networks.sql", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanUp)
+
+	resourcePolicy := func(id string, source, destination nbtypes.Resource, destinations []string) *nbtypes.Policy {
+		return &nbtypes.Policy{
+			ID:        id,
+			AccountID: accountID,
+			Name:      id,
+			Enabled:   true,
+			Rules: []*nbtypes.PolicyRule{{
+				ID:                  id,
+				PolicyID:            id,
+				Enabled:             true,
+				Action:              nbtypes.PolicyTrafficActionAccept,
+				Protocol:            nbtypes.PolicyRuleProtocolALL,
+				SourceResource:      source,
+				DestinationResource: destination,
+				Destinations:        destinations,
+			}},
+		}
+	}
+	deleted := nbtypes.Resource{ID: resourceID, Type: nbtypes.ResourceTypeHost}
+	other := nbtypes.Resource{ID: "anotherTestResourceId", Type: nbtypes.ResourceTypeHost}
+	peer := nbtypes.Resource{ID: "testPeerId", Type: nbtypes.ResourceTypePeer}
+
+	require.NoError(t, s.CreatePolicy(ctx, resourcePolicy("asSource", deleted, nbtypes.Resource{}, []string{"testGroupId"})))
+	require.NoError(t, s.CreatePolicy(ctx, resourcePolicy("asDestination", peer, deleted, nil)))
+	require.NoError(t, s.CreatePolicy(ctx, resourcePolicy("unrelated", peer, other, nil)))
+
+	var removed []string
+	am := mock_server.MockAccountManager{
+		StoreEventFunc: func(_ context.Context, _, targetID, _ string, activityID activity.ActivityDescriber, _ map[string]any) {
+			if activityID == activity.PolicyRemoved {
+				removed = append(removed, targetID)
+			}
+		},
+	}
+	serviceManager := reverseproxy.NewMockManager(gomock.NewController(t))
+	serviceManager.EXPECT().GetServiceIDByTargetID(gomock.Any(), accountID, resourceID).Return("", nil).AnyTimes()
+	manager := NewManager(s, permissions.NewManager(s), groups.NewManagerMock(), &am, serviceManager)
+
+	require.NoError(t, manager.DeleteResource(ctx, accountID, userID, networkID, resourceID))
+
+	policies, err := s.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
+	require.NoError(t, err)
+	remaining := make([]string, 0, len(policies))
+	for _, p := range policies {
+		remaining = append(remaining, p.ID)
+	}
+	assert.Equal(t, []string{"unrelated"}, remaining, "only the policy that does not name the resource is kept")
+	assert.ElementsMatch(t, []string{"asSource", "asDestination"}, removed, "each removed policy is recorded in the activity log")
+}
+
 func Test_DeleteResourceFailsWithPermissionDenied(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"

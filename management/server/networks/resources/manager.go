@@ -457,6 +457,12 @@ func (m *managerImpl) DeleteResourceInTransaction(ctx context.Context, transacti
 		eventsToStore = append(eventsToStore, event)
 	}
 
+	policyEvents, err := m.deleteResourcePolicies(ctx, transaction, accountID, userID, resourceID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("delete resource policies: %w", err)
+	}
+	eventsToStore = append(eventsToStore, policyEvents...)
+
 	err = transaction.DeleteNetworkResource(ctx, accountID, resourceID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to delete network resource: %w", err)
@@ -467,6 +473,39 @@ func (m *managerImpl) DeleteResourceInTransaction(ctx context.Context, transacti
 	})
 
 	return resource, eventsToStore, nil
+}
+
+// deleteResourcePolicies removes the policies with a rule that names the resource as its source
+// or destination, since such a rule can never match again once the resource is gone.
+func (m *managerImpl) deleteResourcePolicies(ctx context.Context, transaction store.Store, accountID, userID, resourceID string) ([]func(), error) {
+	rules, err := transaction.GetPolicyRulesByResourceID(ctx, store.LockingStrengthUpdate, accountID, resourceID)
+	if err != nil {
+		return nil, err
+	}
+
+	var events []func()
+	deleted := make(map[string]struct{}, len(rules))
+	for _, rule := range rules {
+		if _, ok := deleted[rule.PolicyID]; ok {
+			continue
+		}
+		deleted[rule.PolicyID] = struct{}{}
+
+		policy, err := transaction.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, rule.PolicyID)
+		if err != nil {
+			return nil, fmt.Errorf("get policy %s: %w", rule.PolicyID, err)
+		}
+
+		if err := transaction.DeletePolicy(ctx, accountID, policy.ID); err != nil {
+			return nil, fmt.Errorf("delete policy %s: %w", policy.ID, err)
+		}
+
+		events = append(events, func() {
+			m.accountManager.StoreEvent(ctx, userID, policy.ID, accountID, activity.PolicyRemoved, policy.EventMeta())
+		})
+	}
+
+	return events, nil
 }
 
 func NewManagerMock() Manager {
