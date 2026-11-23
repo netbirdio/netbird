@@ -55,7 +55,7 @@ func TestSenderSetAlignedSilentPeerTimesOut(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			hc := NewSender(log.WithField("test", t.Name()))
+			hc := NewSenderWithOpts(log.WithField("test", t.Name()), SenderOptions{AttemptThreshold: 1})
 			hc.SetAligned(AlignedSchedule{Period: period})
 			exited := startSender(ctx, hc)
 
@@ -81,7 +81,7 @@ func TestSenderSetAlignedSilentPeerTimesOut(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			hc := NewSender(log.WithField("test", t.Name()))
+			hc := NewSenderWithOpts(log.WithField("test", t.Name()), SenderOptions{AttemptThreshold: 1})
 			hc.SetAligned(AlignedSchedule{Period: period})
 			exited := startSender(ctx, hc)
 
