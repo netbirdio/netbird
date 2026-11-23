@@ -26,6 +26,7 @@ type Manager interface {
 	GetNetwork(ctx context.Context, accountID, userID, networkID string) (*types.Network, error)
 	UpdateNetwork(ctx context.Context, userID string, network *types.Network) (*types.Network, error)
 	DeleteNetwork(ctx context.Context, accountID, userID, networkID string) error
+	GetSiteToSiteConnections(ctx context.Context, accountID, userID string) ([]*types.SiteToSiteConnection, error)
 }
 
 type managerImpl struct {
@@ -215,6 +216,29 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 	return nil
 }
 
+// GetSiteToSiteConnections returns the pairs of networks that policies join resource to resource.
+func (m *managerImpl) GetSiteToSiteConnections(ctx context.Context, accountID, userID string) ([]*types.SiteToSiteConnection, error) {
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Networks, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !ok {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	policies, err := m.store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("get policies: %w", err)
+	}
+
+	resources, err := m.store.GetNetworkResourcesByAccountID(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("get network resources: %w", err)
+	}
+
+	return buildSiteToSiteConnections(policies, resources), nil
+}
+
 func NewManagerMock() Manager {
 	return &mockManager{}
 }
@@ -237,4 +261,8 @@ func (m *mockManager) UpdateNetwork(ctx context.Context, userID string, network 
 
 func (m *mockManager) DeleteNetwork(ctx context.Context, accountID, userID, networkID string) error {
 	return nil
+}
+
+func (m *mockManager) GetSiteToSiteConnections(ctx context.Context, accountID, userID string) ([]*types.SiteToSiteConnection, error) {
+	return []*types.SiteToSiteConnection{}, nil
 }

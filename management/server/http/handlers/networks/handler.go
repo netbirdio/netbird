@@ -40,6 +40,7 @@ func AddEndpoints(networksManager networks.Manager, resourceManager resources.Ma
 	networksHandler := newHandler(networksManager, resourceManager, routerManager, groupsManager, accountManager)
 	router.HandleFunc("/networks", networksHandler.getAllNetworks).Methods("GET", "OPTIONS")
 	router.HandleFunc("/networks", networksHandler.createNetwork).Methods("POST", "OPTIONS")
+	router.HandleFunc("/networks/site-to-site", networksHandler.getSiteToSiteConnections).Methods("GET", "OPTIONS")
 	router.HandleFunc("/networks/{networkId}", networksHandler.getNetwork).Methods("GET", "OPTIONS")
 	router.HandleFunc("/networks/{networkId}", networksHandler.updateNetwork).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/networks/{networkId}", networksHandler.deleteNetwork).Methods("DELETE", "OPTIONS")
@@ -95,6 +96,27 @@ func (h *handler) getAllNetworks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	util.WriteJSONObject(r.Context(), w, h.generateNetworkResponse(networks, routers, resourceIDs, groups, account))
+}
+
+func (h *handler) getSiteToSiteConnections(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	connections, err := h.networksManager.GetSiteToSiteConnections(r.Context(), userAuth.AccountId, userAuth.UserId)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	response := make([]*api.SiteToSiteConnection, 0, len(connections))
+	for _, connection := range connections {
+		response = append(response, connection.ToAPIResponse())
+	}
+
+	util.WriteJSONObject(r.Context(), w, response)
 }
 
 func (h *handler) createNetwork(w http.ResponseWriter, r *http.Request) {

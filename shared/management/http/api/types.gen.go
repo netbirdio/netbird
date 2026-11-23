@@ -5517,6 +5517,18 @@ type SetupResponse struct {
 	UserId string `json:"user_id"`
 }
 
+// SiteToSiteConnection Two networks joined by policies that let a resource in one reach a resource in the other
+type SiteToSiteConnection struct {
+	// Enabled Whether at least one of the policies and its rule are enabled
+	Enabled bool `json:"enabled"`
+
+	// NetworkIds IDs of the two networks. The first is the source network of the connection's first policy, in policy ID order.
+	NetworkIds []string `json:"network_ids"`
+
+	// PolicyIds IDs of the policies with a rule from a resource in one of the networks to a resource in the other
+	PolicyIds []string `json:"policy_ids"`
+}
+
 // Subscription defines model for Subscription.
 type Subscription struct {
 	// Active Indicates whether the subscription is active or not.
