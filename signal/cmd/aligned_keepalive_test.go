@@ -73,23 +73,28 @@ func TestServeHTTPAlignedStreamKeepAlive(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	// connect opens a ConnectStream on a new connection and returns its
-	// header and the accepted server socket.
-	connect := func(md metadata.MD, index int) (metadata.MD, net.Conn) {
+	// connect opens a new connection, reads the idle of the accepted server
+	// socket before any stream, then opens a ConnectStream on it. It returns
+	// the stream header, the server socket and the idle before the stream.
+	connect := func(md metadata.MD, index int) (metadata.MD, net.Conn, time.Duration) {
 		conn, err := grpc.NewClient(rec.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = conn.Close() })
+		conn.Connect()
+		require.Eventually(t, func() bool { return rec.accepted(index) != nil },
+			2*time.Second, 10*time.Millisecond, "the serve path must accept connection %d", index)
+		serverConn := rec.accepted(index)
+		baseline, err := keepalive.Idle(serverConn)
+		require.NoError(t, err)
 		stream, err := proto.NewSignalExchangeClient(conn).ConnectStream(metadata.NewOutgoingContext(ctx, md))
 		require.NoError(t, err)
 		header, err := stream.Header()
 		require.NoError(t, err, "the server must send its registration header")
-		serverConn := rec.accepted(index)
-		require.NotNil(t, serverConn, "the serve path must accept connection %d", index)
-		return header, serverConn
+		return header, serverConn, baseline
 	}
 
 	const alignedKey = "Zm9vYmFyZm9vYmFyZm9vYmFyZm9vYmFyZm9vYmFyMjU="
-	header, alignedConn := connect(metadata.Pairs(proto.HeaderId, alignedKey, alignedhb.MetadataKey, "period=1"), 0)
+	header, alignedConn, _ := connect(metadata.Pairs(proto.HeaderId, alignedKey, alignedhb.MetadataKey, "period=1"), 0)
 	assert.Equal(t, []string{"period=30"}, header.Get(alignedhb.MetadataKey), "the header confirms the clamped period")
 	assert.Eventually(t, func() bool {
 		idle, err := keepalive.Idle(alignedConn)
@@ -97,10 +102,10 @@ func TestServeHTTPAlignedStreamKeepAlive(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond, "aligned stream: idle twice the clamped period")
 
 	const stockKey = "Zm9vYmFyZm9vYmFyZm9vYmFyZm9vYmFyZm9vYmFyMjY="
-	header, stockConn := connect(metadata.Pairs(proto.HeaderId, stockKey), 1)
+	header, stockConn, stockBaseline := connect(metadata.Pairs(proto.HeaderId, stockKey), 1)
 	assert.Empty(t, header.Get(alignedhb.MetadataKey), "a stock stream gets no aligned answer")
 	assert.Never(t, func() bool {
 		idle, err := keepalive.Idle(stockConn)
-		return err != nil || idle == 60*time.Second
-	}, 200*time.Millisecond, 10*time.Millisecond, "a stock stream must not get the aligned idle")
+		return err != nil || idle != stockBaseline
+	}, 200*time.Millisecond, 10*time.Millisecond, "a stock stream must keep the socket idle it had before the stream")
 }
