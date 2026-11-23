@@ -218,7 +218,7 @@ func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, info AuthFlowInfo
 		return TokenInfo{}, fmt.Errorf("failed to parse redirect URL: %v", err)
 	}
 
-	server := &http.Server{Addr: fmt.Sprintf(":%s", parsedURL.Port())}
+	server := &http.Server{Addr: callbackListenAddr(parsedURL.Port())}
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -394,9 +394,35 @@ func isRedirectURLPortUsed(redirectURL string, excludedRanges []excludedPortRang
 		return true
 	}
 
+	if !canBindCallbackPort(port) {
+		return true
+	}
+
+	return isPortListening(parsedURL.Hostname(), port)
+}
+
+// canBindCallbackPort probes the port with the bind the callback server makes. A dial alone
+// misses a port held by a socket that is not listening, such as an outbound connection that
+// got it as its ephemeral local port.
+func canBindCallbackPort(port string) bool {
+	listener, err := net.Listen("tcp", callbackListenAddr(port))
+	if err != nil {
+		log.Infof("pkce flow: callback port %s is unavailable, skipping: %v", port, err)
+		return false
+	}
+	if err := listener.Close(); err != nil {
+		log.Debugf("close callback port probe: %v", err)
+	}
+	return true
+}
+
+func callbackListenAddr(port string) string {
+	return ":" + port
+}
+
+func isPortListening(host, port string) bool {
 	// FreeBSD 15 disables connecting to INADDR_ANY (0.0.0.0) as a localhost
 	// alias by default, ensure explicit ip for localhost.
-	host := parsedURL.Hostname()
 	if host == "" {
 		host = "127.0.0.1"
 	}
