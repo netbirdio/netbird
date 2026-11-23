@@ -119,4 +119,28 @@ func TestRegisterRoutingTableName(t *testing.T) {
 		assert.ErrorIs(t, err, ErrTableIDExists)
 		assert.NoFileExists(t, dropIn)
 	})
+
+	t.Run("RejectsIDTakenInOtherDropIn", func(t *testing.T) {
+		dir := t.TempDir()
+		dropIn := dir + "/rt_tables.d/netbird.conf"
+		require.NoError(t, os.MkdirAll(dir+"/rt_tables.d", 0o755))
+		other := dir + "/rt_tables.d/other.conf"
+		require.NoError(t, os.WriteFile(other, []byte(fmt.Sprintf("%d\tother\n", NetbirdVPNTableID)), 0o644))
+
+		err := registerRoutingTableName(dir+"/rt_tables", dropIn)
+
+		assert.ErrorIs(t, err, ErrTableIDExists)
+		assert.NoFileExists(t, dropIn)
+	})
+
+	t.Run("SkipsWhenOtherDropInHasEntry", func(t *testing.T) {
+		dir := t.TempDir()
+		dropIn := dir + "/rt_tables.d/netbird.conf"
+		require.NoError(t, os.MkdirAll(dir+"/rt_tables.d", 0o755))
+		require.NoError(t, os.WriteFile(dir+"/rt_tables.d/custom.conf", []byte(entry), 0o644))
+
+		require.NoError(t, registerRoutingTableName(dir+"/rt_tables", dropIn))
+
+		assert.NoFileExists(t, dropIn, "an entry in any drop-in is enough")
+	})
 }

@@ -806,11 +806,16 @@ func addRoutingTableName() error {
 }
 
 // registerRoutingTableName writes the table name into the drop-in file unless an entry for the
-// table ID is already present in the legacy rt_tables file or in the drop-in itself. The drop-in
-// is read by iproute2 and, unlike rt_tables, exists on distributions that keep the stock table
-// list under /usr/share/iproute2.
+// table ID is already present in the legacy rt_tables file or in any *.conf file of the drop-in
+// directory. iproute2 reads every such file and, unlike rt_tables, the directory exists on
+// distributions that keep the stock table list under /usr/share/iproute2.
 func registerRoutingTableName(legacyPath, dropInPath string) error {
-	for _, path := range []string{legacyPath, dropInPath} {
+	dropIns, err := filepath.Glob(filepath.Join(filepath.Dir(dropInPath), "*.conf"))
+	if err != nil {
+		return fmt.Errorf("list %s: %w", filepath.Dir(dropInPath), err)
+	}
+
+	for _, path := range append([]string{legacyPath}, dropIns...) {
 		exists, err := tableEntryExists(path, NetbirdVPNTableID)
 		if err != nil {
 			return fmt.Errorf("verify entry %d, %s in %s: %w", NetbirdVPNTableID, NetbirdVPNTableName, path, err)
