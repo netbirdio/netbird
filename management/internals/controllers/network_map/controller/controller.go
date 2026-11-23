@@ -17,9 +17,11 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
+	"github.com/netbirdio/netbird/management/internals/modules/exitnodes"
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral"
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	"github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/internals/shared/db"
 	"github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/internals/shared/requestbuffer"
 	"github.com/netbirdio/netbird/management/server/account"
@@ -67,6 +69,23 @@ type Controller struct {
 
 	nmdataStore  *networkmapdb.NetworkMapDBStoreImpl
 	nmdataBuffer *requestbuffer.Buffer[*networkmap.NetworkMapData]
+
+	exitNodes ExitNodeLister
+}
+
+// ExitNodeLister lists the exit nodes of an account.
+type ExitNodeLister interface {
+	ListByAccount(ctx context.Context, lockStrength db.LockingStrength, accountID string) ([]*exitnodes.ExitNode, error)
+}
+
+// Option configures an optional dependency of the Controller.
+type Option func(*Controller)
+
+// WithExitNodes makes the network maps route internet traffic through the account's exit nodes.
+func WithExitNodes(lister ExitNodeLister) Option {
+	return func(c *Controller) {
+		c.exitNodes = lister
+	}
 }
 
 type bufferUpdate struct {
@@ -84,7 +103,7 @@ type bufferAffectedUpdate struct {
 
 var _ network_map.Controller = (*Controller)(nil)
 
-func NewController(ctx context.Context, store store.Store, metrics telemetry.AppMetrics, peersUpdateManager network_map.PeersUpdateManager, requestBuffer account.RequestBuffer, integratedPeerValidator integrated_validator.IntegratedValidator, settingsManager settings.Manager, dnsDomain string, ephemeralPeersManager ephemeral.Manager, config *config.Config, nmdataStore *networkmapdb.NetworkMapDBStoreImpl) *Controller {
+func NewController(ctx context.Context, store store.Store, metrics telemetry.AppMetrics, peersUpdateManager network_map.PeersUpdateManager, requestBuffer account.RequestBuffer, integratedPeerValidator integrated_validator.IntegratedValidator, settingsManager settings.Manager, dnsDomain string, ephemeralPeersManager ephemeral.Manager, config *config.Config, nmdataStore *networkmapdb.NetworkMapDBStoreImpl, opts ...Option) *Controller {
 	nMetrics, err := newMetrics(metrics.UpdateChannelMetrics())
 	if err != nil {
 		log.Fatal(fmt.Errorf("error creating metrics: %w", err))
@@ -105,6 +124,9 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 		serverSupportedSyncMessageVersion:            sharedgrpc.SyncMessageVersionFromConfig(config.HighestSupportedSyncMessageVersion),
 		perAccountServerSupportedSyncMessageVersions: sharedgrpc.SyncMessageVersionsFromMap(config.PerAccountHighestSupportedSyncMessageVersion),
 		nmdataStore: nmdataStore,
+	}
+	for _, opt := range opts {
+		opt(c)
 	}
 
 	if nmdataStore != nil {
@@ -158,6 +180,26 @@ func (c *Controller) injectAllProxyPolicies(ctx context.Context, account *types.
 	} else if len(synth) > 0 {
 		account.Services = append(synth, account.Services...)
 	}
+}
+
+// injectExitNodes adds the account's exit nodes to the account as network resources. Like
+// injectAllProxyPolicies it runs on an account loaded for this cycle.
+func (c *Controller) injectExitNodes(ctx context.Context, account *types.Account) {
+	exitnodes.InjectIntoAccount(account, c.accountExitNodes(ctx, account.Id))
+}
+
+// accountExitNodes returns nil when the exit nodes cannot be read, so the network map is
+// still sent, without them.
+func (c *Controller) accountExitNodes(ctx context.Context, accountID string) []*exitnodes.ExitNode {
+	if c.exitNodes == nil {
+		return nil
+	}
+	nodes, err := c.exitNodes.ListByAccount(ctx, db.LockingStrengthNone, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get exit nodes for account %s: %v", accountID, err)
+		return nil
+	}
+	return nodes
 }
 
 // proxyServicesFromRepo is the store-path counterpart of
@@ -220,6 +262,8 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 	semaphore := make(chan struct{}, 10)
 
 	c.injectAllProxyPolicies(ctx, account)
+
+	c.injectExitNodes(ctx, account)
 	account.PrecomputePostureValidation(ctx)
 	dnsCache := &cache.DNSConfigCache{}
 	dnsDomain := c.GetDNSDomain(account.Settings)
@@ -500,6 +544,7 @@ func (c *Controller) fetchNetworkMapData(ctx context.Context, accountID string) 
 	nmData.Services = c.proxyServicesFromRepo(ctx, accountID)
 	nmData.BuildPrivateServiceCandidates()
 	nmData.InjectProxyPolicies()
+	exitnodes.InjectIntoNetworkMapData(nmData, c.accountExitNodes(ctx, accountID))
 
 	return nmData, nil
 }
@@ -665,6 +710,7 @@ func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID s
 	// network map that omitted the synth DNS zone, and the client kept
 	// resolving against the stale or absent record.
 	c.injectAllProxyPolicies(ctx, account)
+	c.injectExitNodes(ctx, account)
 	account.PrecomputePostureValidation(ctx)
 	dnsCache := &cache.DNSConfigCache{}
 	dnsDomain := c.GetDNSDomain(account.Settings)
@@ -809,6 +855,8 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 	}
 
 	c.injectAllProxyPolicies(ctx, account)
+
+	c.injectExitNodes(ctx, account)
 	dnsCache := &cache.DNSConfigCache{}
 	dnsDomain := c.GetDNSDomain(account.Settings)
 	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
@@ -943,6 +991,8 @@ func (c *Controller) GetValidatedPeerWithComponents(ctx context.Context, isRequi
 	}
 
 	c.injectAllProxyPolicies(ctx, account)
+
+	c.injectExitNodes(ctx, account)
 
 	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, types.TwinGroups(maps.Values(account.Groups)), types.TwinPeers(maps.Values(account.Peers)), account.Settings.Extra)
 	if err != nil {
@@ -1106,6 +1156,8 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 	}
 
 	c.injectAllProxyPolicies(ctx, account)
+
+	c.injectExitNodes(ctx, account)
 
 	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, types.TwinGroups(maps.Values(account.Groups)), types.TwinPeers(maps.Values(account.Peers)), account.Settings.Extra)
 	if err != nil {
@@ -1400,6 +1452,8 @@ func (c *Controller) GetNetworkMap(ctx context.Context, peerID string) (*types.N
 	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
 
 	c.injectAllProxyPolicies(ctx, account)
+
+	c.injectExitNodes(ctx, account)
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 	groupIDToUserIDs := account.GetActiveGroupUsers()
