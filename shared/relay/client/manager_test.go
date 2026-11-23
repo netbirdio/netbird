@@ -40,8 +40,9 @@ func TestEmptyURL(t *testing.T) {
 func TestForeignConn(t *testing.T) {
 	ctx := context.Background()
 
+	addr1, _ := freeAddr(t)
 	lstCfg1 := server.ListenerConfig{
-		Address: "localhost:52101",
+		Address: addr1,
 	}
 
 	srv1, err := server.NewServer(newManagerTestServerConfig(lstCfg1.Address))
@@ -67,8 +68,9 @@ func TestForeignConn(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
+	addr2, _ := freeAddr(t)
 	srvCfg2 := server.ListenerConfig{
-		Address: "localhost:52102",
+		Address: addr2,
 	}
 	srv2, err := server.NewServer(newManagerTestServerConfig(srvCfg2.Address))
 	if err != nil {
@@ -228,8 +230,9 @@ func TestForeignAutoClose(t *testing.T) {
 	relayCleanupInterval = 1 * time.Second
 	keepUnusedServerTime = 2 * time.Second
 
+	addr1, _ := freeAddr(t)
 	srvCfg1 := server.ListenerConfig{
-		Address: "localhost:52301",
+		Address: addr1,
 	}
 	srv1, err := server.NewServer(newManagerTestServerConfig(srvCfg1.Address))
 	if err != nil {
@@ -255,8 +258,9 @@ func TestForeignAutoClose(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
+	addr2, _ := freeAddr(t)
 	srvCfg2 := server.ListenerConfig{
-		Address: "localhost:52302",
+		Address: addr2,
 	}
 	srv2, err := server.NewServer(newManagerTestServerConfig(srvCfg2.Address))
 	if err != nil {
@@ -375,7 +379,7 @@ func TestAutoReconnect(t *testing.T) {
 
 	t.Log("closing client relay connection")
 	// todo figure out moc server
-	_ = clientAlice.relayClient.relayConn.Close()
+	_ = clientAlice.relayClient.CurrentSession().conn.Close()
 	t.Log("start test reading")
 	_, err = conn.Read(make([]byte, 1))
 	if err == nil {
@@ -466,7 +470,7 @@ func TestConnContextCancelledOnServerDisconnect(t *testing.T) {
 	default:
 	}
 
-	_ = mgr.relayClient.relayConn.Close()
+	_ = mgr.relayClient.CurrentSession().conn.Close()
 
 	select {
 	case <-relayedConn.Context().Done():

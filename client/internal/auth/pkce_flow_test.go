@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -244,4 +245,29 @@ func TestIsRedirectURLPortUsed(t *testing.T) {
 			assert.Equal(t, tt.expectedUsed, result, "Port usage check mismatch")
 		})
 	}
+}
+
+// TestIsRedirectURLPortUsed_EphemeralPortHeldByOutboundConn covers the callback port being
+// the local end of an outbound connection, as when the kernel hands 53000 to a browser
+// connection as its ephemeral port. Nothing listens there, so a dial is refused, but the
+// callback server's wildcard bind fails with EADDRINUSE. Linux only: BSD SO_REUSEADDR
+// semantics let the wildcard bind coexist with the connected socket.
+func TestIsRedirectURLPortUsed_EphemeralPortHeldByOutboundConn(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("wildcard bind conflicts with a connected socket's local port only on Linux")
+	}
+
+	remote, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = remote.Close() })
+
+	outbound, err := net.Dial("tcp", remote.Addr().String())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = outbound.Close() })
+
+	heldPort := outbound.LocalAddr().(*net.TCPAddr).Port
+	redirectURL := fmt.Sprintf("http://localhost:%d/", heldPort)
+
+	assert.True(t, isRedirectURLPortUsed(redirectURL, nil),
+		"port %d held by an outbound connection must be reported as used", heldPort)
 }
