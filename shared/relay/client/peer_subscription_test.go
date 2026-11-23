@@ -36,7 +36,7 @@ func TestWaitToBeOnlineAndSubscribe_Success(t *testing.T) {
 	mockConn := &mockRelayedConn{}
 	logger := logrus.New()
 	logger.SetOutput(&bytes.Buffer{}) // discard log output
-	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, messages.MaxMessageSize, nil)
+	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, messages.MaxMessageSize, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -56,7 +56,7 @@ func TestWaitToBeOnlineAndSubscribe_Timeout(t *testing.T) {
 	mockConn := &mockRelayedConn{}
 	logger := logrus.New()
 	logger.SetOutput(&bytes.Buffer{})
-	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, messages.MaxMessageSize, nil)
+	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, messages.MaxMessageSize, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
@@ -71,7 +71,7 @@ func TestWaitToBeOnlineAndSubscribe_Duplicate(t *testing.T) {
 	mockConn := &mockRelayedConn{}
 	logger := logrus.New()
 	logger.SetOutput(&bytes.Buffer{})
-	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, messages.MaxMessageSize, nil)
+	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, messages.MaxMessageSize, nil, nil)
 
 	ctx := context.Background()
 	go func() {
@@ -89,7 +89,7 @@ func TestUnsubscribeStateChange(t *testing.T) {
 	mockConn := &mockRelayedConn{}
 	logger := logrus.New()
 	logger.SetOutput(&bytes.Buffer{})
-	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, messages.MaxMessageSize, nil)
+	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, messages.MaxMessageSize, nil, nil)
 
 	doneChan := make(chan struct{})
 	go func() {
@@ -113,7 +113,7 @@ func TestUnsubscribeStateChange_SplitsByMaxMessageSize(t *testing.T) {
 	conn := &recordingRelayedConn{}
 	logger := logrus.New()
 	logger.SetOutput(&bytes.Buffer{})
-	sub := NewPeersStateSubscription(logrus.NewEntry(logger), conn, nbRelay.QUICMaxDatagramSize, nil)
+	sub := NewPeersStateSubscription(logrus.NewEntry(logger), conn, nbRelay.QUICMaxDatagramSize, nil, nil)
 
 	peerIDs := make([]messages.PeerID, 100)
 	for i := range peerIDs {
@@ -130,4 +130,41 @@ func TestUnsubscribeStateChange_SplitsByMaxMessageSize(t *testing.T) {
 		sent = append(sent, chunk...)
 	}
 	assert.Equal(t, peerIDs, sent, "every peer ID must be unsubscribed")
+}
+
+func TestOnPeersOnline_ReportsReregistrationOfSubscribedPeers(t *testing.T) {
+	subscribed := messages.HashID("subscribed")
+	unsubscribed := messages.HashID("unsubscribed")
+	logger := logrus.New()
+	logger.SetOutput(&bytes.Buffer{})
+
+	var reported [][]messages.PeerID
+	sub := NewPeersStateSubscription(logrus.NewEntry(logger), &mockRelayedConn{}, messages.MaxMessageSize, nil, func(peerIDs []messages.PeerID) {
+		reported = append(reported, peerIDs)
+	})
+
+	// The first online event completes the wait and is not a re-registration.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go func() {
+		for ctx.Err() == nil {
+			sub.mu.Lock()
+			_, waiting := sub.waitingPeers[subscribed]
+			sub.mu.Unlock()
+			if waiting {
+				sub.OnPeersOnline([]messages.PeerID{subscribed})
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}()
+	require.NoError(t, sub.WaitToBeOnlineAndSubscribe(ctx, subscribed))
+	assert.Empty(t, reported, "the online event that completes the wait should not be reported")
+
+	sub.OnPeersOnline([]messages.PeerID{subscribed, unsubscribed})
+	assert.Equal(t, [][]messages.PeerID{{subscribed}}, reported, "only the subscribed peer should be reported")
+
+	require.NoError(t, sub.UnsubscribeStateChange([]messages.PeerID{subscribed}))
+	sub.OnPeersOnline([]messages.PeerID{subscribed})
+	assert.Len(t, reported, 1, "a peer should not be reported after unsubscribing")
 }

@@ -25,21 +25,21 @@ type notificationBatch struct {
 type Listener struct {
 	ctx context.Context
 
-	wake                      chan struct{}
-	pending                   map[messages.PeerID]pendingState
-	interestedPeersForOffline map[messages.PeerID]struct{}
-	interestedPeersForOnline  map[messages.PeerID]struct{}
-	mu                        sync.Mutex
+	wake    chan struct{}
+	pending map[messages.PeerID]pendingState
+	// interestedPeers stays registered across reconnections of a peer until it is
+	// removed, so every registration of the peer produces an online notification.
+	interestedPeers map[messages.PeerID]struct{}
+	mu              sync.Mutex
 }
 
 func newListener(ctx context.Context) *Listener {
 	l := &Listener{
 		ctx: ctx,
 
-		wake:                      make(chan struct{}, 1),
-		pending:                   make(map[messages.PeerID]pendingState),
-		interestedPeersForOffline: make(map[messages.PeerID]struct{}),
-		interestedPeersForOnline:  make(map[messages.PeerID]struct{}),
+		wake:            make(chan struct{}, 1),
+		pending:         make(map[messages.PeerID]pendingState),
+		interestedPeers: make(map[messages.PeerID]struct{}),
 	}
 
 	return l
@@ -50,8 +50,7 @@ func (l *Listener) AddInterestedPeers(peerIDs []messages.PeerID) {
 	defer l.mu.Unlock()
 
 	for _, id := range peerIDs {
-		l.interestedPeersForOnline[id] = struct{}{}
-		l.interestedPeersForOffline[id] = struct{}{}
+		l.interestedPeers[id] = struct{}{}
 	}
 }
 
@@ -60,8 +59,7 @@ func (l *Listener) RemoveInterestedPeer(peerIDs []messages.PeerID) {
 	defer l.mu.Unlock()
 
 	for _, id := range peerIDs {
-		delete(l.interestedPeersForOffline, id)
-		delete(l.interestedPeersForOnline, id)
+		delete(l.interestedPeers, id)
 		delete(l.pending, id)
 	}
 }
@@ -88,7 +86,7 @@ func (l *Listener) peerWentOffline(peerID messages.PeerID) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	if _, ok := l.interestedPeersForOffline[peerID]; !ok {
+	if _, ok := l.interestedPeers[peerID]; !ok {
 		return
 	}
 	l.enqueue(peerID, false)
@@ -98,10 +96,9 @@ func (l *Listener) peerComeOnline(peerID messages.PeerID) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	if _, ok := l.interestedPeersForOnline[peerID]; !ok {
+	if _, ok := l.interestedPeers[peerID]; !ok {
 		return
 	}
-	delete(l.interestedPeersForOnline, peerID)
 	l.enqueue(peerID, true)
 }
 

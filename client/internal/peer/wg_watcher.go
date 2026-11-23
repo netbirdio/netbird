@@ -160,15 +160,7 @@ func (w *WGWatcher) handshakeCheck(lastHandshake time.Time) (*time.Time, bool) {
 }
 
 func (w *WGWatcher) wgState() (time.Time, error) {
-	wgStates, err := w.wgIfaceStater.GetStats()
-	if err != nil {
-		return time.Time{}, err
-	}
-	wgState, ok := wgStates[w.peerKey]
-	if !ok {
-		return time.Time{}, fmt.Errorf("peer %s not found in WireGuard endpoints", w.peerKey)
-	}
-	return wgState.LastHandshake, nil
+	return peerHandshake(w.wgIfaceStater, w.peerKey)
 }
 
 // calcElapsed calculates elapsed time since watcher was enabled.
@@ -179,4 +171,17 @@ func calcElapsed(enabledTime, handshake time.Time) float64 {
 		elapsed = 0
 	}
 	return elapsed
+}
+
+// peerHandshake returns the time of the last completed handshake with the peer.
+func peerHandshake(stater WGInterfaceStater, peerKey string) (time.Time, error) {
+	wgStates, err := stater.GetStats()
+	if err != nil {
+		return time.Time{}, err
+	}
+	wgState, ok := wgStates[peerKey]
+	if !ok {
+		return time.Time{}, fmt.Errorf("peer %s not found in WireGuard endpoints", peerKey)
+	}
+	return wgState.LastHandshake, nil
 }
