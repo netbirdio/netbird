@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AgentNetwork as AgentNetworkSvc } from "@bindings/services";
 import type { AgentNetworkInfo } from "@bindings/services/models.js";
 import { formatErrorMessage } from "@/lib/errors";
@@ -24,8 +24,12 @@ export const useAgentNetworkInfo = ({ enabled, pollMs }: Options) => {
     // Bumped by refresh() to rerun the fetch effect on demand.
     const [refreshTick, setRefreshTick] = useState(0);
     const refresh = useCallback(() => setRefreshTick((n) => n + 1), []);
+    // Only the latest request may update state; an older one can resolve last.
+    const latest = useRef(0);
 
-    const load = useCallback(async (isCancelled: () => boolean) => {
+    const load = useCallback(async (cancelled: () => boolean) => {
+        const id = ++latest.current;
+        const isCancelled = () => cancelled() || id !== latest.current;
         setLoading(true);
         try {
             const next = await AgentNetworkSvc.Info();
@@ -40,7 +44,13 @@ export const useAgentNetworkInfo = ({ enabled, pollMs }: Options) => {
     }, []);
 
     useEffect(() => {
-        if (!enabled) return;
+        if (!enabled) {
+            // Drop the previous connection's answer; it may belong to another profile.
+            setInfo(null);
+            setError(null);
+            setLoading(false);
+            return;
+        }
         let cancelled = false;
         const isCancelled = () => cancelled;
         void load(isCancelled);
