@@ -4598,7 +4598,7 @@ func TestDefaultAccountManager_WarmupIDPCacheFillsMissingEmailAndName(t *testing
 	logs := new(logtest.Hook)
 	hooks := log.StandardLogger().ReplaceHooks(log.LevelHooks{log.WarnLevel: {logs}})
 	t.Cleanup(func() { log.StandardLogger().ReplaceHooks(hooks) })
-	t.Setenv(envDisableIdPUserBackfill, "ture")
+	t.Setenv(envDisableIdPUserBackfill, "not-a-bool")
 	require.NoError(t, manager.warmupIDPCache(ctx, cacheStore))
 	assert.True(t, slices.ContainsFunc(logs.AllEntries(), func(e *log.Entry) bool {
 		return strings.Contains(e.Message, envDisableIdPUserBackfill)
