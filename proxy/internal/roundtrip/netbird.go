@@ -811,6 +811,29 @@ func NewNetBird(ctx context.Context, proxyID, proxyAddr string, clientCfg Client
 	}
 }
 
+func NewNetBirdForTesting(
+	ctx context.Context,
+	proxyID, proxyAddr string,
+	clientCfg ClientConfig,
+	logger *log.Logger,
+	notifier statusNotifier,
+	mgmtClient managementClient,
+	startClientFunc func(accountID types.AccountID, client *embed.Client)) *NetBird {
+
+	n := NewNetBird(
+		ctx,
+		proxyID,
+		proxyAddr,
+		clientCfg,
+		logger,
+		notifier,
+		mgmtClient,
+	)
+	n.startClient = startClientFunc
+
+	return n
+}
+
 // SetClientLifecycle registers callbacks that run when an embedded
 // client becomes ready and when its entry is torn down. The opaque value
 // returned by ready is stored on the entry and handed back to stop on

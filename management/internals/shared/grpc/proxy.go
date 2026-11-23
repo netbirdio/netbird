@@ -1282,6 +1282,7 @@ func shallowCloneMapping(m *proto.ProxyMapping) *proto.ProxyMapping {
 		ListenPort:         m.ListenPort,
 		AccessRestrictions: m.AccessRestrictions,
 		Private:            m.Private,
+		Disabled:           m.Disabled,
 	}
 }
 
