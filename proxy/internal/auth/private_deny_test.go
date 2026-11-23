@@ -138,7 +138,7 @@ func TestProtect_PrivateService_DeniedSetsCloseHeaders(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Equal(t, "close", rec.Header().Get("Connection"), "private denial must ask the client to drop the connection")
 	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"), "private denial must not be cacheable")
 }
@@ -151,7 +151,7 @@ func TestPrivateDeny_HTTP1_ClosesConnection(t *testing.T) {
 	client := srv.Client()
 
 	resp := doTraced(t, client, srv.URL)
-	assert.Equal(t, http.StatusForbidden, resp.status)
+	assert.Equal(t, http.StatusNotFound, resp.status)
 	assert.Equal(t, 1, resp.protoMajor, "plain httptest server must speak HTTP/1.1")
 	// The Go client folds "Connection: close" into resp.close and drops the header.
 	assert.True(t, resp.close, "private denial must make the client mark the connection as not reusable")
@@ -172,7 +172,7 @@ func TestPrivateDeny_HTTP2_SendsGoAway(t *testing.T) {
 
 	resp := doTraced(t, client, srv.URL)
 	require.Equal(t, 2, resp.protoMajor, "test client must negotiate HTTP/2")
-	assert.Equal(t, http.StatusForbidden, resp.status)
+	assert.Equal(t, http.StatusNotFound, resp.status)
 	assert.Empty(t, resp.connection, "HTTP/2 must not carry a Connection header on the wire")
 	assert.Equal(t, "no-store", resp.cacheControl)
 
@@ -237,7 +237,7 @@ func TestCheckIPRestrictions_PrivateDenialClosesConnection(t *testing.T) {
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
 
-			assert.Equal(t, http.StatusForbidden, rec.Code)
+			assert.Equal(t, http.StatusNotFound, rec.Code, "a caller outside the overlay must be refused with 404")
 			assert.Equal(t, "close", rec.Header().Get("Connection"), "private IP-restriction denial must close the connection")
 			assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"), "private IP-restriction denial must not be cacheable")
 		})
