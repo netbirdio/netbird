@@ -154,8 +154,13 @@ func testAccount() *types.Account {
 // the server for old ones, and the account fallback path.
 func networkMapsFor(t *testing.T, peerID string) map[string]*proto.NetworkMap {
 	t.Helper()
+	return networkMapsForNode(t, peerID, testExitNode())
+}
+
+func networkMapsForNode(t *testing.T, peerID string, node *exitnodes.ExitNode) map[string]*proto.NetworkMap {
+	t.Helper()
 	ctx := context.Background()
-	nodes := []*exitnodes.ExitNode{testExitNode()}
+	nodes := []*exitnodes.ExitNode{node}
 
 	nmd := testNetworkMapData()
 	exitnodes.InjectIntoNetworkMapData(nmd, nodes)
@@ -220,7 +225,7 @@ func TestExitNodeNetworkMap_SourcePeer(t *testing.T) {
 				assert.Equal(t, exitNodeName, r.GetNetID(), "the exit route should carry the exit node name")
 				assert.Equal(t, metric, r.GetMetric(), "the exit route should carry the peer metric")
 				assert.True(t, r.GetMasquerade(), "exit traffic should be masqueraded")
-				assert.False(t, r.GetSkipAutoApply(), "auto-apply cannot be turned off for exit nodes yet")
+				assert.False(t, r.GetSkipAutoApply(), "an auto applied exit node should be selected on the client")
 			}
 			assert.NotContains(t, routes, peerKey("exit-c"), "a disabled exit node peer should not route")
 
@@ -229,6 +234,25 @@ func TestExitNodeNetworkMap_SourcePeer(t *testing.T) {
 			assert.True(t, peers[peerKey("exit-b")], "the laptop should connect to exit-b")
 			assert.False(t, peers[peerKey("exit-c")], "the laptop should not connect to a disabled exit node peer")
 			assert.Empty(t, nm.GetFirewallRules(), "the exit node policy should not open the exit node peers themselves")
+		})
+	}
+}
+
+func TestExitNodeNetworkMap_AutoApplyOff(t *testing.T) {
+	node := testExitNode()
+	node.AutoApply = false
+
+	for path, nm := range networkMapsForNode(t, "laptop", node) {
+		t.Run(path, func(t *testing.T) {
+			routes := exitRoutes(nm)
+			require.Len(t, routes, 2, "the laptop should still get the exit routes to select them")
+
+			// The account fallback path builds routes from the stored network resource
+			// model, which has no skip auto apply, so the exit node stays auto applied there.
+			want := path != "account path"
+			for _, r := range routes {
+				assert.Equal(t, want, r.GetSkipAutoApply(), "skip auto apply on the %s exit route", path)
+			}
 		})
 	}
 }
