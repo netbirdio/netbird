@@ -160,30 +160,16 @@ func (s *SqlStore) GetAccountUsersPaginated(ctx context.Context,
 	filters UserFilters,
 	sorting UserSorting,
 ) ([]*types.User, int, error) {
-	if s.conn.Engine() == types.PostgresStoreEngine {
-		return s.getAccountUsersPaginated(ctx, lockStrength, accountID, pagination,
-			userFilters{UserFilters: filters, fuzzyNameSearchConditionFunc: fuzzyNameSearchConditionPostgres}, sorting)
-	}
-	return s.getAccountUsersPaginated(ctx, lockStrength, accountID, pagination,
-		userFilters{UserFilters: filters, fuzzyNameSearchConditionFunc: fuzzyNameSearchConditionSqlite}, sorting)
-}
+	engine := s.conn.Engine()
 
-func (s *SqlStore) getAccountUsersPaginated(ctx context.Context,
-	lockStrength LockingStrength,
-	accountID string,
-	pagination PaginationState,
-	filters userFilters,
-	sorting UserSorting,
-) ([]*types.User, int, error) {
 	// A fresh statement per query keeps the page's LIMIT/OFFSET out of the count.
 	listedUsers := func() *gorm.DB {
 		tx := s.db
 		if lockStrength != LockingStrengthNone {
 			tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 		}
-		tx = tx.Where(accountIDCondition, accountID).
-			Where("(non_deletable = ? OR non_deletable IS NULL)", false)
-		return filters.AsConditions(tx)
+		tx = whereBool(tx.Where(accountIDCondition, accountID), "users.non_deletable", false)
+		return filters.AsConditions(tx, engine)
 	}
 
 	var users []*types.User
@@ -192,7 +178,7 @@ func (s *SqlStore) getAccountUsersPaginated(ctx context.Context,
 		query = pagination.AsScope(query)
 		query = sorting.AsOrderBy(query)
 
-		if err := query.Distinct().Find(&users).Error; err != nil {
+		if err := query.Find(&users).Error; err != nil {
 			log.WithContext(ctx).Errorf("failed to get users from the store: %s", err)
 			return nil, 0, status.Errorf(status.Internal, "failed to get users from store")
 		}
@@ -222,28 +208,57 @@ func (s *SqlStore) getAccountUsersPaginated(ctx context.Context,
 	return toret, int(count), nil
 }
 
+// UserFilters narrows the users GetAccountUsersPaginated lists. Empty fields don't filter.
 type UserFilters struct {
-	Name        string
-	ServiceUser *bool
+	Name            string
+	ServiceUser     *bool
+	PendingApproval *bool
+	Roles           []types.UserRole
+	// GroupIDs matches users with any of these groups in their auto groups.
+	GroupIDs []string
+	UserIDs  []string
 }
 
-type userFilters struct {
-	UserFilters
-	fuzzyNameSearchConditionFunc func(db *gorm.DB, pattern string) *gorm.DB
-}
-
-func (uf *userFilters) AsConditions(db *gorm.DB) *gorm.DB {
-	tx := uf.fuzzyNameSearchConditionFunc(db, uf.Name)
-
-	if uf.ServiceUser != nil {
-		if *uf.ServiceUser {
-			tx = tx.Where("is_service_user = ?", true)
-		} else {
-			tx = tx.Where("(is_service_user = ? OR is_service_user IS NULL)", false)
-		}
+// AsConditions adds the filters to a users query.
+func (f *UserFilters) AsConditions(db *gorm.DB, engine types.Engine) *gorm.DB {
+	if engine == types.PostgresStoreEngine {
+		db = fuzzyNameSearchConditionPostgres(db, f.Name)
+	} else {
+		db = fuzzyNameSearchConditionSqlite(db, f.Name)
 	}
+	if f.ServiceUser != nil {
+		db = whereBool(db, "users.is_service_user", *f.ServiceUser)
+	}
+	if f.PendingApproval != nil {
+		db = whereBool(db, "users.pending_approval", *f.PendingApproval)
+	}
+	if len(f.Roles) > 0 {
+		db = db.Where("users.role IN ?", f.Roles)
+	}
+	if len(f.GroupIDs) > 0 {
+		db = db.Where(autoGroupsMatchAnyCondition(engine), f.GroupIDs)
+	}
+	if len(f.UserIDs) > 0 {
+		db = db.Where("users.id IN ?", f.UserIDs)
+	}
+	return db
+}
 
-	return tx
+// whereBool matches a boolean column, counting NULL as false.
+func whereBool(db *gorm.DB, column string, value bool) *gorm.DB {
+	if value {
+		return db.Where(column+" = ?", true)
+	}
+	return db.Where("("+column+" = ? OR "+column+" IS NULL)", false)
+}
+
+// autoGroupsMatchAnyCondition matches users whose auto groups contain any of the given group IDs.
+// The auto groups are a JSON array in a text column; any other value counts as no groups.
+func autoGroupsMatchAnyCondition(engine types.Engine) string {
+	if engine == types.PostgresStoreEngine {
+		return `EXISTS (SELECT 1 FROM jsonb_array_elements_text(CASE WHEN users.auto_groups LIKE '[%' THEN users.auto_groups::jsonb ELSE '[]'::jsonb END) AS auto_group(id) WHERE auto_group.id IN ?)`
+	}
+	return `EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(users.auto_groups) THEN users.auto_groups ELSE '[]' END) AS auto_group WHERE auto_group.value IN ?)`
 }
 
 func fuzzyNameSearchConditionPostgres(db *gorm.DB, pattern string) *gorm.DB {
@@ -287,12 +302,53 @@ func fuzzyNameSearchConditionSqlite(db *gorm.DB, pattern string) *gorm.DB {
 	return tx
 }
 
-type UserSorting struct{}
+// UserSortByField is a field the users listing can be sorted by.
+type UserSortByField int
 
-func (us *UserSorting) AsOrderBy(db *gorm.DB) *gorm.DB {
-	// TODO: sort by role, status, last_login and created_at, ahead of the id tie-breaker
-	// always break ties by id so pages are stable
-	return db.Order(clause.OrderBy{Columns: []clause.OrderByColumn{{Column: clause.Column{Name: "users.id"}}}})
+const (
+	UserSortByIsCurrent UserSortByField = iota
+	UserSortByRole
+	UserSortByLastLogin
+)
+
+// UserSortingKey is one sort field and its direction.
+type UserSortingKey struct {
+	Field UserSortByField
+	Order OrderBy
+}
+
+// UserSorting orders the users GetAccountUsersPaginated lists. The id always comes last,
+// so pages stay stable.
+type UserSorting struct {
+	// CurrentUserID is the user the is_current field refers to.
+	CurrentUserID string
+	Fields        []UserSortingKey
+}
+
+// AsOrderBy adds the sort fields to a users query.
+func (s *UserSorting) AsOrderBy(db *gorm.DB) *gorm.DB {
+	// TODO: sort by name. Names are encrypted at rest, so SQL can't order them.
+	var columns []string
+	var vars []any
+	for _, key := range s.Fields {
+		direction := " ASC"
+		if key.Order == DescOrderBy {
+			direction = " DESC"
+		}
+		switch key.Field {
+		case UserSortByIsCurrent:
+			columns = append(columns, "CASE WHEN users.id = ? THEN 1 ELSE 0 END"+direction)
+			vars = append(vars, s.CurrentUserID)
+		case UserSortByRole:
+			columns = append(columns, "users.role"+direction)
+		case UserSortByLastLogin:
+			// users who never logged in come last in both directions, as engines order NULLs differently
+			columns = append(columns, "CASE WHEN users.last_login IS NULL THEN 1 ELSE 0 END", "users.last_login"+direction)
+		}
+	}
+	columns = append(columns, "users.id")
+
+	return db.Order(clause.OrderBy{Expression: clause.Expr{SQL: strings.Join(columns, ", "), Vars: vars}})
 }
 
 // use https://hur.st/bloomfilter/ to calculate filter params

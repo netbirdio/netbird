@@ -357,14 +357,40 @@ func TestSqlStore_GetAccountUsersPaginated(t *testing.T) {
 		for i := range 3 {
 			users = append(users, types.NewUser(fmt.Sprintf("paged-service-%02d", i), types.UserRoleUser, true, false, "svc", []string{}, types.UserIssuedAPI, "", ""))
 		}
-		nonDeletable := types.NewUser("paged-non-deletable", types.UserRoleAdmin, true, true, "integration", []string{}, types.UserIssuedIntegration, "", "")
+		nonDeletable := types.NewUser("paged-non-deletable", types.UserRoleAdmin, true, true, "integration", []string{"grp-a"}, types.UserIssuedIntegration, "", "")
 		users = append(users, nonDeletable)
 		for _, u := range users {
 			u.AccountID = accountID
 		}
+
+		// Vary the fields the filters and sorts use. The seed's admin user has the auto group
+		// cfefqs706sqkneg59g3g, and neither seed user has logged in or has pending_approval set.
+		loginTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+		users[0].Role, users[0].AutoGroups, users[0].LastLogin = types.UserRoleAdmin, []string{"grp-a"}, new(loginTime.Add(time.Hour))
+		users[1].Role, users[1].AutoGroups, users[1].PendingApproval = types.UserRoleNetworkAdmin, []string{"grp-a", "grp-b"}, true
+		users[2].AutoGroups, users[2].LastLogin = []string{"grp-b"}, new(loginTime.Add(2*time.Hour))
 		require.NoError(t, store.SaveUsers(ctx, users))
 
+		// auto_groups can hold a value that isn't a JSON array; such users have no groups.
+		db := store.(*SqlStore).db
+		require.NoError(t, db.Exec("UPDATE users SET auto_groups = ? WHERE id = ?", "null", users[3].Id).Error)
+		require.NoError(t, db.Exec("UPDATE users SET auto_groups = ? WHERE id = ?", "", users[4].Id).Error)
+		require.NoError(t, db.Exec("UPDATE users SET auto_groups = NULL WHERE id = ?", users[5].Id).Error)
+
 		const listedUsers = 12
+
+		listIDs := func(t *testing.T, pagination PaginationState, filters UserFilters, sorting UserSorting) ([]string, int) {
+			t.Helper()
+			got, count, err := store.GetAccountUsersPaginated(ctx, LockingStrengthNone, accountID, pagination, filters, sorting)
+			require.NoError(t, err)
+			ids := make([]string, 0, len(got))
+			for _, u := range got {
+				ids = append(ids, u.Id)
+			}
+			return ids, count
+		}
+		allUsers := PaginationState{Page: 1, PageSize: 100}
+		const seedAdmin, seedUser = "edafee4e-63fb-11ec-90d6-0242ac120003", "f4f6d672-63fb-11ec-90d6-0242ac120003"
 
 		t.Run("pages cover every listed user once, in id order", func(t *testing.T) {
 			var ids []string
@@ -401,6 +427,71 @@ func TestSqlStore_GetAccountUsersPaginated(t *testing.T) {
 				for _, u := range got {
 					assert.Equal(t, tc.serviceUser, u.IsServiceUser, "user %s with service_user=%v", u.Id, tc.serviceUser)
 				}
+			}
+		})
+
+		t.Run("role filter matches any of the roles", func(t *testing.T) {
+			ids, count := listIDs(t, allUsers, UserFilters{Roles: []types.UserRole{types.UserRoleAdmin, types.UserRoleNetworkAdmin}}, UserSorting{})
+			assert.Equal(t, []string{seedAdmin, "paged-user-00", "paged-user-01"}, ids, "admins and network admins, without the non-deletable admin")
+			assert.Equal(t, 3, count, "total count with the role filter")
+		})
+
+		t.Run("pending_approval filter counts unset as false", func(t *testing.T) {
+			ids, count := listIDs(t, allUsers, UserFilters{PendingApproval: new(true)}, UserSorting{})
+			assert.Equal(t, []string{"paged-user-01"}, ids, "users pending approval")
+			assert.Equal(t, 1, count, "total count with pending_approval=true")
+
+			ids, count = listIDs(t, allUsers, UserFilters{PendingApproval: new(false)}, UserSorting{})
+			assert.Equal(t, listedUsers-1, count, "total count with pending_approval=false")
+			assert.Contains(t, ids, seedUser, "a seed user with pending_approval unset is not pending")
+			assert.NotContains(t, ids, "paged-user-01", "a pending user is excluded")
+		})
+
+		t.Run("user_ids filter", func(t *testing.T) {
+			ids, count := listIDs(t, allUsers, UserFilters{UserIDs: []string{"paged-user-05", "paged-user-00", nonDeletable.Id, "no-such-user"}}, UserSorting{})
+			assert.Equal(t, []string{"paged-user-00", "paged-user-05"}, ids, "listed users with the requested ids")
+			assert.Equal(t, 2, count, "total count with the user_ids filter")
+		})
+
+		t.Run("group_ids filter matches any auto group", func(t *testing.T) {
+			for _, tc := range []struct {
+				groups []string
+				want   []string
+			}{
+				{groups: []string{"grp-a"}, want: []string{"paged-user-00", "paged-user-01"}},
+				{groups: []string{"grp-b", "cfefqs706sqkneg59g3g"}, want: []string{seedAdmin, "paged-user-01", "paged-user-02"}},
+				{groups: []string{"no-such-group"}, want: []string{}},
+			} {
+				ids, count := listIDs(t, allUsers, UserFilters{GroupIDs: tc.groups}, UserSorting{})
+				assert.Equal(t, tc.want, ids, "users with any of the groups %v", tc.groups)
+				assert.Equal(t, len(tc.want), count, "total count with the groups %v", tc.groups)
+			}
+		})
+
+		t.Run("is_current sorts the current user first", func(t *testing.T) {
+			sorting := UserSorting{CurrentUserID: "paged-user-04", Fields: []UserSortingKey{{Field: UserSortByIsCurrent, Order: DescOrderBy}}}
+			ids, _ := listIDs(t, PaginationState{Page: 1, PageSize: 3}, UserFilters{}, sorting)
+			assert.Equal(t, []string{"paged-user-04", seedAdmin, seedUser}, ids, "the current user, then the rest by id")
+		})
+
+		t.Run("role sort breaks ties by id", func(t *testing.T) {
+			sorting := UserSorting{Fields: []UserSortingKey{{Field: UserSortByRole, Order: AscOrderBy}}}
+			ids, _ := listIDs(t, PaginationState{Page: 1, PageSize: 4}, UserFilters{}, sorting)
+			assert.Equal(t, []string{seedAdmin, "paged-user-00", "paged-user-01", seedUser}, ids, "admins, then network admins, then users, each by id")
+		})
+
+		t.Run("last_login sort puts users who never logged in last", func(t *testing.T) {
+			for _, tc := range []struct {
+				order OrderBy
+				want  []string
+			}{
+				{order: DescOrderBy, want: []string{"paged-user-02", "paged-user-00", seedAdmin, seedUser}},
+				{order: AscOrderBy, want: []string{"paged-user-00", "paged-user-02", seedAdmin, seedUser}},
+			} {
+				sorting := UserSorting{Fields: []UserSortingKey{{Field: UserSortByLastLogin, Order: tc.order}}}
+				page1, _ := listIDs(t, PaginationState{Page: 1, PageSize: 2}, UserFilters{}, sorting)
+				page2, _ := listIDs(t, PaginationState{Page: 2, PageSize: 2}, UserFilters{}, sorting)
+				assert.Equal(t, tc.want, append(page1, page2...), "first two pages with last_login order %v", tc.order)
 			}
 		})
 	})

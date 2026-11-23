@@ -75,27 +75,50 @@ func TestGetUsers(t *testing.T) {
 	// keep the manager's order, and wrap the page in a UserBatch.
 	listed := []string{serviceUserID, existingUserID, regularUserID}
 	const totalUsers = 42
-	serviceOnly, regularOnly := true, false
 
 	tt := []struct {
-		name                string
-		requestPath         string
-		expectedPagination  store.PaginationState
-		expectedServiceUser *bool
+		name               string
+		requestPath        string
+		expectedPagination store.PaginationState
+		expectedFilters    store.UserFilters
+		expectedSorting    store.UserSorting
 	}{
 		{name: "all users", requestPath: "/users?page=1&page_size=10", expectedPagination: store.PaginationState{Page: 1, PageSize: 10}},
-		{name: "service users", requestPath: "/users?page=2&page_size=5&service_user=true", expectedPagination: store.PaginationState{Page: 2, PageSize: 5}, expectedServiceUser: &serviceOnly},
-		{name: "regular users", requestPath: "/users?page=1&page_size=10&service_user=false", expectedPagination: store.PaginationState{Page: 1, PageSize: 10}, expectedServiceUser: &regularOnly},
+		{name: "default page and page size", requestPath: "/users", expectedPagination: store.PaginationState{Page: 1, PageSize: 100}},
+		{name: "service users", requestPath: "/users?page=2&page_size=5&service_user=true", expectedPagination: store.PaginationState{Page: 2, PageSize: 5}, expectedFilters: store.UserFilters{ServiceUser: new(true)}},
+		{name: "regular users", requestPath: "/users?page=1&page_size=10&service_user=false", expectedPagination: store.PaginationState{Page: 1, PageSize: 10}, expectedFilters: store.UserFilters{ServiceUser: new(false)}},
+		{
+			name:               "role, pending approval, group and id filters",
+			requestPath:        "/users?role=admin&role=network_admin&pending_approval=true&group_ids=grp-a&group_ids=grp-b&user_ids=" + regularUserID,
+			expectedPagination: store.PaginationState{Page: 1, PageSize: 100},
+			expectedFilters: store.UserFilters{
+				Roles:           []types.UserRole{types.UserRoleAdmin, types.UserRoleNetworkAdmin},
+				PendingApproval: new(true),
+				GroupIDs:        []string{"grp-a", "grp-b"},
+				UserIDs:         []string{regularUserID},
+			},
+		},
+		{
+			name:               "sorting keeps the field order",
+			requestPath:        "/users?sort_by=is_current,desc&sort_by=role&sort_by=last_login,asc",
+			expectedPagination: store.PaginationState{Page: 1, PageSize: 100},
+			expectedSorting: store.UserSorting{Fields: []store.UserSortingKey{
+				{Field: store.UserSortByIsCurrent, Order: store.DescOrderBy},
+				{Field: store.UserSortByRole, Order: store.AscOrderBy},
+				{Field: store.UserSortByLastLogin, Order: store.AscOrderBy},
+			}},
+		},
 	}
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
 			var gotPagination store.PaginationState
 			var gotFilters store.UserFilters
+			var gotSorting store.UserSorting
 
 			userHandler := initUsersTestData()
-			userHandler.accountManager.(*mock_server.MockAccountManager).GetUsersFromAccountPaginatedFunc = func(_ context.Context, _, _ string, pagination store.PaginationState, filters store.UserFilters, _ store.UserSorting) ([]*types.UserInfo, int, error) {
-				gotPagination, gotFilters = pagination, filters
+			userHandler.accountManager.(*mock_server.MockAccountManager).GetUsersFromAccountPaginatedFunc = func(_ context.Context, _, _ string, pagination store.PaginationState, filters store.UserFilters, sorting store.UserSorting) ([]*types.UserInfo, int, error) {
+				gotPagination, gotFilters, gotSorting = pagination, filters, sorting
 				infos := make([]*types.UserInfo, 0, len(listed))
 				for _, id := range listed {
 					u := usersTestAccount.Users[id]
@@ -128,7 +151,8 @@ func TestGetUsers(t *testing.T) {
 			require.Equal(t, http.StatusOK, recorder.Code, "status code, content: %s", string(content))
 
 			assert.Equal(t, tc.expectedPagination, gotPagination, "pagination passed to the manager")
-			assert.Equal(t, tc.expectedServiceUser, gotFilters.ServiceUser, "service_user filter passed to the manager")
+			assert.Equal(t, tc.expectedFilters, gotFilters, "filters passed to the manager")
+			assert.Equal(t, tc.expectedSorting, gotSorting, "sorting passed to the manager")
 
 			var batch apiv1alpha1.UserBatch
 			require.NoError(t, json.Unmarshal(content, &batch))
@@ -145,6 +169,45 @@ func TestGetUsers(t *testing.T) {
 				assert.Equal(t, &isServiceUser, u.IsServiceUser, "is_service_user of %s", u.Id)
 			}
 			assert.Equal(t, listed, gotIDs, "users should keep the manager's order")
+		})
+	}
+}
+
+func TestGetUsersRejectsInvalidQuery(t *testing.T) {
+	for _, requestPath := range []string{
+		"/users?page_size=500",
+		"/users?pending_approval=maybe",
+		"/users?role=nosuchrole",
+		// name is not sortable, as names are encrypted at rest
+		"/users?sort_by=name",
+		"/users?sort_by=role,sideways",
+		"/users?sort_by=asc",
+	} {
+		t.Run(requestPath, func(t *testing.T) {
+			userHandler := initUsersTestData()
+			called := false
+			userHandler.accountManager.(*mock_server.MockAccountManager).GetUsersFromAccountPaginatedFunc = func(context.Context, string, string, store.PaginationState, store.UserFilters, store.UserSorting) ([]*types.UserInfo, int, error) {
+				called = true
+				return nil, 0, nil
+			}
+
+			recorder := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, requestPath, nil)
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
+				UserId:    existingUserID,
+				Domain:    testDomain,
+				AccountId: existingAccountID,
+			})
+
+			v1validator, err := apiv1alpha1.CreateV1ApiValidatingMiddleware()
+			require.NoError(t, err)
+			router := mux.NewRouter()
+			router.Use(v1validator.Handler)
+			router = userHandler.WithEndpointsForRouter(router)
+			router.ServeHTTP(recorder, req)
+
+			assert.Equal(t, http.StatusUnprocessableEntity, recorder.Code, "status code for %s, body: %s", requestPath, recorder.Body.String())
+			assert.False(t, called, "the manager must not be called for %s", requestPath)
 		})
 	}
 }

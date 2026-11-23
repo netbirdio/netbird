@@ -1128,26 +1128,25 @@ func (am *DefaultAccountManager) GetUsersFromAccountPaginated(ctx context.Contex
 		user = result
 	}
 
-	var accountUsers []*types.User
-	var count int
-
-	switch {
-	case allowed:
-		start := time.Now()
-		accountUsers, count, err = am.Store.GetAccountUsersPaginated(ctx, store.LockingStrengthNone, accountID, pagination, filters, sorting)
-		if err != nil {
-			return nil, 0, err
+	if !allowed {
+		// users without read access see only themselves, through the same query and filters
+		if user == nil || user.AccountID != accountID {
+			return []*types.UserInfo{}, 0, nil
 		}
-		log.WithContext(ctx).Tracef("Got %d users from account %s after %s", len(accountUsers), accountID, time.Since(start))
-	case user != nil && user.AccountID == accountID:
-		// apply the same listing rules as the store query
-		if !user.NonDeletable && (filters.ServiceUser == nil || *filters.ServiceUser == user.IsServiceUser) {
-			accountUsers = append(accountUsers, user)
+		if len(filters.UserIDs) > 0 && !slices.Contains(filters.UserIDs, user.Id) {
+			return []*types.UserInfo{}, 0, nil
 		}
-		count = len(accountUsers)
-	default:
-		return []*types.UserInfo{}, 0, nil
+		filters.UserIDs = []string{user.Id}
 	}
+
+	sorting.CurrentUserID = initiatorUserID
+
+	start := time.Now()
+	accountUsers, count, err := am.Store.GetAccountUsersPaginated(ctx, store.LockingStrengthNone, accountID, pagination, filters, sorting)
+	if err != nil {
+		return nil, 0, err
+	}
+	log.WithContext(ctx).Tracef("Got %d users from account %s after %s", len(accountUsers), accountID, time.Since(start))
 
 	infos, err := am.BuildUserInfosForAccount(ctx, accountID, initiatorUserID, accountUsers)
 	if err != nil {

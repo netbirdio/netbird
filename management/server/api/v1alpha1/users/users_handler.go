@@ -1,9 +1,11 @@
 package users
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
@@ -62,7 +64,14 @@ func (h *Handler) getAllUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, userCount, err := h.accountManager.GetUsersFromAccountPaginated(r.Context(), accountID, userID, pagination, filters, store.UserSorting{})
+	sorting, err := sortingFromQuery(r.URL.Query())
+	if err != nil {
+		log.WithContext(r.Context()).Errorf("error parsing query: %v", err)
+		util.WriteError(r.Context(), &status.Error{ErrorType: status.InvalidArgument, Message: err.Error()}, w)
+		return
+	}
+
+	data, userCount, err := h.accountManager.GetUsersFromAccountPaginated(r.Context(), accountID, userID, pagination, filters, sorting)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -144,17 +153,65 @@ func paginationFromQuery(v url.Values) (store.PaginationState, error) {
 }
 
 func filtersFromQuery(v url.Values) (store.UserFilters, error) {
-	toret := store.UserFilters{}
-
 	serviceUser, err := parseBool(v.Get("service_user"))
 	if err != nil {
-		return toret, err
+		return store.UserFilters{}, fmt.Errorf("parse service_user: %w", err)
 	}
 
-	toret.Name = v.Get("name")
-	toret.ServiceUser = serviceUser
+	pendingApproval, err := parseBool(v.Get("pending_approval"))
+	if err != nil {
+		return store.UserFilters{}, fmt.Errorf("parse pending_approval: %w", err)
+	}
 
-	return toret, nil
+	var roles []types.UserRole
+	for _, value := range v["role"] {
+		role := types.StrRoleToUserRole(value)
+		if role == types.UserRoleUnknown {
+			return store.UserFilters{}, fmt.Errorf("unknown role %q", value)
+		}
+		roles = append(roles, role)
+	}
+
+	return store.UserFilters{
+		Name:            v.Get("name"),
+		ServiceUser:     serviceUser,
+		PendingApproval: pendingApproval,
+		Roles:           roles,
+		GroupIDs:        v["group_ids"],
+		UserIDs:         v["user_ids"],
+	}, nil
+}
+
+// sortingFromQuery parses repeated sort_by values such as "last_login,desc". The order
+// defaults to ascending.
+func sortingFromQuery(v url.Values) (store.UserSorting, error) {
+	var sorting store.UserSorting
+	for _, value := range v["sort_by"] {
+		field, order, _ := strings.Cut(value, ",")
+
+		key := store.UserSortingKey{Order: store.AscOrderBy}
+		switch strings.TrimSpace(field) {
+		case "is_current":
+			key.Field = store.UserSortByIsCurrent
+		case "role":
+			key.Field = store.UserSortByRole
+		case "last_login":
+			key.Field = store.UserSortByLastLogin
+		default:
+			return store.UserSorting{}, fmt.Errorf("unknown sort field %q", field)
+		}
+
+		switch strings.TrimSpace(order) {
+		case "", "asc":
+		case "desc":
+			key.Order = store.DescOrderBy
+		default:
+			return store.UserSorting{}, fmt.Errorf("unknown sort order %q", order)
+		}
+
+		sorting.Fields = append(sorting.Fields, key)
+	}
+	return sorting, nil
 }
 
 func parseBool(maybeBool string) (*bool, error) {

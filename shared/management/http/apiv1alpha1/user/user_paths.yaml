@@ -17,7 +17,7 @@ UsersPath:
           default: 1
       - name: page_size
         in: query
-        description: Number of peers per page
+        description: Number of users per page
         required: false
         schema:
           type: integer
@@ -37,6 +37,59 @@ UsersPath:
         schema:
           type: boolean
         description: Filters users and returns either regular users or service users
+      - in: query
+        name: pending_approval
+        schema:
+          type: boolean
+        description: Filters users by whether they are waiting for approval
+      - in: query
+        name: role
+        required: false
+        description: Filters users by role, matching any of the given roles
+        schema:
+          type: array
+          items:
+            type: string
+            enum:
+              - owner
+              - admin
+              - user
+              - network_admin
+              - billing_admin
+              - auditor
+              - agent_network_admin
+              - usage_viewer
+      - in: query
+        name: group_ids
+        required: false
+        description: Filters users whose auto groups contain any of the given group IDs
+        schema:
+          type: array
+          items:
+            type: string
+      - in: query
+        name: user_ids
+        required: false
+        description: Filters users by ID
+        schema:
+          type: array
+          items:
+            type: string
+      - in: query
+        name: sort_by
+        required: false
+        description: Sorting of users, as field or field,order. Users are always sorted by ID last.
+        example: sort_by=is_current,desc&sort_by=last_login,desc
+        schema:
+          type: array
+          items:
+            type: string
+            enum:
+              - is_current
+              - role
+              - last_login
+              - asc
+              - desc
     responses:
       '200':
         description: A page of Users

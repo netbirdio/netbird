@@ -1493,6 +1493,33 @@ func TestUser_GetUsersFromAccountPaginated(t *testing.T) {
 		assert.Equal(t, 0, count, "total count for a regular user asking for service users")
 		assert.Empty(t, users, "a regular user is not a service user")
 	})
+
+	t.Run("regular user gets the filters applied to themselves", func(t *testing.T) {
+		for _, tc := range []struct {
+			name    string
+			filters store.UserFilters
+			want    []string
+		}{
+			{name: "own role", filters: store.UserFilters{Roles: []types.UserRole{types.UserRoleUser}}, want: []string{regularUserID}},
+			{name: "another role", filters: store.UserFilters{Roles: []types.UserRole{types.UserRoleOwner}}, want: []string{}},
+			{name: "own and another id", filters: store.UserFilters{UserIDs: []string{mockUserID, regularUserID}}, want: []string{regularUserID}},
+			{name: "only another id", filters: store.UserFilters{UserIDs: []string{mockUserID}}, want: []string{}},
+		} {
+			users, count, err := am.GetUsersFromAccountPaginated(context.Background(), mockAccountID, regularUserID,
+				store.PaginationState{Page: 1, PageSize: 10}, tc.filters, store.UserSorting{})
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, ids(users), "users visible to a regular user with %s", tc.name)
+			assert.Equal(t, len(tc.want), count, "total count for a regular user with %s", tc.name)
+		}
+	})
+
+	t.Run("is_current sorts the caller first", func(t *testing.T) {
+		sorting := store.UserSorting{Fields: []store.UserSortingKey{{Field: store.UserSortByIsCurrent, Order: store.DescOrderBy}}}
+		users, _, err := am.GetUsersFromAccountPaginated(context.Background(), mockAccountID, mockUserID,
+			store.PaginationState{Page: 1, PageSize: 10}, store.UserFilters{}, sorting)
+		require.NoError(t, err)
+		assert.Equal(t, []string{mockUserID, regularUserID, mockServiceUserID}, ids(users), "the caller, then the rest by id")
+	})
 }
 
 func TestDefaultAccountManager_SaveUser(t *testing.T) {
