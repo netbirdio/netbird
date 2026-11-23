@@ -1,6 +1,10 @@
 package types
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/netbirdio/netbird/management/server/testutil"
+)
 
 func TestNewNetworkRouter(t *testing.T) {
 	tests := []struct {
@@ -117,4 +121,9 @@ func TestNewNetworkRouter(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNetworkRouter_EqualComparesAllFields(t *testing.T) {
+	// PublicID is copied from the stored router before comparing.
+	testutil.EqualComparesAllFields(t, (*NetworkRouter).Equal, "PublicID")
 }

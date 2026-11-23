@@ -338,6 +338,7 @@ func decodePeerCompact(pc *proto.PeerCompact, peerID string) *nmdata.Peer {
 		SSHEnabled:             pc.SshEnabled,
 		DNSLabel:               pc.DnsLabel,
 		LoginExpirationEnabled: pc.LoginExpirationEnabled,
+		StatusLoginExpired:     pc.LoginExpired,
 		ProxyMeta:              nmdata.ProxyMeta{Embedded: pc.ProxyEmbedded},
 		Meta: nmdata.PeerSystemMeta{
 			WtVersion:    pc.AgentVersion,
@@ -490,15 +491,16 @@ func decodeNameServerGroupRaw(nsg *proto.NameServerGroupRaw) *nmdata.NameServerG
 
 func decodeNetworkResource(nr *proto.NetworkResourceRaw) *nmdata.NetworkResource {
 	out := &nmdata.NetworkResource{
-		ID:          nr.Id,
-		PublicID:    nr.Id,
-		NetworkID:   nr.NetworkSeq,
-		Name:        nr.Name,
-		Description: nr.Description,
-		Type:        nr.Type,
-		Address:     nr.Address,
-		Domain:      nr.DomainValue,
-		Enabled:     nr.Enabled,
+		ID:            nr.Id,
+		PublicID:      nr.Id,
+		NetworkID:     nr.NetworkSeq,
+		Name:          nr.Name,
+		Description:   nr.Description,
+		Type:          nr.Type,
+		Address:       nr.Address,
+		Domain:        nr.DomainValue,
+		Enabled:       nr.Enabled,
+		SkipAutoApply: nr.SkipAutoApply,
 	}
 	if nr.PrefixCidr != "" {
 		if p, err := netip.ParsePrefix(nr.PrefixCidr); err == nil {

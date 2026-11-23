@@ -2,34 +2,43 @@ package store
 
 import (
 	"context"
-	"slices"
 	"sync"
 
 	"github.com/netbirdio/netbird/shared/relay/messages"
 )
 
-type event struct {
-	peerID messages.PeerID
-	online bool
+// pendingState is the undelivered notifications of one peer. Only four cases need
+// to reach the client: online, offline, online then offline, offline then online.
+// A pair must stay a pair because the client acts on both, while a third flip
+// cancels the pair back to its first notification. Two bits encode the four cases:
+// what comes first, and whether its opposite follows.
+type pendingState struct {
+	firstOnline        bool
+	followedByOpposite bool
+}
+
+type notificationBatch struct {
+	online  []messages.PeerID
+	offline []messages.PeerID
 }
 
 type Listener struct {
 	ctx context.Context
 
-	eventChan chan *event
+	wake    chan struct{}
+	pending map[messages.PeerID]pendingState
 	// interestedPeers stays registered across reconnections of a peer until it is
-	// removed, so every registration of the peer produces an online event.
+	// removed, so every registration of the peer produces an online notification.
 	interestedPeers map[messages.PeerID]struct{}
-	mu              sync.RWMutex
+	mu              sync.Mutex
 }
 
 func newListener(ctx context.Context) *Listener {
 	l := &Listener{
 		ctx: ctx,
 
-		// important to use a single channel for offline and online events because with it we can ensure all events
-		// will be processed in the order they were sent
-		eventChan:       make(chan *event, 244), //244 is the message size limit in the relay protocol
+		wake:            make(chan struct{}, 1),
+		pending:         make(map[messages.PeerID]pendingState),
 		interestedPeers: make(map[messages.PeerID]struct{}),
 	}
 
@@ -51,6 +60,7 @@ func (l *Listener) RemoveInterestedPeer(peerIDs []messages.PeerID) {
 
 	for _, id := range peerIDs {
 		delete(l.interestedPeers, id)
+		delete(l.pending, id)
 	}
 }
 
@@ -59,73 +69,98 @@ func (l *Listener) listenForEvents(onPeersComeOnline, onPeersWentOffline func([]
 		select {
 		case <-l.ctx.Done():
 			return
-		case e := <-l.eventChan:
-			events := []*event{e}
-			for len(l.eventChan) > 0 {
-				events = append(events, <-l.eventChan)
-			}
-
-			for _, run := range sameStateRuns(events) {
-				if run.online {
-					onPeersComeOnline(run.peerIDs)
-				} else {
-					onPeersWentOffline(run.peerIDs)
-				}
-			}
+		case <-l.wake:
 		}
+
+		if l.ctx.Err() != nil {
+			return
+		}
+
+		first, second := l.takePending()
+		first.deliver(onPeersComeOnline, onPeersWentOffline)
+		second.deliver(onPeersComeOnline, onPeersWentOffline)
 	}
-}
-
-// stateRun is a set of peers that reached the same state in consecutive events.
-type stateRun struct {
-	online  bool
-	peerIDs []messages.PeerID
-}
-
-// sameStateRuns groups consecutive events of the same state, keeping the order in
-// which the states were reached, so a peer that went offline and registered again is
-// reported offline before it is reported online. Every registration of a peer is kept
-// in an online run, since each one is a new connection of the peer on the relay.
-func sameStateRuns(events []*event) []stateRun {
-	var runs []stateRun
-	for _, e := range events {
-		if len(runs) == 0 || runs[len(runs)-1].online != e.online {
-			runs = append(runs, stateRun{online: e.online})
-		}
-		run := &runs[len(runs)-1]
-		if e.online || !slices.Contains(run.peerIDs, e.peerID) {
-			run.peerIDs = append(run.peerIDs, e.peerID)
-		}
-	}
-	return runs
 }
 
 func (l *Listener) peerWentOffline(peerID messages.PeerID) {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
+	l.mu.Lock()
+	defer l.mu.Unlock()
 
-	if _, ok := l.interestedPeers[peerID]; ok {
-		select {
-		case l.eventChan <- &event{
-			peerID: peerID,
-			online: false,
-		}:
-		case <-l.ctx.Done():
-		}
+	if _, ok := l.interestedPeers[peerID]; !ok {
+		return
 	}
+	l.enqueue(peerID, false)
 }
 
 func (l *Listener) peerComeOnline(peerID messages.PeerID) {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
+	l.mu.Lock()
+	defer l.mu.Unlock()
 
-	if _, ok := l.interestedPeers[peerID]; ok {
-		select {
-		case l.eventChan <- &event{
-			peerID: peerID,
-			online: true,
-		}:
-		case <-l.ctx.Done():
+	if _, ok := l.interestedPeers[peerID]; !ok {
+		return
+	}
+	l.enqueue(peerID, true)
+}
+
+func (l *Listener) enqueue(peerID messages.PeerID, online bool) {
+	state, ok := l.pending[peerID]
+	if !ok {
+		state = pendingState{firstOnline: online}
+	} else {
+		state = state.followedBy(online)
+	}
+	l.pending[peerID] = state
+
+	select {
+	case l.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (l *Listener) takePending() (notificationBatch, notificationBatch) {
+	l.mu.Lock()
+	pending := l.pending
+	l.pending = make(map[messages.PeerID]pendingState)
+	l.mu.Unlock()
+
+	var first, second notificationBatch
+	for id, state := range pending {
+		first.add(id, state.firstOnline)
+		if state.followedByOpposite {
+			second.add(id, !state.firstOnline)
 		}
+	}
+	return first, second
+}
+
+func (s pendingState) lastOnline() bool {
+	if s.followedByOpposite {
+		return !s.firstOnline
+	}
+	return s.firstOnline
+}
+
+func (s pendingState) followedBy(online bool) pendingState {
+	if online == s.lastOnline() {
+		return s
+	}
+	s.followedByOpposite = !s.followedByOpposite
+	return s
+}
+
+func (b *notificationBatch) add(peerID messages.PeerID, online bool) {
+	if online {
+		b.online = append(b.online, peerID)
+		return
+	}
+	b.offline = append(b.offline, peerID)
+}
+
+func (b notificationBatch) deliver(onPeersComeOnline, onPeersWentOffline func([]messages.PeerID)) {
+	if len(b.online) > 0 {
+		onPeersComeOnline(b.online)
+	}
+	if len(b.offline) > 0 {
+		onPeersWentOffline(b.offline)
 	}
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/affectedpeers"
+	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -246,10 +247,43 @@ func (am *DefaultAccountManager) GetUserFromUserAuth(ctx context.Context, userAu
 
 	if newLogin {
 		meta := map[string]any{"timestamp": userAuth.LastLogin}
+		am.addLoginLocationMeta(ctx, meta)
 		am.StoreEvent(ctx, userAuth.UserId, userAuth.UserId, userAuth.AccountId, activity.DashboardLogin, meta)
 	}
 
 	return user, nil
+}
+
+// addLoginLocationMeta adds the request's source IP and, when geolocation is enabled, its
+// location to a dashboard login event's meta, using the keys peer events use. A failed lookup,
+// or a record without geo data, keeps the IP and leaves the location out.
+func (am *DefaultAccountManager) addLoginLocationMeta(ctx context.Context, meta map[string]any) {
+	clientIP, ok := nbcontext.GetClientIP(ctx)
+	if !ok {
+		return
+	}
+	meta["location_connection_ip"] = clientIP.String()
+
+	if am.geo == nil {
+		return
+	}
+	location, err := am.geo.Lookup(clientIP.AsSlice())
+	if err != nil {
+		log.WithContext(ctx).Debugf("failed to get location for dashboard login ip [%s]: %v", clientIP, err)
+		return
+	}
+	if !hasGeoData(location) {
+		return
+	}
+	meta["location_country_code"] = location.Country.ISOCode
+	meta["location_city_name"] = location.City.Names.En
+	meta["location_geo_name_id"] = location.City.GeonameID
+}
+
+// hasGeoData reports whether the lookup found anything; an address without geolocation
+// data (private or unknown) yields a zero-valued record and no error.
+func hasGeoData(location *geolocation.Record) bool {
+	return location.Country.ISOCode != "" || location.City.GeonameID != 0
 }
 
 // ListUsers returns lists of all users under the account.
@@ -694,12 +728,16 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 	}
 
 	if len(peersToExpire) > 0 {
-		if err := am.expireAndUpdatePeers(ctx, accountID, peersToExpire, peerExpirationUserBlocked); err != nil {
+		expiredIDs, err := am.expirePeers(ctx, accountID, peersToExpire, peerExpirationUserBlocked)
+		if err == nil {
+			err = am.notifyPeersExpired(ctx, accountID, expiredIDs, affected)
+		}
+		if err != nil {
 			log.WithContext(ctx).Errorf("failed update expired peers: %s", err)
 			return nil, err
 		}
 	} else if len(usersToSave) > 0 {
-		go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids())
+		go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids(), types.UpdateReason{Resource: types.UpdateResourceUser, Operation: types.UpdateOperationUpdate})
 	}
 
 	return updatedUsersInfo, globalErr
@@ -826,8 +864,9 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 	// blocking or unblocking a user adds it to or removes it from both, so every group
 	// it maps into changes — including the All group that holds every active user.
 	// Otherwise only the auto-groups it joined or left do.
-	if isNewUser || oldUser.IsBlocked() != updatedUser.IsBlocked() {
+	if !updatedUser.IsServiceUser && (isNewUser || oldUser.IsBlocked() != updatedUser.IsBlocked()) {
 		change.AllowedUsersChanged = true
+		change.ChangedUserIDs = []string{updatedUser.Id}
 		change.UserGroupIDs = slices.Concat(oldUser.AutoGroups, updatedUser.AutoGroups, allGroupIDs(groupsMap))
 	} else {
 		change.UserGroupIDs = slices.Concat(
@@ -1177,10 +1216,19 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 
 // expireAndUpdatePeers expires all peers of the given user and updates them in the account
 func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accountID string, peers []*nbpeer.Peer, reason peerExpirationReason) error {
+	peerIDs, err := am.expirePeers(ctx, accountID, peers, reason)
+	if err != nil || len(peerIDs) == 0 {
+		return err
+	}
+	return am.notifyPeersExpired(ctx, accountID, peerIDs, nil)
+}
+
+// expirePeers flags the given peers as login-expired, disconnects them and returns the IDs of the peers it expired.
+func (am *DefaultAccountManager) expirePeers(ctx context.Context, accountID string, peers []*nbpeer.Peer, reason peerExpirationReason) ([]string, error) {
 	log.WithContext(ctx).Debugf("Expiring %d peers for account %s", len(peers), accountID)
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	dnsDomain := am.networkMapController.GetDNSDomain(settings)
 
@@ -1204,7 +1252,7 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 
 		peer, err := am.expirePeerIfStillDue(peerCtx, accountID, candidate.ID, settings, reason)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if peer == nil {
 			continue
@@ -1219,15 +1267,23 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 		)
 	}
 
-	if len(peerIDs) != 0 {
-		if err := am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
-			return err
-		}
+	if len(peerIDs) == 0 {
+		return nil, nil
 	}
 
-	affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, peerIDs)
-	err = am.networkMapController.OnPeersUpdated(ctx, accountID, peerIDs, affectedPeerIDs)
-	if err != nil {
+	if err := am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
+		return nil, err
+	}
+
+	return peerIDs, nil
+}
+
+// notifyPeersExpired sends the update for expired peers to the peers affected by them and by extraAffected.
+func (am *DefaultAccountManager) notifyPeersExpired(ctx context.Context, accountID string, peerIDs []string, extraAffected affectedPeerSet) error {
+	affected := make(affectedPeerSet)
+	affected.add(am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, peerIDs))
+	affected.add(extraAffected.ids())
+	if err := am.networkMapController.OnPeersUpdated(ctx, accountID, peerIDs, affected.ids()); err != nil {
 		return fmt.Errorf("notify network map controller of peer update: %w", err)
 	}
 	return nil
@@ -1235,7 +1291,9 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 
 // expirePeerIfStillDue flags the peer as login-expired and returns its fresh copy, or nil
 // when it no longer qualifies. The candidate list is read without a lock, so a login that
-// landed in between would otherwise be overwritten with a stale expired status.
+// landed in between would otherwise be overwritten with a stale expired status. The
+// connection released afterwards is the session read under the lock, so a session
+// established after the commit survives.
 func (am *DefaultAccountManager) expirePeerIfStillDue(ctx context.Context, accountID, peerID string, settings *types.Settings, reason peerExpirationReason) (*nbpeer.Peer, error) {
 	var expired *nbpeer.Peer
 	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -1256,8 +1314,11 @@ func (am *DefaultAccountManager) expirePeerIfStillDue(ctx context.Context, accou
 		expired = peer
 		return nil
 	})
-	if err != nil {
+	if err != nil || expired == nil {
 		return nil, err
+	}
+	if err := am.peerLiveness.ReleaseConnection(ctx, accountID, expired.ID, expired.Status.SessionStartedAt); err != nil {
+		log.WithContext(ctx).Warnf("release connection of expired peer %s: %v", expired.ID, err)
 	}
 	return expired, nil
 }
@@ -1404,19 +1465,34 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 			return fmt.Errorf("failed to get user peers: %w", err)
 		}
 
-		if len(userPeers) > 0 {
-			updateAccountPeers = true
-
-			var peerIDs []string
-			for _, peer := range userPeers {
-				peerIDs = append(peerIDs, peer.ID)
+		change = affectedpeers.Change{}
+		for _, peer := range userPeers {
+			change.ChangedPeerIDs = append(change.ChangedPeerIDs, peer.ID)
+		}
+		if !targetUser.IsServiceUser && !targetUser.IsBlocked() {
+			groups, err := transaction.GetAccountGroups(ctx, store.LockingStrengthNone, accountID)
+			if err != nil {
+				return fmt.Errorf("failed to get account groups: %w", err)
 			}
-			// Load before delete so the snapshot still has the peers' group
-			// memberships; the resolver derives them from the peer IDs during the walk.
-			change = affectedpeers.Change{ChangedPeerIDs: peerIDs}
+			groupsMap := make(map[string]*types.Group, len(groups))
+			for _, group := range groups {
+				groupsMap[group.ID] = group
+			}
+			change.AllowedUsersChanged = true
+			change.ChangedUserIDs = []string{targetUser.Id}
+			change.UserGroupIDs = slices.Concat(targetUser.AutoGroups, allGroupIDs(groupsMap))
+		}
+
+		// Load before delete so the snapshot still has the peers' group
+		// memberships; the resolver derives them from the peer IDs during the walk.
+		if len(userPeers) > 0 || change.AllowedUsersChanged {
 			if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
 				return err
 			}
+		}
+
+		if len(userPeers) > 0 {
+			updateAccountPeers = true
 
 			addPeerRemovedEvents, err = deletePeers(ctx, am, transaction, accountID, targetUserInfo.ID, userPeers, settings)
 			if err != nil {
@@ -1445,9 +1521,11 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 			log.WithContext(ctx).Errorf("failed to delete peer %s from integrated validator: %v", peer.ID, err)
 		}
 	}
-	affectedPeerIDs := snap.Expand(ctx, accountID, change)
-	if err := am.networkMapController.OnPeersDeleted(ctx, accountID, peerIDs, affectedPeerIDs); err != nil {
-		log.WithContext(ctx).Errorf("failed to delete peers %s from network map: %v", peerIDs, err)
+	if snap != nil {
+		affectedPeerIDs := snap.Expand(ctx, accountID, change)
+		if err := am.networkMapController.OnPeersDeleted(ctx, accountID, peerIDs, affectedPeerIDs); err != nil {
+			log.WithContext(ctx).Errorf("failed to delete peers %s from network map: %v", peerIDs, err)
+		}
 	}
 
 	for _, addPeerRemovedEvent := range addPeerRemovedEvents {

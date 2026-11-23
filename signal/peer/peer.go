@@ -8,9 +8,17 @@ import (
 	"errors"
 
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/signal/metrics"
+)
+
+const (
+	labelRegistrationType     = "type"
+	labelRegistrationNew      = "new"
+	labelRegistrationReplaced = "replaced"
 )
 
 var (
@@ -90,8 +98,6 @@ func (registry *Registry) IsPeerRegistered(peerId string) bool {
 
 // Register registers peer in the registry
 func (registry *Registry) Register(peer *Peer) error {
-	start := time.Now()
-
 	// can be that peer already exists, but it is fine (e.g. reconnect)
 	p, loaded := registry.Peers.LoadOrStore(peer.Id, peer)
 	if loaded {
@@ -104,6 +110,7 @@ func (registry *Registry) Register(peer *Peer) error {
 			}
 			pp.Cancel()
 			log.Debugf("peer re-registered [%s]", peer.Id)
+			registry.metrics.Registrations.Add(context.Background(), 1, metric.WithAttributes(attribute.String(labelRegistrationType, labelRegistrationReplaced)))
 			return nil
 		}
 		return ErrPeerAlreadyRegistered
@@ -111,11 +118,7 @@ func (registry *Registry) Register(peer *Peer) error {
 
 	log.Debugf("peer registered [%s]", peer.Id)
 	registry.metrics.ActivePeers.Add(context.Background(), 1)
-
-	// record time as milliseconds
-	registry.metrics.RegistrationDelay.Record(context.Background(), float64(time.Since(start).Nanoseconds())/1e6)
-
-	registry.metrics.Registrations.Add(context.Background(), 1)
+	registry.metrics.Registrations.Add(context.Background(), 1, metric.WithAttributes(attribute.String(labelRegistrationType, labelRegistrationNew)))
 
 	return nil
 }

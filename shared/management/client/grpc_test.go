@@ -10,7 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/shared/management/certposture"
@@ -94,6 +96,18 @@ func TestMaxRecvMsgSizeIntegration(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, resp.Key, payloadSize)
 	})
+}
+
+// A connection can leave Ready after dialing but before a login attempt.
+// The auth layer must see a retryable transport status rather than Unknown.
+func TestLoginDisconnectedTransport(t *testing.T) {
+	conn, err := grpc.NewClient("passthrough:///127.0.0.1:1", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	require.NoError(t, conn.Close())
+	client := &GrpcClient{conn: conn}
+	_, err = client.login(&mgmtProto.LoginRequest{})
+	require.Error(t, err)
+	assert.Equal(t, codes.Unavailable, status.Code(err), "disconnected login must be retryable")
 }
 
 // TestInfoToMetaData_CarriesCertificateProofs: management verifies the proofs it receives

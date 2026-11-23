@@ -65,7 +65,7 @@ type Snapshot struct {
 // Expand's walker preconditions, loading only what the change can touch.
 func Load(ctx context.Context, s store.Store, accountID string, c Change) (*Snapshot, error) {
 	snap := &Snapshot{}
-	if c.isEmpty() {
+	if c.IsEmpty() {
 		return snap, nil
 	}
 
@@ -86,15 +86,21 @@ func (snap *Snapshot) loadCollections(ctx context.Context, s store.Store, accoun
 	hasGroupOrPeerChange := len(c.ChangedGroupIDs) > 0 || len(c.ChangedPeerIDs) > 0 || len(c.LinkGroups) > 0 || len(c.Resources) > 0
 	hasNetworkObject := len(c.Routers) > 0 || len(c.Resources) > 0 || len(c.Networks) > 0
 	// the resource<->router bridge can fire for any of these
-	needsRoutersResources := hasGroupOrPeerChange || len(c.PostureCheckIDs) > 0 || len(c.Policies) > 0 || hasNetworkObject || len(c.UserGroupIDs) > 0 || c.AllowedUsersChanged
+	needsRoutersResources := hasGroupOrPeerChange || len(c.PostureCheckIDs) > 0 || len(c.Policies) > 0 || hasNetworkObject || len(c.UserGroupIDs) > 0 || c.AllowedUsersChanged || len(c.ChangedUserIDs) > 0
 
 	if needsRoutersResources {
 		if err := snap.loadPolicyRoutersResources(ctx, s, accountID); err != nil {
 			return err
 		}
 	}
+	if hasGroupOrPeerChange || len(c.Policies) > 0 || len(c.PostureCheckIDs) > 0 {
+		var err error
+		if snap.routes, err = s.GetAccountRoutes(ctx, store.LockingStrengthNone, accountID); err != nil {
+			return err
+		}
+	}
 	if hasGroupOrPeerChange {
-		if err := snap.loadRoutesAndProxy(ctx, s, accountID); err != nil {
+		if err := snap.loadProxyServices(ctx, s, accountID); err != nil {
 			return err
 		}
 	}
@@ -118,15 +124,6 @@ func (snap *Snapshot) loadPolicyRoutersResources(ctx context.Context, s store.St
 	}
 	snap.resources, err = s.GetNetworkResourcesByAccountID(ctx, store.LockingStrengthNone, accountID)
 	return err
-}
-
-// loadRoutesAndProxy loads the routes and the embedded-proxy services index.
-func (snap *Snapshot) loadRoutesAndProxy(ctx context.Context, s store.Store, accountID string) error {
-	var err error
-	if snap.routes, err = s.GetAccountRoutes(ctx, store.LockingStrengthNone, accountID); err != nil {
-		return err
-	}
-	return snap.loadProxyServices(ctx, s, accountID)
 }
 
 // loadDNS loads the nameserver groups, custom DNS zones and account DNS settings.
@@ -237,6 +234,11 @@ type Change struct {
 	// own, so those rules' destinations refresh.
 	AllowedUsersChanged bool
 
+	// ChangedUserIDs are users whose SSH access changed: created, blocked, unblocked
+	// or deleted. The SSH rules naming one of them in AuthorizedUser refresh their
+	// destinations.
+	ChangedUserIDs []string
+
 	// LinkGroups are groups used ONLY to match policies/routes/routers and walk to the
 	// OPPOSITE side — they are never expanded to their own members. Use this when a
 	// peer's group membership changed: pass the peer in ChangedPeerIDs and its
@@ -249,7 +251,8 @@ type Change struct {
 	LinkGroups []string
 }
 
-func (c Change) isEmpty() bool {
+// IsEmpty reports whether the change carries nothing that could affect peers.
+func (c Change) IsEmpty() bool {
 	return len(c.ChangedGroupIDs) == 0 &&
 		len(c.ChangedPeerIDs) == 0 &&
 		len(c.Policies) == 0 &&
@@ -260,6 +263,7 @@ func (c Change) isEmpty() bool {
 		len(c.PostureCheckIDs) == 0 &&
 		len(c.UserGroupIDs) == 0 &&
 		!c.AllowedUsersChanged &&
+		len(c.ChangedUserIDs) == 0 &&
 		len(c.DistributionGroupIDs) == 0 &&
 		len(c.RemovedPeersByGroup) == 0 &&
 		len(c.LinkGroups) == 0 &&
@@ -270,7 +274,7 @@ func (c Change) isEmpty() bool {
 // no store access. Run after the producing tx commits. A nil Snapshot expands to
 // nothing. Logs the full walk at trace level for diagnosing a miscalculation.
 func (snap *Snapshot) Expand(ctx context.Context, accountID string, c Change) []string {
-	if snap == nil || c.isEmpty() {
+	if snap == nil || c.IsEmpty() {
 		return nil
 	}
 	r := newResolver(ctx, snap, accountID, c)
@@ -283,7 +287,7 @@ func (snap *Snapshot) Expand(ctx context.Context, accountID string, c Change) []
 // Collect returns the affected group and direct-peer IDs without expanding groups
 // to members. Test-only introspection; use Resolve otherwise.
 func Collect(ctx context.Context, s store.Store, accountID string, c Change) (groupIDs []string, directPeerIDs []string) {
-	if c.isEmpty() {
+	if c.IsEmpty() {
 		return nil, nil
 	}
 	snap, err := Load(ctx, s, accountID, c)
@@ -381,6 +385,7 @@ func (r *resolver) walk() {
 	}
 
 	r.collectFromSSHAuthorizedGroups()
+	r.collectFromSSHAuthorizedUsers()
 	r.collectFromAllowedUsers()
 
 	r.collectFromChangedRoutes(r.change.Routes)
@@ -435,6 +440,9 @@ type resolver struct {
 	// is expanded to its member peers in expand().
 	affectedGroups map[string]struct{}
 	affectedPeers  map[string]struct{}
+
+	routesByACGroup     map[string][]*route.Route
+	routeFoldedPolicies map[string]struct{}
 }
 
 // policies returns the account's ENABLED policies from the snapshot. Disabled
@@ -563,6 +571,7 @@ func (r *resolver) foldPolicySide(policy *types.Policy, side policySide) {
 	}
 	if side == sideDestination {
 		r.foldRoutersForResources(r.policyDestinationResourceIDs(policy))
+		r.foldRoutingPeersForPolicy(policy)
 	}
 }
 
@@ -645,7 +654,49 @@ func (r *resolver) foldPolicySideForRule(policy *types.Policy, rule *types.Polic
 	}
 	if side == sideDestination {
 		r.foldRoutersForResources(r.ruleDestinationResourceIDs(rule))
+		r.foldRoutingPeersForPolicy(policy)
 	}
+}
+
+// foldRoutingPeersForPolicy folds the routing peers of the enabled routes whose
+// access-control groups are a destination of the policy: such a routing peer
+// derives its route firewall rules from every rule of the policy. A policy is
+// folded once however many of its rules reach here.
+func (r *resolver) foldRoutingPeersForPolicy(policy *types.Policy) {
+	if _, done := r.routeFoldedPolicies[policy.ID]; done {
+		return
+	}
+	if r.routeFoldedPolicies == nil {
+		r.routeFoldedPolicies = make(map[string]struct{})
+	}
+	r.routeFoldedPolicies[policy.ID] = struct{}{}
+
+	for gID := range collectPolicyDestinations(make(map[string]struct{}), policy) {
+		for _, rt := range r.routesByAccessControlGroup()[gID] {
+			addAll(r.affectedGroups, rt.PeerGroups)
+			if rt.Peer != "" {
+				r.affectedPeers[rt.Peer] = struct{}{}
+			}
+		}
+	}
+}
+
+// routesByAccessControlGroup indexes the enabled routes by each of their
+// access-control groups, built on first use.
+func (r *resolver) routesByAccessControlGroup() map[string][]*route.Route {
+	if r.routesByACGroup != nil {
+		return r.routesByACGroup
+	}
+	r.routesByACGroup = make(map[string][]*route.Route)
+	for _, rt := range r.snap.routes {
+		if !rt.Enabled {
+			continue
+		}
+		for _, gID := range rt.AccessControlGroups {
+			r.routesByACGroup[gID] = append(r.routesByACGroup[gID], rt)
+		}
+	}
+	return r.routesByACGroup
 }
 
 // collectFromChangedRoutes folds an explicitly changed route's own groups and peer.
@@ -878,6 +929,28 @@ func (r *resolver) collectFromSSHAuthorizedGroups() {
 	}
 }
 
+// collectFromSSHAuthorizedUsers folds the destinations of the enabled SSH accept rules
+// that authorize a changed user by ID, as those peers carry that user's mapping.
+func (r *resolver) collectFromSSHAuthorizedUsers() {
+	if len(r.change.ChangedUserIDs) == 0 {
+		return
+	}
+
+	changed := toSet(r.change.ChangedUserIDs)
+	for _, policy := range r.policies() {
+		for _, rule := range policy.Rules {
+			if !rule.Enabled || rule.Protocol != types.PolicyRuleProtocolNetbirdSSH || rule.Action != types.PolicyTrafficActionAccept {
+				continue
+			}
+			if !isInSet(rule.AuthorizedUser, changed) {
+				continue
+			}
+			log.WithContext(r.ctx).Tracef("collectFromSSHAuthorizedUsers: rule %s authorizes changed user %s -> folding its destinations", rule.ID, rule.AuthorizedUser)
+			r.foldPolicySideForRule(policy, rule, sideDestination)
+		}
+	}
+}
+
 // collectFromAllowedUsers folds the destinations of the rules that make a peer carry
 // the account's allowed-user set, for a change to who is in that set.
 func (r *resolver) collectFromAllowedUsers() {
@@ -901,6 +974,9 @@ func (r *resolver) collectFromAllowedUsers() {
 // the destination peer's own SSH flag, which the snapshot does not hold — so it folds a
 // superset and never misses a peer.
 func ruleShipsAllowedUsers(rule *types.PolicyRule) bool {
+	if rule.Action != types.PolicyTrafficActionAccept {
+		return false
+	}
 	if rule.Protocol == types.PolicyRuleProtocolNetbirdSSH {
 		return len(rule.AuthorizedGroups) == 0 && rule.AuthorizedUser == ""
 	}

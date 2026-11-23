@@ -18,13 +18,13 @@ func TestVersionFromConfig(t *testing.T) {
 	assert.Equal(t, DefaultSyncMessageVersion, SyncMessageVersionFromConfig(nil))
 	assert.Equal(t, Base, SyncMessageVersionFromConfig(toIntPtr(0)))
 	assert.Equal(t, ComponentNetworkMap, SyncMessageVersionFromConfig(toIntPtr(1)))
-	assert.Equal(t, DefaultSyncMessageVersion, SyncMessageVersionFromConfig(toIntPtr(-1)))
-	assert.Equal(t, DefaultSyncMessageVersion, SyncMessageVersionFromConfig(toIntPtr(int(^uint(0)>>1))))
+	assert.Equal(t, Base, SyncMessageVersionFromConfig(toIntPtr(-1)))
+	assert.Equal(t, Base, SyncMessageVersionFromConfig(toIntPtr(int(^uint(0)>>1))))
 }
 
 func TestPerAccountConversionStringToEnum(t *testing.T) {
 	assert.Equal(t, map[string]SyncMessageVersion{"1": HighestSyncMessageVersion}, SyncMessageVersionsFromMap(map[string]int{"1": 1}))
-	assert.Equal(t, map[string]SyncMessageVersion{"2": DefaultSyncMessageVersion}, SyncMessageVersionsFromMap(map[string]int{"2": -1}))
+	assert.Equal(t, map[string]SyncMessageVersion{"2": Base}, SyncMessageVersionsFromMap(map[string]int{"2": -1}))
 }
 
 func TestCommonVersions(t *testing.T) {

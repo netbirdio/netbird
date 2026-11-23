@@ -2,17 +2,23 @@ package resources
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
-	"go.uber.org/mock/gomock"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	reverseproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/networks/resources/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/store"
+	nbtypes "github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -306,6 +312,59 @@ func Test_UpdateResourceSuccessfully(t *testing.T) {
 	require.Equal(t, types.NetworkResourceType("subnet"), updatedResource.Type)
 }
 
+func Test_UpdateResourceReloadsServicesDetachedFromRequest(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	accountID := "testAccountId"
+	resource := &types.NetworkResource{
+		AccountID: accountID,
+		NetworkID: "testNetworkId",
+		Name:      "someNewName",
+		ID:        "testResourceId",
+		Address:   "1.2.3.0/24",
+	}
+
+	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanUp)
+	ctrl := gomock.NewController(t)
+	serviceManager := reverseproxy.NewMockManager(ctrl)
+	requestDone := make(chan struct{})
+	reloadErr := make(chan error, 1)
+	serviceManager.EXPECT().ReloadAllServicesForAccount(gomock.Any(), accountID).DoAndReturn(func(reloadCtx context.Context, _ string) error {
+		<-requestDone
+		if _, ok := reloadCtx.Deadline(); !ok {
+			reloadErr <- errors.New("reload context has no deadline")
+			return nil
+		}
+		reloadErr <- reloadCtx.Err()
+		return nil
+	})
+	manager := NewManager(store, permissions.NewManager(store), groups.NewManagerMock(), &mock_server.MockAccountManager{}, serviceManager)
+
+	updateErr := make(chan error, 1)
+	go func() {
+		_, err := manager.UpdateResource(ctx, "testAdminId", resource)
+		updateErr <- err
+	}()
+
+	select {
+	case err := <-updateErr:
+		cancel()
+		close(requestDone)
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		close(requestDone)
+		t.Fatal("UpdateResource blocked on the services reload")
+	}
+
+	select {
+	case err := <-reloadErr:
+		require.NoError(t, err, "reload must not inherit the request cancellation")
+	case <-time.After(5 * time.Second):
+		t.Fatal("services were not reloaded")
+	}
+}
+
 func Test_UpdateResourceFailsWithResourceNotFound(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
@@ -445,4 +504,55 @@ func Test_DeleteResourceFailsWithPermissionDenied(t *testing.T) {
 
 	err = manager.DeleteResource(ctx, accountID, userID, networkID, resourceID)
 	require.Error(t, err)
+}
+
+func Test_UpdateResourceUnchangedSkipsWrite(t *testing.T) {
+	ctx := context.Background()
+	accountID := "testAccountId"
+	userID := "testAdminId"
+
+	s, cleanUp, err := store.NewTestStoreFromSQL(ctx, "../../testdata/networks.sql", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanUp)
+
+	var events, fanOuts int
+	am := mock_server.MockAccountManager{
+		StoreEventFunc: func(context.Context, string, string, string, activity.ActivityDescriber, map[string]any) {
+			events++
+		},
+		ExpandAndUpdateAffectedFunc: func(context.Context, string, *affectedpeers.Snapshot, affectedpeers.Change, nbtypes.UpdateReason) {
+			fanOuts++
+		},
+	}
+	serviceManager := reverseproxy.NewMockManager(gomock.NewController(t))
+	serviceManager.EXPECT().ReloadAllServicesForAccount(gomock.Any(), accountID).Return(nil).AnyTimes()
+	manager := NewManager(s, permissions.NewManager(s), groups.NewManagerMock(), &am, serviceManager)
+
+	serial := func() uint64 {
+		network, err := s.GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
+		require.NoError(t, err)
+		return network.Serial
+	}
+
+	resource := &types.NetworkResource{
+		ID:          "testResourceId",
+		NetworkID:   "testNetworkId",
+		AccountID:   accountID,
+		Name:        "new-name",
+		Description: "new-description",
+		Address:     "1.2.3.0/24",
+		Enabled:     true,
+	}
+
+	_, err = manager.UpdateResource(ctx, userID, resource.Copy())
+	require.NoError(t, err)
+	require.Equal(t, 1, events, "real update must log an event")
+	require.Equal(t, 1, fanOuts, "real update must update affected peers")
+
+	serialBefore := serial()
+	_, err = manager.UpdateResource(ctx, userID, resource.Copy())
+	require.NoError(t, err)
+	assert.Equal(t, 2, events, "unchanged update must still log an event")
+	assert.Equal(t, 1, fanOuts, "unchanged update must not update affected peers")
+	assert.Equal(t, serialBefore, serial(), "unchanged update must not bump the network serial")
 }

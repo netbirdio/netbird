@@ -124,12 +124,11 @@ func prepareUserEnv(user *user.User, shell string) []string {
 }
 
 // acceptEnv checks if environment variable from SSH client should be accepted
-// This is a whitelist of variables that SSH clients can send to the server
+// This is a whitelist of variables that SSH clients can send to the server.
+// Accepted variables end up in the environment of login, su and the executor,
+// which start with the daemon's privileges, so the value is checked as well as the name.
 func acceptEnv(envVar string) bool {
-	varName := envVar
-	if idx := strings.Index(envVar, "="); idx != -1 {
-		varName = envVar[:idx]
-	}
+	varName, value, _ := strings.Cut(envVar, "=")
 
 	exactMatches := []string{
 		"LANG",
@@ -150,17 +149,38 @@ func acceptEnv(envVar string) bool {
 
 	for _, exact := range exactMatches {
 		if varName == exact {
-			return true
+			return acceptEnvValue(varName, value)
 		}
 	}
 
 	for _, prefix := range prefixMatches {
 		if strings.HasPrefix(varName, prefix) {
-			return true
+			return acceptEnvValue(varName, value)
 		}
 	}
 
 	return false
+}
+
+// acceptEnvValue rejects values that make libc open a file of the client's choosing
+// in a process that has not dropped privileges yet. Locale names are path elements of
+// the gettext message catalogs (which supply format strings to login and su), terminal
+// names of the terminfo entry and TZ names the time zone file. libc only guards against
+// this in setuid programs, not in programs started by root, so the same rules sudo
+// applies to these variables are enforced here.
+func acceptEnvValue(varName, value string) bool {
+	switch {
+	case varName == "TZ":
+		zone := strings.TrimPrefix(value, ":")
+		return !strings.HasPrefix(zone, "/") && !strings.Contains(zone, "..")
+	case varName == "LANG", varName == "LANGUAGE", varName == "TERM", varName == "COLORTERM",
+		strings.HasPrefix(varName, "LC_"):
+		// ".." is a path component on its own: it needs no neighboring "/" to traverse
+		// once concatenated into a locale, terminfo or message-catalog path.
+		return !strings.ContainsAny(value, "/%") && !strings.Contains(value, "..")
+	default:
+		return true
+	}
 }
 
 // prepareSSHEnv prepares SSH protocol-specific environment variables

@@ -28,6 +28,7 @@ type relayedConnWriter interface {
 type PeersStateSubscription struct {
 	log                  *log.Entry
 	relayConn            relayedConnWriter
+	maxMsgSize           int
 	offlineCallback      func(peerIDs []messages.PeerID)
 	reregisteredCallback func(peerIDs []messages.PeerID)
 
@@ -36,10 +37,11 @@ type PeersStateSubscription struct {
 	mu                    sync.Mutex // Mutex to protect access to waitingPeers and listenForOfflinePeers
 }
 
-func NewPeersStateSubscription(log *log.Entry, relayConn relayedConnWriter, offlineCallback, reregisteredCallback func(peerIDs []messages.PeerID)) *PeersStateSubscription {
+func NewPeersStateSubscription(log *log.Entry, relayConn relayedConnWriter, maxMsgSize int, offlineCallback, reregisteredCallback func(peerIDs []messages.PeerID)) *PeersStateSubscription {
 	return &PeersStateSubscription{
 		log:                   log,
 		relayConn:             relayConn,
+		maxMsgSize:            maxMsgSize,
 		offlineCallback:       offlineCallback,
 		reregisteredCallback:  reregisteredCallback,
 		listenForOfflinePeers: make(map[messages.PeerID]struct{}),
@@ -172,7 +174,7 @@ func (s *PeersStateSubscription) Cleanup() {
 }
 
 func (s *PeersStateSubscription) subscribeStateChange(peerID messages.PeerID) error {
-	msgs, err := messages.MarshalSubPeerStateMsg([]messages.PeerID{peerID})
+	msgs, err := messages.MarshalSubPeerStateMsg([]messages.PeerID{peerID}, s.maxMsgSize)
 	if err != nil {
 		return err
 	}
@@ -187,7 +189,7 @@ func (s *PeersStateSubscription) subscribeStateChange(peerID messages.PeerID) er
 }
 
 func (s *PeersStateSubscription) unsubscribeStateChange(peerIDs []messages.PeerID) error {
-	msgs, err := messages.MarshalUnsubPeerStateMsg(peerIDs)
+	msgs, err := messages.MarshalUnsubPeerStateMsg(peerIDs, s.maxMsgSize)
 	if err != nil {
 		return err
 	}

@@ -3,7 +3,7 @@
 `nblink` forwards local ports into a NetBird network from an unprivileged
 process. It runs the client in userspace mode, so there is no TUN device to
 create and no elevated privileges to grant. That lets it run on managed
-machines and in rootless containers where the normal agent cannot.
+machines and in rootless containers where the normal client cannot.
 
 Overlay names on the upstream side are resolved inside the tunnel, so
 `/etc/resolv.conf` is never touched.

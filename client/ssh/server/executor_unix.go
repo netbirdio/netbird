@@ -32,6 +32,9 @@ type ExecutorConfig struct {
 	Shell      string
 	Command    string
 	PTY        bool
+	// NoLoginShell starts the shell as a plain shell instead of a login shell, so the
+	// user's profile output stays out of a protocol spoken over stdout.
+	NoLoginShell bool
 }
 
 // PrivilegeDropper handles secure privilege dropping in child processes
@@ -91,6 +94,10 @@ func (pd *PrivilegeDropper) CreateExecutorCommand(ctx context.Context, config Ex
 
 	if config.PTY {
 		args = append(args, "--pty")
+	}
+
+	if config.NoLoginShell {
+		args = append(args, "--no-login-shell")
 	}
 
 	if config.Command != "" {
@@ -234,7 +241,9 @@ func (pd *PrivilegeDropper) ExecuteWithPrivilegeDrop(ctx context.Context, config
 	} else {
 		execCmd = exec.CommandContext(ctx, config.Shell, "-c", config.Command)
 	}
-	execCmd.Args[0] = "-" + filepath.Base(config.Shell)
+	if !config.NoLoginShell {
+		execCmd.Args[0] = "-" + filepath.Base(config.Shell)
+	}
 	execCmd.Stdin = os.Stdin
 	execCmd.Stdout = os.Stdout
 	execCmd.Stderr = os.Stderr

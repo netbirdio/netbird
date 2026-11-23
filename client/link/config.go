@@ -14,8 +14,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
-// envPrefix matches the prefix the agent uses, so an operator who already sets
-// NB_SETUP_KEY or NB_MANAGEMENT_URL for the agent can reuse them here.
+// envPrefix matches the prefix the client uses, so an operator who already sets
+// NB_SETUP_KEY or NB_MANAGEMENT_URL for the client can reuse them here.
 const envPrefix = "NB_"
 
 // fileScheme marks a flag value that holds a path to read the real value from,

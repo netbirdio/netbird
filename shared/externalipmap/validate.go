@@ -1,5 +1,5 @@
 // Package externalipmap validates the --external-ip-map flag shared by the
-// agent and the proxy.
+// client and the proxy.
 package externalipmap
 
 import (

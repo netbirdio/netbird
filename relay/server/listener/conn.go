@@ -13,4 +13,6 @@ type Conn interface {
 	Close() error
 	// Protocol returns the transport name.
 	Protocol() string
+	// MaxMessageSize returns the largest message a single Write carries.
+	MaxMessageSize() int
 }

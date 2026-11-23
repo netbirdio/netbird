@@ -18,6 +18,7 @@ import (
 
 	"github.com/netbirdio/netbird/proxy/internal/llm"
 	"github.com/netbirdio/netbird/proxy/internal/middleware"
+	"github.com/netbirdio/netbird/proxy/internal/middleware/builtin"
 	"github.com/netbirdio/netbird/proxy/internal/middleware/builtin/llm_guardrail"
 )
 
@@ -68,6 +69,7 @@ type Middleware struct {
 	parsers           []llm.Parser
 	redactPii         bool
 	captureCompletion bool
+	metrics           *tokenMetrics
 }
 
 // New constructs a configured Middleware instance.
@@ -76,7 +78,12 @@ func New(cfg config) *Middleware {
 	if cfg.CaptureCompletion != nil {
 		capture = *cfg.CaptureCompletion
 	}
-	return &Middleware{parsers: llm.Parsers(), redactPii: cfg.RedactPii, captureCompletion: capture}
+	return &Middleware{
+		parsers:           llm.Parsers(),
+		redactPii:         cfg.RedactPii,
+		captureCompletion: capture,
+		metrics:           metricsFor(builtin.Context().Meter),
+	}
 }
 
 // ID returns the registry identifier.
@@ -111,7 +118,7 @@ func (m *Middleware) Close() error { return nil }
 // Invoke decodes the response body and emits token-usage and completion
 // metadata. The decision is always DecisionAllow; parse errors degrade
 // silently to omitted metadata rather than chain failures.
-func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middleware.Output, error) {
+func (m *Middleware) Invoke(ctx context.Context, in *middleware.Input) (*middleware.Output, error) {
 	out := &middleware.Output{Decision: middleware.DecisionAllow}
 	if in == nil {
 		return out, nil
@@ -136,29 +143,81 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 	body := decodeResponseBody(in.RespBody, headerLookup(in.RespHeaders, "Content-Encoding"))
 
 	contentType := headerLookup(in.RespHeaders, "Content-Type")
+	var (
+		usage llm.Usage
+		ok    bool
+		mode  = modeOther
+	)
 	switch {
 	case isEventStream(contentType), isAWSEventStream(contentType):
-		out.Metadata = m.invokeStreaming(parser, body)
+		out.Metadata, usage, ok = m.invokeStreaming(parser, body)
+		mode = modeStreaming
 	case isJSON(contentType):
-		out.Metadata = m.invokeBuffered(parser, in, contentType, body)
+		out.Metadata, usage, ok = m.invokeBuffered(parser, in, contentType, body)
+		mode = modeBuffered
 	}
 
+	r := response{
+		accountID: in.AccountID,
+		provider:  provider,
+		model:     lookupKV(in.Metadata, middleware.KeyLLMModel),
+		mode:      mode,
+		result:    responseResult(in, ok),
+		// OpenAI's cached tokens are a subset of its input, as the cost
+		// meter also assumes (llm/pricing).
+		cachedInInput: parser.ProviderName() == "openai",
+	}
+	// Usage counts only when the response is not an error: a stream with
+	// an error status carries none worth trusting. Its metadata is left
+	// as parsed.
+	if ok && r.result != resultErrorStatus {
+		r.usage = usage
+	}
+	m.metrics.record(ctx, r)
+
 	return out, nil
+}
+
+// hasUsage reports whether a response carried any token count, the
+// cache buckets included: a truncated stream may hold only the cache
+// counts of its first event.
+func hasUsage(u llm.Usage) bool {
+	return u.InputTokens > 0 || u.OutputTokens > 0 || u.TotalTokens > 0 ||
+		u.CachedInputTokens > 0 || u.CacheCreationTokens > 0
+}
+
+// responseResult classifies a response for proxy.llm.responses_total:
+// an error status first, then a capture cut short (whose usage, if any,
+// is partial), then whether usage was read.
+func responseResult(in *middleware.Input, parsed bool) string {
+	switch {
+	case in.Status >= 400:
+		return resultErrorStatus
+	case in.RespBodyTruncated:
+		return resultTruncated
+	case parsed:
+		return resultParsed
+	default:
+		return resultNoUsage
+	}
 }
 
 // invokeBuffered decodes a non-streaming JSON response body. Status
 // codes >= 400 short-circuit because providers don't include usage on
 // error responses.
-func (m *Middleware) invokeBuffered(parser llm.Parser, in *middleware.Input, contentType string, body []byte) []middleware.KV {
+//
+// The returned usage is only meaningful when ok is true.
+func (m *Middleware) invokeBuffered(parser llm.Parser, in *middleware.Input, contentType string, body []byte) (md []middleware.KV, usage llm.Usage, ok bool) {
 	if in.Status >= 400 {
-		return nil
+		return nil, llm.Usage{}, false
 	}
-
-	var md []middleware.KV
 
 	usage, err := parser.ParseResponse(in.Status, contentType, body)
 	if err == nil {
 		md = appendUsage(md, usage)
+		// The parsers decode a body without a usage block to zero usage
+		// and no error, so only counts mean usage was read.
+		ok = hasUsage(usage)
 	}
 
 	if completion := truncateCompletion(parser.ExtractCompletion(in.Status, contentType, body)); completion != "" && m.captureCompletion {
@@ -168,20 +227,24 @@ func (m *Middleware) invokeBuffered(parser llm.Parser, in *middleware.Input, con
 		md = append(md, middleware.KV{Key: middleware.KeyLLMResponseCompletion, Value: completion})
 	}
 
-	return md
+	return md, usage, ok
 }
 
 // invokeStreaming walks the buffered SSE prefix and accumulates token
 // deltas plus completion text. Truncated bodies are processed
 // best-effort; partial usage is preferred over no metadata.
-func (m *Middleware) invokeStreaming(parser llm.Parser, body []byte) []middleware.KV {
+//
+// The returned usage is only meaningful when ok is true.
+func (m *Middleware) invokeStreaming(parser llm.Parser, body []byte) (md []middleware.KV, usage llm.Usage, ok bool) {
 	if len(body) == 0 {
-		return nil
+		return nil, llm.Usage{}, false
 	}
 
 	usage, completion := accumulateStream(parser.ProviderName(), body)
 
-	var md []middleware.KV
+	// The metrics count cache-only usage too; the metadata keeps its own
+	// rule, since the cost meter and the limits read it.
+	ok = hasUsage(usage)
 	if usage.InputTokens > 0 || usage.OutputTokens > 0 || usage.TotalTokens > 0 {
 		md = appendUsage(md, usage)
 	}
@@ -191,7 +254,7 @@ func (m *Middleware) invokeStreaming(parser llm.Parser, body []byte) []middlewar
 		}
 		md = append(md, middleware.KV{Key: middleware.KeyLLMResponseCompletion, Value: c})
 	}
-	return md
+	return md, usage, ok
 }
 
 // parserByName returns the parser matching the provider label emitted

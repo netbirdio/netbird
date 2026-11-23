@@ -1,0 +1,52 @@
+name: MCP Catalog
+
+# Routes on the API router are registered from management/server/http and from modules
+# such as zones, so any management change can move one; go.mod pins the router itself.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/mcp-catalog.yml'
+      - 'go.mod'
+      - 'go.sum'
+      - 'shared/management/http/api/**'
+      - 'management/**'
+  pull_request:
+    paths:
+      - '.github/workflows/mcp-catalog.yml'
+      - 'go.mod'
+      - 'go.sum'
+      - 'shared/management/http/api/**'
+      - 'management/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
+  cancel-in-progress: true
+
+jobs:
+  catalog:
+    name: "Catalog drift"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+
+      # Every public operation has a tool or a not-exposed entry, and every tool is a
+      # public operation.
+      - name: Catalog against the OpenAPI spec
+        run: go test -count=1 -run '^(TestCatalogIsInThePublicAPISpec|TestPublicAPISpecIsCoveredByTheCatalog)$' ./management/internals/modules/mcpapi/
+
+      - name: Catalog against the API routes
+        run: go test -count=1 -tags integration -run '^Test_MCP_CatalogMatchesAPIRoutes$' ./management/server/http/testing/integration/
