@@ -118,7 +118,9 @@ func InjectIntoNetworkMapData(nmd *networkmap.NetworkMapData, exitNodes []*ExitN
 		}
 		nmd.NetworkXIDToPublicID[id] = objects.network.PublicID
 
-		nmd.NetworkResources = append(nmd.NetworkResources, types.TwinNetworkResource(objects.resource))
+		resource := types.TwinNetworkResource(objects.resource)
+		resource.SkipAutoApply = !node.AutoApply
+		nmd.NetworkResources = append(nmd.NetworkResources, resource)
 
 		if nmd.Routers == nil {
 			nmd.Routers = make(map[string]map[string]*nmdata.NetworkRouter)
