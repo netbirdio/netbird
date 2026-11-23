@@ -140,6 +140,21 @@ func (e *ExitNode) PeerIDs() []string {
 	return ids
 }
 
+// RoutingPeerIDs returns the IDs of the peers that route for the exit node: its enabled
+// peers, or none when the exit node is disabled.
+func (e *ExitNode) RoutingPeerIDs() []string {
+	if !e.Enabled {
+		return nil
+	}
+	var ids []string
+	for _, p := range e.Peers {
+		if p.Enabled {
+			ids = append(ids, p.PeerID)
+		}
+	}
+	return ids
+}
+
 // Copy returns a deep copy of the exit node.
 func (e *ExitNode) Copy() *ExitNode {
 	c := *e
