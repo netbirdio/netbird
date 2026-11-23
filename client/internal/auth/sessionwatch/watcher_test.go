@@ -6,6 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	cProto "github.com/netbirdio/netbird/client/proto"
 )
 
@@ -37,6 +40,9 @@ type event struct {
 	severity cProto.SystemEvent_Severity
 	category cProto.SystemEvent_Category
 	message  string
+	msgKey   cProto.UserMessageKey
+	titleKey cProto.UserMessageKey
+	msgArgs  map[string]string
 	meta     map[string]string
 }
 
@@ -71,7 +77,7 @@ func (r *fakeRecorder) PublishEvent(
 	severity cProto.SystemEvent_Severity,
 	category cProto.SystemEvent_Category,
 	message string,
-	_ string,
+	userMessage *cProto.UserMessage,
 	metadata map[string]string,
 ) {
 	r.mu.Lock()
@@ -81,6 +87,9 @@ func (r *fakeRecorder) PublishEvent(
 		severity: severity,
 		category: category,
 		message:  message,
+		msgKey:   userMessage.Key(),
+		titleKey: userMessage.TitleKey(),
+		msgArgs:  userMessage.Args(),
 		meta:     metadata,
 	})
 }
@@ -237,6 +246,27 @@ func TestWarningFiresOnceWithinLeadWindow(t *testing.T) {
 	if !events[1].isWarning() {
 		t.Fatalf("event[1] should be a warning publish, got %+v", events[1])
 	}
+}
+
+// The UI localizes the warning body from the key rather than from the daemon's
+// English text, so a warning that ships no key would silently regress to English.
+func TestWarningCarriesLocalizableMessage(t *testing.T) {
+	r := &fakeRecorder{}
+	// A wide lead window with a deadline well inside it fires the warning
+	// immediately, so timer slack cannot push the deadline past before publish.
+	w := newWatcher(time.Hour, r)
+	defer w.Close()
+
+	require.NoError(t, w.Update(time.Now().Add(5*time.Minute)))
+
+	events := waitForEvents(t, r, 2)
+	warning := events[1]
+	require.True(t, warning.isWarning(), "event[1] should be a warning publish, got %+v", warning)
+	assert.Equal(t, cProto.UserMsgSessionExpiresIn, warning.msgKey, "warning message key")
+	assert.Equal(t, cProto.TitleSessionWarning, warning.titleKey, "warning title key")
+	// The remaining time is rendered at publish time so every consumer of the
+	// event agrees on it.
+	assert.NotEmpty(t, warning.msgArgs[cProto.ArgRemaining], "warning remaining-time argument")
 }
 
 func TestWarningFiresImmediatelyWhenAlreadyInsideWindow(t *testing.T) {
@@ -854,7 +884,7 @@ func (r *blockingRecorder) PublishEvent(
 	severity cProto.SystemEvent_Severity,
 	category cProto.SystemEvent_Category,
 	message string,
-	userMessage string,
+	userMessage *cProto.UserMessage,
 	metadata map[string]string,
 ) {
 	select {

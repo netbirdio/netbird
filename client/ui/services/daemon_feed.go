@@ -62,13 +62,21 @@ type Emitter interface {
 
 // SystemEvent is the frontend-facing shape of a daemon SystemEvent.
 type SystemEvent struct {
-	ID          string            `json:"id"`
-	Severity    string            `json:"severity"`
-	Category    string            `json:"category"`
-	Message     string            `json:"message"`
-	UserMessage string            `json:"userMessage"`
-	Timestamp   int64             `json:"timestamp"`
-	Metadata    map[string]string `json:"metadata"`
+	ID          string `json:"id"`
+	Severity    string `json:"severity"`
+	Category    string `json:"category"`
+	Message     string `json:"message"`
+	UserMessage string `json:"userMessage"`
+	// MessageKey names the localizable body for this event; empty on control
+	// events and on events from a daemon that predates the field. Resolve it
+	// against the UI bundle and fall back to UserMessage on a miss.
+	MessageKey  string            `json:"messageKey"`
+	MessageArgs map[string]string `json:"messageArgs"`
+	// TitleKey names the localizable notification title, empty when the event
+	// has none and the consumer should compose one from severity and category.
+	TitleKey  string            `json:"titleKey"`
+	Timestamp int64             `json:"timestamp"`
+	Metadata  map[string]string `json:"metadata"`
 }
 
 // PeerStatus is the frontend-facing shape of a daemon PeerState.
@@ -568,10 +576,16 @@ func systemEventFromProto(e *proto.SystemEvent) SystemEvent {
 		Category:    strings.ToLower(strings.TrimPrefix(e.GetCategory().String(), "SystemEvent_")),
 		Message:     e.GetMessage(),
 		UserMessage: e.GetUserMessage(),
+		MessageKey:  e.GetMessageKey(),
+		MessageArgs: map[string]string{},
+		TitleKey:    e.GetTitleKey(),
 		Metadata:    map[string]string{},
 	}
 	if ts := e.GetTimestamp(); ts != nil {
 		out.Timestamp = ts.GetSeconds()
+	}
+	for k, v := range e.GetMessageArgs() {
+		out.MessageArgs[k] = v
 	}
 	for k, v := range e.GetMetadata() {
 		out.Metadata[k] = v

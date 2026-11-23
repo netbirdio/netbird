@@ -233,13 +233,12 @@ func (e *Engine) publishCertificatePostureEvent(proven bool) {
 	if proven {
 		e.statusRecorder.PublishEvent(cProto.SystemEvent_INFO, cProto.SystemEvent_SYSTEM,
 			"certificate posture: a certificate is proven again",
-			"A certificate required by your organization's device policy is available again.", nil)
+			cProto.NewUserMessage(cProto.UserMsgCertPostureProven), nil)
 		return
 	}
 	e.statusRecorder.PublishEvent(cProto.SystemEvent_WARNING, cProto.SystemEvent_SYSTEM,
 		"certificate posture: no certificate could be proven",
-		"NetBird could not use a certificate required by your organization's device policy. "+
-			"Access to some resources may be blocked until one is available.", nil)
+		cProto.NewUserMessage(cProto.UserMsgCertPostureLost), nil)
 }
 
 // publishCertificateStoreStuckEvent tells the user that reading the certificate store
@@ -251,8 +250,7 @@ func (e *Engine) publishCertificateStoreStuckEvent() {
 	}
 	e.statusRecorder.PublishEvent(cProto.SystemEvent_WARNING, cProto.SystemEvent_SYSTEM,
 		"certificate posture: the certificate store stopped responding",
-		"NetBird cannot read the certificates required by your organization's device policy because "+
-			"the certificate store stopped responding. If this persists, restart the NetBird service.", nil)
+		cProto.NewUserMessage(cProto.UserMsgCertPostureStoreStuck), nil)
 }
 
 // watchCertificatePosture owns certificate proof collection until ctx is done. It
