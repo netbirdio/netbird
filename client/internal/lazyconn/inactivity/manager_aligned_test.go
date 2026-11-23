@@ -68,6 +68,37 @@ func TestTickNeverClosesBeforeTenSecondsAfterOpen(t *testing.T) {
 	}
 }
 
+// TestTimerCheckKeepsStockIdleTime covers the fallback timer on mobile, which
+// runs while no aligned tick arrives: it must judge a peer by its last
+// activity alone, as stock, so a reopened link with an old activity stamp
+// closes on the timer and is not held 15 min past the open.
+func TestTimerCheckKeepsStockIdleTime(t *testing.T) {
+	peerID := "peer1"
+	wgMock := &mockWgInterface{lastActivities: map[string]monotime.Time{
+		peerID: monotime.Time(int64(monotime.Now()) - int64(time.Hour)),
+	}}
+
+	timer := make(chan time.Time)
+	prev := newTicker
+	newTicker = func(time.Duration) Ticker { return &fakeTickerMock{CChan: timer} }
+	t.Cleanup(func() { newTicker = prev })
+	noTicks := func(func(time.Duration)) func() { return func() {} }
+
+	manager := NewManager(wgMock, nil, noTicks)
+	manager.AddPeer(&lazyconn.PeerConfig{PublicKey: peerID, Log: log.WithField("peer", peerID)})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go manager.Start(ctx)
+	timer <- time.Now()
+	select {
+	case inactivePeers := <-manager.inactivePeersChan:
+		assert.Contains(t, inactivePeers, peerID, "the timer check uses the last activity alone")
+	case <-time.After(5 * time.Second):
+		t.Fatal("expected the peer idle for an hour to close on the timer check")
+	}
+}
+
 // fakeTickSubscriber replaces the timer with one that never fires and returns
 // the tick function the manager subscribes, handed over once Start runs.
 func fakeTickSubscriber(t *testing.T) (<-chan func(time.Duration), TickSubscriber) {

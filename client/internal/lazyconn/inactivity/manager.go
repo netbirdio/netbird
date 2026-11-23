@@ -163,6 +163,7 @@ func (m *Manager) Start(ctx context.Context) {
 
 	for {
 		threshold := m.inactivityThreshold
+		onTick := false
 		select {
 		case <-ctx.Done():
 			return
@@ -172,9 +173,10 @@ func (m *Manager) Start(ctx context.Context) {
 			// it only fires while the ticks stop.
 			ticker.Reset(period + tickSlack)
 			threshold = m.tickThreshold
+			onTick = true
 		}
 
-		idlePeers, err := m.checkStats(threshold)
+		idlePeers, err := m.checkStats(threshold, onTick)
 		if err != nil {
 			log.Errorf("error checking stats: %v", err)
 			return
@@ -216,7 +218,7 @@ func (m *Manager) notifyInactivePeers(ctx context.Context, inactivePeers map[str
 	}
 }
 
-func (m *Manager) checkStats(threshold time.Duration) (map[string]struct{}, error) {
+func (m *Manager) checkStats(threshold time.Duration, onTick bool) (map[string]struct{}, error) {
 	lastActivities := m.iface.LastActivities()
 
 	idlePeers := make(map[string]struct{})
@@ -234,7 +236,7 @@ func (m *Manager) checkStats(threshold time.Duration) (map[string]struct{}, erro
 			continue
 		}
 
-		since := time.Duration(checkMono - m.idleFrom(lastActive, peer))
+		since := time.Duration(checkMono - idleFrom(lastActive, peer, onTick))
 		if since > threshold {
 			peer.cfg.Log.Infof("peer is inactive since time: %s", checkTime.Add(-since).String())
 			idlePeers[peerID] = struct{}{}
@@ -244,12 +246,12 @@ func (m *Manager) checkStats(threshold time.Duration) (map[string]struct{}, erro
 	return idlePeers, nil
 }
 
-// idleFrom returns when the idle time of peer starts. With the aligned tick
-// (mobile) it is the later of the last activity and the open, so a freshly
-// opened link gets the full short threshold; the stock check keeps the last
-// activity alone.
-func (m *Manager) idleFrom(lastActive monotime.Time, peer *watchedPeer) monotime.Time {
-	if m.subscribeTick == nil {
+// idleFrom returns when the idle time of peer starts. On the aligned tick it
+// is the later of the last activity and the open, so a freshly opened link
+// gets the full short threshold; the timer check keeps the last activity
+// alone, as stock.
+func idleFrom(lastActive monotime.Time, peer *watchedPeer, onTick bool) monotime.Time {
+	if !onTick {
 		return lastActive
 	}
 	return max(lastActive, peer.addedAt)
