@@ -2,6 +2,11 @@
 
 package server
 
+// checkLoginContext never refuses a session on platforms without SELinux.
+func checkLoginContext(string, []string, error) error {
+	return nil
+}
+
 // sessionExecContext has nothing to resolve on platforms without SELinux.
 func sessionExecContext(string, []string, error) (string, error) {
 	return "", nil
