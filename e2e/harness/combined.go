@@ -238,6 +238,9 @@ func resolveImage(ctx context.Context, root, envKey, localTag, dockerfile string
 func buildImage(ctx context.Context, root, dockerfile, tag string) error {
 	args := []string{"buildx", "build", "-f", dockerfile, "-t", tag, "--load"}
 	if dir := os.Getenv("NB_E2E_BUILDX_CACHE"); dir != "" {
+		// go test runs packages in parallel and a local cache dir is not safe for
+		// concurrent writers, so each test binary gets its own subdirectory.
+		dir = filepath.Join(dir, filepath.Base(os.Args[0]))
 		args = append(args,
 			"--cache-from", "type=local,src="+dir,
 			"--cache-to", "type=local,dest="+dir+",mode=max",
