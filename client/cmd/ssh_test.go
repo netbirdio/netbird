@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -921,15 +922,35 @@ func TestSSHCommand_HelpAfterHost(t *testing.T) {
 }
 
 func TestValidateKnownHostsFile(t *testing.T) {
+	var out bytes.Buffer
+	level := log.GetLevel()
+	log.SetOutput(&out)
+	log.SetLevel(log.WarnLevel)
+	t.Cleanup(func() {
+		log.SetOutput(os.Stderr)
+		log.SetLevel(level)
+	})
+
 	existing := filepath.Join(t.TempDir(), "known_hosts")
 	require.NoError(t, os.WriteFile(existing, nil, 0o600))
 
 	assert.NoError(t, validateKnownHostsFile(""), "unset path")
 	assert.NoError(t, validateKnownHostsFile(existing), "existing file")
+	assert.Empty(t, out.String(), "a valid file must not warn")
 
 	err := validateKnownHostsFile(filepath.Join(t.TempDir(), "missing"))
 	require.Error(t, err, "missing file")
 	assert.NotContains(t, err.Error(), "OpenSSH option", "a plain path gets no -o hint")
+
+	assert.Error(t, validateKnownHostsFile(t.TempDir()), "directory")
+
+	// The daemon verifies the host key first and the file is only a fallback, so a
+	// malformed file warns instead of blocking the connection.
+	malformed := filepath.Join(t.TempDir(), "known_hosts")
+	require.NoError(t, os.WriteFile(malformed, []byte("not a known_hosts line\n"), 0o600))
+	out.Reset()
+	assert.NoError(t, validateKnownHostsFile(malformed), "malformed file")
+	assert.Contains(t, out.String(), "known_hosts file", "malformed file should warn")
 
 	// An OpenSSH habit: "-o StrictHostKeyChecking=no" sets --known-hosts in netbird.
 	err = validateKnownHostsFile("StrictHostKeyChecking=no")

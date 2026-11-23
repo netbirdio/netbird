@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/netbirdio/netbird/client/internal"
 	sshclient "github.com/netbirdio/netbird/client/ssh/client"
@@ -127,16 +128,16 @@ func sshFn(cmd *cobra.Command, args []string) error {
 	// argument validation.
 	username = resolveSSHUsername()
 
-	if err := validateKnownHostsFile(knownHostsFile); err != nil {
-		return err
-	}
-
 	logOutput := "console"
 	if firstLogFile := util.FindFirstLogPath(logFiles); firstLogFile != "" && firstLogFile != defaultLogFile {
 		logOutput = firstLogFile
 	}
 	if err := util.InitLog(logLevel, logOutput); err != nil {
 		return fmt.Errorf("init log: %w", err)
+	}
+
+	if err := validateKnownHostsFile(knownHostsFile); err != nil {
+		return err
 	}
 
 	ctx := internal.CtxInitState(cmd.Context())
@@ -234,22 +235,47 @@ func parseFlagsAfterHost(cmd *cobra.Command, args []string) ([]string, error) {
 	return append([]string{args[0]}, flags.Args()...), nil
 }
 
-// validateKnownHostsFile fails on a --known-hosts file that cannot be read. An
+// validateKnownHostsFile fails on a --known-hosts file that cannot be opened. An
 // OpenSSH option passed with -o, such as StrictHostKeyChecking=no, ends up here.
+// Content errors only warn, since the daemon verifies the host key first.
 func validateKnownHostsFile(path string) error {
 	if path == "" {
 		return nil
 	}
 
-	_, err := os.Stat(path)
-	switch {
-	case err == nil:
-		return nil
-	case strings.Contains(path, "="):
-		return fmt.Errorf("known_hosts file: %w (-o sets the known_hosts file, not an OpenSSH option)", err)
-	default:
+	if err := checkReadableFile(path); err != nil {
+		if strings.Contains(path, "=") {
+			return fmt.Errorf("known_hosts file: %w (-o sets the known_hosts file, not an OpenSSH option)", err)
+		}
 		return fmt.Errorf("known_hosts file: %w", err)
 	}
+
+	if _, err := knownhosts.New(path); err != nil {
+		log.Warnf("known_hosts file: %v", err)
+	}
+	return nil
+}
+
+// checkReadableFile opens the file and rejects a directory, which os.Open allows.
+func checkReadableFile(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := f.Close(); err != nil {
+			log.Debugf("close %s: %v", path, err)
+		}
+	}()
+
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return fmt.Errorf("%s is a directory", path)
+	}
+	return nil
 }
 
 // resolveSSHUsername returns the SSH user from --user, --login, user@host or the
