@@ -62,15 +62,16 @@ func (e *ExitNode) toNetworkObjects() (networkObjects, bool) {
 			Description: e.Description,
 		},
 		resource: &resourceTypes.NetworkResource{
-			ID:          id,
-			NetworkID:   id,
-			AccountID:   e.AccountID,
-			PublicID:    e.PublicID,
-			Name:        e.Name,
-			Description: e.Description,
-			Type:        resourceTypes.Subnet,
-			Prefix:      exitPrefix,
-			Enabled:     true,
+			ID:            id,
+			NetworkID:     id,
+			AccountID:     e.AccountID,
+			PublicID:      e.PublicID,
+			Name:          e.Name,
+			Description:   e.Description,
+			Type:          resourceTypes.Subnet,
+			Prefix:        exitPrefix,
+			Enabled:       true,
+			SkipAutoApply: !e.AutoApply,
 		},
 		routers: routers,
 	}, true
@@ -118,9 +119,7 @@ func InjectIntoNetworkMapData(nmd *networkmap.NetworkMapData, exitNodes []*ExitN
 		}
 		nmd.NetworkXIDToPublicID[id] = objects.network.PublicID
 
-		resource := types.TwinNetworkResource(objects.resource)
-		resource.SkipAutoApply = !node.AutoApply
-		nmd.NetworkResources = append(nmd.NetworkResources, resource)
+		nmd.NetworkResources = append(nmd.NetworkResources, types.TwinNetworkResource(objects.resource))
 
 		if nmd.Routers == nil {
 			nmd.Routers = make(map[string]map[string]*nmdata.NetworkRouter)
