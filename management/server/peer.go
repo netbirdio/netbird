@@ -1719,14 +1719,14 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 // before the dispatch goroutine starts, so the snapshot is released on return.
 // Exported so the networks sub-package managers (which hold only account.Manager)
 // share it.
-func (am *DefaultAccountManager) ExpandAndUpdateAffected(ctx context.Context, accountID string, snap *affectedpeers.Snapshot, change affectedpeers.Change) {
-	go am.dispatchAffectedPeerIDs(ctx, accountID, snap.Expand(ctx, accountID, change))
+func (am *DefaultAccountManager) ExpandAndUpdateAffected(ctx context.Context, accountID string, snap *affectedpeers.Snapshot, change affectedpeers.Change, reason types.UpdateReason) {
+	go am.dispatchAffectedPeerIDs(ctx, accountID, snap.Expand(ctx, accountID, change), reason)
 }
 
 // dispatchAffectedPeerIDs dispatches a single network-map refresh for already
 // expanded affected peer IDs. It may run in a goroutine that outlives the
 // request, so it detaches from the request context's cancellation up front.
-func (am *DefaultAccountManager) dispatchAffectedPeerIDs(ctx context.Context, accountID string, affectedPeerIDs []string) {
+func (am *DefaultAccountManager) dispatchAffectedPeerIDs(ctx context.Context, accountID string, affectedPeerIDs []string, reason types.UpdateReason) {
 	ctx = context.WithoutCancel(ctx)
 
 	if len(affectedPeerIDs) == 0 {
@@ -1735,7 +1735,7 @@ func (am *DefaultAccountManager) dispatchAffectedPeerIDs(ctx context.Context, ac
 	}
 
 	log.WithContext(ctx).Debugf("updating %d affected peers for account %s: %v", len(affectedPeerIDs), accountID, affectedPeerIDs)
-	_ = am.networkMapController.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	_ = am.networkMapController.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs, reason)
 }
 
 // affectedPeerSet collects the affected peer IDs of several snapshot expansions,

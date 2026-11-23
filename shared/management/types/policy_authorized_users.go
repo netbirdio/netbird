@@ -51,6 +51,9 @@ type RuleAuthCallbacks struct {
 	CollectSSHUsers   func(*nmdata.PolicyRule, map[string]map[string]struct{})
 	CollectVNCUsers   func(*nmdata.PolicyRule, map[string]map[string]struct{})
 	GetAllowedUserIDs func() map[string]struct{}
+	// SSHUserDenied, when set, reports an SSH rule pinned to a user that must
+	// not be authorized. Such a rule neither enables SSH nor authorizes anyone.
+	SSHUserDenied func(*nmdata.PolicyRule) bool
 }
 
 // ApplyResolvedRuleToState emits firewall rules in the rule's directions and
@@ -82,6 +85,9 @@ func ApplyResolvedRuleToState[P any](
 	switch {
 	case rule.Protocol == string(PolicyRuleProtocolNetbirdSSH):
 		if !peerInDestinations {
+			return
+		}
+		if cb.SSHUserDenied != nil && cb.SSHUserDenied(rule) {
 			return
 		}
 		state.SSHEnabled = true
@@ -219,11 +225,10 @@ func VNCScopedPorts() []string {
 }
 
 // SSHScopedPorts returns the ports a netbird-ssh rule is scoped to when it
-// declares none of its own. It matches the port range ParseRuleString gives the
-// bare "netbird-ssh" spelling, so the two ways of writing the same rule produce
-// the same reach.
+// declares none of its own: the standard SSH port, which the firewall rule
+// expansion pairs with the native SSH port for peers that support it.
 func SSHScopedPorts() []string {
-	return []string{strconv.Itoa(nativeSSHPortNumber)}
+	return []string{defaultSSHPortString}
 }
 
 // MarkerScopedPorts returns the ports the NetBird marker protocols imply, for a

@@ -143,7 +143,7 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 		// enforce account id for requests routed through the embedded client
 		capturedData := proxy.CapturedDataFromContext(r.Context())
 		if capturedData != nil && capturedData.GetAccountID() != "" && capturedData.GetAccountID() != config.AccountID {
-			denyForbidden(w, config)
+			denyForbidden(w, r, config)
 			return
 		}
 		// Set account and service IDs in captured data for access logging.
@@ -164,7 +164,7 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 			if mw.forwardWithTunnelPeer(w, r, host, config, next) {
 				return
 			}
-			denyPrivate(w)
+			denyPrivate(w, r)
 			return
 		}
 
@@ -214,7 +214,7 @@ func (mw *Middleware) handleTargetAccess(w http.ResponseWriter, r *http.Request,
 	case proxy.AccessActionBypass:
 		if config.Private {
 			mw.logger.Error("private domain reached a bypass target; denying")
-			denyPrivate(w)
+			denyPrivate(w, r)
 			return r, true
 		}
 		markAccessAction(r, action)
@@ -222,12 +222,12 @@ func (mw *Middleware) handleTargetAccess(w http.ResponseWriter, r *http.Request,
 	case proxy.AccessActionBlock:
 		markAccessAction(r, action)
 		w.Header().Set("Cache-Control", "no-store")
-		denyForbidden(w, config)
+		denyForbidden(w, r, config)
 	default:
 		mw.logger.Errorf("resolved unknown access action %q; denying", action)
 		markAccessAction(r, action)
 		w.Header().Set("Cache-Control", "no-store")
-		denyForbidden(w, config)
+		denyForbidden(w, r, config)
 	}
 	return r, true
 }
@@ -319,7 +319,7 @@ func (mw *Middleware) checkIPRestrictions(w http.ResponseWriter, r *http.Request
 	clientIP := mw.resolveClientIP(r)
 	if !clientIP.IsValid() {
 		mw.logger.Debugf("IP restriction: cannot resolve client address for %q, denying", r.RemoteAddr)
-		denyForbidden(w, config)
+		denyForbidden(w, r, config)
 		return false
 	}
 
@@ -354,28 +354,48 @@ func (mw *Middleware) checkIPRestrictions(w http.ResponseWriter, r *http.Request
 
 	reason := verdict.String()
 	mw.blockIPRestriction(r, reason)
-	denyForbidden(w, config)
+	denyForbidden(w, r, config)
 	return false
 }
 
 // denyForbidden writes a 403, dropping the client connection when the
 // domain is private so a later retry cannot reuse it.
-func denyForbidden(w http.ResponseWriter, config DomainConfig) {
+func denyForbidden(w http.ResponseWriter, r *http.Request, config DomainConfig) {
 	if config.Private {
-		denyPrivate(w)
+		denyPrivate(w, r)
 		return
 	}
+	markAuthRejected(r)
 	http.Error(w, "Forbidden", http.StatusForbidden)
 }
 
 // denyPrivate writes a 403 and closes the connection, so a client refused
 // before joining the overlay cannot keep retrying on the same warm socket.
 // Go's HTTP/2 server turns the exact lowercase "close" token into a GOAWAY.
-func denyPrivate(w http.ResponseWriter) {
+func denyPrivate(w http.ResponseWriter, r *http.Request) {
+	markAuthRejected(r)
 	h := w.Header()
 	h.Set("Connection", "close")
 	h.Set("Cache-Control", "no-store")
 	http.Error(w, "Forbidden", http.StatusForbidden)
+}
+
+// markAuthRejected attributes the response to the proxy's access checks, so
+// the access log does not report the rejection as the backend's. The caller
+// was refused before it was identified or its request parsed, so it is not
+// agent-network traffic of any user: the entry goes to the service's regular
+// reverse-proxy log instead of an agent-network row with no user or provider,
+// and the account's agent-network log collection setting does not apply.
+func markAuthRejected(r *http.Request) {
+	cd := proxy.CapturedDataFromContext(r.Context())
+	if cd == nil {
+		return
+	}
+	cd.SetOrigin(proxy.OriginAuth)
+	if cd.GetAgentNetwork() {
+		cd.SetAgentNetwork(false)
+		cd.SetSuppressAccessLog(false)
+	}
 }
 
 // resolveClientIP extracts the real client IP from CapturedData, falling back to r.RemoteAddr.

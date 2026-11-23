@@ -37,6 +37,7 @@ var allKeys = []string{
 	KeyRemoteJobsAllowed,
 	KeyBundleUploadURL,
 	KeyAllowGroups,
+	KeyExtraIFaceBlackList,
 }
 
 // canonicalKey maps the lowercase form of a managed-config value name to

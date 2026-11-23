@@ -153,11 +153,11 @@ func applyServiceParams(cmd *cobra.Command, params *serviceParams) {
 
 	// For fields with non-empty defaults, keep the != "" guard so that an older
 	// service.json missing the field doesn't clobber the default with an empty string.
-	if !rootCmd.PersistentFlags().Changed("log-level") && params.LogLevel != "" {
+	if !cmd.Flags().Changed("log-level") && params.LogLevel != "" {
 		logLevel = params.LogLevel
 	}
 
-	if !rootCmd.PersistentFlags().Changed("daemon-addr") && params.DaemonAddr != "" {
+	if !cmd.Flags().Changed("daemon-addr") && params.DaemonAddr != "" {
 		daemonAddr = params.DaemonAddr
 		// An install that predates named-pipe support has the loopback TCP
 		// address saved. Callers carry no identity over TCP, so move it to the
@@ -168,41 +168,41 @@ func applyServiceParams(cmd *cobra.Command, params *serviceParams) {
 		}
 	}
 
-	if !serviceCmd.PersistentFlags().Changed("json-socket") && params.JSONSocket != "" {
+	if !cmd.Flags().Changed("json-socket") && params.JSONSocket != "" {
 		jsonSocket = params.JSONSocket
 	}
 
-	if !serviceCmd.PersistentFlags().Changed("enable-json-socket") {
+	if !cmd.Flags().Changed("enable-json-socket") {
 		enableJSONSocket = params.EnableJSONSocket
 	}
 
 	// For optional fields where empty means "use default", always apply so
 	// that an explicit clear (--management-url "") persists across reinstalls.
-	if !rootCmd.PersistentFlags().Changed("management-url") {
+	if !cmd.Flags().Changed(managementURLFlag) {
 		managementURL = params.ManagementURL
 	}
 
-	if !rootCmd.PersistentFlags().Changed("config") {
+	if !cmd.Flags().Changed(configFlag) {
 		configPath = params.ConfigPath
 	}
 
-	if !rootCmd.PersistentFlags().Changed("log-file") {
+	if !cmd.Flags().Changed("log-file") {
 		logFiles = params.LogFiles
 	}
 
-	if !serviceCmd.PersistentFlags().Changed("disable-profiles") {
+	if !cmd.Flags().Changed("disable-profiles") {
 		profilesDisabled = params.DisableProfiles
 	}
 
-	if !serviceCmd.PersistentFlags().Changed("disable-update-settings") {
+	if !cmd.Flags().Changed("disable-update-settings") {
 		updateSettingsDisabled = params.DisableUpdateSettings
 	}
 
-	if !serviceCmd.PersistentFlags().Changed("enable-capture") {
+	if !cmd.Flags().Changed("enable-capture") {
 		captureEnabled = params.EnableCapture
 	}
 
-	if !serviceCmd.PersistentFlags().Changed("disable-networks") {
+	if !cmd.Flags().Changed("disable-networks") {
 		networksDisabled = params.DisableNetworks
 	}
 
@@ -210,7 +210,7 @@ func applyServiceParams(cmd *cobra.Command, params *serviceParams) {
 	// install so a group that has been recreated with a different ID keeps
 	// working. Passing --allow-group "" leaves the flag Changed with no
 	// values, which drops the restriction rather than restoring the saved one.
-	if !serviceCmd.PersistentFlags().Changed("allow-group") {
+	if !cmd.Flags().Changed("allow-group") {
 		allowGroups = params.AllowGroups
 	}
 

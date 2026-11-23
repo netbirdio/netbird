@@ -1,5 +1,5 @@
 // Package networkmap contains the shared NetworkMap helpers that both the
-// management server and the client agent need.
+// management server and the client need.
 //
 // The proto-conversion helpers (types.NetworkMap → proto.NetworkMap) live
 // here so the client can run the same conversion locally after deriving its

@@ -257,7 +257,7 @@ func TestNormalizePolicyRuleProtocol_PortlessMarkerRulesAreScoped(t *testing.T) 
 		protocol  PolicyRuleProtocolType
 		wantPorts []string
 	}{
-		{PolicyRuleProtocolNetbirdSSH, []string{"22022"}},
+		{PolicyRuleProtocolNetbirdSSH, []string{"22"}},
 		{PolicyRuleProtocolNetbirdVNC, []string{strconv.Itoa(VNCInternalPort)}},
 	}
 	for _, tc := range cases {

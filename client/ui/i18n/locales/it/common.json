@@ -8,6 +8,9 @@
     "tray.status.daemonUnavailable": {
         "message": "Non in esecuzione"
     },
+    "tray.status.daemonAccessDenied": {
+        "message": "Nessun accesso"
+    },
     "tray.status.error": {
         "message": "Errore"
     },
@@ -677,6 +680,9 @@
     "settings.security.rosenpass.help": {
         "message": "Aggiunge uno scambio di chiavi post-quantistico tramite Rosenpass sopra WireGuard®."
     },
+    "settings.security.rosenpass.deprecated": {
+        "message": "Deprecato: il supporto di Rosenpass può essere rimosso in un futuro rilascio."
+    },
     "settings.security.rosenpassPermissive.label": {
         "message": "Abilita modalità permissiva"
     },
@@ -935,8 +941,8 @@
     "settings.about.community.github": {
         "message": "GitHub"
     },
-    "settings.about.community.slack": {
-        "message": "Slack"
+    "settings.about.community.discord": {
+        "message": "Discord"
     },
     "settings.about.community.forum": {
         "message": "Forum"
@@ -1391,6 +1397,12 @@
     "daemon.unavailable.docsLink": {
         "message": "Documentazione"
     },
+    "daemon.accessDenied.title": {
+        "message": "Nessun accesso al servizio NetBird"
+    },
+    "daemon.accessDenied.description": {
+        "message": "L’amministratore ha limitato il servizio NetBird su questo dispositivo ad alcuni utenti o gruppi, e il tuo account non è tra questi. Contatta l’amministratore per ottenere l’accesso."
+    },
     "daemon.outdated.title": {
         "message": "NetBird Client è obsoleto"
     },
@@ -1420,6 +1432,9 @@
     },
     "error.daemon_unreachable": {
         "message": "Il daemon NetBird non risponde. Verifichi che il servizio sia in esecuzione."
+    },
+    "error.daemon_access_denied": {
+        "message": "Il Suo account non è autorizzato a usare il servizio NetBird su questo dispositivo. Contatti l'amministratore per ottenere l'accesso."
     },
     "error.settings_locked": {
         "message": "Le impostazioni non possono essere modificate su questo dispositivo: un amministratore le ha bloccate."
@@ -1483,17 +1498,5 @@
     },
     "error.profile_unowned": {
         "message": "Questo profilo non ha ancora un proprietario."
-    },
-    "tray.status.daemonAccessDenied": {
-        "message": "Nessun accesso"
-    },
-    "daemon.accessDenied.title": {
-        "message": "Nessun accesso al servizio NetBird"
-    },
-    "daemon.accessDenied.description": {
-        "message": "L’amministratore ha limitato il servizio NetBird su questo dispositivo ad alcuni utenti o gruppi, e il tuo account non è tra questi. Contatta l’amministratore per ottenere l’accesso."
-    },
-    "error.daemon_access_denied": {
-        "message": "Il Suo account non è autorizzato a usare il servizio NetBird su questo dispositivo. Contatti l'amministratore per ottenere l'accesso."
     }
 }

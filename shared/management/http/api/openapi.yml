@@ -451,6 +451,10 @@ components:
           description: Enables or disables network traffic packet counter. If enabled, network packets and their size will be counted and reported. (This can have an slight impact on performance)
           type: boolean
           example: true
+        user_email_mapping_enabled:
+          description: (Cloud only) Enables resolving user IDs to email addresses in streamed activity and network traffic events.
+          type: boolean
+          example: false
       required:
         - peer_approval_enabled
         - user_approval_required
@@ -3979,6 +3983,16 @@ components:
           description: How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
           minimum: 1
           maximum: 1440
+        stale_grace_minutes:
+          type: integer
+          description: Minutes a previously approved device keeps access after a stale check-in. 0 disables it, maximum is 240.
+          minimum: 0
+          maximum: 240
+          default: 0
+        stale_grace_new_peers:
+          type: boolean
+          description: Whether newly added peers get the grace period while the EDR has not reported them compliant yet. When false, they are denied until it does.
+          default: false
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -3998,6 +4012,8 @@ components:
         - groups
         - last_synced_interval
         - sync_interval
+        - stale_grace_minutes
+        - stale_grace_new_peers
         - enabled
       properties:
         id:
@@ -4047,6 +4063,12 @@ components:
         sync_interval:
           type: integer
           description: How often devices are synced from the integration, in minutes.
+        stale_grace_minutes:
+          type: integer
+          description: Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
+        stale_grace_new_peers:
+          type: boolean
+          description: Whether newly added peers get the grace period while the EDR has not reported them compliant yet.
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4074,6 +4096,16 @@ components:
           description: How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
           minimum: 1
           maximum: 1440
+        stale_grace_minutes:
+          type: integer
+          description: Minutes a previously approved device keeps access after a stale check-in. 0 disables it, maximum is 240.
+          minimum: 0
+          maximum: 240
+          default: 0
+        stale_grace_new_peers:
+          type: boolean
+          description: Whether newly added peers get the grace period while the EDR has not reported them compliant yet. When false, they are denied until it does.
+          default: false
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4101,6 +4133,8 @@ components:
         - last_synced_interval
         - match_attributes
         - sync_interval
+        - stale_grace_minutes
+        - stale_grace_new_peers
         - enabled
       properties:
         id:
@@ -4146,6 +4180,12 @@ components:
         sync_interval:
           type: integer
           description: How often devices are synced from the integration, in minutes.
+        stale_grace_minutes:
+          type: integer
+          description: Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
+        stale_grace_new_peers:
+          type: boolean
+          description: Whether newly added peers get the grace period while the EDR has not reported them compliant yet.
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4205,11 +4245,25 @@ components:
           minimum: 0
           maximum: 100
           example: 75
+        last_synced_interval:
+          type: integer
+          description: The devices last seen requirement interval in hours. Minimum value is 24 hours.
+          minimum: 24
         sync_interval:
           type: integer
           description: How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
           minimum: 1
           maximum: 1440
+        stale_grace_minutes:
+          type: integer
+          description: Minutes a previously approved device keeps access after a stale check-in. 0 disables it, maximum is 240.
+          minimum: 0
+          maximum: 240
+          default: 0
+        stale_grace_new_peers:
+          type: boolean
+          description: Whether newly added peers get the grace period while the EDR has not reported them compliant yet. When false, they are denied until it does.
+          default: false
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4220,6 +4274,7 @@ components:
         - cloud_id
         - groups
         - zta_score_threshold
+        - last_synced_interval
     EDRFalconResponse:
       type: object
       description: Represents a Falcon EDR integration
@@ -4234,6 +4289,9 @@ components:
         - groups
         - zta_score_threshold
         - sync_interval
+        - stale_grace_minutes
+        - stale_grace_new_peers
+        - last_synced_interval
         - enabled
       properties:
         id:
@@ -4274,9 +4332,18 @@ components:
         zta_score_threshold:
           type: integer
           description: The minimum Zero Trust Assessment score required for agent approval (0-100)
+        last_synced_interval:
+          type: integer
+          description: The devices last seen requirement interval in hours.
         sync_interval:
           type: integer
           description: How often devices are synced from the integration, in minutes.
+        stale_grace_minutes:
+          type: integer
+          description: Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
+        stale_grace_new_peers:
+          type: boolean
+          description: Whether newly added peers get the grace period while the EDR has not reported them compliant yet.
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4305,6 +4372,16 @@ components:
           description: How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
           minimum: 1
           maximum: 1440
+        stale_grace_minutes:
+          type: integer
+          description: Minutes a previously approved device keeps access after a stale check-in. 0 disables it, maximum is 240.
+          minimum: 0
+          maximum: 240
+          default: 0
+        stale_grace_new_peers:
+          type: boolean
+          description: Whether newly added peers get the grace period while the EDR has not reported them compliant yet. When false, they are denied until it does.
+          default: false
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4331,6 +4408,8 @@ components:
         - last_synced_interval
         - match_attributes
         - sync_interval
+        - stale_grace_minutes
+        - stale_grace_new_peers
         - enabled
       properties:
         id:
@@ -4371,6 +4450,12 @@ components:
         sync_interval:
           type: integer
           description: How often devices are synced from the integration, in minutes.
+        stale_grace_minutes:
+          type: integer
+          description: Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
+        stale_grace_new_peers:
+          type: boolean
+          description: Whether newly added peers get the grace period while the EDR has not reported them compliant yet.
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4424,6 +4509,16 @@ components:
           description: How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
           minimum: 1
           maximum: 1440
+        stale_grace_minutes:
+          type: integer
+          description: Minutes a previously approved device keeps access after a stale check-in. 0 disables it, maximum is 240.
+          minimum: 0
+          maximum: 240
+          default: 0
+        stale_grace_new_peers:
+          type: boolean
+          description: Whether newly added peers get the grace period while the EDR has not reported them compliant yet. When false, they are denied until it does.
+          default: false
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4451,6 +4546,8 @@ components:
         - last_synced_interval
         - match_attributes
         - sync_interval
+        - stale_grace_minutes
+        - stale_grace_new_peers
         - enabled
       properties:
         id:
@@ -4494,6 +4591,12 @@ components:
         sync_interval:
           type: integer
           description: How often devices are synced from the integration, in minutes.
+        stale_grace_minutes:
+          type: integer
+          description: Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
+        stale_grace_new_peers:
+          type: boolean
+          description: Whether newly added peers get the grace period while the EDR has not reported them compliant yet.
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -5869,6 +5972,16 @@ components:
         deny_reason:
           type: string
           description: Raw deny reason code when the request was blocked (e.g. llm_policy.token_cap_exceeded).
+        blocked_by:
+          type: string
+          description: ID of the policy (llm_policy.* deny reasons) or account budget rule (llm_account.* deny reasons) whose cap blocked the request.
+        error_source:
+          type: string
+          enum: [provider, proxy, policy, auth]
+          description: Who produced a failed (status >= 400) response. provider is the upstream LLM API, proxy is the NetBird reverse proxy failing to reach it, policy is a NetBird policy or guardrail denial, auth is a proxy authentication rejection. Empty for successful requests.
+        error_detail:
+          type: string
+          description: Admin-facing explanation of the failure, such as the proxy's transport error or which cap was exhausted and by how much. Returned only to callers with the account-wide agent network logs permission; callers limited to their own requests never receive it.
         input_tokens:
           type: integer
           format: int64

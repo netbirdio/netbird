@@ -9,11 +9,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/signal/metrics"
+	"github.com/netbirdio/netbird/signal/metrics/metricstest"
 )
 
 func TestRegistry_ShouldNotDeregisterWhenHasNewerStreamRegistered(t *testing.T) {
@@ -44,6 +46,25 @@ func TestRegistry_ShouldNotDeregisterWhenHasNewerStreamRegistered(t *testing.T) 
 
 	assert.NotNil(t, registered, "peer can't be nil")
 	assert.Equal(t, newerPeer, registered)
+}
+
+func TestRegistry_CountsNewAndReplacedRegistrations(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	appMetrics, err := metrics.NewAppMetrics(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter("test"))
+	require.NoError(t, err)
+	r := NewRegistry(appMetrics)
+
+	older := NewPeer("peer", nil, func() {})
+	older.StreamID = 1
+	newer := NewPeer("peer", nil, func() {})
+	newer.StreamID = 2
+	require.NoError(t, r.Register(older))
+	require.NoError(t, r.Register(newer))
+	require.NoError(t, r.Register(NewPeer("other", nil, func() {})))
+
+	rm := metricstest.Collect(t, reader)
+	assert.Equal(t, map[string]int64{labelRegistrationNew: 2, labelRegistrationReplaced: 1}, metricstest.SumByAttribute(t, rm, "registrations_total", labelRegistrationType))
+	assert.Equal(t, map[string]int64{"": 2}, metricstest.SumByAttribute(t, rm, "active_peers", labelRegistrationType), "a replaced stream must not add an active peer")
 }
 
 func TestRegistry_GetNonExistentPeer(t *testing.T) {

@@ -62,7 +62,7 @@ func (s *SleepHandler) HandleSleep(ctx context.Context) error {
 	}
 
 	if status != internal.StatusConnecting && status != internal.StatusConnected {
-		log.Infof("skipping setting the agent down because status is %s", status)
+		log.Infof("skipping setting the client down because status is %s", status)
 		return nil
 	}
 

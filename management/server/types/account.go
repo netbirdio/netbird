@@ -1057,7 +1057,7 @@ func PeerSSHEnabledFromPolicies(policies []*Policy, peerID string, peerGroupIDs 
 		}
 
 		for _, rule := range policy.Rules {
-			if !rule.Enabled {
+			if !rule.Enabled || rule.Action != PolicyTrafficActionAccept {
 				continue
 			}
 

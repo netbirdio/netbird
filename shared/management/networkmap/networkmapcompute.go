@@ -55,7 +55,11 @@ func (a *authRequirements) collectFor(rule *nmdata.PolicyRule, peerSSHEnabled, p
 			a.neededGroupIDs[groupID] = struct{}{}
 		}
 	case rule.AuthorizedUser != "":
-		// Carries its own user; no lookup inputs needed.
+		// An SSH rule pinned to a user is checked against the allowed-user set,
+		// so a blocked user does not enable SSH. VNC needs no lookup.
+		if rule.Protocol == string(types.PolicyRuleProtocolNetbirdSSH) {
+			a.needAllowedUserIDs = true
+		}
 	default:
 		a.needAllowedUserIDs = true
 	}
