@@ -4,12 +4,13 @@
 // Stale check: one global tick number, raised by the first heartbeat at
 // least half a period after the previous tick; heartbeats that land sooner
 // join that tick. Each stream stores the tick of its last heartbeat, and at
-// a new tick a stream two or more ticks behind runs its stale action. A
-// heartbeat held by the network therefore opens or joins one tick and never
-// makes a live stream look dead. A device wake runs the wake check: after a
-// short grace, a stream silent for longer than its receive timeout on the
-// wall clock runs its stale action, which covers the time the phone slept
-// and no tick could form.
+// a new tick a stream two or more ticks behind runs its stale action. All
+// servers send on the same phase, so ticks form about one period apart, and
+// a live stream is reconnected only if its heartbeat is late by about a full
+// period. A device wake runs the wake check: after a short grace, a stream
+// silent for longer than its receive timeout on the wall clock runs its
+// stale action, which covers the time the phone slept and no tick could
+// form.
 //
 // Tick: the first heartbeat of each tick also runs the functions given to
 // OnTick, so periodic client work runs inside a wake the device has anyway.
