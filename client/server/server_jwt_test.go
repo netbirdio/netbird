@@ -118,7 +118,6 @@ func TestSwitchProfile_ClearsJWTCache(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	owner := unprivilegedIdentity()
 	token := newJWTCacheToken(t, "token")
 	require.True(t, s.jwtCache.store(token, owner, testTTL, s.jwtCache.currentGeneration()), "valid fixture must be cached")
 
