@@ -225,6 +225,32 @@ func TestWaitRetryDelayEndsAtWakePastDeadline(t *testing.T) {
 	}
 }
 
+// TestUnreadWakeIsReplacedByNewer covers a retry waiter that did not read
+// an early wake: a later wake past its deadline must replace it, not be
+// dropped, or the wait sleeps until its timer after the device woke.
+func TestUnreadWakeIsReplacedByNewer(t *testing.T) {
+	clk := newFakeClock(testStart)
+	w := New(clk, time.Minute)
+	wakes, unsubscribe := w.subscribeWake()
+	defer unsubscribe()
+
+	w.fireWake(wakeEvent{at: testStart.Add(10 * time.Second)})
+	w.fireWake(wakeEvent{at: testStart.Add(2 * time.Minute)})
+	w.fireWake(wakeEvent{at: testStart.Add(time.Minute)})
+
+	select {
+	case wake := <-wakes:
+		assert.Equal(t, testStart.Add(2*time.Minute), wake.at, "the waiter must see the newest wake")
+	default:
+		t.Fatal("a wake must wait for the waiter")
+	}
+	select {
+	case wake := <-wakes:
+		t.Fatalf("only one wake must wait, got another at %s", wake.at)
+	default:
+	}
+}
+
 func TestWaitRetryDelayTimerAndCancel(t *testing.T) {
 	clk := newFakeClock(testStart)
 	w := New(clk, time.Minute)

@@ -492,16 +492,29 @@ func (w *Watcher) checkWake() {
 	}
 }
 
+// fireWake hands wake to every retry waiter. A waiter that has not read its
+// last wake gets the newer of the two instead: an old wake can be before the
+// deadline of the wait while the new one is past it. The sends run under mu,
+// so only one sender fills a slot it just emptied.
 func (w *Watcher) fireWake(wake wakeEvent) {
 	w.mu.Lock()
-	subs := make([]chan wakeEvent, 0, len(w.wakeSubs))
+	defer w.mu.Unlock()
 	for _, ch := range w.wakeSubs {
-		subs = append(subs, ch)
-	}
-	w.mu.Unlock()
-	for _, ch := range subs {
 		select {
 		case ch <- wake:
+			continue
+		default:
+		}
+		latest := wake
+		select {
+		case old := <-ch:
+			if old.at.After(latest.at) {
+				latest = old
+			}
+		default:
+		}
+		select {
+		case ch <- latest:
 		default:
 		}
 	}
