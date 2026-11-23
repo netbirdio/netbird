@@ -14,7 +14,6 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -188,17 +187,11 @@ func TestApplyServiceParams_OnlyUnchangedFlags(t *testing.T) {
 	updateSettingsDisabled = false
 	serviceEnvVars = nil
 
-	// Reset Changed state on all relevant flags.
-	rootCmd.PersistentFlags().VisitAll(func(f *pflag.Flag) {
-		f.Changed = false
-	})
-	serviceCmd.PersistentFlags().VisitAll(func(f *pflag.Flag) {
-		f.Changed = false
-	})
-
 	// Simulate user explicitly setting --log-level via CLI.
-	logLevel = "warn"
-	require.NoError(t, rootCmd.PersistentFlags().Set("log-level", "warn"))
+	cmd := &cobra.Command{}
+	cmd.Flags().StringSlice("service-env", nil, "")
+	cmd.Flags().StringVar(&logLevel, "log-level", "info", "")
+	require.NoError(t, cmd.Flags().Set("log-level", "warn"))
 
 	saved := &serviceParams{
 		LogLevel:              "debug",
@@ -213,8 +206,6 @@ func TestApplyServiceParams_OnlyUnchangedFlags(t *testing.T) {
 		ServiceEnvVars:        map[string]string{"SAVED_KEY": "saved_val"},
 	}
 
-	cmd := &cobra.Command{}
-	cmd.Flags().StringSlice("service-env", nil, "")
 	applyServiceParams(cmd, saved)
 
 	// log-level was Changed, so it should keep "warn", not use saved "debug".
@@ -247,11 +238,6 @@ func TestApplyServiceParams_BooleanRevertToFalse(t *testing.T) {
 	updateSettingsDisabled = true
 	enableJSONSocket = true
 
-	// Reset Changed state so flags appear unset.
-	serviceCmd.PersistentFlags().VisitAll(func(f *pflag.Flag) {
-		f.Changed = false
-	})
-
 	// Saved params have both as false.
 	saved := &serviceParams{
 		DisableProfiles:       false,
@@ -279,10 +265,6 @@ func TestApplyServiceParams_ClearManagementURL(t *testing.T) {
 		DaemonAddr: "unix:///var/run/netbird.sock",
 		// ManagementURL intentionally empty: was cleared with --management-url "".
 	}
-
-	rootCmd.PersistentFlags().VisitAll(func(f *pflag.Flag) {
-		f.Changed = false
-	})
 
 	cmd := &cobra.Command{}
 	cmd.Flags().StringSlice("service-env", nil, "")

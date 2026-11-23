@@ -79,6 +79,28 @@ Everything else, by feature:
 | Debug bundle | Execute the firewall tools, files in `netbird_tmp_t`, upload over HTTPS, journal and log reads (`netbird_debug_bundle`) |
 | Ports | Bind unreserved UDP ports, connect to any TCP port. Binding unreserved TCP ports needs `netbird_bind_all_ports` |
 
+## Config file location
+
+The daemon writes its profile configs, which hold the WireGuard private key, by creating a
+temporary file next to the target and renaming it over it, so it needs write access to
+the directory the config lives in. The policy grants that only for `/var/lib/netbird`
+(`netbird_var_lib_t`), the default location. `/etc/netbird` is `netbird_etc_t`, which the
+daemon can read but not modify. It holds the certificate store used by posture checks, and
+stays read-only so that a compromised daemon cannot alter it.
+
+A config kept elsewhere, such as `--config /etc/netbird/config.json` in a service unit,
+can be read, but changing it (for example a new management URL) is denied. A relocated
+config directory needs the state type, and the local rule takes precedence over the
+module's file contexts:
+
+```sh
+semanage fcontext -a -t netbird_var_lib_t '/etc/netbird(/.*)?'
+restorecon -R /etc/netbird
+```
+
+Use the same two commands for any other directory passed with `--config`. A directory that is
+not relabeled this way is not supported by the policy.
+
 ## Diagnosing denials
 
 On EL, which runs auditd, denials are in the audit log:

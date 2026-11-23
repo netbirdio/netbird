@@ -11,7 +11,7 @@ import (
 func InterfaceFilter(disallowList []string, detector *WGDetector) func(string) bool {
 	return func(iFace string) bool {
 		if strings.HasPrefix(iFace, "lo") {
-			// hardcoded loopback check to support already installed agents
+			// hardcoded loopback check to support already installed clients
 			return false
 		}
 

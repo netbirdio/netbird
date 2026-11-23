@@ -132,10 +132,11 @@ func (s *ICEBind) Close() error {
 	s.closed = true
 	close(s.closedChan)
 
+	// The mux is kept: the engine and every peer hold it, and the next Open
+	// points it at the new sockets.
 	s.muUDPMux.Lock()
 	s.ipv4Conn = nil
 	s.ipv6Conn = nil
-	s.udpMux = nil
 	s.muUDPMux.Unlock()
 
 	return s.StdNetBind.Close()
@@ -305,8 +306,12 @@ func (s *ICEBind) createOrUpdateMux() {
 		return
 	}
 
-	// Don't close the old mux - it doesn't own the underlying connections.
-	// The sockets are managed by WireGuard's StdNetBind, not by us.
+	// The mux does not own the sockets, WireGuard's StdNetBind does. Reuse it
+	// across a rebind so the copies handed out keep working.
+	if s.udpMux != nil {
+		s.udpMux.UpdateConn(muxConn)
+		return
+	}
 	s.udpMux = udpmux.NewUniversalUDPMuxDefault(
 		udpmux.UniversalUDPMuxParams{
 			UDPConn:   muxConn,

@@ -185,6 +185,7 @@ type PeerSystemMeta struct { //nolint:revive
 	SystemSerialNumber string
 	SystemProductName  string
 	SystemManufacturer string
+	SystemHardwareUUID string
 	Environment        Environment `gorm:"serializer:json"`
 	Flags              Flags       `gorm:"serializer:json"`
 	Files              []File      `gorm:"serializer:json"`
@@ -212,6 +213,7 @@ func (p PeerSystemMeta) isEmpty() bool {
 		p.SystemSerialNumber == "" &&
 		p.SystemProductName == "" &&
 		p.SystemManufacturer == "" &&
+		p.SystemHardwareUUID == "" &&
 		p.Environment.Cloud == "" &&
 		p.Environment.Platform == "" &&
 		len(p.Files) == 0 &&
@@ -416,6 +418,9 @@ func diffMeta(oldMeta, newMeta PeerSystemMeta, oldLocation, newLocation Location
 	if oldMeta.SystemManufacturer != newMeta.SystemManufacturer {
 		add("system_manufacturer", oldMeta.SystemManufacturer, newMeta.SystemManufacturer)
 	}
+	if oldMeta.SystemHardwareUUID != newMeta.SystemHardwareUUID {
+		add("system_hardware_uuid", oldMeta.SystemHardwareUUID, newMeta.SystemHardwareUUID)
+	}
 	if oldMeta.Environment.Cloud != newMeta.Environment.Cloud {
 		add("environment_cloud", oldMeta.Environment.Cloud, newMeta.Environment.Cloud)
 	}
@@ -547,9 +552,14 @@ func (p *Peer) FQDN(dnsDomain string) string {
 func (p *Peer) EventMeta(dnsDomain string) map[string]any {
 	meta := map[string]any{"name": p.Name, "fqdn": p.FQDN(dnsDomain), "ip": p.IP, "created_at": p.CreatedAt,
 		"location_city_name": p.Location.CityName, "location_country_code": p.Location.CountryCode,
-		"location_geo_name_id": p.Location.GeoNameID, "location_connection_ip": p.Location.ConnectionIP}
+		"location_geo_name_id": p.Location.GeoNameID, "location_connection_ip": p.Location.ConnectionIP,
+		"serial_number": p.Meta.SystemSerialNumber, "os": p.Meta.OS, "os_version": p.Meta.OSVersion,
+		"hostname": p.Meta.Hostname}
 	if p.IPv6.IsValid() {
 		meta["ipv6"] = p.IPv6.String()
+	}
+	if p.UserID != "" {
+		meta["user_id"] = p.UserID
 	}
 	return meta
 }

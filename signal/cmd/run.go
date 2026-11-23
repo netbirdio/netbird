@@ -170,7 +170,7 @@ var (
 			}
 
 			if signalPort != legacyGRPCPort {
-				// The Signal gRPC server was running on port 10000 previously. Old agents that are already connected to Signal
+				// The Signal gRPC server was running on port 10000 previously. Old clients that are already connected to Signal
 				// are using port 10000. For compatibility purposes we keep running a 2nd gRPC server on port 10000.
 				compatListener, err = serveGRPC(grpcServer, legacyGRPCPort)
 				if err != nil {

@@ -282,3 +282,45 @@ func (s *SqlStore) SaveUserLastLogin(ctx context.Context, accountID, userID stri
 
 	return nil
 }
+
+// GetUsersMissingEmailOrName returns non-service users with an empty email or name.
+func (s *SqlStore) GetUsersMissingEmailOrName(ctx context.Context) ([]*types.User, error) {
+	var users []*types.User
+	result := s.db.Select("id", "account_id", "email", "name").
+		Where("is_service_user = ?", false).
+		Where("(COALESCE(email, '') = '' OR COALESCE(name, '') = '')").
+		Find(&users)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get users missing email or name: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get users missing email or name")
+	}
+
+	for _, user := range users {
+		if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt user: %w", err)
+		}
+	}
+
+	return users, nil
+}
+
+// FillUserEmailAndName sets the user's email and name only where they are empty.
+func (s *SqlStore) FillUserEmailAndName(ctx context.Context, accountID, userID, email, name string) error {
+	encrypted := &types.User{Email: email, Name: name}
+	if err := encrypted.EncryptSensitiveData(s.fieldEncrypt); err != nil {
+		return fmt.Errorf("encrypt user email and name: %w", err)
+	}
+
+	result := s.db.Model(&types.User{}).
+		Where(accountAndIDQueryCondition, accountID, userID).
+		Updates(map[string]any{
+			"email": gorm.Expr("COALESCE(NULLIF(email, ''), ?)", encrypted.Email),
+			"name":  gorm.Expr("COALESCE(NULLIF(name, ''), ?)", encrypted.Name),
+		})
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to fill user email and name: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to fill user email and name")
+	}
+
+	return nil
+}

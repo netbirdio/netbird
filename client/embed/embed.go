@@ -118,7 +118,7 @@ type Options struct {
 	// DNSLabels defines additional DNS labels configured in the peer.
 	DNSLabels []string
 	// NATExternalIPs maps external IPs to internal IPs or interfaces for ICE
-	// candidates, same format as the agent's --external-ip-map flag.
+	// candidates, same format as the client's --external-ip-map flag.
 	NATExternalIPs []string
 	// Performance configures the tunnel's buffer pool cap and batch size.
 	Performance Performance
@@ -267,7 +267,7 @@ func New(opts Options) (*Client, error) {
 		jwtToken:   opts.JWTToken,
 		config:     config,
 		recorder:   peer.NewRecorder(config.ManagementURL.String()),
-		// Without a path the default would be the installed agent's state
+		// Without a path the default would be the installed client's state
 		// file, which this client must neither read nor overwrite.
 		inMemoryState: opts.StatePath == "" && !opts.NoUserspace,
 	}, nil

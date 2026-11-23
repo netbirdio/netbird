@@ -26,18 +26,23 @@ type LookupMap map[string]struct{}
 
 // ExpandPortsAndRanges expands Ports and PortRanges of a rule into individual firewall rules.
 func ExpandPortsAndRanges(base FirewallRule, rule *nmdata.PolicyRule, peer *nmdata.Peer) []*FirewallRule {
+	return expandPortsAndRanges(base, rule, rule.Ports, peer)
+}
+
+// expandPortsAndRanges expands base over ports and, when ports is empty, over the rule's port ranges.
+func expandPortsAndRanges(base FirewallRule, rule *nmdata.PolicyRule, ports []string, peer *nmdata.Peer) []*FirewallRule {
 	features := peerSupportedFirewallFeatures(peer.Meta.WtVersion)
 
 	var expanded []*FirewallRule
 
-	for _, port := range rule.Ports {
+	for _, port := range ports {
 		fr := base
 		fr.Port = port
 		expanded = append(expanded, &fr)
 	}
 
 	for _, portRange := range rule.PortRanges {
-		if len(rule.Ports) > 0 {
+		if len(ports) > 0 {
 			break
 		}
 		fr := base

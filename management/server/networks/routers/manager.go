@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
+	nbtypes "github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -127,7 +128,7 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 
 	m.accountManager.StoreEvent(ctx, userID, router.ID, router.AccountID, activity.NetworkRouterCreated, router.EventMeta(network))
 
-	m.accountManager.ExpandAndUpdateAffected(ctx, router.AccountID, snap, change)
+	m.accountManager.ExpandAndUpdateAffected(ctx, router.AccountID, snap, change, nbtypes.UpdateReason{Resource: nbtypes.UpdateResourceNetworkRouter, Operation: nbtypes.UpdateOperationCreate})
 
 	return router, nil
 }
@@ -180,7 +181,7 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 		return router, nil
 	}
 
-	m.accountManager.ExpandAndUpdateAffected(ctx, router.AccountID, snap, change)
+	m.accountManager.ExpandAndUpdateAffected(ctx, router.AccountID, snap, change, nbtypes.UpdateReason{Resource: nbtypes.UpdateResourceNetworkRouter, Operation: nbtypes.UpdateOperationUpdate})
 
 	return router, nil
 }
@@ -270,7 +271,7 @@ func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, netwo
 
 	event()
 
-	m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change, nbtypes.UpdateReason{Resource: nbtypes.UpdateResourceNetworkRouter, Operation: nbtypes.UpdateOperationDelete})
 
 	return nil
 }
