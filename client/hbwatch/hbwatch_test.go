@@ -1,0 +1,261 @@
+package hbwatch
+
+import (
+	"context"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+type fakeTimer struct {
+	due time.Time
+	f   func()
+}
+
+type fakeClock struct {
+	mu     sync.Mutex
+	now    time.Time
+	timers []fakeTimer
+}
+
+func newFakeClock(start time.Time) *fakeClock { return &fakeClock{now: start} }
+
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *fakeClock) AfterFunc(d time.Duration, f func()) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.timers = append(c.timers, fakeTimer{due: c.now.Add(d), f: f})
+}
+
+func (c *fakeClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	c.now = c.now.Add(d)
+	var due []func()
+	var keep []fakeTimer
+	for _, t := range c.timers {
+		if t.due.After(c.now) {
+			keep = append(keep, t)
+		} else {
+			due = append(due, t.f)
+		}
+	}
+	c.timers = keep
+	c.mu.Unlock()
+	for _, f := range due {
+		f()
+	}
+}
+
+var testStart = time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+
+func staleCounter() (func(), *int) {
+	n := 0
+	return func() { n++ }, &n
+}
+
+// TestTickStaleReconnectsAtSecondMissedTick checks that a stream two or more
+// ticks behind is reconnected and one tick behind is not.
+func TestTickStaleReconnectsAtSecondMissedTick(t *testing.T) {
+	clk := newFakeClock(testStart)
+	w := New(clk, time.Minute)
+	mgmtStale, mgmtN := staleCounter()
+	sigStale, sigN := staleCounter()
+	w.Register(Management, Registration{Kind: ActionReconnect, Stale: mgmtStale, AlignedPeriod: time.Minute})
+	w.Register(Signal, Registration{Kind: ActionReconnect, Stale: sigStale, AlignedPeriod: time.Minute})
+
+	w.Seen(Management, time.Minute)
+	clk.Advance(time.Second)
+	w.Seen(Signal, time.Minute)
+
+	clk.Advance(59 * time.Second)
+	w.Seen(Management, time.Minute) // tick 2
+	assert.Zero(t, *sigN, "one tick behind is live")
+
+	clk.Advance(time.Minute)
+	w.Seen(Management, time.Minute) // tick 3
+	assert.Equal(t, 1, *sigN, "two ticks behind reconnects")
+	assert.Zero(t, *mgmtN)
+
+	clk.Advance(time.Minute)
+	w.Seen(Management, time.Minute) // tick 4
+	assert.Equal(t, 1, *sigN, "not again on the very next tick")
+	clk.Advance(time.Minute)
+	w.Seen(Management, time.Minute) // tick 5
+	assert.Equal(t, 2, *sigN, "again after two more ticks while still dead")
+}
+
+// TestLateArrivalsDoNotReconnectLiveStreams checks that heartbeats arriving
+// late, one stream on time and two held 20 s and 80 s, give no reconnect.
+func TestLateArrivalsDoNotReconnectLiveStreams(t *testing.T) {
+	clk := newFakeClock(testStart)
+	w := New(clk, time.Minute)
+	counts := map[Service]*int{}
+	for _, svc := range services {
+		stale, n := staleCounter()
+		counts[svc] = n
+		w.Register(svc, Registration{Kind: ActionReconnect, Stale: stale, AlignedPeriod: time.Minute})
+		w.Seen(svc, time.Minute)
+	}
+
+	clk.Advance(time.Minute)
+	w.Seen(Management, time.Minute) // tick 2 on time
+	clk.Advance(20 * time.Second)
+	w.Seen(Signal, time.Minute) // held 20 s: joins tick 2
+	clk.Advance(60 * time.Second)
+	w.Seen(Relay, time.Minute) // held 80 s in total: opens tick 3
+	clk.Advance(time.Second)
+	w.Seen(Management, time.Minute) // joins tick 3
+	w.Seen(Signal, time.Minute)
+
+	for svc, n := range counts {
+		assert.Zero(t, *n, "live stream %s must not reconnect", svc)
+	}
+}
+
+// TestWakeCheckReconnectsSilentStream covers the all-streams-dead case: no
+// ticks form, and the wake check reconnects after the grace.
+func TestWakeCheckReconnectsSilentStream(t *testing.T) {
+	clk := newFakeClock(testStart)
+	w := New(clk, time.Minute)
+	stale, n := staleCounter()
+	w.Register(Signal, Registration{Kind: ActionReconnect, Stale: stale, AlignedPeriod: time.Minute})
+	w.Seen(Signal, time.Minute)
+
+	clk.Advance(30 * time.Second)
+	w.CheckNow()
+	clk.Advance(Grace)
+	assert.Zero(t, *n, "silent 30 s is inside the receive timeout")
+
+	clk.Advance(50 * time.Second) // silent 80 s in total
+	w.CheckNow()
+	assert.Zero(t, *n, "the check runs only after the grace")
+	clk.Advance(Grace)
+	assert.Equal(t, 1, *n, "silent over period+10 s at the wake reconnects")
+
+	w.CheckNow()
+	clk.Advance(Grace)
+	assert.Equal(t, 1, *n, "the same wake does not fire twice")
+}
+
+func TestOnTickRunsOncePerTick(t *testing.T) {
+	clk := newFakeClock(testStart)
+	w := New(clk, time.Minute)
+	w.Register(Management, Registration{AlignedPeriod: time.Minute})
+
+	var periods []time.Duration
+	unsubscribe := w.OnTick(func(p time.Duration) { periods = append(periods, p) })
+
+	w.Seen(Management, time.Minute)
+	clk.Advance(10 * time.Second)
+	w.Seen(Management, time.Minute)
+	assert.Len(t, periods, 1, "a heartbeat inside half a period joins the tick")
+
+	clk.Advance(50 * time.Second)
+	w.Seen(Management, time.Minute)
+	assert.Len(t, periods, 2)
+	assert.Equal(t, time.Minute, periods[0])
+
+	unsubscribe()
+	clk.Advance(time.Minute)
+	w.Seen(Management, time.Minute)
+	assert.Len(t, periods, 2, "an unsubscribed func no longer runs")
+}
+
+func TestWaitRetryDelayEndsAtWakePastDeadline(t *testing.T) {
+	clk := newFakeClock(testStart)
+	w := New(clk, time.Minute)
+
+	done := make(chan error, 1)
+	go func() { done <- w.WaitRetryDelay(context.Background(), time.Minute, nil) }()
+	// Let the wait subscribe before the wake fires.
+	require.Eventually(t, func() bool {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		return len(w.wakeSubs) > 0
+	}, 5*time.Second, time.Millisecond)
+
+	clk.Advance(30 * time.Second)
+	w.CheckNow() // a wake before the deadline must not end the wait
+	select {
+	case err := <-done:
+		t.Fatalf("wait ended early: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	clk.Advance(40 * time.Second) // past the wall deadline
+	w.CheckNow()
+	select {
+	case err := <-done:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("wake past the deadline did not end the wait")
+	}
+}
+
+func TestWaitRetryDelayTimerAndCancel(t *testing.T) {
+	clk := newFakeClock(testStart)
+	w := New(clk, time.Minute)
+
+	assert.NoError(t, w.WaitRetryDelay(context.Background(), 20*time.Millisecond, nil), "the timer ends the wait")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	assert.ErrorIs(t, w.WaitRetryDelay(ctx, time.Minute, nil), context.Canceled)
+
+	changed := make(chan struct{})
+	close(changed)
+	assert.NoError(t, w.WaitRetryDelay(context.Background(), time.Minute, changed), "a network change ends the wait")
+}
+
+func TestRegisterReplaceAndSnapshot(t *testing.T) {
+	clk := newFakeClock(testStart)
+	w := New(clk, time.Minute)
+
+	stale, n := staleCounter()
+	unregister := w.Register(Relay, Registration{Kind: ActionReconnect, Stale: stale, Addr: "rels://a:443", AlignedPeriod: time.Minute})
+	w.Seen(Relay, time.Minute)
+
+	snap := w.Snapshot()
+	require.Len(t, snap.Streams, 1)
+	assert.Equal(t, Relay, snap.Streams[0].Service)
+	assert.True(t, snap.Streams[0].Aligned)
+	assert.Equal(t, time.Minute, snap.Streams[0].Period)
+	assert.Equal(t, "rels://a:443", snap.Streams[0].Addr)
+
+	// A newer registration owns the slot; the old unregister is a no-op.
+	w.Register(Relay, Registration{Addr: "rels://b:443"})
+	unregister()
+	snap = w.Snapshot()
+	require.Len(t, snap.Streams, 1)
+	assert.Equal(t, "rels://b:443", snap.Streams[0].Addr)
+	assert.False(t, snap.Streams[0].Aligned, "a fresh stream starts unaligned")
+	assert.Zero(t, *n)
+}
+
+func TestSeenConcurrent(t *testing.T) {
+	clk := newFakeClock(testStart)
+	w := New(clk, time.Minute)
+	for _, svc := range services {
+		w.Register(svc, Registration{Kind: ActionReconnect, Stale: func() {}, AlignedPeriod: time.Minute})
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 30; i++ {
+		for _, svc := range services {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				w.Seen(svc, time.Minute)
+				_ = w.Snapshot()
+			}()
+		}
+	}
+	wg.Wait()
+}
