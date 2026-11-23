@@ -7,6 +7,7 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -214,6 +215,10 @@ func validatePolicy(ctx context.Context, transaction store.Store, accountID stri
 		ruleCopy.Sources = getValidGroupIDs(groups, ruleCopy.Sources)
 		ruleCopy.Destinations = getValidGroupIDs(groups, ruleCopy.Destinations)
 		policy.Rules[i] = ruleCopy
+
+		if err := validateRuleNetworkResources(ctx, transaction, accountID, ruleCopy); err != nil {
+			return nil, err
+		}
 	}
 
 	if policy.SourcePostureChecks != nil {
@@ -221,6 +226,48 @@ func validatePolicy(ctx context.Context, transaction store.Store, accountID stri
 	}
 
 	return existingPolicy, nil
+}
+
+// validateRuleNetworkResources checks the network resources a rule names directly. Routing
+// peers match a source by address, so a domain cannot be one, and a rule between two resources
+// must cross networks because traffic inside one network never passes its routing peers.
+// References to resources that do not exist are left as they are, as before.
+func validateRuleNetworkResources(ctx context.Context, transaction store.Store, accountID string, rule *types.PolicyRule) error {
+	source, err := findRuleNetworkResource(ctx, transaction, accountID, rule.SourceResource)
+	if err != nil || source == nil {
+		return err
+	}
+	if source.Type == resourceTypes.Domain {
+		return status.Errorf(status.InvalidArgument, "domain resource %s cannot be a policy source", source.ID)
+	}
+
+	destination, err := findRuleNetworkResource(ctx, transaction, accountID, rule.DestinationResource)
+	if err != nil || destination == nil {
+		return err
+	}
+	if source.NetworkID == destination.NetworkID {
+		return status.Errorf(status.InvalidArgument, "source and destination resources must be in different networks")
+	}
+
+	return nil
+}
+
+// findRuleNetworkResource loads the network resource a rule side names. It returns no resource
+// and no error when the side names a peer, nothing, or a resource that does not exist.
+func findRuleNetworkResource(ctx context.Context, transaction store.Store, accountID string, ref types.Resource) (*resourceTypes.NetworkResource, error) {
+	if ref.ID == "" || ref.Type == types.ResourceTypePeer {
+		return nil, nil //nolint:nilnil
+	}
+
+	resource, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthNone, accountID, ref.ID)
+	if err != nil {
+		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
+			return nil, nil //nolint:nilnil
+		}
+		return nil, err
+	}
+
+	return resource, nil
 }
 
 // getValidPostureCheckIDs filters and returns only the valid posture check IDs from the provided list.
