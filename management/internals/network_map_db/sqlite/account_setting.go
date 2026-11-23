@@ -20,7 +20,8 @@ const (
 	settings_lazy_connection_enabled as lazy_connection_enabled,
 	settings_auto_update_version as auto_update_version,
 	settings_auto_update_always as auto_update_always,
-	settings_metrics_push_enabled as metrics_push_enabled
+	settings_metrics_push_enabled as metrics_push_enabled,
+	settings_ssh_jwt_max_token_age as ssh_jwt_max_token_age
 	from accounts
 	where id=?
 	`
