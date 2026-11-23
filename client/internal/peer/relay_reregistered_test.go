@@ -49,10 +49,12 @@ type endpointOnlyProxy struct {
 
 func (p *endpointOnlyProxy) EndpointAddr() *net.UDPAddr { return p.addr }
 
-// A remote that registers on the relay again was unreachable at its previous
-// registration, so the handshakes sent there were lost. The initiator restarts the
-// handshake right away instead of waiting for the rekey timeout, but leaves an
-// endpoint that already completed a handshake alone.
+// A remote that registers on the relay again lost whatever session it had with the
+// previous registration, so the handshakes sent there were lost and an existing
+// session is dead. The initiator restarts the handshake right away instead of
+// waiting for the rekey timeout, even when a handshake newer than the endpoint
+// exists, and leaves the endpoint alone only when a handshake completed after the
+// notification.
 func TestConn_onRelayPeerReregistered(t *testing.T) {
 	const (
 		localKey  = "RRHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU="
@@ -73,7 +75,11 @@ func TestConn_onRelayPeerReregistered(t *testing.T) {
 	}{
 		{name: "no handshake since the endpoint was set", localKey: localKey, want: restart},
 		{name: "handshake before the endpoint was set", localKey: localKey, lastHandshake: setAt.Add(-time.Minute), want: restart},
-		{name: "handshake completed over the relay", localKey: localKey, lastHandshake: setAt.Add(100 * time.Millisecond)},
+		// The remote restarted: the interface still holds the handshake of the dead
+		// session, which is newer than the endpoint but older than the notification.
+		{name: "stale handshake newer than the endpoint", localKey: localKey, lastHandshake: setAt.Add(100 * time.Millisecond), want: restart},
+		// Dated ahead of the notification, which is stamped inside the call.
+		{name: "handshake completed after the notification", localKey: localKey, lastHandshake: time.Now().Add(time.Minute)},
 		{name: "responder leaves the handshake to the initiator", localKey: lowKey},
 		{name: "superseded relayed connection", localKey: localKey, superseded: true},
 		{name: "handshake state unknown", localKey: localKey, statsErr: errors.New("no device")},
@@ -134,15 +140,15 @@ func TestConn_relayReregisteredDuringSetup(t *testing.T) {
 
 	// The tail of onRelayConnectionIsReady once the relayed endpoint is configured.
 	conn.mu.Lock()
-	reregisteredEarly := conn.takeEarlyRelayReregistrationLocked(relayedConn)
+	reregisteredEarlyAt, reregisteredEarly := conn.takeEarlyRelayReregistrationLocked(relayedConn)
 	conn.relayedConnRef = relayedConn
 	conn.wgProxyRelay = &endpointOnlyProxy{addr: endpoint}
 	conn.currentConnPriority = conntype.Relay
 	conn.relayEndpointSetAt = time.Now().Add(-time.Second)
 	if reregisteredEarly {
-		conn.restartRelayHandshakeLocked()
+		conn.restartRelayHandshakeLocked(reregisteredEarlyAt)
 	}
-	again := conn.takeEarlyRelayReregistrationLocked(relayedConn)
+	_, again := conn.takeEarlyRelayReregistrationLocked(relayedConn)
 	conn.mu.Unlock()
 
 	assert.True(t, reregisteredEarly, "the early re-registration is reported to the setup")

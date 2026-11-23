@@ -145,7 +145,9 @@ type Conn struct {
 	// relay again before the connection was set up. The restart is applied once the
 	// setup completes.
 	relayReregisteredEarly *relayClient.Conn
-	handshaker             *Handshaker
+	// relayReregisteredEarlyAt is when that notification arrived. Guarded by mu.
+	relayReregisteredEarlyAt time.Time
+	handshaker               *Handshaker
 
 	guard *guard.Guard
 	wg    sync.WaitGroup
@@ -318,6 +320,7 @@ func (conn *Conn) Close(signalToRemote bool) {
 	conn.Log.Infof("close peer connection")
 	conn.ctxCancel()
 	conn.relayReregisteredEarly = nil
+	conn.relayReregisteredEarlyAt = time.Time{}
 
 	if conn.wgWatcherCancel != nil {
 		conn.wgWatcherCancel()
@@ -571,7 +574,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
-	reregisteredEarly := conn.takeEarlyRelayReregistrationLocked(rci.relayedConn)
+	reregisteredEarlyAt, reregisteredEarly := conn.takeEarlyRelayReregistrationLocked(rci.relayedConn)
 
 	if conn.ctx.Err() != nil || rci.relayedConn.Context().Err() != nil {
 		if err := rci.relayedConn.Close(); err != nil {
@@ -633,7 +636,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	conn.setRelayedProxy(wgProxy, rci.relayedConn)
 	conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey, updateTime)
 	if reregisteredEarly {
-		conn.restartRelayHandshakeLocked()
+		conn.restartRelayHandshakeLocked(reregisteredEarlyAt)
 	}
 	conn.Log.Infof("start to communicate with peer via relay")
 	conn.doOnConnected(rci.rosenpassPubKey, rci.rosenpassAddr, updateTime)
@@ -650,6 +653,7 @@ func (conn *Conn) onRelayDisconnected(relayedConn *relayClient.Conn) {
 
 	if relayedConn != nil && conn.relayReregisteredEarly == relayedConn {
 		conn.relayReregisteredEarly = nil
+		conn.relayReregisteredEarlyAt = time.Time{}
 	}
 	if relayedConn != nil && conn.relayedConnRef != relayedConn {
 		conn.Log.Debugf("ignoring relay disconnect of a superseded connection")
@@ -660,10 +664,12 @@ func (conn *Conn) onRelayDisconnected(relayedConn *relayClient.Conn) {
 }
 
 // onRelayPeerReregistered restarts the handshake when the remote registered on the
-// relay again before any handshake completed over the relayed connection. Handshakes
-// sent until then went to the remote's previous registration and were lost, and the
-// next retry would only come after the rekey timeout.
+// relay again and no handshake completed since. Whatever session the interface holds
+// was established with the remote's previous registration, and handshakes sent
+// until now went there and were lost, so the next retry would only come after the
+// rekey timeout.
 func (conn *Conn) onRelayPeerReregistered(relayedConn *relayClient.Conn) {
+	notifiedAt := time.Now()
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -676,28 +682,34 @@ func (conn *Conn) onRelayPeerReregistered(relayedConn *relayClient.Conn) {
 		if ctx := relayedConn.Context(); ctx == nil || ctx.Err() == nil {
 			conn.Log.Debugf("remote peer registered on the relay again while the relayed connection is being set up, applying it once ready")
 			conn.relayReregisteredEarly = relayedConn
+			conn.relayReregisteredEarlyAt = notifiedAt
 			return
 		}
 		conn.Log.Debugf("ignoring a relay re-registration of a torn down connection")
 		return
 	}
-	conn.restartRelayHandshakeLocked()
+	conn.restartRelayHandshakeLocked(notifiedAt)
 }
 
 // takeEarlyRelayReregistrationLocked reports whether the remote registered on the relay
-// again while the given connection was still being set up, and clears the record.
-// Caller must hold conn.mu.
-func (conn *Conn) takeEarlyRelayReregistrationLocked(relayedConn *relayClient.Conn) bool {
+// again while the given connection was still being set up, and when the notification
+// arrived. It clears the record. Caller must hold conn.mu.
+func (conn *Conn) takeEarlyRelayReregistrationLocked(relayedConn *relayClient.Conn) (time.Time, bool) {
 	if conn.relayReregisteredEarly != relayedConn {
-		return false
+		return time.Time{}, false
 	}
+	notifiedAt := conn.relayReregisteredEarlyAt
 	conn.relayReregisteredEarly = nil
-	return true
+	conn.relayReregisteredEarlyAt = time.Time{}
+	return notifiedAt, true
 }
 
-// restartRelayHandshakeLocked resets the relayed endpoint when no handshake completed
-// since it was set. Caller must hold conn.mu.
-func (conn *Conn) restartRelayHandshakeLocked() {
+// restartRelayHandshakeLocked resets the relayed endpoint unless a handshake completed
+// after the remote's re-registration was reported at notifiedAt. A handshake from before
+// belongs to the remote's previous registration, so it does not count even when it is
+// newer than the endpoint. A healthy session is only re-keyed by the reset.
+// Caller must hold conn.mu.
+func (conn *Conn) restartRelayHandshakeLocked(notifiedAt time.Time) {
 	if conn.wgProxyRelay == nil || conn.currentConnPriority != conntype.Relay || !isController(conn.config) {
 		conn.Log.Debugf("remote peer registered on the relay again, not restarting the handshake: relayed endpoint in use=%t, controller=%t",
 			conn.wgProxyRelay != nil && conn.currentConnPriority == conntype.Relay, isController(conn.config))
@@ -709,12 +721,12 @@ func (conn *Conn) restartRelayHandshakeLocked() {
 		conn.Log.Debugf("failed to read the last handshake, keeping the relayed endpoint: %v", err)
 		return
 	}
-	if handshake.After(conn.relayEndpointSetAt) {
+	if handshake.After(notifiedAt) {
 		conn.Log.Debugf("remote peer registered on the relay again, handshake already completed at %s", handshake)
 		return
 	}
 
-	conn.Log.Infof("remote peer registered on the relay again before a handshake completed, restarting the handshake")
+	conn.Log.Infof("remote peer registered on the relay again and no handshake completed since, restarting the handshake")
 	// The handshake timeout of the watcher keeps running, so a remote that keeps
 	// registering again without ever completing a handshake is still torn down.
 	if err := conn.endpointUpdater.RemoveEndpointAddress(); err != nil {
