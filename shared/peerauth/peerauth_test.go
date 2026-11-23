@@ -145,6 +145,27 @@ func TestVerify_NoHostnameListStillBindsName(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// An internationalized Signal or Relay name must travel as its A-label: gRPC refuses a
+// non-ASCII header value, and the client and the allowlist may spell the name either way.
+func TestVerify_InternationalizedHostname(t *testing.T) {
+	const aLabel = "relay.xn--bcher-kva.example"
+	for _, dialed := range []string{"Relay.Bücher.example.", aLabel} {
+		for _, allowed := range []string{"relay.bücher.example", "RELAY.XN--BCHER-KVA.EXAMPLE"} {
+			t.Run(dialed+" vs "+allowed, func(t *testing.T) {
+				f := newFixture(t, ServiceSignal)
+				f.verifier.Hostnames = []string{allowed}
+
+				p, err := SignProof(f.authPriv, ServiceSignal, f.token, dialed, f.now)
+				require.NoError(t, err)
+				assert.Equal(t, aLabel, p.Hostname, "the proof must carry the A-label")
+
+				_, err = f.verifier.Verify(f.token, p, f.now)
+				assert.NoError(t, err, "a U-label and an A-label of one name must match")
+			})
+		}
+	}
+}
+
 func TestValidateHostnames(t *testing.T) {
 	assert.NoError(t, ValidateHostnames(nil), "no list")
 	assert.NoError(t, ValidateHostnames([]string{"relay.example.com", "Relay.Example.com.", "2001:db8::1"}), "bare names")

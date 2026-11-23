@@ -9,6 +9,8 @@ import (
 	"net"
 	"strings"
 	"time"
+
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 const (
@@ -77,13 +79,18 @@ func VerifyProof(authPub ed25519.PublicKey, svc Service, token []byte, p Proof, 
 }
 
 // NormalizeHostname reduces a dialed host, as url.URL.Hostname returns it, to the form both
-// sides sign: lower case, no trailing dot.
+// sides sign: lower case punycode, no trailing dot. Lowercasing comes first because punycode
+// encodes case, and the A-label is what fits a gRPC header.
 func NormalizeHostname(host string) (string, error) {
 	h := strings.TrimSuffix(strings.ToLower(host), ".")
-	if h == "" || len(h) > math.MaxUint8 || strings.ContainsAny(h, "/[] ") {
+	if h == "" || strings.ContainsAny(h, "/[] ") {
 		return "", fmt.Errorf("%q: %w", host, ErrMalformedHost)
 	}
-	return h, nil
+	d, err := domain.FromString(h)
+	if err != nil || len(d) > math.MaxUint8 {
+		return "", fmt.Errorf("%q: %w", host, ErrMalformedHost)
+	}
+	return d.PunycodeString(), nil
 }
 
 // ValidateHostnames checks a configured list of accepted hostnames. Proofs carry the bare
