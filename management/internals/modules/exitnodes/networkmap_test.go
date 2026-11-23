@@ -247,11 +247,8 @@ func TestExitNodeNetworkMap_AutoApplyOff(t *testing.T) {
 			routes := exitRoutes(nm)
 			require.Len(t, routes, 2, "the laptop should still get the exit routes to select them")
 
-			// The account fallback path builds routes from the stored network resource
-			// model, which has no skip auto apply, so the exit node stays auto applied there.
-			want := path != "account path"
 			for _, r := range routes {
-				assert.Equal(t, want, r.GetSkipAutoApply(), "skip auto apply on the %s exit route", path)
+				assert.True(t, r.GetSkipAutoApply(), "the exit route should not be applied automatically")
 			}
 		})
 	}
