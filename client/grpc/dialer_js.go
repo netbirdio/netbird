@@ -24,3 +24,8 @@ func WithCustomDialer(tlsEnabled bool, component string) grpc.DialOption {
 func WithSweeper(_ Sweeper) grpc.DialOption {
 	return grpc.EmptyDialOption{}
 }
+
+// WithDialHooks is a no-op on WASM/JS: there is no TCP connection to tune.
+func WithDialHooks(_ Sweeper, _ *TCPKeepAlive) grpc.DialOption {
+	return grpc.EmptyDialOption{}
+}

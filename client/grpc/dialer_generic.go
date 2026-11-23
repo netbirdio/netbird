@@ -41,6 +41,34 @@ func WithSweeper(sweeper Sweeper) grpc.DialOption {
 	})
 }
 
+// WithDialHooks dials like WithSweeper (a nil sweeper dials plain) and hands
+// every dialed connection to keepAlive, which tunes its TCP keepalive when
+// the stream on it is confirmed aligned. Append it after WithCustomDialer:
+// gRPC applies dial options in order, so the later context dialer wins. Use
+// it instead of WithSweeper when a keepAlive is tracked, never both.
+func WithDialHooks(sweeper Sweeper, keepAlive *TCPKeepAlive) grpc.DialOption {
+	return grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
+		dial := (*sweep.Sweeper)(nil).StartDial(ctx)
+		if sweeper != nil {
+			dial = sweeper.StartDial(ctx)
+		}
+		defer dial.Release()
+
+		conn, err := dialContext(dial.Ctx(), addr)
+		if err != nil {
+			return nil, err
+		}
+		wrapped, err := dial.WrapConn(conn)
+		if err != nil {
+			return nil, err
+		}
+		// Track the raw connection: the sweeper's wrapper hides the TCP
+		// socket the keepalive is set on.
+		keepAlive.Track(conn)
+		return wrapped, nil
+	})
+}
+
 func dialContext(ctx context.Context, addr string) (net.Conn, error) {
 	// The custom dialer requires root permissions which are not required for
 	// use cases run as non-root. The effective UID is read directly: a passwd
