@@ -211,3 +211,62 @@ func TestGetUsersRejectsInvalidQuery(t *testing.T) {
 		})
 	}
 }
+
+func serveUsersRequest(t *testing.T, h *Handler, path string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
+		UserId:    existingUserID,
+		Domain:    testDomain,
+		AccountId: existingAccountID,
+	})
+
+	v1validator, err := apiv1alpha1.CreateV1ApiValidatingMiddleware()
+	require.NoError(t, err)
+	router := mux.NewRouter()
+	router.Use(v1validator.Handler)
+	router = h.WithEndpointsForRouter(router)
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+	return recorder
+}
+
+func TestGetUser(t *testing.T) {
+	tt := []struct {
+		name           string
+		found          []*types.UserInfo
+		expectedStatus int
+	}{
+		{name: "visible user", found: []*types.UserInfo{{ID: regularUserID, Role: "user"}}, expectedStatus: http.StatusOK},
+		// the list query returns nothing for users that don't exist or that the caller can't see
+		{name: "missing or hidden user", expectedStatus: http.StatusNotFound},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPagination store.PaginationState
+			var gotFilters store.UserFilters
+			h := initUsersTestData()
+			h.accountManager.(*mock_server.MockAccountManager).GetUsersFromAccountPaginatedFunc = func(_ context.Context, accountID, userID string, pagination store.PaginationState, filters store.UserFilters, _ store.UserSorting) ([]*types.UserInfo, int, error) {
+				assert.Equal(t, existingAccountID, accountID, "account ID")
+				assert.Equal(t, existingUserID, userID, "initiator ID")
+				gotPagination, gotFilters = pagination, filters
+				return tc.found, len(tc.found), nil
+			}
+
+			recorder := serveUsersRequest(t, h, "/users/"+regularUserID)
+			require.Equal(t, tc.expectedStatus, recorder.Code, "status code, body: %s", recorder.Body.String())
+
+			assert.Equal(t, store.PaginationState{Page: 1, PageSize: 1}, gotPagination, "pagination passed to the manager")
+			assert.Equal(t, store.UserFilters{UserIDs: []string{regularUserID}}, gotFilters, "filters passed to the manager")
+
+			if tc.expectedStatus == http.StatusOK {
+				var user apiv1alpha1.User
+				require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &user))
+				assert.Equal(t, regularUserID, user.Id, "user ID")
+			}
+		})
+	}
+}

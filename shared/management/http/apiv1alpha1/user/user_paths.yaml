@@ -107,3 +107,35 @@ UsersPath:
         "$ref": "../openapi.yaml#/components/responses/unprocessable"
       '500':
         "$ref": "../openapi.yaml#/components/responses/internal_error"
+UserPath:
+  get:
+    summary: Retrieve a User
+    description: Get information about a user. Users without read access to users can only retrieve themselves.
+    tags: [ Users ]
+    security:
+      - BearerAuth: [ ]
+      - TokenAuth: [ ]
+    parameters:
+      - in: path
+        name: userId
+        required: true
+        schema:
+          type: string
+        description: The unique identifier of a user
+    responses:
+      '200':
+        description: A User object
+        content:
+          application/json:
+            schema:
+              $ref: './user_components.yaml#/components/schemas/User'
+      '400':
+        "$ref": "../openapi.yaml#/components/responses/bad_request"
+      '401':
+        "$ref": "../openapi.yaml#/components/responses/requires_authentication"
+      '403':
+        "$ref": "../openapi.yaml#/components/responses/forbidden"
+      '404':
+        "$ref": "../openapi.yaml#/components/responses/not_found"
+      '500':
+        "$ref": "../openapi.yaml#/components/responses/internal_error"

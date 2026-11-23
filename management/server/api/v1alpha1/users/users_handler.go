@@ -11,13 +11,12 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/account"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/apiv1alpha1"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
-
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
 )
 
 type Handler struct {
@@ -32,6 +31,7 @@ func NewHandler(accountManager account.Manager) *Handler {
 
 func (h *Handler) WithEndpointsForRouter(router *mux.Router) *mux.Router {
 	router.HandleFunc("/users", h.getAllUsers).Methods("GET", "OPTIONS")
+	router.HandleFunc("/users/{userId}", h.getUser).Methods("GET", "OPTIONS")
 	return router
 }
 
@@ -83,6 +83,38 @@ func (h *Handler) getAllUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	util.WriteJSONObject(r.Context(), w, apiv1alpha1.UserBatch{UserCount: userCount, Users: users, Page: pagination.Page, PageSize: pagination.PageSize})
+}
+
+func (h *Handler) getUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
+		return
+	}
+
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	targetUserID := mux.Vars(r)["userId"]
+	if len(targetUserID) == 0 {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid user ID"), w)
+		return
+	}
+
+	found, _, err := h.accountManager.GetUsersFromAccountPaginated(r.Context(), userAuth.AccountId, userAuth.UserId,
+		store.PaginationState{Page: 1, PageSize: 1}, store.UserFilters{UserIDs: []string{targetUserID}}, store.UserSorting{})
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	if len(found) == 0 {
+		util.WriteError(r.Context(), status.NewUserNotFoundError(targetUserID), w)
+		return
+	}
+
+	util.WriteJSONObject(r.Context(), w, toUserResponse(found[0], userAuth.UserId))
 }
 
 func toUserResponse(user *types.UserInfo, currenUserID string) *apiv1alpha1.User {

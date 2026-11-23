@@ -240,6 +240,63 @@ type UserBatch struct {
 	Users []User `json:"users"`
 }
 
+// UserStatus User's status.
+// UserStatus example value is defined in the OpenAPI schema.
+type UserStatus string
+
+const (
+	UserStatusActive  UserStatus = "active"
+	UserStatusInvited UserStatus = "invited"
+	UserStatusBlocked UserStatus = "blocked"
+)
+
+type User struct {
+	// Id User ID.
+	// Id example value is defined in the OpenAPI schema.
+	Id string `json:"id"`
+	// Email User's email address.
+	// Email example value is defined in the OpenAPI schema.
+	Email string `json:"email"`
+	// Password User's password. Only present when user is created (create user endpoint is called) and only when IdP supports user creation with password.
+	// Password example value is defined in the OpenAPI schema.
+	Password *string `json:"password,omitempty"`
+	// Name User's name from idp provider.
+	// Name example value is defined in the OpenAPI schema.
+	Name string `json:"name"`
+	// Role User's NetBird account role.
+	// Role example value is defined in the OpenAPI schema.
+	Role string `json:"role"`
+	// Status User's status.
+	// Status example value is defined in the OpenAPI schema.
+	Status UserStatus `json:"status"`
+	// LastLogin Last time this user performed a login to the dashboard.
+	// LastLogin example value is defined in the OpenAPI schema.
+	LastLogin *time.Time `json:"last_login,omitempty"`
+	// AutoGroups Group IDs to auto-assign to peers registered by this user.
+	AutoGroups []string `json:"auto_groups"`
+	// IsCurrent Is true if authenticated user is the same as this user.
+	// IsCurrent readOnly.
+	// IsCurrent example value is defined in the OpenAPI schema.
+	IsCurrent *bool `json:"is_current,omitempty"`
+	// IsServiceUser Is true if this user is a service user.
+	// IsServiceUser readOnly.
+	// IsServiceUser example value is defined in the OpenAPI schema.
+	IsServiceUser *bool `json:"is_service_user,omitempty"`
+	// IsBlocked Is true if this user is blocked. Blocked users can't use the system.
+	// IsBlocked example value is defined in the OpenAPI schema.
+	IsBlocked bool `json:"is_blocked"`
+	// PendingApproval Is true if this user requires approval before being activated. Only applicable for users joining via domain matching when user_approval_required is enabled.
+	// PendingApproval example value is defined in the OpenAPI schema.
+	PendingApproval bool `json:"pending_approval"`
+	// Issued How user was issued by API or Integration.
+	// Issued example value is defined in the OpenAPI schema.
+	Issued *string `json:"issued,omitempty"`
+	// IdpId Identity provider ID (connector ID) that the user authenticated with. Only populated for users with Dex-encoded user IDs.
+	// IdpId example value is defined in the OpenAPI schema.
+	IdpId       *string          `json:"idp_id,omitempty"`
+	Permissions *UserPermissions `json:"permissions,omitempty"`
+}
+
 type UserPermissionsModulesAdditionalProperty struct {
 	AdditionalProperties map[string]bool `json:"-"`
 }
@@ -344,61 +401,4 @@ type UserPermissions struct {
 	IsRestricted bool `json:"is_restricted"`
 	// Modules example value is defined in the OpenAPI schema.
 	Modules map[string]map[string]bool `json:"modules"`
-}
-
-// UserStatus User's status.
-// UserStatus example value is defined in the OpenAPI schema.
-type UserStatus string
-
-const (
-	UserStatusActive  UserStatus = "active"
-	UserStatusInvited UserStatus = "invited"
-	UserStatusBlocked UserStatus = "blocked"
-)
-
-type User struct {
-	// Id User ID.
-	// Id example value is defined in the OpenAPI schema.
-	Id string `json:"id"`
-	// Email User's email address.
-	// Email example value is defined in the OpenAPI schema.
-	Email string `json:"email"`
-	// Password User's password. Only present when user is created (create user endpoint is called) and only when IdP supports user creation with password.
-	// Password example value is defined in the OpenAPI schema.
-	Password *string `json:"password,omitempty"`
-	// Name User's name from idp provider.
-	// Name example value is defined in the OpenAPI schema.
-	Name string `json:"name"`
-	// Role User's NetBird account role.
-	// Role example value is defined in the OpenAPI schema.
-	Role string `json:"role"`
-	// Status User's status.
-	// Status example value is defined in the OpenAPI schema.
-	Status UserStatus `json:"status"`
-	// LastLogin Last time this user performed a login to the dashboard.
-	// LastLogin example value is defined in the OpenAPI schema.
-	LastLogin *time.Time `json:"last_login,omitempty"`
-	// AutoGroups Group IDs to auto-assign to peers registered by this user.
-	AutoGroups []string `json:"auto_groups"`
-	// IsCurrent Is true if authenticated user is the same as this user.
-	// IsCurrent readOnly.
-	// IsCurrent example value is defined in the OpenAPI schema.
-	IsCurrent *bool `json:"is_current,omitempty"`
-	// IsServiceUser Is true if this user is a service user.
-	// IsServiceUser readOnly.
-	// IsServiceUser example value is defined in the OpenAPI schema.
-	IsServiceUser *bool `json:"is_service_user,omitempty"`
-	// IsBlocked Is true if this user is blocked. Blocked users can't use the system.
-	// IsBlocked example value is defined in the OpenAPI schema.
-	IsBlocked bool `json:"is_blocked"`
-	// PendingApproval Is true if this user requires approval before being activated. Only applicable for users joining via domain matching when user_approval_required is enabled.
-	// PendingApproval example value is defined in the OpenAPI schema.
-	PendingApproval bool `json:"pending_approval"`
-	// Issued How user was issued by API or Integration.
-	// Issued example value is defined in the OpenAPI schema.
-	Issued *string `json:"issued,omitempty"`
-	// IdpId Identity provider ID (connector ID) that the user authenticated with. Only populated for users with Dex-encoded user IDs.
-	// IdpId example value is defined in the OpenAPI schema.
-	IdpId       *string          `json:"idp_id,omitempty"`
-	Permissions *UserPermissions `json:"permissions,omitempty"`
 }
