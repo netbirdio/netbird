@@ -18,6 +18,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/netbirdio/netbird/client/hbwatch"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/proto"
@@ -185,6 +186,8 @@ type FullStatus struct {
 	NSGroupStates         []NSGroupState
 	LazyConnectionEnabled bool
 	Events                []*proto.SystemEvent
+	// AlignedHeartbeat is nil on clients that do not watch heartbeats.
+	AlignedHeartbeat *hbwatch.Snapshot
 }
 
 // routerSnapshot is a router-state map stamped with a sequence number taken
@@ -1272,6 +1275,7 @@ func (d *Status) GetFullStatus() FullStatus {
 		RosenpassState:        d.GetRosenpassState(),
 		NSGroupStates:         d.GetDNSStates(),
 		LazyConnectionEnabled: d.GetLazyConnection(),
+		AlignedHeartbeat:      alignedHeartbeatSnapshot(),
 	}
 
 	d.mux.RLock()
@@ -1626,6 +1630,7 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 		Peers:           []*proto.PeerState{},
 	}
 
+	pbFullStatus.AlignedHeartbeat = alignedHeartbeatToProto(fs.AlignedHeartbeat)
 	pbFullStatus.ManagementState.URL = fs.ManagementState.URL
 	pbFullStatus.ManagementState.Connected = fs.ManagementState.Connected
 	if err := fs.ManagementState.Error; err != nil {
