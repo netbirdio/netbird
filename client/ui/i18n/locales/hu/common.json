@@ -920,8 +920,8 @@
     "settings.about.community.github": {
         "message": "GitHub"
     },
-    "settings.about.community.slack": {
-        "message": "Slack"
+    "settings.about.community.discord": {
+        "message": "Discord"
     },
     "settings.about.community.forum": {
         "message": "Fórum"

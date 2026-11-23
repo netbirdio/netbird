@@ -451,6 +451,10 @@ components:
           description: Enables or disables network traffic packet counter. If enabled, network packets and their size will be counted and reported. (This can have an slight impact on performance)
           type: boolean
           example: true
+        user_email_mapping_enabled:
+          description: (Cloud only) Enables resolving user IDs to email addresses in streamed activity and network traffic events.
+          type: boolean
+          example: false
       required:
         - peer_approval_enabled
         - user_approval_required
@@ -3972,6 +3976,10 @@ components:
           minimum: 0
           maximum: 240
           default: 0
+        stale_grace_new_peers:
+          type: boolean
+          description: Whether newly added peers get the grace period while the EDR has not reported them compliant yet. When false, they are denied until it does.
+          default: false
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -3992,6 +4000,7 @@ components:
         - last_synced_interval
         - sync_interval
         - stale_grace_minutes
+        - stale_grace_new_peers
         - enabled
       properties:
         id:
@@ -4044,6 +4053,9 @@ components:
         stale_grace_minutes:
           type: integer
           description: Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
+        stale_grace_new_peers:
+          type: boolean
+          description: Whether newly added peers get the grace period while the EDR has not reported them compliant yet.
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4077,6 +4089,10 @@ components:
           minimum: 0
           maximum: 240
           default: 0
+        stale_grace_new_peers:
+          type: boolean
+          description: Whether newly added peers get the grace period while the EDR has not reported them compliant yet. When false, they are denied until it does.
+          default: false
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4105,6 +4121,7 @@ components:
         - match_attributes
         - sync_interval
         - stale_grace_minutes
+        - stale_grace_new_peers
         - enabled
       properties:
         id:
@@ -4153,6 +4170,9 @@ components:
         stale_grace_minutes:
           type: integer
           description: Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
+        stale_grace_new_peers:
+          type: boolean
+          description: Whether newly added peers get the grace period while the EDR has not reported them compliant yet.
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4227,6 +4247,10 @@ components:
           minimum: 0
           maximum: 240
           default: 0
+        stale_grace_new_peers:
+          type: boolean
+          description: Whether newly added peers get the grace period while the EDR has not reported them compliant yet. When false, they are denied until it does.
+          default: false
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4253,6 +4277,7 @@ components:
         - zta_score_threshold
         - sync_interval
         - stale_grace_minutes
+        - stale_grace_new_peers
         - last_synced_interval
         - enabled
       properties:
@@ -4303,6 +4328,9 @@ components:
         stale_grace_minutes:
           type: integer
           description: Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
+        stale_grace_new_peers:
+          type: boolean
+          description: Whether newly added peers get the grace period while the EDR has not reported them compliant yet.
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4337,6 +4365,10 @@ components:
           minimum: 0
           maximum: 240
           default: 0
+        stale_grace_new_peers:
+          type: boolean
+          description: Whether newly added peers get the grace period while the EDR has not reported them compliant yet. When false, they are denied until it does.
+          default: false
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4364,6 +4396,7 @@ components:
         - match_attributes
         - sync_interval
         - stale_grace_minutes
+        - stale_grace_new_peers
         - enabled
       properties:
         id:
@@ -4407,6 +4440,9 @@ components:
         stale_grace_minutes:
           type: integer
           description: Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
+        stale_grace_new_peers:
+          type: boolean
+          description: Whether newly added peers get the grace period while the EDR has not reported them compliant yet.
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4466,6 +4502,10 @@ components:
           minimum: 0
           maximum: 240
           default: 0
+        stale_grace_new_peers:
+          type: boolean
+          description: Whether newly added peers get the grace period while the EDR has not reported them compliant yet. When false, they are denied until it does.
+          default: false
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4494,6 +4534,7 @@ components:
         - match_attributes
         - sync_interval
         - stale_grace_minutes
+        - stale_grace_new_peers
         - enabled
       properties:
         id:
@@ -4540,6 +4581,9 @@ components:
         stale_grace_minutes:
           type: integer
           description: Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
+        stale_grace_new_peers:
+          type: boolean
+          description: Whether newly added peers get the grace period while the EDR has not reported them compliant yet.
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled

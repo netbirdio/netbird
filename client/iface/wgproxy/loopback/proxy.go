@@ -18,6 +18,7 @@ import (
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/iface/bufsize"
 	"github.com/netbirdio/netbird/client/iface/wgproxy/rawsocket"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 const (
@@ -89,6 +90,7 @@ func (p *Proxy) Listen() error {
 		}
 		return err
 	}
+	nbnet.SizeRelaySocketBuffers(p.conn)
 
 	p.ctx, p.ctxCancel = context.WithCancel(context.Background())
 

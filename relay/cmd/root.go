@@ -107,7 +107,7 @@ var (
 	rootCmd     = &cobra.Command{
 		Use:           "relay",
 		Short:         "Relay service",
-		Long:          "Relay service for Netbird agents",
+		Long:          "Relay service for NetBird clients",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE:          execute,

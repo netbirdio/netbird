@@ -94,6 +94,10 @@ func (c *scriptedConn) Protocol() string {
 	return "test"
 }
 
+func (c *scriptedConn) MaxMessageSize() int {
+	return messages.MaxMessageSize
+}
+
 func (c *scriptedConn) deliver(t *testing.T, frame []byte) {
 	t.Helper()
 	select {
@@ -207,7 +211,7 @@ func TestRelay_AuthEnvelopeWithoutProofIsLegacy(t *testing.T) {
 			relay.Accept(conn)
 
 			frames := conn.waitFrames(t, 1)
-			want, err := messages.NewEncoder(messages.ProtocolV2).AuthResponse(relay.instanceURL.String())
+			want, err := messages.NewEncoder(messages.ProtocolV2, messages.MaxMessageSize).AuthResponse(relay.instanceURL.String())
 			require.NoError(t, err)
 			assert.Equal(t, want, frames[0], "the response must carry the selected v2 header")
 			assert.Equal(t, [][]byte{token}, validator.calls(), "the validator must receive the token without the extension")

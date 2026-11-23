@@ -53,7 +53,7 @@ type handshake struct {
 func newPreparedMsg(instanceURL string) (*preparedMsg, error) {
 	responses := make(map[messages.ProtocolVersion][]byte, supportedProtocolVersion)
 	for version := messages.ProtocolV1; ; version++ {
-		ram, err := messages.NewEncoder(version).AuthResponse(instanceURL)
+		ram, err := messages.NewEncoder(version, messages.MaxMessageSize).AuthResponse(instanceURL)
 		if err != nil {
 			return nil, fmt.Errorf("marshal auth response for version %d: %w", version, err)
 		}

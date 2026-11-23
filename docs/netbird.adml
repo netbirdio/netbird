@@ -54,6 +54,9 @@
       <string id="WireguardPort_Name">WireGuard port</string>
       <string id="WireguardPort_Help">UDP port used by the local WireGuard interface. Allowed range: 1-65535.</string>
 
+      <string id="ExtraIFaceBlackList_Name">Extra interface blacklist</string>
+      <string id="ExtraIFaceBlackList_Help">Interface name prefixes whose local addresses NetBird never offers as peer connection candidates, comma-separated. Matching is a case-sensitive name prefix with no wildcards: "vEthernet" excludes every Hyper-V and WSL adapter, so keep entries specific. The entries are added to the built-in list and to the device's own --extra-iface-blacklist entries, never replace them, and are not written to the device configuration. Only local candidates are filtered: traffic to the Relay, Signal and Management services, and to peers reached through a public address, still follows the operating system routing table.</string>
+
       <string id="SplitTunnel_Name">Split tunnel</string>
       <string id="SplitTunnel_Help">Restrict the NetBird tunnel to or from a chosen list of application package names. Choose either the allow mode (only the listed apps route through NetBird) or the disallow mode (the listed apps bypass NetBird; everything else routes through). The mode is mutually exclusive — only one can be active at a time. Android-only at the daemon level; Windows/macOS/iOS clients ignore this policy.</string>
       <string id="AllowGroups_Name">Restrict the daemon sockets</string>
@@ -101,6 +104,12 @@
 
       <presentation id="WireguardPort_Pres">
         <decimalTextBox refId="WireguardPort_Decimal" defaultValue="51820">WireGuard UDP port:</decimalTextBox>
+      </presentation>
+
+      <presentation id="ExtraIFaceBlackList_Pres">
+        <textBox refId="ExtraIFaceBlackList_Text">
+          <label>Interface name prefixes (comma-separated):</label>
+        </textBox>
       </presentation>
 
       <presentation id="AllowGroups_Pres">

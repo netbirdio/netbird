@@ -301,7 +301,7 @@ func TestUnmarshalAuthMsgRejectsMalformedFrames(t *testing.T) {
 
 func TestEncoderStampsVersion(t *testing.T) {
 	for _, version := range []ProtocolVersion{1, 2, 7} {
-		enc := NewEncoder(version)
+		enc := NewEncoder(version, MaxMessageSize)
 		assert.Equal(t, version, enc.Version())
 		assert.Equal(t, []byte{byte(version), byte(MsgTypeHealthCheck)}, enc.Healthcheck(), "healthcheck must carry the version")
 		assert.Equal(t, []byte{byte(version), byte(MsgTypeClose)}, enc.CloseMsg(), "close must carry the version")
@@ -329,7 +329,7 @@ func TestEncoderStampsVersion(t *testing.T) {
 }
 
 func TestPackageEncodersUseCurrentVersion(t *testing.T) {
-	current := NewEncoder(CurrentProtocolVersion)
+	current := NewEncoder(CurrentProtocolVersion, MaxMessageSize)
 	assert.Equal(t, current.CloseMsg(), MarshalCloseMsg())
 	assert.Equal(t, current.Healthcheck(), MarshalHealthcheck())
 
@@ -342,7 +342,7 @@ func TestPackageEncodersUseCurrentVersion(t *testing.T) {
 	ids := []PeerID{HashID("a"), HashID("b")}
 	wantOnline, err := current.PeersOnline(ids)
 	require.NoError(t, err)
-	gotOnline, err := MarshalPeersOnline(ids)
+	gotOnline, err := MarshalPeersOnline(ids, MaxMessageSize)
 	require.NoError(t, err)
 	assert.Equal(t, wantOnline, gotOnline)
 }
@@ -369,20 +369,20 @@ func TestUpdateTransportMsgRewritesVersionAndSender(t *testing.T) {
 // A client that advertised a version must speak whatever the relay selected up to it, and
 // refuse a relay that claims a version the client never offered.
 func TestValidateSelectedVersion(t *testing.T) {
-	resp, err := NewEncoder(1).AuthResponse("rels://relay.example.com")
+	resp, err := NewEncoder(1, MaxMessageSize).AuthResponse("rels://relay.example.com")
 	require.NoError(t, err)
 	v, err := ValidateSelectedVersion(resp, 2)
 	require.NoError(t, err)
 	assert.Equal(t, ProtocolVersion(1), v, "a v1 relay answering a v2 client selects v1")
 
-	resp, err = NewEncoder(2).AuthResponse("rels://relay.example.com")
+	resp, err = NewEncoder(2, MaxMessageSize).AuthResponse("rels://relay.example.com")
 	require.NoError(t, err)
 	_, err = ValidateSelectedVersion(resp, 1)
 	assert.ErrorIs(t, err, ErrUnsupportedVersion, "a version above the advertised one must be refused")
 }
 
 func TestEncoder_ClientFramesCarrySelectedVersion(t *testing.T) {
-	enc := NewEncoder(2)
+	enc := NewEncoder(2, MaxMessageSize)
 	id := HashID("peer")
 
 	transport, err := MarshalTransportMsg(enc.Version(), id, []byte("payload"))

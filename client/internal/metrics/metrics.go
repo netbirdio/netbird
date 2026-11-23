@@ -15,7 +15,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/metrics/remoteconfig"
 )
 
-// AgentInfo holds static information about the agent
+// AgentInfo holds static information about the client
 type AgentInfo struct {
 	DeploymentType DeploymentType
 	Version        string
@@ -170,7 +170,7 @@ func (c *ClientMetrics) RecordLoginDuration(ctx context.Context, duration time.D
 	c.impl.RecordLoginDuration(ctx, agentInfo, duration, success)
 }
 
-// UpdateAgentInfo updates the agent information (e.g., when switching profiles).
+// UpdateAgentInfo updates the client information (e.g., when switching profiles).
 // publicKey is the WireGuard public key; it will be hashed for anonymisation.
 func (c *ClientMetrics) UpdateAgentInfo(agentInfo AgentInfo, publicKey string) {
 	if c == nil {

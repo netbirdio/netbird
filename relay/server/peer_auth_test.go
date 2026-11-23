@@ -97,7 +97,7 @@ func TestRelay_AcceptsBoundTokenWithProof(t *testing.T) {
 			relay.Accept(conn)
 
 			frames := conn.waitFrames(t, 1)
-			want, err := messages.NewEncoder(messages.ProtocolV2).AuthResponse(relay.instanceURL.String())
+			want, err := messages.NewEncoder(messages.ProtocolV2, messages.MaxMessageSize).AuthResponse(relay.instanceURL.String())
 			require.NoError(t, err)
 			assert.Equal(t, want, frames[0], "an authenticated peer must get the v2 response")
 			assert.Empty(t, validator.calls(), "a bound token must not reach the legacy validator")

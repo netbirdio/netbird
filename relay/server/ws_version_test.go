@@ -36,7 +36,7 @@ func TestServer_FutureClientOverWebSocket(t *testing.T) {
 	futureAuth, err := messages.MarshalAuthEnvelope(3, futureID, []byte("future-token"), []byte{200, 0, 1, 'x'})
 	require.NoError(t, err)
 	require.NoError(t, future.Write(ctx, websocket.MessageBinary, futureAuth))
-	wantV2, err := messages.NewEncoder(messages.ProtocolV2).AuthResponse(instanceURL.String())
+	wantV2, err := messages.NewEncoder(messages.ProtocolV2, messages.MaxMessageSize).AuthResponse(instanceURL.String())
 	require.NoError(t, err)
 	assert.Equal(t, wantV2, readFrame(t, ctx, future), "a future client must receive the v2 response")
 
@@ -65,7 +65,7 @@ func TestServer_FutureClientOverWebSocket(t *testing.T) {
 	require.NoError(t, future.Write(ctx, websocket.MessageBinary, toLegacyAgain))
 	assertTransportFrame(t, readFrame(t, ctx, legacy), messages.ProtocolV1, futureID, "after the dropped frame")
 
-	require.NoError(t, future.Write(ctx, websocket.MessageBinary, messages.NewEncoder(messages.ProtocolV2).CloseMsg()))
+	require.NoError(t, future.Write(ctx, websocket.MessageBinary, messages.NewEncoder(messages.ProtocolV2, messages.MaxMessageSize).CloseMsg()))
 	require.NoError(t, legacy.Write(ctx, websocket.MessageBinary, messages.MarshalCloseMsg()))
 }
 
