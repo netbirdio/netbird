@@ -138,6 +138,30 @@ func TestDialHooksTrackTheTCPSocketWithSweeper(t *testing.T) {
 	assert.Equal(t, time.Minute, ka.Applied(), "the keepalive of the swept connection is switched")
 }
 
+// TestWithSweeperDials covers WithSweeper on top of WithDialHooks: with a
+// sweeper and with none, the connection must come up.
+func TestWithSweeperDials(t *testing.T) {
+	t.Setenv("NB_DISABLE_CUSTOM_ROUTING", "true")
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	srv := grpc.NewServer()
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(srv.Stop)
+
+	for name, sweeper := range map[string]Sweeper{"sweeper": sweep.New(), "none": nil} {
+		t.Run(name, func(t *testing.T) {
+			cc, err := grpc.NewClient("passthrough:///"+ln.Addr().String(),
+				grpc.WithTransportCredentials(insecure.NewCredentials()),
+				WithSweeper(sweeper))
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = cc.Close() })
+			cc.Connect()
+			assert.Eventually(t, func() bool { return cc.GetState() == connectivity.Ready }, 5*time.Second, 10*time.Millisecond,
+				"the connection must come up")
+		})
+	}
+}
+
 func TestRedialConnStockAnswerRedialsOnce(t *testing.T) {
 	addr := "redial.example:443"
 	ClearStock("/signal", addr)

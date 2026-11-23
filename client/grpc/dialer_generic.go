@@ -29,23 +29,14 @@ func WithCustomDialer(_ bool, _ string) grpc.DialOption {
 // dials with the sweeper. Append it after WithCustomDialer: gRPC applies
 // dial options in order, so the later context dialer wins.
 func WithSweeper(sweeper Sweeper) grpc.DialOption {
-	return grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
-		dial := sweeper.StartDial(ctx)
-		defer dial.Release()
-
-		conn, err := dialContext(dial.Ctx(), addr)
-		if err != nil {
-			return nil, err
-		}
-		return dial.WrapConn(conn)
-	})
+	return WithDialHooks(sweeper, nil)
 }
 
-// WithDialHooks dials like WithSweeper (a nil sweeper dials plain) and hands
-// every dialed connection to keepAlive, which tunes its TCP keepalive when
-// the stream on it is confirmed aligned. Append it after WithCustomDialer:
-// gRPC applies dial options in order, so the later context dialer wins. Use
-// it instead of WithSweeper when a keepAlive is tracked, never both.
+// WithDialHooks dials like WithCustomDialer, registers connections and dials
+// with sweeper (a nil sweeper dials plain), and hands every dialed connection
+// to keepAlive (nil for none), which tunes its TCP keepalive when the stream
+// on it is confirmed aligned. Append it after WithCustomDialer: gRPC applies
+// dial options in order, so the later context dialer wins.
 func WithDialHooks(sweeper Sweeper, keepAlive *TCPKeepAlive) grpc.DialOption {
 	return grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
 		dial := (*sweep.Sweeper)(nil).StartDial(ctx)
