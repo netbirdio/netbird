@@ -170,6 +170,48 @@ func TestTickerStopsWithContext(t *testing.T) {
 	}
 }
 
+// TestNextFireOnWallClock covers the slot choice after a fire. A wall clock
+// stepped back must not pick the fired slot again; a long step back restarts
+// from the wall clock instead of pausing for the whole step.
+func TestNextFireOnWallClock(t *testing.T) {
+	period := 60 * time.Second
+	phase := 5 * time.Second
+	slot := time.UnixMilli(1_700_000_045_000) // offset 5 s inside a 60 s period
+
+	assert.Equal(t, slot.Add(period), nextFire(period, phase, slot, slot.Add(-3*time.Millisecond)),
+		"a timer that fires early must move to the next slot")
+	assert.Equal(t, slot.Add(period), nextFire(period, phase, slot, slot.Add(2*time.Millisecond)),
+		"a fire on time must move to the next slot")
+	assert.Equal(t, slot.Add(period), nextFire(period, phase, slot, slot.Add(-5*time.Second)),
+		"a wall clock stepped back must not fire the same slot again")
+	assert.Equal(t, slot.Add(-period), nextFire(period, phase, slot, slot.Add(-90*time.Second)),
+		"a step back of over a period must restart from the wall clock")
+	assert.Equal(t, slot.Add(2*period), nextFire(period, phase, slot, slot.Add(period+time.Second)),
+		"a wall clock stepped forward must skip the passed slots")
+}
+
+// TestTickerKeepsOneTickForLateReader covers the one-tick buffer: a reader
+// that was busy over a fire must still get that tick, and only one.
+func TestTickerKeepsOneTickForLateReader(t *testing.T) {
+	period := 100 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tick := Ticker(ctx, period, 0, time.Now)
+	time.Sleep(3*period + period/2)
+
+	select {
+	case <-tick:
+	default:
+		t.Fatal("a tick that fired while the reader was busy must wait for it")
+	}
+	select {
+	case <-tick:
+		t.Fatal("only one unread tick must wait, the later ones are dropped")
+	case <-time.After(period / 4):
+	}
+}
+
 func TestReceiveTimeoutAndKeepAliveIdle(t *testing.T) {
 	assert.Equal(t, 70*time.Second, ReceiveTimeout(time.Minute))
 	assert.Equal(t, 2*time.Minute, TCPKeepAliveIdle(time.Minute))
