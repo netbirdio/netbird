@@ -197,22 +197,26 @@ func TestNextFireOnWallClock(t *testing.T) {
 // TestTickerKeepsOneTickForLateReader covers the one-tick buffer: a reader
 // that was busy over a fire must still get that tick, and only one.
 func TestTickerKeepsOneTickForLateReader(t *testing.T) {
-	period := 100 * time.Millisecond
+	period := 200 * time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	tick := Ticker(ctx, period, 0, time.Now)
-	time.Sleep(3*period + period/2)
+	// Read in the middle of a period after at least two fires, so a late
+	// fire before the read and the next fire after it are both far away.
+	time.Sleep(NextDelay(period, 0, time.Now()) + 2*period + period/2)
 
 	select {
 	case <-tick:
 	default:
 		t.Fatal("a tick that fired while the reader was busy must wait for it")
 	}
+	// The window ends before the next slot, so only a queued tick can
+	// arrive in it. It is computed after the read, as the sleep may overshoot.
 	select {
 	case <-tick:
 		t.Fatal("only one unread tick must wait, the later ones are dropped")
-	case <-time.After(period / 4):
+	case <-time.After(NextDelay(period, 0, time.Now()) / 2):
 	}
 }
 

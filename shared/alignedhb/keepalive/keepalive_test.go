@@ -134,9 +134,13 @@ func TestSetAlignedLeavesUserTimeout(t *testing.T) {
 func TestSetAlignedStreamThroughGRPC(t *testing.T) {
 	skipWithoutIdle(t)
 
+	// The client never reads the handler error, so the handler hands it to
+	// the test. The handler does not touch t: it may run after the test ends.
 	streamConn := make(chan net.Conn, 1)
+	streamErr := make(chan error, 1)
 	gs := grpc.NewServer(grpc.UnknownServiceHandler(func(_ any, stream grpc.ServerStream) error {
 		if err := SetAlignedStream(stream.Context(), time.Minute); err != nil {
+			streamErr <- err
 			return err
 		}
 		conn, _ := ConnFromContext(stream.Context())
@@ -169,6 +173,8 @@ func TestSetAlignedStreamThroughGRPC(t *testing.T) {
 	var conn net.Conn
 	select {
 	case conn = <-streamConn:
+	case err := <-streamErr:
+		t.Fatalf("SetAlignedStream: %v", err)
 	case <-ctx.Done():
 		t.Fatal("stream handler did not get its connection")
 	}
