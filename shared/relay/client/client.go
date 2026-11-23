@@ -14,7 +14,10 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/hbwatch"
 	"github.com/netbirdio/netbird/client/netevents/sweep"
+	"github.com/netbirdio/netbird/shared/alignedhb"
+	"github.com/netbirdio/netbird/shared/alignedhb/keepalive"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	"github.com/netbirdio/netbird/shared/relay/client/dialer"
 	netErr "github.com/netbirdio/netbird/shared/relay/client/dialer/net"
@@ -214,6 +217,28 @@ type Client struct {
 	transport string
 
 	maxMsgSize int
+
+	// alignedPeriod is the heartbeat period the server confirmed on the
+	// current connection in nanoseconds, zero while stock. Connect and the
+	// read loop of the current connection write it under watchMu, status
+	// reads it atomically.
+	alignedPeriod atomic.Int64
+	// alignedRequest returns the aligned heartbeat period to ask for, ok
+	// false for none.
+	alignedRequest func() (period time.Duration, ok bool)
+	// watch marks the home relay client: only it registers with hbwatch.
+	watch atomic.Bool
+	// watchMu guards watchStop, watchSeq and watchGen. watchSeq counts
+	// the Connect calls and watchGen is the sequence the current
+	// registration belongs to: the read loop of an old connection must
+	// not unregister a newer one.
+	watchMu   sync.Mutex
+	watchStop func()
+	watchSeq  int
+	watchGen  int
+	// stopFlag is the flag listenForStopEvents sets on a timeout close of
+	// the current connection. Guarded by mu.
+	stopFlag *internalStopFlag
 }
 
 // Transport returns the negotiated relay transport of the current connection,
@@ -227,6 +252,86 @@ func (c *Client) Transport() string {
 // SetTransportFallback wires the shared datagram-transport fallback tracker.
 func (c *Client) SetTransportFallback(tf *transportFallback) {
 	c.transportFallback = tf
+}
+
+// WatchHeartbeats marks this client as the home relay client: it registers
+// with hbwatch on every Connect, and at once when already connected. The
+// manager calls it only for the home client, so foreign relay connections
+// are never watched. It is idempotent.
+func (c *Client) WatchHeartbeats() {
+	c.watch.Store(true)
+	c.mu.Lock()
+	running := c.serviceIsRunning
+	relayConn := c.relayConn
+	stopFlag := c.stopFlag
+	c.mu.Unlock()
+	if !running {
+		return
+	}
+	c.watchMu.Lock()
+	seq := c.watchSeq
+	c.watchMu.Unlock()
+	c.startWatch(seq, relayConn, stopFlag)
+}
+
+// AlignedPeriod returns the heartbeat period the server confirmed on the
+// current connection, zero while stock.
+func (c *Client) AlignedPeriod() time.Duration {
+	return time.Duration(c.alignedPeriod.Load())
+}
+
+// startWatch registers the connection of sequence seq with hbwatch, unless
+// a registration is already in place. Its stale action closes relayConn
+// like a health check timeout, with stopFlag the flag of that connection.
+// It takes only watchMu, so Connect can call it while it holds c.mu.
+func (c *Client) startWatch(seq int, relayConn net.Conn, stopFlag *internalStopFlag) {
+	if !c.watch.Load() {
+		return
+	}
+	c.watchMu.Lock()
+	if c.watchStop != nil {
+		c.watchMu.Unlock()
+		return
+	}
+	c.watchMu.Unlock()
+
+	reconnect := func() {
+		c.log.Warnf("relay connection is stale, closing it like a health check timeout")
+		if stopFlag != nil {
+			stopFlag.set()
+		}
+		if err := relayConn.Close(); err != nil {
+			c.log.Debugf("failed to close stale relay connection: %s", err)
+		}
+	}
+	stop := hbwatch.Register(hbwatch.Relay, hbwatch.Registration{
+		Kind:  hbwatch.ActionReconnect,
+		Stale: reconnect,
+		Addr:  c.connectionURL,
+	})
+	c.watchMu.Lock()
+	if c.watchStop == nil && c.watchSeq == seq {
+		c.watchStop = stop
+		c.watchGen = seq
+		c.watchMu.Unlock()
+		return
+	}
+	c.watchMu.Unlock()
+	stop()
+}
+
+// clearWatchGen unregisters the registration of connection sequence seq,
+// and only that one.
+func (c *Client) clearWatchGen(seq int) {
+	c.watchMu.Lock()
+	if c.watchGen != seq || c.watchStop == nil {
+		c.watchMu.Unlock()
+		return
+	}
+	stop := c.watchStop
+	c.watchStop = nil
+	c.watchMu.Unlock()
+	stop()
 }
 
 // NewClient creates a new client for the relay server. The client is not connected to the server until the Connect
@@ -255,7 +360,8 @@ func NewClientWithServerIP(serverURL string, serverIP netip.Addr, authTokenStore
 				return &buf
 			},
 		},
-		conns: make(map[messages.PeerID]*connContainer),
+		conns:          make(map[messages.PeerID]*connContainer),
+		alignedRequest: alignedhb.ClientPeriod,
 	}
 
 	c.earlyMsgs = newEarlyMsgBuffer()
@@ -291,13 +397,28 @@ func (c *Client) Connect(ctx context.Context) error {
 	c.log.Infof("relay connection established, server IP: %s", connectedIP(c.relayConn))
 
 	c.serviceIsRunning = true
+	c.stopFlag = newInternalStopFlag()
+	internallyStoppedFlag := c.stopFlag
+	c.watchMu.Lock()
+	c.watchSeq++
+	watchSeq := c.watchSeq
+	c.alignedPeriod.Store(0)
+	c.watchMu.Unlock()
 
-	internallyStoppedFlag := newInternalStopFlag()
+	// Ask for the aligned heartbeat right after the auth response. A stock
+	// server ignores the payload and stays stock.
+	if period, ok := c.askedPeriod(); ok {
+		if _, err := c.relayConn.Write(messages.MarshalHealthcheckWithPeriod(uint16(period / time.Second))); err != nil {
+			c.log.Debugf("failed to send aligned heartbeat request: %s", err)
+		}
+	}
+	c.startWatch(watchSeq, c.relayConn, internallyStoppedFlag)
+
 	hc := healthcheck.NewReceiver(c.log)
 	go c.listenForStopEvents(ctx, hc, c.relayConn, internallyStoppedFlag)
 
 	c.wgReadLoop.Add(1)
-	go c.readLoop(hc, c.relayConn, internallyStoppedFlag)
+	go c.readLoop(hc, c.relayConn, internallyStoppedFlag, watchSeq)
 
 	return nil
 }
@@ -552,7 +673,7 @@ func (c *Client) handShake(ctx context.Context) (*RelayAddr, error) {
 	return &RelayAddr{addr: addr}, nil
 }
 
-func (c *Client) readLoop(hc *healthcheck.Receiver, relayConn net.Conn, internallyStoppedFlag *internalStopFlag) {
+func (c *Client) readLoop(hc *healthcheck.Receiver, relayConn net.Conn, internallyStoppedFlag *internalStopFlag, watchSeq int) {
 	var (
 		errExit error
 		n       int
@@ -588,12 +709,13 @@ func (c *Client) readLoop(hc *healthcheck.Receiver, relayConn net.Conn, internal
 			continue
 		}
 
-		if !c.handleMsg(msgType, buf, bufPtr, hc, internallyStoppedFlag) {
+		if !c.handleMsg(msgType, buf, bufPtr, hc, relayConn, watchSeq, internallyStoppedFlag) {
 			break
 		}
 	}
 
 	hc.Stop()
+	c.clearWatchGen(watchSeq)
 
 	c.stateSubscription.Cleanup()
 	c.wgReadLoop.Done()
@@ -601,10 +723,10 @@ func (c *Client) readLoop(hc *healthcheck.Receiver, relayConn net.Conn, internal
 	c.notifyDisconnected()
 }
 
-func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte, hc *healthcheck.Receiver, internallyStoppedFlag *internalStopFlag) (continueLoop bool) {
+func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte, hc *healthcheck.Receiver, relayConn net.Conn, watchSeq int, internallyStoppedFlag *internalStopFlag) (continueLoop bool) {
 	switch msgType {
 	case messages.MsgTypeHealthCheck:
-		c.handleHealthCheck(hc, internallyStoppedFlag)
+		c.handleHealthCheck(buf, hc, relayConn, watchSeq, internallyStoppedFlag)
 		c.bufPool.Put(bufPtr)
 	case messages.MsgTypeTransport:
 		return c.handleTransportMsg(buf, bufPtr, internallyStoppedFlag)
@@ -625,8 +747,13 @@ func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte,
 	return true
 }
 
-func (c *Client) handleHealthCheck(hc *healthcheck.Receiver, internallyStoppedFlag *internalStopFlag) {
+func (c *Client) handleHealthCheck(buf []byte, hc *healthcheck.Receiver, relayConn net.Conn, watchSeq int, internallyStoppedFlag *internalStopFlag) {
+	c.switchAligned(buf, hc, relayConn, watchSeq)
+
 	msg := messages.MarshalHealthcheck()
+	if period := c.answerPeriod(); period > 0 {
+		msg = messages.MarshalHealthcheckWithPeriod(uint16(period / time.Second))
+	}
 	_, wErr := c.relayConn.Write(msg)
 	if wErr != nil {
 		if c.serviceIsRunning && !internallyStoppedFlag.isSet() {
@@ -634,6 +761,74 @@ func (c *Client) handleHealthCheck(hc *healthcheck.Receiver, internallyStoppedFl
 		}
 	}
 	hc.Heartbeat()
+}
+
+// answerPeriod returns the period a health check answer carries: the
+// confirmed one once aligned, else the requested one, so a server that
+// missed the first frame switches at a later answer. Zero keeps the stock
+// frame.
+func (c *Client) answerPeriod() time.Duration {
+	if period := c.AlignedPeriod(); period > 0 {
+		return period
+	}
+	if period, ok := c.askedPeriod(); ok {
+		return period
+	}
+	return 0
+}
+
+// askedPeriod returns the aligned heartbeat period this client asks for, ok
+// false for none, also on a Client built without NewClient.
+func (c *Client) askedPeriod() (time.Duration, bool) {
+	if c.alignedRequest == nil {
+		return 0, false
+	}
+	return c.alignedRequest()
+}
+
+// switchAligned moves the receiver to the aligned timeout at the first
+// server health check that carries a valid period, and records every
+// aligned server frame with hbwatch. relayConn and watchSeq are the
+// connection and Connect sequence of the read loop that got the frame. A
+// payload of one byte or a period of zero stays stock.
+func (c *Client) switchAligned(buf []byte, hc *healthcheck.Receiver, relayConn net.Conn, watchSeq int) {
+	periodSeconds, ok, err := messages.UnmarshalHealthcheckPeriod(buf)
+	if err != nil {
+		c.log.Tracef("ignoring health check period: %s", err)
+		return
+	}
+	if !ok {
+		return
+	}
+	period := alignedhb.ClampPeriod(time.Duration(periodSeconds) * time.Second)
+	switched, current := c.storeAlignedPeriod(watchSeq, period)
+	if !current {
+		return
+	}
+	if switched {
+		hc.SetTimeout(alignedhb.ReceiveTimeout(period))
+		if err := keepalive.SetAligned(relayConn, period); err != nil && !errors.Is(err, keepalive.ErrNotTCP) {
+			c.log.Debugf("failed to set TCP keepalive for heartbeat period %s: %v", period, err)
+		}
+		phase := alignedhb.Phase(c.hashedID, period)
+		c.log.Infof("aligned heartbeat on, period %s, phase %d ms", period, phase.Milliseconds())
+	}
+	if c.watch.Load() {
+		hbwatch.Seen(hbwatch.Relay, period)
+	}
+}
+
+// storeAlignedPeriod records period for the connection of Connect sequence
+// watchSeq and reports whether it changed. current is false once a newer
+// Connect replaced that connection: an old read loop that drains its last
+// frames must not mark the new connection aligned before its server does.
+func (c *Client) storeAlignedPeriod(watchSeq int, period time.Duration) (switched, current bool) {
+	c.watchMu.Lock()
+	defer c.watchMu.Unlock()
+	if c.watchSeq != watchSeq {
+		return false, false
+	}
+	return c.alignedPeriod.Swap(int64(period)) != int64(period), true
 }
 
 func (c *Client) handleTransportMsg(buf []byte, bufPtr *[]byte, internallyStoppedFlag *internalStopFlag) bool {

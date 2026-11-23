@@ -442,6 +442,9 @@ func (m *Manager) storeClient(client *Client) {
 
 	m.relayClient = client
 	m.relayClient.SetOnDisconnectListener(m.onServerDisconnected)
+	// Only the home relay registers with hbwatch; foreign clients created
+	// in openConnVia never do.
+	m.relayClient.WatchHeartbeats()
 }
 
 func (m *Manager) isForeignServer(homeClient *Client, address string) (bool, error) {

@@ -13,6 +13,11 @@ import (
 // applies the datagram fallback generically: if this server recently rejected a
 // datagram-sized transport, those dialers are dropped, leaving the rest.
 func (c *Client) getDialers(mode TransportMode) []dialer.DialeFn {
+	// An aligned mobile client dials WebSocket only: QUIC on cellular
+	// fails when the carrier NAT mapping expires before the period.
+	if _, ok := c.askedPeriod(); ok {
+		return []dialer.DialeFn{ws.Dialer{}}
+	}
 	dialers := c.baseDialers(mode)
 
 	if c.transportFallback != nil && c.transportFallback.avoidDatagramSized(c.connectionURL) {

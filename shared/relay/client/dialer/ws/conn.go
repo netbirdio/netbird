@@ -15,6 +15,7 @@ type Conn struct {
 	ctx context.Context
 	*websocket.Conn
 	remoteAddr net.Addr
+	underlying net.Conn
 }
 
 // NewConn builds a relay ws.Conn. underlying is the raw TCP/TLS conn captured
@@ -32,7 +33,15 @@ func NewConn(wsConn *websocket.Conn, serverAddress string, underlying net.Conn) 
 		ctx:        context.Background(),
 		Conn:       wsConn,
 		remoteAddr: addr,
+		underlying: underlying,
 	}
+}
+
+// NetConn returns the raw connection below the WebSocket, nil when unknown.
+// The relay client tunes its TCP keepalive once the server confirms the
+// aligned heartbeat.
+func (c *Conn) NetConn() net.Conn {
+	return c.underlying
 }
 
 // Protocol returns the transport name for this connection.
