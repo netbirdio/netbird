@@ -149,7 +149,11 @@ func TestTickerFiresOnPhase(t *testing.T) {
 		off := time.Duration(f.UnixMilli()%period.Milliseconds()) * time.Millisecond
 		assert.InDelta(t, phase.Milliseconds(), off.Milliseconds(), 30, "fire %d offset %s", i, off)
 		if i > 0 {
-			assert.InDelta(t, period.Milliseconds(), f.Sub(fires[i-1]).Milliseconds(), 30, "fire %d spacing", i)
+			// A slow reader can lose a tick, so a gap of whole periods is fine.
+			gap := f.Sub(fires[i-1])
+			slots := int64((gap + period/2) / period)
+			assert.GreaterOrEqual(t, slots, int64(1), "fire %d came less than a period after the last", i)
+			assert.InDelta(t, slots*period.Milliseconds(), gap.Milliseconds(), 30, "fire %d spacing %s", i, gap)
 		}
 	}
 }
