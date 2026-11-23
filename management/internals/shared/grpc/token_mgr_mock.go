@@ -53,6 +53,21 @@ func (mr *MockSecretsManagerMockRecorder) CancelRefresh(peerKey any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CancelRefresh", reflect.TypeOf((*MockSecretsManager)(nil).CancelRefresh), peerKey)
 }
 
+// GenerateAuthToken mocks base method.
+func (m *MockSecretsManager) GenerateAuthToken(keys PeerAuthKeys) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GenerateAuthToken", keys)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GenerateAuthToken indicates an expected call of GenerateAuthToken.
+func (mr *MockSecretsManagerMockRecorder) GenerateAuthToken(keys any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GenerateAuthToken", reflect.TypeOf((*MockSecretsManager)(nil).GenerateAuthToken), keys)
+}
+
 // GenerateRelayToken mocks base method.
 func (m *MockSecretsManager) GenerateRelayToken() (*Token, error) {
 	m.ctrl.T.Helper()
@@ -99,13 +114,13 @@ func (mr *MockSecretsManagerMockRecorder) GetWGKey() *gomock.Call {
 }
 
 // SetupRefresh mocks base method.
-func (m *MockSecretsManager) SetupRefresh(ctx context.Context, accountID, peerKey string) {
+func (m *MockSecretsManager) SetupRefresh(ctx context.Context, accountID, peerKey string, keys PeerAuthKeys) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetupRefresh", ctx, accountID, peerKey)
+	m.ctrl.Call(m, "SetupRefresh", ctx, accountID, peerKey, keys)
 }
 
 // SetupRefresh indicates an expected call of SetupRefresh.
-func (mr *MockSecretsManagerMockRecorder) SetupRefresh(ctx, accountID, peerKey any) *gomock.Call {
+func (mr *MockSecretsManagerMockRecorder) SetupRefresh(ctx, accountID, peerKey, keys any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetupRefresh", reflect.TypeOf((*MockSecretsManager)(nil).SetupRefresh), ctx, accountID, peerKey)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetupRefresh", reflect.TypeOf((*MockSecretsManager)(nil).SetupRefresh), ctx, accountID, peerKey, keys)
 }

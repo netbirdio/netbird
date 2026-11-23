@@ -72,7 +72,7 @@ func TestPeer_ForwardsTransportWithSenderAndDestinationVersion(t *testing.T) {
 	bob, bobID := acceptPeer(t, relay, "bob")
 
 	payload := []byte("hello bob")
-	transport, err := messages.MarshalTransportMsg(bobID, payload)
+	transport, err := messages.MarshalTransportMsg(messages.CurrentProtocolVersion, bobID, payload)
 	require.NoError(t, err)
 	alice.deliver(t, transport)
 
@@ -112,7 +112,7 @@ func TestRelay_StalledTargetDoesNotHoldOtherTargets(t *testing.T) {
 
 	// The first frame parks the stalled target's writer; the rest overflow its
 	// send queue, so the sender meets both a busy and a full target.
-	toStalled, err := messages.MarshalTransportMsg(messages.HashID("stalled"), []byte("stuck"))
+	toStalled, err := messages.MarshalTransportMsg(messages.CurrentProtocolVersion, messages.HashID("stalled"), []byte("stuck"))
 	require.NoError(t, err)
 	sender.deliver(t, toStalled)
 	require.True(t, signaled(stalled.entered), "the forwarded frame must stall on the stalled target")
@@ -121,7 +121,7 @@ func TestRelay_StalledTargetDoesNotHoldOtherTargets(t *testing.T) {
 	}
 
 	payload := []byte("hello healthy")
-	toHealthy, err := messages.MarshalTransportMsg(healthyID, payload)
+	toHealthy, err := messages.MarshalTransportMsg(messages.CurrentProtocolVersion, healthyID, payload)
 	require.NoError(t, err)
 	sender.deliver(t, toHealthy)
 

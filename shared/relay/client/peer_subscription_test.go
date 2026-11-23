@@ -36,7 +36,7 @@ func TestWaitToBeOnlineAndSubscribe_Success(t *testing.T) {
 	mockConn := &mockRelayedConn{}
 	logger := logrus.New()
 	logger.SetOutput(&bytes.Buffer{}) // discard log output
-	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, messages.MaxMessageSize, nil)
+	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, messages.NewEncoder(messages.CurrentProtocolVersion, messages.MaxMessageSize), nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -56,7 +56,7 @@ func TestWaitToBeOnlineAndSubscribe_Timeout(t *testing.T) {
 	mockConn := &mockRelayedConn{}
 	logger := logrus.New()
 	logger.SetOutput(&bytes.Buffer{})
-	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, messages.MaxMessageSize, nil)
+	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, messages.NewEncoder(messages.CurrentProtocolVersion, messages.MaxMessageSize), nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
@@ -71,7 +71,7 @@ func TestWaitToBeOnlineAndSubscribe_Duplicate(t *testing.T) {
 	mockConn := &mockRelayedConn{}
 	logger := logrus.New()
 	logger.SetOutput(&bytes.Buffer{})
-	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, messages.MaxMessageSize, nil)
+	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, messages.NewEncoder(messages.CurrentProtocolVersion, messages.MaxMessageSize), nil)
 
 	ctx := context.Background()
 	go func() {
@@ -89,7 +89,7 @@ func TestUnsubscribeStateChange(t *testing.T) {
 	mockConn := &mockRelayedConn{}
 	logger := logrus.New()
 	logger.SetOutput(&bytes.Buffer{})
-	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, messages.MaxMessageSize, nil)
+	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, messages.NewEncoder(messages.CurrentProtocolVersion, messages.MaxMessageSize), nil)
 
 	doneChan := make(chan struct{})
 	go func() {
@@ -113,7 +113,7 @@ func TestUnsubscribeStateChange_SplitsByMaxMessageSize(t *testing.T) {
 	conn := &recordingRelayedConn{}
 	logger := logrus.New()
 	logger.SetOutput(&bytes.Buffer{})
-	sub := NewPeersStateSubscription(logrus.NewEntry(logger), conn, nbRelay.QUICMaxDatagramSize, nil)
+	sub := NewPeersStateSubscription(logrus.NewEntry(logger), conn, messages.NewEncoder(messages.CurrentProtocolVersion, nbRelay.QUICMaxDatagramSize), nil)
 
 	peerIDs := make([]messages.PeerID, 100)
 	for i := range peerIDs {

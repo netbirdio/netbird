@@ -42,6 +42,7 @@ const (
 	labelErrorMissingMeta        = "missing_meta"
 	labelErrorFailedHeader       = "failed_header"
 	labelErrorFailedRegistration = "failed_registration"
+	labelErrorPeerAuth           = "peer_auth"
 	labelErrorAlreadyRegistered  = "already_registered"
 
 	labelRegistrationStatus   = "status"
@@ -72,10 +73,22 @@ type Server struct {
 	successHeader metadata.MD
 
 	sendTimeout time.Duration
+
+	peerAuth *peerAuth
 }
 
 // NewServer creates a new Signal server
 func NewServer(ctx context.Context, meter metric.Meter, metricsPrefix ...string) (*Server, error) {
+	return NewServerWithPeerAuth(ctx, meter, PeerAuthConfig{}, metricsPrefix...)
+}
+
+// NewServerWithPeerAuth creates a new Signal server that checks the token bound to the peer keys.
+func NewServerWithPeerAuth(ctx context.Context, meter metric.Meter, peerAuthCfg PeerAuthConfig, metricsPrefix ...string) (*Server, error) {
+	pa, err := newPeerAuth(peerAuthCfg)
+	if err != nil {
+		return nil, fmt.Errorf("peer auth: %w", err)
+	}
+
 	appMetrics, err := metrics.NewAppMetrics(meter, metricsPrefix...)
 	if err != nil {
 		return nil, fmt.Errorf("creating app metrics: %v", err)
@@ -99,7 +112,9 @@ func NewServer(ctx context.Context, meter metric.Meter, metricsPrefix ...string)
 		metrics:       appMetrics,
 		successHeader: metadata.Pairs(proto.HeaderRegistered, "1"),
 		sendTimeout:   sTimeout,
+		peerAuth:      pa,
 	}
+	s.OnStop(pa.start())
 
 	stopProfiling := profiling.Start(applicationName)
 	s.OnStop(stopProfiling)
@@ -118,6 +133,17 @@ func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.
 
 	s.metrics.SendInflight.Add(ctx, 1)
 	defer s.metrics.SendInflight.Add(ctx, -1)
+
+	md, _ := metadata.FromIncomingContext(ctx)
+	authenticated, err := s.peerAuth.authenticate(md, msg.Key)
+	if err != nil {
+		return nil, err
+	}
+	if !authenticated {
+		if p, found := s.registry.Get(msg.Key); found && p.Authenticated {
+			return nil, legacyTakeoverError(msg.Key)
+		}
+	}
 
 	if _, found := s.registry.Get(msg.RemoteKey); found {
 		s.recordReceived(ctx, msg, labelRouteLocal)
@@ -173,7 +199,7 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 		return err
 	}
 
-	log.Debugf("peer connected [%s] [streamID %d] ", p.Id, p.StreamID)
+	log.Debugf("peer connected [%s] [streamID %d] [authenticated: %t]", p.Id, p.StreamID, p.Authenticated)
 
 	select {
 	case <-stream.Context().Done():
@@ -193,12 +219,24 @@ func (s *Server) RegisterPeer(stream proto.SignalExchange_ConnectStreamServer, c
 		return nil, status.Errorf(codes.FailedPrecondition, "missing connection header: %s", proto.HeaderId)
 	}
 
+	md, _ := metadata.FromIncomingContext(stream.Context())
+	authenticated, err := s.peerAuth.authenticate(md, id[0])
+	if err != nil {
+		s.metrics.RegistrationFailures.Add(stream.Context(), 1, metric.WithAttributes(attribute.String(labelError, labelErrorPeerAuth)))
+		return nil, err
+	}
+
 	p := peer.NewPeer(id[0], stream, cancel)
+	p.Authenticated = authenticated
 	if err := s.registry.Register(p); err != nil {
+		if errors.Is(err, peer.ErrAuthenticatedPeerExists) {
+			s.metrics.RegistrationFailures.Add(stream.Context(), 1, metric.WithAttributes(attribute.String(labelError, labelErrorPeerAuth)))
+			return nil, legacyTakeoverError(p.Id)
+		}
 		s.metrics.RegistrationFailures.Add(stream.Context(), 1, metric.WithAttributes(attribute.String(labelError, labelErrorAlreadyRegistered)))
 		return nil, err
 	}
-	err := s.dispatcher.ListenForMessages(stream.Context(), p.Id, func(ctx context.Context, msg *proto.EncryptedMessage) {
+	err = s.dispatcher.ListenForMessages(stream.Context(), p.Id, func(ctx context.Context, msg *proto.EncryptedMessage) {
 		s.forwardMessageToPeer(ctx, msg)
 	})
 	if err != nil {
