@@ -1,5 +1,4 @@
 {
-  "user_email": "ada@example.com",
   "state": "OK",
   "endpoint": "https://violet.eu.proxy.netbird.io",
   "providers": [
