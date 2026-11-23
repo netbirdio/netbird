@@ -222,9 +222,15 @@ func (s *BaseServer) ZonesManager() zones.Manager {
 	})
 }
 
+func (s *BaseServer) ExitNodesRepository() exitnodes.Repository {
+	return Create(s, func() exitnodes.Repository {
+		return exitnodesmanager.NewRepository(s.DBConn())
+	})
+}
+
 func (s *BaseServer) ExitNodesManager() exitnodes.Manager {
 	return Create(s, func() exitnodes.Manager {
-		return exitnodesmanager.NewManager(exitnodesmanager.NewRepository(s.DBConn()), s.DBConn(), s.Store(), s.AccountManager(), s.PermissionsManager())
+		return exitnodesmanager.NewManager(s.ExitNodesRepository(), s.DBConn(), s.Store(), s.AccountManager(), s.PermissionsManager())
 	})
 }
 

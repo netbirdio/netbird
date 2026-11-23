@@ -40,6 +40,18 @@ func (r *sqlRepository) LockAccount(ctx context.Context, accountID string) error
 	return nil
 }
 
+func (r *sqlRepository) IncrementNetworkSerial(ctx context.Context, accountID string) error {
+	result := r.db.Table("accounts").Where("id = ?", accountID).Update("network_serial", gorm.Expr("network_serial + 1"))
+	if result.Error != nil {
+		log.WithContext(ctx).WithField("account_id", accountID).Errorf("failed to increment network serial: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to increment network serial")
+	}
+	if result.RowsAffected == 0 {
+		return status.NewAccountNotFoundError(accountID)
+	}
+	return nil
+}
+
 func (r *sqlRepository) ListByAccount(ctx context.Context, lockStrength db.LockingStrength, accountID string) ([]*exitnodes.ExitNode, error) {
 	query := withLock(r.db, lockStrength).Preload("Peers", orderPeers)
 
