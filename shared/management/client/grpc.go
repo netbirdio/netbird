@@ -543,6 +543,7 @@ func (c *GrpcClient) applyAlignedAnswer(resp *proto.SyncResponse) (decided bool)
 	if cfg.GetEnabled() && cfg.GetPeriodSeconds() > 0 {
 		period := alignedhb.ClampPeriod(time.Duration(cfg.GetPeriodSeconds()) * time.Second)
 		c.setAlignedPeriod(period)
+		hbwatch.Confirm(hbwatch.Management, period)
 		nbgrpc.ClearStock(wsproxy.ManagementComponent, c.serverURL)
 		c.tcpKeepAlive.SetAligned(period)
 		phase := alignedhb.Phase(messages.HashID(c.key.PublicKey().String()), period)

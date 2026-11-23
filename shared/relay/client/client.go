@@ -314,6 +314,9 @@ func (c *Client) startWatch(seq int, relayConn net.Conn, stopFlag *internalStopF
 		c.watchStop = stop
 		c.watchGen = seq
 		c.watchMu.Unlock()
+		// The period is read after Register: a server frame that switched
+		// the connection before it found no registration to record.
+		hbwatch.Confirm(hbwatch.Relay, c.AlignedPeriod())
 		return
 	}
 	c.watchMu.Unlock()

@@ -145,6 +145,31 @@ func TestWakeCheckReconnectsSilentStream(t *testing.T) {
 	assert.Equal(t, 1, *n, "the same wake does not fire twice")
 }
 
+// TestWakeCheckReconnectsConfirmedStreamBeforeFirstHeartbeat covers a stream
+// that registers before its aligned answer, as Management and relay do: the
+// confirmed period alone must make a stream that dies before its first
+// heartbeat count for the wake check. A stream never confirmed stays stock.
+func TestWakeCheckReconnectsConfirmedStreamBeforeFirstHeartbeat(t *testing.T) {
+	clk := newFakeClock(testStart)
+	w := New(clk, time.Minute)
+	confirmedStale, confirmed := staleCounter()
+	stockStale, stock := staleCounter()
+	w.Register(Management, Registration{Kind: ActionReconnect, Stale: confirmedStale})
+	w.Register(Relay, Registration{Kind: ActionReconnect, Stale: stockStale})
+	w.Confirm(Management, time.Minute)
+
+	clk.Advance(80 * time.Second)
+	w.CheckNow()
+	clk.Advance(Grace)
+	assert.Equal(t, 1, *confirmed, "a confirmed stream silent over period+10 s reconnects at the wake")
+	assert.Zero(t, *stock, "a stream never confirmed aligned is not judged")
+
+	snap := w.Snapshot()
+	require.Len(t, snap.Streams, 2)
+	assert.Equal(t, time.Minute, snap.Streams[0].Period, "the confirmed period shows before the first heartbeat")
+	assert.False(t, snap.Streams[0].Aligned, "no heartbeat came yet")
+}
+
 func TestOnTickRunsOncePerTick(t *testing.T) {
 	clk := newFakeClock(testStart)
 	w := New(clk, time.Minute)

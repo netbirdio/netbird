@@ -179,6 +179,25 @@ func (w *Watcher) Register(svc Service, reg Registration) (unregister func()) {
 	}
 }
 
+// Confirm records the heartbeat period the server confirmed for the current
+// registration of svc. A stream that registers before its aligned answer
+// calls it at the answer, so the wake check judges the stream before its
+// first heartbeat. A period of zero or less, or an unregistered svc, is
+// ignored.
+func (w *Watcher) Confirm(svc Service, period time.Duration) {
+	if period <= 0 {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	s, ok := w.svcs[svc]
+	if !ok || !s.registered {
+		return
+	}
+	s.reg.AlignedPeriod = period
+	s.period = period
+}
+
 // Seen records an aligned heartbeat for svc with the given period. It
 // raises the global tick when the heartbeat is the first at least half a
 // period after the previous tick, joins the current tick otherwise, and
@@ -347,6 +366,14 @@ func Register(svc Service, reg Registration) (unregister func()) {
 		return w.Register(svc, reg)
 	}
 	return func() {}
+}
+
+// Confirm records a confirmed period on the default Watcher. No-op without
+// one.
+func Confirm(svc Service, period time.Duration) {
+	if w := def(); w != nil {
+		w.Confirm(svc, period)
+	}
 }
 
 // Seen records a heartbeat on the default Watcher. No-op without one.

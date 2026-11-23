@@ -154,6 +154,39 @@ func TestReceiveAlignedAnswerAndHeartbeat(t *testing.T) {
 	assert.Equal(t, alignedhb.MinPeriod, snap.Streams[0].Period)
 }
 
+// TestAlignedAnswerConfirmsPeriodBeforeHeartbeat checks that the aligned
+// answer alone hands the period to hbwatch: the stream registered before the
+// answer, and the wake check must judge it before its first heartbeat.
+func TestAlignedAnswerConfirmsPeriodBeforeHeartbeat(t *testing.T) {
+	withAlignedRequest(t, alignedhb.DefaultPeriod, true)
+	serverKey, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+	clientKey, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+
+	addr := "aligned-confirm.example:443"
+	t.Cleanup(func() { nbgrpc.ClearStock(wsproxy.ManagementComponent, addr) })
+
+	w := hbwatch.New(wallClock{}, time.Minute)
+	t.Cleanup(hbwatch.SetDefault(w))
+	w.Register(hbwatch.Management, hbwatch.Registration{Addr: addr})
+
+	first := &proto.SyncResponse{PeerConfig: &proto.PeerConfig{
+		AlignedHeartbeat: &proto.AlignedHeartbeatConfig{Enabled: true, PeriodSeconds: 60},
+	}}
+	stream := &fakeSyncStream{msgs: []*proto.EncryptedMessage{encryptedResp(t, serverKey, clientKey, first)}}
+	c := &GrpcClient{key: clientKey, ctx: context.Background(), serverURL: addr}
+	c.conn.Swap(lazyMgmtConn(t), &fakeMgmtClient{stream: stream}, 0)
+
+	err = c.receiveUpdatesEvents(stream, serverKey.PublicKey(), func(*proto.SyncResponse) error { return nil })
+	assert.ErrorIs(t, err, io.EOF)
+
+	snap := w.Snapshot()
+	require.Len(t, snap.Streams, 1)
+	assert.Equal(t, time.Minute, snap.Streams[0].Period, "the answer confirms the period to hbwatch")
+	assert.False(t, snap.Streams[0].Aligned, "no heartbeat came yet")
+}
+
 type wallClock struct{}
 
 func (wallClock) Now() time.Time                      { return time.Now() }

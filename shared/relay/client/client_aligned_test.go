@@ -212,6 +212,27 @@ func TestOnlyTheMarkedClientRegistersWithHbwatch(t *testing.T) {
 	assert.True(t, aligned, "the next aligned server frame reaches hbwatch")
 }
 
+// TestWatchAfterAlignedSwitchKeepsThePeriod covers a home relay client
+// marked after its connection switched to aligned: the registration must
+// carry the confirmed period, so the wake check judges the connection
+// before the next server frame.
+func TestWatchAfterAlignedSwitchKeepsThePeriod(t *testing.T) {
+	w := hbwatch.New(wallClock{}, time.Minute)
+	t.Cleanup(hbwatch.SetDefault(w))
+
+	c, conn := newAlignedTestClient(t, true)
+	c.stopFlag = newInternalStopFlag()
+	hc := healthcheck.NewReceiver(c.log)
+	defer hc.Stop()
+
+	c.handleHealthCheck(messages.MarshalHealthcheckWithPeriod(60), hc, conn, c.watchSeq, c.stopFlag)
+	c.WatchHeartbeats()
+
+	snap := w.Snapshot()
+	require.Len(t, snap.Streams, 1)
+	assert.Equal(t, time.Minute, snap.Streams[0].Period, "the registration carries the confirmed period")
+}
+
 type wallClock struct{}
 
 func (wallClock) Now() time.Time                      { return time.Now() }
