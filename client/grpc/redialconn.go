@@ -120,10 +120,13 @@ func (r *RedialConn[C]) Swap(conn *grpc.ClientConn, client C, ka time.Duration) 
 }
 
 // Close closes the connection. A redial that finishes later closes its new
-// connection instead of swapping it in.
+// connection instead of swapping it in. A second Close does nothing.
 func (r *RedialConn[C]) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.closed {
+		return nil
+	}
 	r.closed = true
 	if r.conn == nil {
 		return nil

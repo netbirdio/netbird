@@ -186,6 +186,7 @@ func TestRedialConnReadyAndClose(t *testing.T) {
 	assert.NoError(t, r.Ready(context.Background(), conn, "Signal"), "an idle connection is usable")
 
 	require.NoError(t, r.Close())
+	assert.NoError(t, r.Close(), "a second Close is a no-op")
 	_, swapped = r.Swap(lazyConn(t), "late", stockKeepaliveTime)
 	assert.False(t, swapped, "a closed client takes no new connection")
 }
