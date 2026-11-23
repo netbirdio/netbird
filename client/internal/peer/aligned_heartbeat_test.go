@@ -13,7 +13,7 @@ import (
 // TestAlignedHeartbeatToProto covers the peer status addition: aligned and
 // period per service, nothing else.
 func TestAlignedHeartbeatToProto(t *testing.T) {
-	assert.Nil(t, alignedHeartbeatToProto(nil), "no watcher, no state")
+	assert.Nil(t, AlignedHeartbeatToProto(nil), "no watcher, no state")
 
 	snap := &hbwatch.Snapshot{Streams: []hbwatch.StreamStatus{
 		{Service: hbwatch.Management, Addr: "https://mgmt:443", Aligned: true, Period: time.Minute},

@@ -1630,7 +1630,7 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 		Peers:           []*proto.PeerState{},
 	}
 
-	pbFullStatus.AlignedHeartbeat = alignedHeartbeatToProto(fs.AlignedHeartbeat)
+	pbFullStatus.AlignedHeartbeat = AlignedHeartbeatToProto(fs.AlignedHeartbeat)
 	pbFullStatus.ManagementState.URL = fs.ManagementState.URL
 	pbFullStatus.ManagementState.Connected = fs.ManagementState.Connected
 	if err := fs.ManagementState.Error; err != nil {

@@ -13,6 +13,8 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/netbirdio/netbird/client/hbwatch"
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/version"
 )
@@ -701,4 +703,23 @@ func TestMapRelaysTransport(t *testing.T) {
 	require.Len(t, out.Details, 2)
 	assert.Equal(t, "quic", out.Details[0].Transport)
 	assert.Equal(t, "ws", out.Details[1].Transport)
+}
+
+// TestToProtoFullStatusCopiesAlignedHeartbeat checks that the debug bundle
+// and proxy debug output carry the aligned heartbeat state, and that a client
+// without a watcher keeps the stock status.
+func TestToProtoFullStatusCopiesAlignedHeartbeat(t *testing.T) {
+	snap := &hbwatch.Snapshot{Streams: []hbwatch.StreamStatus{
+		{Service: hbwatch.Signal, Addr: "signal.example:443", Aligned: true, Period: time.Minute},
+	}}
+	out := ToProtoFullStatus(peer.FullStatus{AlignedHeartbeat: snap})
+	require.NotNil(t, out.GetAlignedHeartbeat(), "the aligned heartbeat state must be copied")
+	require.Len(t, out.GetAlignedHeartbeat().GetStreams(), 1)
+	st := out.GetAlignedHeartbeat().GetStreams()[0]
+	assert.Equal(t, "signal", st.GetService())
+	assert.Equal(t, "signal.example:443", st.GetAddress())
+	assert.True(t, st.GetAligned(), "the stream is aligned")
+	assert.Equal(t, uint32(60), st.GetPeriodSeconds())
+
+	assert.Nil(t, ToProtoFullStatus(peer.FullStatus{}).GetAlignedHeartbeat(), "no watcher, no state")
 }

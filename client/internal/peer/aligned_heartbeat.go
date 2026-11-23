@@ -16,11 +16,11 @@ func alignedHeartbeatSnapshot() *hbwatch.Snapshot {
 	return &snap
 }
 
-// alignedHeartbeatToProto converts the aligned heartbeat state to its
+// AlignedHeartbeatToProto converts the aligned heartbeat state to its
 // proto form: per service whether the stream is aligned, and its period.
 // Nil for a nil snap, so the status of a client without a watcher is
 // unchanged.
-func alignedHeartbeatToProto(snap *hbwatch.Snapshot) *proto.AlignedHeartbeatState {
+func AlignedHeartbeatToProto(snap *hbwatch.Snapshot) *proto.AlignedHeartbeatState {
 	if snap == nil {
 		return nil
 	}
