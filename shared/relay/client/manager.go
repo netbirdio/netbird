@@ -191,7 +191,42 @@ func (m *Manager) OpenConn(ctx context.Context, serverAddress, peerKey string, s
 		return nil, err
 	}
 
-	return netConn, err
+	m.closeStaleConns(peerKey, netConn)
+	return netConn, nil
+}
+
+// closeStaleConns closes the connections to peerKey on every relay client other
+// than the one that owns keep. A peer that moved to another relay leaves its old
+// connection behind, and nothing else would notice it is dead. It runs only after
+// the new connection is established, so a failed dial keeps the old one.
+func (m *Manager) closeStaleConns(peerKey string, keep *Conn) {
+	m.relayClientMu.RLock()
+	clients := []*Client{m.relayClient}
+	m.relayClientMu.RUnlock()
+
+	// Snapshot the tracks and read each outside the map lock, as a track may be
+	// held by an in-progress dial.
+	m.relayClientsMutex.RLock()
+	tracks := make([]*RelayTrack, 0, len(m.relayClients))
+	for _, rt := range m.relayClients {
+		tracks = append(tracks, rt)
+	}
+	m.relayClientsMutex.RUnlock()
+
+	for _, rt := range tracks {
+		rt.RLock()
+		clients = append(clients, rt.relayClient)
+		rt.RUnlock()
+	}
+
+	for _, c := range clients {
+		if c == nil {
+			continue
+		}
+		if c.closeConnExcept(peerKey, keep) {
+			log.Infof("closed stale relayed connection to peer %s on %s", peerKey, c.connectionURL)
+		}
+	}
 }
 
 // Ready returns true if the home Relay client is connected to the relay server.

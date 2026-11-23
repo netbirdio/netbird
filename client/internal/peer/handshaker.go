@@ -73,11 +73,6 @@ type Handshaker struct {
 	// When false, the local side skips ICE listener dispatch and suppresses ICE credentials in responses.
 	remoteICESupported atomic.Bool
 
-	// relaySessionID identifies this connection in offers that carry no ICE
-	// credentials, so the remote can tell a restarted peer from a repeated offer.
-	// It is fixed for the lifetime of the connection.
-	relaySessionID ICESessionID
-
 	// remoteOffersCh is a channel used to wait for remote credentials to proceed with the connection
 	remoteOffersCh chan OfferAnswer
 	// remoteAnswerCh is a channel used to wait for remote credentials answer (confirmation of our offer) to proceed with the connection
@@ -102,12 +97,6 @@ func NewHandshaker(log *log.Entry, config ConnConfig, signaler *Signaler, ice *W
 	}
 	// assume remote supports ICE until we learn otherwise from received offers
 	h.remoteICESupported.Store(ice != nil)
-
-	sid, err := NewICESessionID()
-	if err != nil {
-		log.Warnf("failed to generate relay session ID, restarts will not be signalled to the remote: %v", err)
-	}
-	h.relaySessionID = sid
 	return h
 }
 
@@ -244,9 +233,6 @@ func (h *Handshaker) buildOfferAnswer() OfferAnswer {
 		uFrag, pwd := h.ice.GetLocalUserCredentials()
 		sid := h.ice.SessionID()
 		answer.IceCredentials = IceCredentials{uFrag, pwd}
-		answer.SessionID = &sid
-	} else if h.relaySessionID != "" {
-		sid := h.relaySessionID
 		answer.SessionID = &sid
 	}
 

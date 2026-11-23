@@ -834,6 +834,22 @@ func (c *Client) notifyPeersReregistered(peerIDs []messages.PeerID) {
 	}
 }
 
+// closeConnExcept closes the connection to dstPeerID unless it is keep. It
+// reports whether a connection was closed.
+func (c *Client) closeConnExcept(dstPeerID string, keep *Conn) bool {
+	peerID := messages.HashID(dstPeerID)
+
+	c.mu.Lock()
+	container, ok := c.conns[peerID]
+	c.mu.Unlock()
+	if !ok || container.conn == keep {
+		return false
+	}
+
+	// closeConn rejects the container if it was replaced in the meantime.
+	return c.closeConn(container, peerID) == nil
+}
+
 func (c *Client) closeConn(containerRef *connContainer, id messages.PeerID) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
