@@ -94,6 +94,8 @@ type Store interface {
 	SaveUsers(ctx context.Context, users []*types.User) error
 	SaveUser(ctx context.Context, user *types.User) error
 	SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error
+	GetUsersMissingEmailOrName(ctx context.Context) ([]*types.User, error)
+	FillUserEmailAndName(ctx context.Context, accountID, userID, email, name string) error
 	DeleteUser(ctx context.Context, accountID, userID string) error
 	GetTokenIDByHashedToken(ctx context.Context, secret string) (string, error)
 	DeleteHashedPAT2TokenIDIndex(hashedToken string) error
