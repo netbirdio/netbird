@@ -14,11 +14,17 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
+	"golang.org/x/time/rate"
+
 	"github.com/netbirdio/netbird/shared/peerauth"
 )
 
 // proofCacheSweepInterval is how often expired verifications are dropped from the cache.
 const proofCacheSweepInterval = 10 * time.Minute
+
+// repeatedRefusalLogInterval bounds a refusal logged on every peer retry, as a misconfigured
+// hostname list or peer clock causes.
+const repeatedRefusalLogInterval = time.Minute
 
 var (
 	errPeerAuthRequired = errors.New("peer auth credentials required")
@@ -40,9 +46,11 @@ type PeerAuthConfig struct {
 
 // peerAuth verifies the credentials sent with ConnectStream and Send.
 type peerAuth struct {
-	verifier *peerauth.Verifier
-	required bool
-	cache    *proofCache
+	verifier    *peerauth.Verifier
+	required    bool
+	cache       *proofCache
+	hostnameLog *rate.Sometimes
+	clockLog    *rate.Sometimes
 }
 
 // newPeerAuth returns nil when no keys are configured.
@@ -68,9 +76,11 @@ func newPeerAuth(cfg PeerAuthConfig) (*peerAuth, error) {
 		verifier.Skew = peerauth.DefaultSkew
 	}
 	return &peerAuth{
-		verifier: verifier,
-		required: cfg.Required,
-		cache:    newProofCache(),
+		verifier:    verifier,
+		required:    cfg.Required,
+		cache:       newProofCache(),
+		hostnameLog: &rate.Sometimes{First: 1, Interval: repeatedRefusalLogInterval},
+		clockLog:    &rate.Sometimes{First: 1, Interval: repeatedRefusalLogInterval},
 	}, nil
 }
 
@@ -99,9 +109,9 @@ func (a *peerAuth) authenticate(md metadata.MD, peerKey string) (bool, error) {
 	case errors.Is(err, peerauth.ErrMissingCredentials) && !a.required:
 		return false, nil
 	case errors.Is(err, peerauth.ErrMissingCredentials):
-		return false, refused(peerKey, errPeerAuthRequired)
+		return false, a.refused(peerKey, errPeerAuthRequired)
 	case err != nil:
-		return false, refused(peerKey, err)
+		return false, a.refused(peerKey, err)
 	}
 
 	now := time.Now()
@@ -110,7 +120,7 @@ func (a *peerAuth) authenticate(md metadata.MD, peerKey string) (bool, error) {
 		return true, nil
 	}
 	if err := a.verify(peerKey, token, proof, digest, now); err != nil {
-		return false, refused(peerKey, err)
+		return false, a.refused(peerKey, err)
 	}
 	return true, nil
 }
@@ -200,13 +210,16 @@ func (c *proofCache) sweepLoop(ctx context.Context, interval time.Duration, done
 }
 
 // refused logs refused credentials at debug when a peer repeats them on every retry (none, or an
-// expired token) and at info when they do not verify.
-func refused(peerKey string, err error) error {
+// expired token), at info when they do not verify, and at info once per interval when a hostname
+// list or a peer clock makes every retry fail.
+func (a *peerAuth) refused(peerKey string, err error) error {
 	switch {
 	case errors.Is(err, errPeerAuthRequired), errors.Is(err, peerauth.ErrTokenExpired):
 		log.Debugf("refused peer [%s]: %v", peerKey, err)
+	case errors.Is(err, peerauth.ErrHostMismatch):
+		logRepeatedRefusal(a.hostnameLog, "refused peer [%s], check --peer-auth-hostnames: %v", peerKey, err)
 	case errors.Is(err, peerauth.ErrStaleProof):
-		log.Infof("refused peer [%s], check the peer clock: %v", peerKey, err)
+		logRepeatedRefusal(a.clockLog, "refused peer [%s], check the peer clock: %v", peerKey, err)
 	default:
 		log.Infof("refused peer [%s]: %v", peerKey, err)
 	}
@@ -218,4 +231,16 @@ func legacyTakeoverError(peerKey string) error {
 	err := fmt.Errorf("peer [%s] is connected with peer auth credentials", peerKey)
 	log.Infof("refused legacy peer: %v", err)
 	return status.Error(codes.PermissionDenied, err.Error())
+}
+
+// logRepeatedRefusal logs at info once per interval of s and at debug otherwise.
+func logRepeatedRefusal(s *rate.Sometimes, format string, args ...any) {
+	logged := false
+	s.Do(func() {
+		logged = true
+		log.Infof(format, args...)
+	})
+	if !logged {
+		log.Debugf(format, args...)
+	}
 }

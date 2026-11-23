@@ -376,3 +376,45 @@ func TestSignal_RefusalLogLevels(t *testing.T) {
 		})
 	}
 }
+
+func TestSignal_RepeatedRefusalLoggedOncePerInterval(t *testing.T) {
+	// A wrong hostname list or a skewed peer clock fails every retry of every affected peer: the
+	// first refusal is logged at info, the repeats within the interval at debug.
+	cases := []struct {
+		name     string
+		hostname string
+		signedAt time.Time
+	}{
+		{"hostname not in the list", "signal.other.example", time.Now()},
+		{"stale proof", "signal.example.com", time.Now().Add(-time.Hour)},
+	}
+	prevLevel := log.GetLevel()
+	log.SetLevel(log.DebugLevel)
+	t.Cleanup(func() { log.SetLevel(prevLevel) })
+	hook := logtest.NewGlobal()
+	t.Cleanup(hook.Reset)
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newPeerAuthTestSignal(t, PeerAuthConfig{
+				Keys:      signalAuthTestKeys(t),
+				Hostnames: []string{"signal.example.com"},
+				CheckTime: true,
+			})
+			hook.Reset()
+			for range 3 {
+				p := newSignalPeer(t, signalTestMgmtKey("management"))
+				require.Error(t, registerWith(t, s, p.key, p.metadata(t, tc.hostname, tc.signedAt)))
+			}
+
+			var levels []log.Level
+			for _, e := range hook.AllEntries() {
+				if strings.Contains(e.Message, "refused") {
+					levels = append(levels, e.Level)
+				}
+			}
+			assert.Equal(t, []log.Level{log.InfoLevel, log.DebugLevel, log.DebugLevel}, levels,
+				"only the first refusal in the interval is logged at info")
+		})
+	}
+}

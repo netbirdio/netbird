@@ -25,8 +25,9 @@ import (
 	"github.com/netbirdio/netbird/relay/server/store"
 )
 
-// misconfigLogInterval bounds the error logged for every peer retry while peer auth is misconfigured.
-const misconfigLogInterval = time.Minute
+// repeatedRefusalLogInterval bounds a refusal logged on every peer retry, as a misconfigured
+// verifier, hostname list or peer clock causes.
+const repeatedRefusalLogInterval = time.Minute
 
 type Listener interface {
 	Bind() error
@@ -87,6 +88,8 @@ type Relay struct {
 	verifier      *peerauth.Verifier
 	authRequired  bool
 	misconfigLog  *rate.Sometimes
+	hostnameLog   *rate.Sometimes
+	clockLog      *rate.Sometimes
 
 	store          *store.Store
 	notifier       *store.PeerNotifier
@@ -136,7 +139,9 @@ func NewRelay(config Config) (*Relay, error) {
 		validator:      config.AuthValidator,
 		verifier:       verifier,
 		authRequired:   config.PeerAuth.Required,
-		misconfigLog:   &rate.Sometimes{First: 1, Interval: misconfigLogInterval},
+		misconfigLog:   &rate.Sometimes{First: 1, Interval: repeatedRefusalLogInterval},
+		hostnameLog:    &rate.Sometimes{First: 1, Interval: repeatedRefusalLogInterval},
+		clockLog:       &rate.Sometimes{First: 1, Interval: repeatedRefusalLogInterval},
 		instanceURL:    config.instanceURL,
 		exposedAddress: config.ExposedAddress,
 		store:          store.NewStore(),
@@ -293,8 +298,8 @@ func newPeerAuthVerifier(cfg PeerAuthConfig, instanceURL url.URL) (*peerauth.Ver
 }
 
 // logHandshakeFailure logs refused peer auth credentials at debug when a peer repeats them on every
-// retry (none, or an expired token), at info when they do not verify, and at error, once per
-// interval, when this Relay lacks the keys to verify them.
+// retry (none, or an expired token), at info when they do not verify, and once per interval when a
+// misconfiguration makes every retry fail: missing keys at error, a hostname or clock at info.
 func (r *Relay) logHandshakeFailure(peerID *messages.PeerID, conn listener.Conn, err error) {
 	switch {
 	case peerid.IsHealthCheck(peerID):
@@ -302,19 +307,26 @@ func (r *Relay) logHandshakeFailure(peerID *messages.PeerID, conn listener.Conn,
 	case errors.Is(err, errPeerAuthRequired), errors.Is(err, peerauth.ErrTokenExpired):
 		log.Debugf("refused peer: %s", err)
 	case errors.Is(err, errPeerAuthNotConfigured):
-		logged := false
-		r.misconfigLog.Do(func() {
-			logged = true
-			log.Errorf("refused peer: %s", err)
-		})
-		if !logged {
-			log.Debugf("refused peer: %s", err)
-		}
+		logRepeatedRefusal(r.misconfigLog, log.ErrorLevel, "refused peer: %s", err)
+	case errors.Is(err, peerauth.ErrHostMismatch):
+		logRepeatedRefusal(r.hostnameLog, log.InfoLevel, "refused peer, check --peer-auth-hostnames: %s", err)
 	case errors.Is(err, peerauth.ErrStaleProof):
-		log.Infof("refused peer, check the peer clock: %s", err)
+		logRepeatedRefusal(r.clockLog, log.InfoLevel, "refused peer, check the peer clock: %s", err)
 	case errors.Is(err, errInvalidCredentials):
 		log.Infof("refused peer: %s", err)
 	default:
 		log.Errorf("failed to handshake: %s", err)
+	}
+}
+
+// logRepeatedRefusal logs at level once per interval of s and at debug otherwise.
+func logRepeatedRefusal(s *rate.Sometimes, level log.Level, format string, args ...any) {
+	logged := false
+	s.Do(func() {
+		logged = true
+		log.StandardLogger().Logf(level, format, args...)
+	})
+	if !logged {
+		log.Debugf(format, args...)
 	}
 }

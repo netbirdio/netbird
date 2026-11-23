@@ -401,3 +401,47 @@ func TestRelay_RefusalLogLevels(t *testing.T) {
 		})
 	}
 }
+
+func TestRelay_RepeatedRefusalLoggedOncePerInterval(t *testing.T) {
+	// A wrong hostname list or a skewed peer clock fails every retry of every affected peer: the
+	// first refusal is logged at info, the repeats within the interval at debug.
+	cases := []struct {
+		name     string
+		hostname string
+		signedAt time.Time
+	}{
+		{"hostname not in the list", "relay.other.example", time.Now()},
+		{"stale proof", "relay-1.example.com", time.Now().Add(-time.Hour)},
+	}
+	prevLevel := log.GetLevel()
+	log.SetLevel(log.DebugLevel)
+	t.Cleanup(func() { log.SetLevel(prevLevel) })
+	hook := logtest.NewGlobal()
+	t.Cleanup(hook.Reset)
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			relay := newPeerAuthTestRelay(t, &recordingValidator{}, PeerAuthConfig{
+				Hostnames: []string{"relay-1.example.com"},
+				CheckTime: true,
+			})
+			hook.Reset()
+			for range 3 {
+				p := newBoundPeer(t)
+				conn := newScriptedConn()
+				conn.deliver(t, p.authMsg(t, p.id, tc.hostname, tc.signedAt))
+				relay.Accept(conn)
+				require.True(t, conn.isClosed(), "the connection must be refused")
+			}
+
+			var levels []log.Level
+			for _, e := range hook.AllEntries() {
+				if strings.Contains(e.Message, "refused") {
+					levels = append(levels, e.Level)
+				}
+			}
+			assert.Equal(t, []log.Level{log.InfoLevel, log.DebugLevel, log.DebugLevel}, levels,
+				"only the first refusal in the interval is logged at info")
+		})
+	}
+}
