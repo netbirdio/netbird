@@ -1,6 +1,7 @@
-FROM golang:1.26.10-bookworm
+FROM debian:bookworm
 
-# gopls v0.23.0 is the newest release compatible with Go 1.26
+# Go and its tools are installed by the devcontainer's go feature, which runs
+# after this image is built and provides the Go  version required by go.mod.
 RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
     && apt-get -y install --no-install-recommends\
         gettext-base=0.21-12 \
@@ -8,8 +9,7 @@ RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
         libgl1-mesa-dev=22.3.6-1+deb12u2 \
         xorg-dev=1:7.7+23 \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* \
-    && go install -v golang.org/x/tools/gopls@v0.23.0
+    && rm -rf /var/lib/apt/lists/*
 
 
 WORKDIR /app
