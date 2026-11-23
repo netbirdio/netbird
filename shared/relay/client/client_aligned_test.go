@@ -24,6 +24,7 @@ type recordConn struct {
 	net.Conn
 	mu     sync.Mutex
 	writes [][]byte
+	closed bool
 }
 
 func (c *recordConn) Write(b []byte) (int, error) {
@@ -33,12 +34,24 @@ func (c *recordConn) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-func (c *recordConn) Close() error                     { return nil }
+func (c *recordConn) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.closed = true
+	return nil
+}
+
 func (c *recordConn) LocalAddr() net.Addr              { return &net.TCPAddr{} }
 func (c *recordConn) RemoteAddr() net.Addr             { return &net.TCPAddr{} }
 func (c *recordConn) SetDeadline(time.Time) error      { return nil }
 func (c *recordConn) SetReadDeadline(time.Time) error  { return nil }
 func (c *recordConn) SetWriteDeadline(time.Time) error { return nil }
+func (c *recordConn) isClosed() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closed
+}
+
 func (c *recordConn) lastWrite() []byte {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -114,6 +127,7 @@ func TestHandleHealthCheckStockStaysStock(t *testing.T) {
 	oneByte := append(messages.MarshalHealthcheck(), 0x3c)
 	c.handleHealthCheck(oneByte, hc, conn, c.watchSeq, flag)
 	assert.Zero(t, c.AlignedPeriod())
+	assert.False(t, conn.isClosed(), "a one-byte payload must not close the connection")
 }
 
 // TestSwitchAlignedSetsKeepaliveOnReadLoopConn checks that the aligned TCP
