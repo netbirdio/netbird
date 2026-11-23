@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -21,12 +22,15 @@ import (
 	"google.golang.org/grpc/connectivity"
 
 	nbgrpc "github.com/netbirdio/netbird/client/grpc"
+	"github.com/netbirdio/netbird/client/hbwatch"
 	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/shared/alignedhb"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	nbmgmtgrpc "github.com/netbirdio/netbird/shared/management/grpc"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/relay/messages"
 	"github.com/netbirdio/netbird/util/wsproxy"
 )
 
@@ -55,10 +59,13 @@ type ConnStateNotifier interface {
 }
 
 type GrpcClient struct {
-	key                   wgtypes.Key
-	realClient            proto.ManagementServiceClient
+	key wgtypes.Key
+	// conn is the connection, replaced by a redial after a stock answer.
+	conn nbgrpc.RedialConn[proto.ManagementServiceClient]
+	// dial creates a connection with the keepalive the stock marks give.
+	dial nbgrpc.ConnDial
+
 	ctx                   context.Context
-	conn                  *grpc.ClientConn
 	connStateCallback     ConnStateNotifier
 	connStateCallbackLock sync.RWMutex
 	serverURL             string
@@ -74,7 +81,17 @@ type GrpcClient struct {
 	// connection while the Sync stream keeps failing.
 	syncStreamMu  sync.RWMutex
 	syncStreamErr error
+
+	// alignedPeriod is the heartbeat period Management confirmed on the
+	// current Sync stream in nanoseconds, zero without an aligned answer.
+	alignedPeriod atomic.Int64
+	// tcpKeepAlive follows the TCP keepalive of the connection to the answer.
+	tcpKeepAlive nbgrpc.TCPKeepAlive
 }
+
+// alignedRequest returns the aligned heartbeat period this client asks for. A
+// var so tests can turn the request on outside mobile builds.
+var alignedRequest = alignedhb.ClientPeriod
 
 type ExposeRequest struct {
 	NamePrefix string
@@ -142,28 +159,24 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		extraOpts = append(extraOpts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxSize)))
 		log.Infof("management gRPC max receive message size set to %d bytes", maxSize)
 	}
+	var sweeper nbgrpc.Sweeper
 	if c.netMgr != nil {
-		extraOpts = append(extraOpts, nbgrpc.WithSweeper(c.netMgr))
+		sweeper = c.netMgr
 	}
+	extraOpts = append(extraOpts, nbgrpc.WithDialHooks(sweeper, &c.tcpKeepAlive))
 
-	var conn *grpc.ClientConn
-	operation := func() error {
-		var err error
-		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.ManagementComponent, extraOpts...)
-		if err != nil {
-			return fmt.Errorf("create connection: %w", err)
-		}
-		return nil
-	}
+	_, asked := alignedRequest()
+	c.dial = nbgrpc.NewConnDial(wsproxy.ManagementComponent, addr, tlsEnabled, func(ka time.Duration) {
+		nbgrpc.LogStockDial("Management", asked, ka)
+	}, extraOpts...)
 
-	err := backoff.Retry(operation, nbgrpc.Backoff(ctx))
+	conn, ka, err := c.dial(ctx)
 	if err != nil {
 		log.Errorf("failed creating connection to Management Service: %v", err)
 		return nil, err
 	}
 
-	c.conn = conn
-	c.realClient = proto.NewManagementServiceClient(conn)
+	c.conn.Swap(conn, proto.NewManagementServiceClient(conn), ka)
 	return c, nil
 }
 
@@ -200,7 +213,11 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 // ready indicates whether the client is okay and ready to be used
 // for now it just checks whether gRPC connection to the service is ready
 func (c *GrpcClient) ready() bool {
-	return c.conn.GetState() == connectivity.Ready || c.conn.GetState() == connectivity.Idle
+	conn := c.conn.Conn()
+	if conn == nil {
+		return false
+	}
+	return conn.GetState() == connectivity.Ready || conn.GetState() == connectivity.Idle
 }
 
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
@@ -237,24 +254,17 @@ func (c *GrpcClient) withMgmtStream(
 			backOff.Reset()
 			// dials attempted while offline grew the channel's internal backoff;
 			// reset it too, or the reconnect waits out that timer first
-			c.conn.ResetConnectBackoff()
+			if conn := c.conn.Conn(); conn != nil {
+				conn.ResetConnectBackoff()
+			}
 		}
 
-		connState := c.conn.GetState()
-		log.Debugf("management connection state %v", connState)
-		if connState == connectivity.Shutdown {
-			return backoff.Permanent(fmt.Errorf("connection to management has been shut down"))
+		conn := c.conn.Conn()
+		if conn == nil {
+			return fmt.Errorf("connection to management is not ready")
 		}
-		if !(connState == connectivity.Ready || connState == connectivity.Idle) {
-			// A dial may already be in flight (e.g. the other stream triggered
-			// it after a network change); wait for it to settle and proceed if
-			// the channel became usable, instead of burning a backoff round on
-			// a successful dial. A failed dial errors out as before.
-			c.conn.WaitForStateChange(ctx, connState)
-			connState = c.conn.GetState()
-			if !(connState == connectivity.Ready || connState == connectivity.Idle) {
-				return fmt.Errorf("connection to management is not ready and in %s state", connState)
-			}
+		if err := c.conn.Ready(ctx, conn, "Management"); err != nil {
+			return err
 		}
 
 		serverPubKey, err := c.getServerPublicKey()
@@ -283,7 +293,7 @@ func (c *GrpcClient) handleJobStream(
 	ctx, cancelStream := context.WithCancel(ctx)
 	defer cancelStream()
 
-	stream, err := c.realClient.Job(ctx)
+	stream, err := c.conn.Client().Job(ctx)
 	if err != nil {
 		log.Errorf("failed to open job stream: %v", err)
 		return err
@@ -425,10 +435,10 @@ func (c *GrpcClient) sendJobResponse(
 }
 
 func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.Key, getInfo func(ctx context.Context) *system.Info, msgHandler func(msg *proto.SyncResponse) error, backOff backoff.BackOff) error {
-	ctx, cancelStream := context.WithCancel(ctx)
+	streamCtx, cancelStream := context.WithCancel(ctx)
 	defer cancelStream()
 
-	stream, err := c.connectToSyncStream(ctx, serverPubKey, getInfo(ctx))
+	stream, err := c.connectToSyncStream(streamCtx, serverPubKey, getInfo(streamCtx))
 	if err != nil {
 		log.Debugf("failed to open Management Service stream: %s", err)
 		c.notifyDisconnected(err)
@@ -456,6 +466,18 @@ func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.
 	//     instead of a silent reconnection.
 	backOff.Reset()
 
+	// A stale stream is cancelled and the retry loop reconnects.
+	reconnect := func() {
+		log.Warnf("management sync stream is stale, reconnecting")
+		cancelStream()
+	}
+	unregisterStale := hbwatch.Register(hbwatch.Management, hbwatch.Registration{
+		Kind:  hbwatch.ActionReconnect,
+		Stale: reconnect,
+		Addr:  c.serverURL,
+	})
+	defer unregisterStale()
+
 	// blocking until error
 	err = c.receiveUpdatesEvents(stream, serverPubKey, msgHandler)
 	if err != nil {
@@ -477,6 +499,11 @@ func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.
 
 func (c *GrpcClient) connectToSyncStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info) (proto.ManagementService_SyncClient, error) {
 	req := &proto.SyncRequest{Meta: infoToMetaData(sysInfo)}
+	if period, ok := alignedRequest(); ok {
+		req.AlignedHeartbeat = &proto.AlignedHeartbeatRequest{PeriodSeconds: alignedhb.PeriodSeconds(period)}
+	}
+	// A new stream starts unaligned until its own answer arrives.
+	c.setAlignedPeriod(0)
 
 	myPrivateKey := c.key
 	myPublicKey := myPrivateKey.PublicKey()
@@ -487,14 +514,65 @@ func (c *GrpcClient) connectToSyncStream(ctx context.Context, serverPubKey wgtyp
 		return nil, err
 	}
 	syncReq := &proto.EncryptedMessage{WgPubKey: myPublicKey.String(), Body: encryptedReq}
-	sync, err := c.realClient.Sync(ctx, syncReq)
+	sync, err := c.conn.Client().Sync(ctx, syncReq)
 	if err != nil {
 		return nil, err
 	}
 	return sync, nil
 }
 
+func (c *GrpcClient) setAlignedPeriod(period time.Duration) {
+	c.alignedPeriod.Store(int64(period))
+}
+
+func (c *GrpcClient) getAlignedPeriod() time.Duration {
+	return time.Duration(c.alignedPeriod.Load())
+}
+
+// applyAlignedAnswer reads the aligned heartbeat answer of the first
+// response on a Sync stream that carries a peer config. An aligned answer
+// switches the TCP keepalive and clears the stock mark; a peer config
+// without one, on a stream that asked, is a stock answer and marks and
+// redials the server. decided is false for a response without either, so
+// the next one is read.
+func (c *GrpcClient) applyAlignedAnswer(resp *proto.SyncResponse) (decided bool) {
+	cfg := alignedConfig(resp)
+	if cfg == nil && resp.GetPeerConfig() == nil && resp.GetNetworkMap().GetPeerConfig() == nil {
+		return false
+	}
+	if cfg.GetEnabled() && cfg.GetPeriodSeconds() > 0 {
+		period := alignedhb.ClampPeriod(time.Duration(cfg.GetPeriodSeconds()) * time.Second)
+		c.setAlignedPeriod(period)
+		nbgrpc.ClearStock(wsproxy.ManagementComponent, c.serverURL)
+		c.tcpKeepAlive.SetAligned(period)
+		phase := alignedhb.Phase(messages.HashID(c.key.PublicKey().String()), period)
+		log.Infof("aligned heartbeat on the Management stream, period %s, phase %d ms", period, phase.Milliseconds())
+		return true
+	}
+	c.setAlignedPeriod(0)
+	if _, asked := alignedRequest(); asked {
+		c.conn.StockAnswer(c.ctx, nbgrpc.Redialer[proto.ManagementServiceClient]{
+			Name:      "Management",
+			Component: wsproxy.ManagementComponent,
+			Addr:      c.serverURL,
+			Dial:      c.dial,
+			NewClient: proto.NewManagementServiceClient,
+		})
+	}
+	return true
+}
+
+// alignedConfig returns the aligned heartbeat config of resp, in the peer
+// config or in the network map peer config, or nil when resp has neither.
+func alignedConfig(resp *proto.SyncResponse) *proto.AlignedHeartbeatConfig {
+	if cfg := resp.GetPeerConfig().GetAlignedHeartbeat(); cfg != nil {
+		return cfg
+	}
+	return resp.GetNetworkMap().GetPeerConfig().GetAlignedHeartbeat()
+}
+
 func (c *GrpcClient) receiveUpdatesEvents(stream proto.ManagementService_SyncClient, serverPubKey wgtypes.Key, msgHandler func(msg *proto.SyncResponse) error) error {
+	first := true
 	for {
 		update, err := stream.Recv()
 		if err == io.EOF {
@@ -512,6 +590,19 @@ func (c *GrpcClient) receiveUpdatesEvents(stream proto.ManagementService_SyncCli
 		if err != nil {
 			log.Errorf("failed decrypting update message from Management Service: %s", err)
 			return err
+		}
+
+		// A heartbeat only proves the stream is alive: it never reaches
+		// the network map handler.
+		if decryptedResp.GetHeartbeat() != nil {
+			if period := c.getAlignedPeriod(); period > 0 {
+				hbwatch.Seen(hbwatch.Management, period)
+			}
+			continue
+		}
+
+		if first && c.applyAlignedAnswer(decryptedResp) {
+			first = false
 		}
 
 		if err := msgHandler(decryptedResp); err != nil {
@@ -535,7 +626,7 @@ func (c *GrpcClient) HealthCheck() error {
 func (c *GrpcClient) getServerPublicKey() (*wgtypes.Key, error) {
 	mgmCtx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
 	defer cancel()
-	resp, err := c.realClient.GetServerKey(mgmCtx, &proto.Empty{})
+	resp, err := c.conn.Client().GetServerKey(mgmCtx, &proto.Empty{})
 	if err != nil {
 		return nil, fmt.Errorf("failed getting Management Service public key: %w", err)
 	}
@@ -551,7 +642,11 @@ func (c *GrpcClient) getServerPublicKey() (*wgtypes.Key, error) {
 // IsHealthy returns the current connection status without blocking.
 // Used by the engine to monitor connectivity in the background.
 func (c *GrpcClient) IsHealthy() bool {
-	switch c.conn.GetState() {
+	conn := c.conn.Conn()
+	if conn == nil {
+		return false
+	}
+	switch conn.GetState() {
 	case connectivity.TransientFailure:
 		return false
 	case connectivity.Connecting:
@@ -565,7 +660,7 @@ func (c *GrpcClient) IsHealthy() bool {
 	ctx, cancel := context.WithTimeout(c.ctx, healthCheckTimeout)
 	defer cancel()
 
-	_, err := c.realClient.IsHealthy(ctx, &proto.Empty{})
+	_, err := c.conn.Client().IsHealthy(ctx, &proto.Empty{})
 	if err != nil {
 		c.notifyDisconnected(err)
 		log.Warnf("health check returned: %s", err)
@@ -604,7 +699,7 @@ func (c *GrpcClient) login(req *proto.LoginRequest) (*proto.LoginResponse, error
 		defer cancel()
 
 		var err error
-		resp, err = c.realClient.Login(mgmCtx, &proto.EncryptedMessage{
+		resp, err = c.conn.Client().Login(mgmCtx, &proto.EncryptedMessage{
 			WgPubKey: c.key.PublicKey().String(),
 			Body:     loginReq,
 		})
@@ -687,7 +782,7 @@ func (c *GrpcClient) ExtendAuthSession(sysInfo *system.Info, jwtToken string) (*
 	mgmCtx, cancel := context.WithTimeout(c.ctx, ConnectTimeout)
 	defer cancel()
 
-	resp, err := c.realClient.ExtendAuthSession(mgmCtx, &proto.EncryptedMessage{
+	resp, err := c.conn.Client().ExtendAuthSession(mgmCtx, &proto.EncryptedMessage{
 		WgPubKey: c.key.PublicKey().String(),
 		Body:     reqBody,
 	})
@@ -725,7 +820,7 @@ func (c *GrpcClient) GetDeviceAuthorizationFlow() (*proto.DeviceAuthorizationFlo
 		return nil, err
 	}
 
-	resp, err := c.realClient.GetDeviceAuthorizationFlow(mgmCtx, &proto.EncryptedMessage{
+	resp, err := c.conn.Client().GetDeviceAuthorizationFlow(mgmCtx, &proto.EncryptedMessage{
 		WgPubKey: c.key.PublicKey().String(),
 		Body:     encryptedMSG},
 	)
@@ -769,7 +864,7 @@ func (c *GrpcClient) GetPKCEAuthorizationFlow(sessionExtend bool) (*proto.PKCEAu
 		return nil, err
 	}
 
-	resp, err := c.realClient.GetPKCEAuthorizationFlow(mgmCtx, &proto.EncryptedMessage{
+	resp, err := c.conn.Client().GetPKCEAuthorizationFlow(mgmCtx, &proto.EncryptedMessage{
 		WgPubKey: c.key.PublicKey().String(),
 		Body:     encryptedMSG,
 	})
@@ -810,7 +905,7 @@ func (c *GrpcClient) SyncMeta(sysInfo *system.Info) error {
 	mgmCtx, cancel := context.WithTimeout(c.ctx, ConnectTimeout)
 	defer cancel()
 
-	_, err = c.realClient.SyncMeta(mgmCtx, &proto.EncryptedMessage{
+	_, err = c.conn.Client().SyncMeta(mgmCtx, &proto.EncryptedMessage{
 		WgPubKey: c.key.PublicKey().String(),
 		Body:     syncMetaReq,
 	})
@@ -870,7 +965,7 @@ func (c *GrpcClient) Logout() error {
 		return fmt.Errorf("encrypt logout message: %w", err)
 	}
 
-	_, err = c.realClient.Logout(mgmCtx, &proto.EncryptedMessage{
+	_, err = c.conn.Client().Logout(mgmCtx, &proto.EncryptedMessage{
 		WgPubKey: c.key.PublicKey().String(),
 		Body:     encryptedMSG,
 	})
@@ -901,7 +996,7 @@ func (c *GrpcClient) CreateExpose(ctx context.Context, req ExposeRequest) (*Expo
 	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
 	defer cancel()
 
-	resp, err := c.realClient.CreateExpose(mgmCtx, &proto.EncryptedMessage{
+	resp, err := c.conn.Client().CreateExpose(mgmCtx, &proto.EncryptedMessage{
 		WgPubKey: c.key.PublicKey().String(),
 		Body:     encReq,
 	})
@@ -933,7 +1028,7 @@ func (c *GrpcClient) RenewExpose(ctx context.Context, domain string) error {
 	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
 	defer cancel()
 
-	_, err = c.realClient.RenewExpose(mgmCtx, &proto.EncryptedMessage{
+	_, err = c.conn.Client().RenewExpose(mgmCtx, &proto.EncryptedMessage{
 		WgPubKey: c.key.PublicKey().String(),
 		Body:     encReq,
 	})
@@ -956,7 +1051,7 @@ func (c *GrpcClient) StopExpose(ctx context.Context, domain string) error {
 	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
 	defer cancel()
 
-	_, err = c.realClient.StopExpose(mgmCtx, &proto.EncryptedMessage{
+	_, err = c.conn.Client().StopExpose(mgmCtx, &proto.EncryptedMessage{
 		WgPubKey: c.key.PublicKey().String(),
 		Body:     encReq,
 	})
@@ -1088,6 +1183,9 @@ func peerCapabilities(info system.Info) []proto.PeerCapability {
 	}
 	if !info.DisableIPv6 {
 		caps = append(caps, proto.PeerCapability_PeerCapabilityIPv6Overlay)
+	}
+	if _, ok := alignedRequest(); ok {
+		caps = append(caps, proto.PeerCapability_PeerCapabilityAlignedHeartbeat)
 	}
 	return caps
 }
