@@ -84,6 +84,20 @@ func (mr *MockRepositoryMockRecorder) Get(ctx, lockStrength, accountID, exitNode
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockRepository)(nil).Get), ctx, lockStrength, accountID, exitNodeID)
 }
 
+// IncrementNetworkSerial mocks base method.
+func (m *MockRepository) IncrementNetworkSerial(ctx context.Context, accountID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IncrementNetworkSerial", ctx, accountID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// IncrementNetworkSerial indicates an expected call of IncrementNetworkSerial.
+func (mr *MockRepositoryMockRecorder) IncrementNetworkSerial(ctx, accountID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementNetworkSerial", reflect.TypeOf((*MockRepository)(nil).IncrementNetworkSerial), ctx, accountID)
+}
+
 // ListByAccount mocks base method.
 func (m *MockRepository) ListByAccount(ctx context.Context, lockStrength db.LockingStrength, accountID string) ([]*ExitNode, error) {
 	m.ctrl.T.Helper()
