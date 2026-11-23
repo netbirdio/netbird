@@ -559,7 +559,7 @@ func TestCloseRelayConn(t *testing.T) {
 		t.Errorf("failed to bind channel: %s", err)
 	}
 
-	_ = clientAlice.relayConn.Close()
+	_ = clientAlice.CurrentSession().conn.Close()
 
 	_, err = conn.Read(make([]byte, 1))
 	if err == nil {
@@ -608,20 +608,16 @@ func TestCloseByServer(t *testing.T) {
 		}
 	}()
 
-	disconnected := make(chan struct{})
-	relayClient.SetOnDisconnectListener(func(_ string) {
-		log.Infof("client disconnected")
-		close(disconnected)
-	})
+	s := relayClient.CurrentSession()
 
 	err = srv1.Shutdown(ctx)
 	if err != nil {
 		t.Fatalf("failed to close server: %s", err)
 	}
 
-	select {
-	case <-disconnected:
-	case <-time.After(3 * time.Second):
+	waitCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if !s.Wait(waitCtx) {
 		log.Errorf("timeout waiting for client to disconnect")
 	}
 
@@ -629,6 +625,60 @@ func TestCloseByServer(t *testing.T) {
 	if err == nil {
 		t.Errorf("unexpected opening connection to closed server")
 	}
+}
+
+func TestSessionEndObservedAfterDrop(t *testing.T) {
+	ctx := context.Background()
+	serverListenAddr := "127.0.0.1:51101"
+	serverCfg := newClientTestServerConfig(serverListenAddr)
+
+	srv, err := server.NewServer(serverCfg)
+	require.NoError(t, err, "create server")
+	errChan := make(chan error, 1)
+	go func() {
+		if err := srv.Listen(server.ListenerConfig{Address: serverListenAddr}); err != nil {
+			errChan <- err
+		}
+	}()
+	t.Cleanup(func() {
+		if err := srv.Shutdown(ctx); err != nil {
+			t.Errorf("failed to close server: %s", err)
+		}
+	})
+	require.NoError(t, waitForServerToStart(errChan), "start server")
+
+	relayClient := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "alice", iface.DefaultMTU)
+	t.Cleanup(func() {
+		if err := relayClient.Close(); err != nil {
+			t.Errorf("failed to close client: %s", err)
+		}
+	})
+
+	first, err := relayClient.ConnectSession(ctx)
+	require.NoError(t, err, "connect to server")
+
+	dropSession(t, first)
+
+	lateCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	assert.True(t, first.Wait(lateCtx), "an observer that starts waiting after the drop must still see the session as ended")
+	assert.False(t, relayClient.Ready(), "client must not report ready once its session ended")
+	_, err = relayClient.OpenConn(ctx, "bob")
+	assert.Error(t, err, "a relayed connection must not open on an ended session")
+
+	second, err := relayClient.ConnectSession(ctx)
+	require.NoError(t, err, "reconnect on the same client")
+	require.NotSame(t, first, second, "a reconnect must start a new session")
+
+	// The session has already ended, so Close does nothing here and only shows
+	// that repeating it is safe. DetachSession is the late cleanup of the old
+	// connection, arriving after the client has already reconnected.
+	require.NoError(t, first.Close(true))
+	relayClient.DetachSession(first)
+
+	assert.False(t, second.isClosed(), "tearing down the old session must not end the new one")
+	assert.Same(t, second, relayClient.CurrentSession(), "the new session must stay the client's current one")
+	assert.True(t, relayClient.Ready(), "client must stay ready on the new session")
 }
 
 func TestCloseByClient(t *testing.T) {
@@ -881,7 +931,7 @@ func TestClient_AuthenticatedClientTalksToLegacyClient(t *testing.T) {
 	clientAlice.authKey = alicePriv
 	require.NoError(t, clientAlice.Connect(ctx))
 	t.Cleanup(func() { _ = clientAlice.Close() })
-	assert.Equal(t, messages.ProtocolV2, clientAlice.encoder.Version(), "the relay must select v2 for the authenticated client")
+	assert.Equal(t, messages.ProtocolV2, clientAlice.CurrentSession().encoder.Version(), "the relay must select v2 for the authenticated client")
 
 	clientBob := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "bob", iface.DefaultMTU)
 	require.NoError(t, clientBob.Connect(ctx))
@@ -925,4 +975,13 @@ func readWithin(t *testing.T, conn net.Conn, buf []byte, timeout time.Duration) 
 		t.Fatalf("no data within %s", timeout)
 		return 0
 	}
+}
+
+func dropSession(t *testing.T, s *session) {
+	t.Helper()
+
+	_ = s.conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	require.True(t, s.Wait(ctx), "session did not end after its transport was closed")
 }
