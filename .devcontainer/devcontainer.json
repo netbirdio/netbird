@@ -1,5 +1,6 @@
 {
 	"name": "NetBird",
+	"remoteUser": "vscode",
 	"build": {
 		"context": "..",
 		"dockerfile": "Dockerfile"
