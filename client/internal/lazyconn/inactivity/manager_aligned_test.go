@@ -44,7 +44,8 @@ func TestTickClosesIdlePeerAfterTenSeconds(t *testing.T) {
 
 // TestTickNeverClosesBeforeTenSecondsAfterOpen covers the open-time floor: the
 // interface keeps the last activity across a lazy close, so a just-opened
-// link with an old activity stamp must get its full 10 s.
+// link with an old activity stamp must get its full 10 s. The tick comes just
+// under 10 s after the open, on the manager clock.
 func TestTickNeverClosesBeforeTenSecondsAfterOpen(t *testing.T) {
 	peerID := "peer1"
 	wgMock := &mockWgInterface{lastActivities: map[string]monotime.Time{
@@ -54,8 +55,11 @@ func TestTickNeverClosesBeforeTenSecondsAfterOpen(t *testing.T) {
 	tick, subscribe := fakeTickSubscriber(t)
 
 	manager := NewManager(wgMock, nil, subscribe)
+	opened := monotime.Now()
+	manager.now = func() monotime.Time { return opened }
 	peerLog := log.WithField("peer", peerID)
 	manager.AddPeer(&lazyconn.PeerConfig{PublicKey: peerID, Log: peerLog})
+	manager.now = func() monotime.Time { return opened + monotime.Time(10*time.Second-time.Millisecond) }
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -63,7 +67,7 @@ func TestTickNeverClosesBeforeTenSecondsAfterOpen(t *testing.T) {
 	(<-tick)(time.Minute)
 	select {
 	case inactivePeers := <-manager.inactivePeersChan:
-		t.Fatalf("a fresh link must not close at once, got %v", inactivePeers)
+		t.Fatalf("a link must not close before 10 s after the open, got %v", inactivePeers)
 	case <-time.After(300 * time.Millisecond):
 	}
 }

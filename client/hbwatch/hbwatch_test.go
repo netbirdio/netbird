@@ -309,4 +309,11 @@ func TestSeenConcurrent(t *testing.T) {
 		}
 	}
 	wg.Wait()
+
+	snap := w.Snapshot()
+	require.Len(t, snap.Streams, len(services), "every registered stream is reported")
+	for _, st := range snap.Streams {
+		assert.True(t, st.Aligned, "stream %s must be aligned after its heartbeats", st.Service)
+		assert.Equal(t, time.Minute, st.Period, "stream %s period", st.Service)
+	}
 }
