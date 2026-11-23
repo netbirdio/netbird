@@ -9,9 +9,9 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// SetAligned moves a stock sender to the aligned schedule: every send lands
-// on the phase, a peer that answers each send stays alive, and a later
-// schedule without a period is ignored.
+// SetAligned moves a stock sender to the aligned schedule: one send at the
+// switch, then every send lands on the phase, a peer that answers each send
+// stays alive, and a later schedule without a period is ignored.
 func TestSenderSetAlignedSendsOnPhase(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -20,8 +20,14 @@ func TestSenderSetAlignedSendsOnPhase(t *testing.T) {
 		schedule := AlignedSchedule{Period: 60 * time.Second, Phase: 12345 * time.Millisecond}
 		hc.SetAligned(schedule)
 		hc.SetAligned(AlignedSchedule{})
+		switched := time.Now()
 		exited := startSender(ctx, hc)
 
+		<-hc.HealthCheck
+		if since := time.Since(switched); since != 0 {
+			t.Fatalf("first send %s after the switch, want at once", since)
+		}
+		hc.OnHCResponse()
 		for i := 0; i < 4; i++ {
 			select {
 			case <-hc.HealthCheck:
