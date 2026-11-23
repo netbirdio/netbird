@@ -67,6 +67,7 @@ func TestAgentNetworkUsageSetupKeyPeer(t *testing.T) {
 		Ephemeral:  &ephemeral,
 	})
 	require.NoError(t, err, "mint setup key")
+	t.Cleanup(func() { _ = srv.API().SetupKeys.Delete(context.Background(), sk.Id) })
 
 	cl, err := harness.StartClient(ctx, srv, sk.Key, harness.WithClientName("usage-client"))
 	require.NoError(t, err, "start client")
