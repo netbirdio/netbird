@@ -116,6 +116,12 @@ func (s *SqlStore) Conn() *db.Conn {
 	return s.conn
 }
 
+// Tx returns the transaction the store is bound to, or nil, so domain repositories can
+// join it instead of reading on another connection while it is open.
+func (s *SqlStore) Tx() *db.Tx {
+	return s.tx
+}
+
 func (s *SqlStore) pgxPool() *pgxpool.Pool {
 	return s.conn.Pool(s.tx)
 }

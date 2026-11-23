@@ -21,6 +21,7 @@ import (
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/exitnodes"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -44,6 +45,19 @@ func SetAgentNetworkSynthesizer(fn func(ctx context.Context, s store.Store, acco
 	agentNetworkSynthesizer = fn
 }
 
+// exitNodeRoutingPeers returns the routing peer IDs of the account's exit nodes, keyed
+// by exit node ID. Exit nodes are not network resources in the store, so a policy whose
+// destination is one would otherwise fold no routers. It is registered via
+// SetExitNodeRoutingPeers to avoid an import cycle (exit nodes manager → account →
+// affectedpeers). nil when exit nodes are not wired.
+var exitNodeRoutingPeers func(ctx context.Context, s store.Store, accountID string) (map[string][]string, error)
+
+// SetExitNodeRoutingPeers registers the exit node routing peers lookup. Called once at
+// init, before any request is served.
+func SetExitNodeRoutingPeers(fn func(ctx context.Context, s store.Store, accountID string) (map[string][]string, error)) {
+	exitNodeRoutingPeers = fn
+}
+
 // Snapshot is an in-memory view of the collections needed to expand a Change.
 // Loaded in-tx, walked by Expand after commit. Only the collections the Change
 // can touch are loaded; the rest stay nil (see Load).
@@ -59,6 +73,7 @@ type Snapshot struct {
 	proxyByCluster map[string][]string
 	groups         map[string]*types.Group
 	groupPeers     map[string]map[string]struct{} // groupID -> member peer IDs
+	exitNodePeers  map[string][]string            // exit node ID -> routing peer IDs
 }
 
 // Load reads the collections a Change requires, inside the caller's tx. It mirrors
@@ -90,6 +105,9 @@ func (snap *Snapshot) loadCollections(ctx context.Context, s store.Store, accoun
 
 	if needsRoutersResources {
 		if err := snap.loadPolicyRoutersResources(ctx, s, accountID); err != nil {
+			return err
+		}
+		if err := snap.loadExitNodePeers(ctx, s, accountID, c.Policies); err != nil {
 			return err
 		}
 	}
@@ -124,6 +142,33 @@ func (snap *Snapshot) loadPolicyRoutersResources(ctx context.Context, s store.St
 	}
 	snap.resources, err = s.GetNetworkResourcesByAccountID(ctx, store.LockingStrengthNone, accountID)
 	return err
+}
+
+// loadExitNodePeers loads the exit node routing peers, only when a policy of the account
+// or of the change targets an exit node, so other changes do not pay for the read.
+func (snap *Snapshot) loadExitNodePeers(ctx context.Context, s store.Store, accountID string, changed []*types.Policy) error {
+	if exitNodeRoutingPeers == nil || !targetsExitNode(snap.policies, changed) {
+		return nil
+	}
+	var err error
+	snap.exitNodePeers, err = exitNodeRoutingPeers(ctx, s, accountID)
+	return err
+}
+
+func targetsExitNode(policyLists ...[]*types.Policy) bool {
+	for _, policies := range policyLists {
+		for _, policy := range policies {
+			if policy == nil {
+				continue
+			}
+			for _, rule := range policy.Rules {
+				if rule != nil && rule.DestinationResource.Type == exitnodes.PolicyResourceType {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // loadDNS loads the nameserver groups, custom DNS zones and account DNS settings.
@@ -1088,6 +1133,9 @@ func (r *resolver) foldRoutersForResources(resourceIDs map[string]struct{}) {
 		return
 	}
 	r.foldRoutersOnNetworks(r.resourceNetworkIDs(resourceIDs))
+	for id := range resourceIDs {
+		addAll(r.affectedPeers, r.snap.exitNodePeers[id])
+	}
 }
 
 // ruleDestinationResourceIDs returns the destination resource IDs of a single rule:
