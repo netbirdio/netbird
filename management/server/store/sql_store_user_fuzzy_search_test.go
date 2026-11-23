@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestXXX(t *testing.T) {
+func TestBloomFilter_MatchesAddedTrigrams(t *testing.T) {
 	b := newBloomFilter(160)
 	for _, trigram := range toTrigrams("test user") {
 		b.add([]byte(trigram))
