@@ -29,8 +29,8 @@ type managedPeer struct {
 
 type Config struct {
 	InactivityThreshold *time.Duration
-	// InactivityTick, when set, runs the inactivity check on the aligned
-	// heartbeat tick with the short mobile threshold.
+	// InactivityTick, when set, runs the inactivity check on each aligned heartbeat tick.
+	// It uses the short aligned threshold unless a threshold is configured.
 	InactivityTick inactivity.TickSubscriber
 	// ReconcileAllowedIPs re-applies a peer's routed allowed IPs after its wake endpoint is
 	// armed. The activity listener creates the wake peer with the overlay /32 only; without the
