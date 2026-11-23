@@ -47,6 +47,9 @@ func peerInfoFixture(t *testing.T, withSettings bool) (*managerImpl, store.Store
 	require.NoError(t, s.SaveUser(ctx, &nbtypes.User{
 		Id: "user-foreign", AccountID: "acct-other", Role: nbtypes.UserRoleUser, Email: "foreign@example.com",
 	}))
+	require.NoError(t, s.SaveUser(ctx, &nbtypes.User{
+		Id: "user-pending", AccountID: testAccountID, Role: nbtypes.UserRoleUser, PendingApproval: true,
+	}))
 
 	addPeer := func(id, userID string, octet byte, expired bool, groups ...string) {
 		require.NoError(t, s.AddPeerToAccount(ctx, &nbpeer.Peer{
@@ -68,6 +71,7 @@ func peerInfoFixture(t *testing.T, withSettings bool) (*managerImpl, store.Store
 	addPeer("peer-blocked", "user-blocked", 4, false, "grp-eng")
 	addPeer("peer-foreign-owner", "user-foreign", 5, false, "grp-eng")
 	addPeer("peer-uncovered", "user-1", 6, false, "grp-other")
+	addPeer("peer-pending", "user-pending", 7, false, "grp-eng")
 
 	return mgr, s
 }
@@ -123,6 +127,13 @@ func TestGetAgentNetworkInfoForPeer_RealStore(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, types.PeerAgentNetworkUserBlocked, info.State)
 		assert.Nil(t, info.Config, "blocked owner must not see providers")
+	})
+
+	t.Run("pending-approval owner", func(t *testing.T) {
+		info, err := mgr.GetAgentNetworkInfoForPeer(ctx, testAccountID, "peer-pending")
+		require.NoError(t, err)
+		assert.Equal(t, types.PeerAgentNetworkUserBlocked, info.State, "pending owner must be gated like a blocked one")
+		assert.Nil(t, info.Config, "pending owner must not see providers")
 	})
 
 	t.Run("owner from another account is refused", func(t *testing.T) {
