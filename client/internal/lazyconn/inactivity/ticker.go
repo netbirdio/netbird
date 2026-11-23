@@ -8,6 +8,7 @@ var newTicker = func(d time.Duration) Ticker {
 
 type Ticker interface {
 	C() <-chan time.Time
+	Reset(d time.Duration)
 	Stop()
 }
 
@@ -17,6 +18,10 @@ type realTicker struct {
 
 func (r *realTicker) C() <-chan time.Time {
 	return r.t.C
+}
+
+func (r *realTicker) Reset(d time.Duration) {
+	r.t.Reset(d)
 }
 
 func (r *realTicker) Stop() {

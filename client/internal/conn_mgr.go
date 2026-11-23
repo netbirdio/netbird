@@ -10,11 +10,14 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/hbwatch"
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
+	"github.com/netbirdio/netbird/client/internal/lazyconn/inactivity"
 	"github.com/netbirdio/netbird/client/internal/lazyconn/manager"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/alignedhb"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -316,6 +319,7 @@ func (e *ConnMgr) Close() {
 func (e *ConnMgr) initLazyManager(engineCtx context.Context) {
 	cfg := manager.Config{
 		InactivityThreshold: inactivityThresholdEnv(),
+		InactivityTick:      alignedTick(),
 		ReconcileAllowedIPs: e.reconcileRoutedIPs,
 	}
 
@@ -353,6 +357,19 @@ func resolveLazyForce(mdmState lazyconn.State) lazyForce {
 		return lazyForceOff
 	default:
 		return lazyForceNone
+	}
+}
+
+// alignedTick returns the aligned heartbeat tick for the inactivity check,
+// or nil on builds that do not ask for the aligned heartbeat: the check
+// then runs on the timer only, as stock.
+func alignedTick() inactivity.TickSubscriber {
+	if !alignedhb.Supported() {
+		return nil
+	}
+	return func(f func(period time.Duration)) func() {
+		unsubscribe, _ := hbwatch.OnTick(f)
+		return unsubscribe
 	}
 }
 

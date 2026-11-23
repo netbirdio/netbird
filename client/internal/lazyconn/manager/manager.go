@@ -29,6 +29,9 @@ type managedPeer struct {
 
 type Config struct {
 	InactivityThreshold *time.Duration
+	// InactivityTick, when set, runs the inactivity check on the aligned
+	// heartbeat tick with the short mobile threshold.
+	InactivityTick inactivity.TickSubscriber
 	// ReconcileAllowedIPs re-applies a peer's routed allowed IPs after its wake endpoint is
 	// armed. The activity listener creates the wake peer with the overlay /32 only; without the
 	// routed prefixes WireGuard would not steer subnet-bound traffic to the wake endpoint, so an
@@ -85,7 +88,7 @@ func NewManager(config Config, engineCtx context.Context, peerStore *peerstore.S
 	}
 
 	if wgIface.IsUserspaceBind() {
-		m.inactivityManager = inactivity.NewManager(wgIface, config.InactivityThreshold)
+		m.inactivityManager = inactivity.NewManager(wgIface, config.InactivityThreshold, config.InactivityTick)
 	} else {
 		log.Warnf("inactivity manager not supported for kernel mode, wait for remote peer to close the connection")
 	}

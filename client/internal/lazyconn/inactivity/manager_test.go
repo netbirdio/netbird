@@ -40,7 +40,7 @@ func TestPeerTriggersInactivity(t *testing.T) {
 		Log:       peerLog,
 	}
 
-	manager := NewManager(wgMock, nil)
+	manager := NewManager(wgMock, nil, nil)
 	manager.AddPeer(peerCfg)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -81,7 +81,7 @@ func TestPeerTriggersActivity(t *testing.T) {
 		Log:       peerLog,
 	}
 
-	manager := NewManager(wgMock, nil)
+	manager := NewManager(wgMock, nil, nil)
 	manager.AddPeer(peerCfg)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -110,5 +110,7 @@ type fakeTickerMock struct {
 func (f *fakeTickerMock) C() <-chan time.Time {
 	return f.CChan
 }
+
+func (f *fakeTickerMock) Reset(time.Duration) {}
 
 func (f *fakeTickerMock) Stop() {}
