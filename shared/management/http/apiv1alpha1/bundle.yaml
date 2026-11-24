@@ -647,6 +647,18 @@ components:
         - "domain"
         - "peer"
       example: peer
+    GroupPeersRequest:
+      type: object
+      properties:
+        peer_ids:
+          description: List of peer IDs to add to or remove from the group
+          type: array
+          minItems: 1
+          items:
+            type: string
+            example: "chacbco6lnnbn6cg5s90"
+      required:
+        - peer_ids
   responses:
     not_found:
       description: Resource not found
@@ -1283,6 +1295,89 @@ components:
             "$ref": '#/components/responses/not_found'
           '500':
             "$ref": '#/components/responses/internal_error'
+    group_peers:
+      post:
+        summary: Add Peers to a Group
+        description: Adds the given peers to a group in a single request. Peers that are already members are ignored. If any ID is unknown, nothing is changed.
+        tags:
+          - Groups
+        security:
+          - BearerAuth: []
+          - TokenAuth: []
+        parameters:
+          - in: path
+            name: groupId
+            required: true
+            schema:
+              type: string
+            description: The unique identifier of a group
+        requestBody:
+          description: Peer IDs to add to the group
+          required: true
+          content:
+            'application/json':
+              schema:
+                $ref: '#/components/schemas/GroupPeersRequest'
+        responses:
+          '200':
+            description: The updated Group object
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/Group'
+          '400':
+            "$ref": '#/components/responses/bad_request'
+          '401':
+            "$ref": '#/components/responses/requires_authentication'
+          '403':
+            "$ref": '#/components/responses/forbidden'
+          '404':
+            "$ref": '#/components/responses/not_found'
+          '422':
+            "$ref": '#/components/responses/unprocessable'
+          '500':
+            "$ref": '#/components/responses/internal_error'
+      delete:
+        summary: Remove Peers from a Group
+        description: Removes the given peers from a group in a single request. IDs that are not members are ignored. If any ID is unknown, nothing is changed.
+        tags:
+          - Groups
+        security:
+          - BearerAuth: []
+          - TokenAuth: []
+        parameters:
+          - in: path
+            name: groupId
+            required: true
+            schema:
+              type: string
+            description: The unique identifier of a group
+        requestBody:
+          description: Peer IDs to remove from the group
+          required: true
+          content:
+            'application/json':
+              schema:
+                $ref: '#/components/schemas/GroupPeersRequest'
+        responses:
+          '200':
+            description: The updated Group object
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/Group'
+          '400':
+            "$ref": '#/components/responses/bad_request'
+          '401':
+            "$ref": '#/components/responses/requires_authentication'
+          '403':
+            "$ref": '#/components/responses/forbidden'
+          '404':
+            "$ref": '#/components/responses/not_found'
+          '422':
+            "$ref": '#/components/responses/unprocessable'
+          '500':
+            "$ref": '#/components/responses/internal_error'
 paths:
   /peers:
     $ref: '#/components/pathItems/peers'
@@ -1292,6 +1387,8 @@ paths:
     $ref: '#/components/pathItems/groups'
   /groups/{groupId}:
     $ref: '#/components/pathItems/group'
+  /groups/{groupId}/peers:
+    $ref: '#/components/pathItems/group_peers'
   /users:
     $ref: '#/components/pathItems/UsersPath'
   /users/{userId}:

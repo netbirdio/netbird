@@ -41,6 +41,8 @@ func (h *Handler) WithEndpointsForRouter(router *mux.Router) *mux.Router {
 	router.HandleFunc("/groups/{groupId}", h.getGroup).Methods("GET", "OPTIONS")
 	router.HandleFunc("/groups/{groupId}", h.updateGroup).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/groups/{groupId}", h.deleteGroup).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/groups/{groupId}/peers", h.addPeers).Methods("POST", "OPTIONS")
+	router.HandleFunc("/groups/{groupId}/peers", h.removePeers).Methods("DELETE", "OPTIONS")
 	return router
 }
 
@@ -229,6 +231,51 @@ func writeDeleteError(ctx context.Context, err error, w http.ResponseWriter) {
 		return
 	}
 	util.WriteErrorResponse(first.Error(), http.StatusBadRequest, w)
+}
+
+func (h *Handler) addPeers(w http.ResponseWriter, r *http.Request) {
+	h.changePeers(w, r, h.accountManager.AddPeersToGroup)
+}
+
+func (h *Handler) removePeers(w http.ResponseWriter, r *http.Request) {
+	h.changePeers(w, r, h.accountManager.RemovePeersFromGroup)
+}
+
+type changePeersFunc func(ctx context.Context, accountID, userID, groupID string, peerIDs []string) (*types.Group, error)
+
+func (h *Handler) changePeers(w http.ResponseWriter, r *http.Request, change changePeersFunc) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	accountID, userID := userAuth.AccountId, userAuth.UserId
+
+	groupID, err := groupIDFromRequest(r)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	var req apiv1alpha1.GroupPeersRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
+		return
+	}
+
+	visible, err := h.visiblePeers(r.Context(), accountID, userID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	group, err := change(r.Context(), accountID, userID, groupID, req.PeerIds)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	writeGroup(r.Context(), w, visible, group)
 }
 
 // writeGroup writes the group with the members the caller is allowed to see.
