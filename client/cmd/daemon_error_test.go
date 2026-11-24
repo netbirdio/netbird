@@ -238,3 +238,14 @@ func TestPrintCommandErrorLogsNothingAtInfo(t *testing.T) {
 
 	assert.NotContains(t, logged.String(), "connection refused")
 }
+
+// An unowned profile prints the claim command with its lead-in and the docs link.
+func TestDenialGuidanceForAnUnownedProfile(t *testing.T) {
+	guidance, ok := denialGuidance(ipcauth.UnownedError("connecting", "default", false))
+	require.True(t, ok)
+	assert.Contains(t, guidance, "Connecting is refused because this profile has no owner.")
+	assert.Contains(t, guidance, "console", "a caller away from the console is told how profiles get claimed")
+	assert.Contains(t, guidance, "Run this command to claim the profile, then retry your original command:\n\n    ")
+	assert.Contains(t, guidance, "netbird profile claim default")
+	assert.Contains(t, guidance, "Learn more: "+ipcauth.ProfileOwnershipDocsURL)
+}

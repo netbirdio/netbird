@@ -252,7 +252,7 @@ func TestDenyPolicyLevelOffersTheClaimForAnUnownedProfile(t *testing.T) {
 
 	summary := info.GetMetadata()[ErrorMetaSummary]
 	assert.Contains(t, summary, "Connecting", "the summary names what was refused")
-	assert.Contains(t, summary, "no owner on record")
+	assert.Contains(t, summary, "this profile has no owner")
 	assert.NotContains(t, summary, "another user",
 		"nobody owns it, so blaming another user would be untrue")
 
@@ -308,9 +308,8 @@ func stubConsoleLookup(t *testing.T, atConsole bool) {
 func TestUnownedSummaryNamesTheConsoleAwayFromIt(t *testing.T) {
 	summary := unownedSummary("connecting", false)
 
-	assert.Contains(t, summary, "has no owner on record")
+	assert.Contains(t, summary, "Connecting is refused because this profile has no owner.")
 	assert.Contains(t, summary, "console")
-	assert.Contains(t, summary, "An explicit claim of the profile is needed.")
 }
 
 // A caller at the console who still finds no owner got here another way, a
@@ -318,10 +317,31 @@ func TestUnownedSummaryNamesTheConsoleAwayFromIt(t *testing.T) {
 func TestUnownedSummaryStaysQuietAboutTheConsoleAtIt(t *testing.T) {
 	summary := unownedSummary("connecting", true)
 
-	assert.Contains(t, summary, "has no owner on record")
+	assert.Contains(t, summary, "Connecting is refused because this profile has no owner.")
 	assert.NotContains(t, summary, "console")
-	assert.Contains(t, summary, "An explicit claim of the profile is needed.",
-		"the remedy is the same wherever the caller is sitting")
+}
+
+// The terminal message puts the claim command on its own indented line after
+// the summary and ends with the docs link.
+func TestUnownedErrorMessageLayout(t *testing.T) {
+	actor, cmd := RequiredActor(ClaimCommand("default"))
+	summary := unownedSummary("connecting", true)
+	if note := strings.TrimSpace(remedyNote(actor, cmd)); note != "" {
+		summary += "\n" + note
+	}
+
+	st, ok := gstatus.FromError(UnownedError("connecting", "default", true))
+	require.True(t, ok)
+
+	want := summary +
+		"\n\nRun this command to claim the profile, then retry your original command:\n\n    " + cmd +
+		"\n\nLearn more: " + ProfileOwnershipDocsURL
+	assert.Equal(t, want, st.Message(), "the terminal message layout")
+
+	denial, ok := DenialFrom(UnownedError("connecting", "default", true))
+	require.True(t, ok)
+	assert.Equal(t, summary, denial.Summary, "the summary metadata stays free of the layout")
+	assert.Equal(t, cmd, denial.Command)
 }
 
 // The reason and the command do not move with the caller, only the explanation

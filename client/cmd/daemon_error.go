@@ -46,6 +46,9 @@ func denialGuidance(err error) (string, bool) {
 	if denial.Command == "" {
 		return denial.Summary, true
 	}
+	if denial.Reason == ipcauth.ErrorReasonProfileUnowned {
+		return ipcauth.UnownedMessage(denial.Summary, denial.Command) + "\n", true
+	}
 	return fmt.Sprintf("%s\n\n    %s\n", denial.Summary, denial.Command), true
 }
 

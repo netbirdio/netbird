@@ -159,7 +159,7 @@ func TestDenialHeadlinesResolveInTheShippedBundle(t *testing.T) {
 			"unowned",
 			ipcauth.UnownedError("connecting", "default", false),
 			"This profile has no owner yet.",
-			"Connecting is refused because the profile it addresses has no owner on record.",
+			"Connecting is refused because this profile has no owner.",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

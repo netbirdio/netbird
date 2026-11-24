@@ -237,8 +237,22 @@ func NotOwnerError(action string) error {
 // the caller sits at one of this machine's consoles.
 func UnownedError(action, handle string, atConsole bool) error {
 	actor, command := RequiredActor(ClaimCommand(handle))
-	return denialError(ErrorReasonProfileUnowned, unownedSummary(action, atConsole)+remedyNote(actor, command), command)
+	summary := unownedSummary(action, atConsole)
+	if note := strings.TrimSpace(remedyNote(actor, command)); note != "" {
+		summary += "\n" + note
+	}
+	return denialErrorWithMessage(ErrorReasonProfileUnowned, UnownedMessage(summary, command), summary, command)
 }
+
+// UnownedMessage lays out an unowned-profile refusal for a terminal: the
+// summary, the claim command on its own indented line, and the docs link.
+func UnownedMessage(summary, command string) string {
+	return fmt.Sprintf("%s\n\nRun this command to claim the profile, then retry your original command:\n\n    %s\n\nLearn more: %s",
+		summary, command, ProfileOwnershipDocsURL)
+}
+
+// ProfileOwnershipDocsURL documents profile ownership and how to claim a profile.
+const ProfileOwnershipDocsURL = "https://docs.netbird.io/client/profile-ownership"
 
 // remedyNote names who has to run the command a refusal offers.
 func remedyNote(actor, command string) string {
@@ -280,13 +294,14 @@ func notOwnerSummary(action string) string {
 // Only a caller away from the console is told about it, since a profile left
 // unclaimed while somebody is at one got that way for another reason.
 func unownedSummary(action string, atConsole bool) string {
-	cause := ""
+	summary := refusedSubject(action) + " refused because this profile has no owner.\n\n" +
+		"Each profile belongs to one user, so other users on this machine cannot\n" +
+		"use it or change its configuration."
 	if !atConsole {
-		cause = "A profile is claimed by the user who sets it up at this machine's console (in front of the machine), " +
-			"and nobody has done that here. "
+		summary += "\nA profile is normally claimed by the user who sets it up at this\n" +
+			"machine's console, and nobody has done that here."
 	}
-	return refusedSubject(action) + " refused because the profile it addresses has no owner on record. " +
-		cause + "An explicit claim of the profile is needed."
+	return summary
 }
 
 // refusedSubject opens a refusal with what was refused, falling back to the
@@ -302,9 +317,18 @@ func refusedSubject(action string) string {
 // and a command when there is one to give.
 func denialError(reason, summary, command string) error {
 	message := summary
-	metadata := map[string]string{ErrorMetaSummary: summary}
 	if command != "" {
 		message = fmt.Sprintf("%s\n\n%s", summary, command)
+	}
+	return denialErrorWithMessage(reason, message, summary, command)
+}
+
+// denialErrorWithMessage is denialError with the terminal message laid out by
+// the caller. The summary and command still travel as metadata for clients
+// that render them separately.
+func denialErrorWithMessage(reason, message, summary, command string) error {
+	metadata := map[string]string{ErrorMetaSummary: summary}
+	if command != "" {
 		metadata[ErrorMetaCommand] = command
 	}
 
