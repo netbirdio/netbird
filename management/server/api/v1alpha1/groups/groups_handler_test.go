@@ -581,3 +581,38 @@ func TestVisibilityFailureDeniesBeforeMutation(t *testing.T) {
 		})
 	}
 }
+
+// A peer can also be attached to a group as a resource. A caller without peers read permission
+// must not learn the IDs of peers they cannot see through the resources list either.
+func TestPeerResourceVisibility(t *testing.T) {
+	stored := apiGroup("g1", "devs")
+	stored.Resources = []types.Resource{
+		{ID: "peer-own", Type: types.ResourceTypePeer},
+		{ID: "peer-other", Type: types.ResourceTypePeer},
+		{ID: "host-1", Type: types.ResourceTypeHost},
+	}
+
+	tt := []struct {
+		name     string
+		opts     testOptions
+		expected []string
+	}{
+		{"peers read permission sees every resource", testOptions{readAllPeers: true}, []string{"peer-own", "peer-other", "host-1"}},
+		{"own peers only hides other peer resources", testOptions{ownPeers: []string{"peer-own"}}, []string{"peer-own", "host-1"}},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := newTestHandler(t, tc.opts, stored).do(t, http.MethodGet, "/groups/g1", "")
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+			group := decodeGroup(t, rec)
+			ids := make([]string, 0, len(group.Resources))
+			for _, res := range group.Resources {
+				ids = append(ids, res.Id)
+			}
+			assert.Equal(t, tc.expected, ids, "visible resources")
+			assert.Equal(t, len(tc.expected), group.ResourcesCount, "resources_count must count only visible resources")
+		})
+	}
+}

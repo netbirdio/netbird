@@ -374,6 +374,9 @@ func toGroupResponse(visible peerVisibility, group *types.Group) *apiv1alpha1.Gr
 		if res.ID == "" && res.Type == "" {
 			continue
 		}
+		if res.Type == types.ResourceTypePeer && !visible.allows(res.ID) {
+			continue
+		}
 		resp.Resources = append(resp.Resources, apiv1alpha1.Resource{
 			Id:   res.ID,
 			Type: apiv1alpha1.ResourceType(res.Type),
