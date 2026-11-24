@@ -274,7 +274,7 @@ func anSetupCheckState(info *proto.GetAgentNetworkInfoResponse) error {
 }
 
 // anSetupPickProvider returns the requested provider, or the first one the
-// harness can drive.
+// harness can drive that allows a model.
 func anSetupPickProvider(def *harness.Definition, providers []*proto.AgentNetworkProvider, want string) (*proto.AgentNetworkProvider, harness.Variant, error) {
 	if len(providers) == 0 {
 		return nil, harness.Variant{}, errors.New("no Agent Networks provider is available to this peer yet: ask your administrator for a policy")
@@ -297,17 +297,40 @@ func anSetupPickProvider(def *harness.Definition, providers []*proto.AgentNetwor
 			if !ok {
 				return nil, harness.Variant{}, fmt.Errorf("%s cannot use provider %q: it speaks the %s API", def.Name, p.GetName(), p.GetApiFlavor())
 			}
+			if anSetupNoModelAllowed(p) {
+				return nil, harness.Variant{}, anSetupNoModelError(p.GetName())
+			}
 			return p, v, nil
 		}
 		return nil, harness.Variant{}, fmt.Errorf("no provider %q, available: %s", want, strings.Join(names, ", "))
 	}
 
+	var blocked []string
 	for _, p := range providers {
-		if v, ok := def.Variant(p.GetCatalogId(), p.GetApiFlavor()); ok {
-			return p, v, nil
+		v, ok := def.Variant(p.GetCatalogId(), p.GetApiFlavor())
+		if !ok {
+			continue
 		}
+		if anSetupNoModelAllowed(p) {
+			blocked = append(blocked, p.GetName())
+			continue
+		}
+		return p, v, nil
+	}
+	if len(blocked) > 0 {
+		return nil, harness.Variant{}, anSetupNoModelError(strings.Join(blocked, ", "))
 	}
 	return nil, harness.Variant{}, fmt.Errorf("%s cannot use any provider available to you: %s", def.Name, strings.Join(names, ", "))
+}
+
+// anSetupNoModelAllowed reports a provider whose model allowlist matches
+// none of its models, so the proxy denies every request through it.
+func anSetupNoModelAllowed(p *proto.AgentNetworkProvider) bool {
+	return !p.GetAllModelsAllowed() && len(p.GetModels()) == 0
+}
+
+func anSetupNoModelError(providers string) error {
+	return fmt.Errorf("no model on %s is allowed for this peer: ask your administrator to allow one", providers)
 }
 
 // anSetupPickModel returns the requested model, else the provider's first,
@@ -317,7 +340,7 @@ func anSetupPickModel(cmd *cobra.Command, def *harness.Definition, p *proto.Agen
 	models := p.GetModels()
 	switch {
 	case want != "":
-		if !p.GetAllModelsAllowed() && len(models) > 0 && !slices.Contains(models, want) {
+		if !p.GetAllModelsAllowed() && !slices.Contains(models, want) {
 			return "", fmt.Errorf("model %q is not allowed on %s, allowed: %s", want, p.GetName(), strings.Join(models, ", "))
 		}
 		cmd.Printf("Model: %s\n", want)

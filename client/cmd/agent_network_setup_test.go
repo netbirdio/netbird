@@ -119,7 +119,7 @@ func TestAgentNetworkSetupRefusals(t *testing.T) {
 			name: "openai only",
 			resp: &proto.GetAgentNetworkInfoResponse{
 				State: proto.GetAgentNetworkInfoResponse_OK, Endpoint: "https://127.0.0.1:1",
-				Providers: []*proto.AgentNetworkProvider{{Name: "OpenAI", CatalogId: "openai_api", ApiFlavor: "openai"}},
+				Providers: []*proto.AgentNetworkProvider{{Name: "OpenAI", CatalogId: "openai_api", ApiFlavor: "openai", AllModelsAllowed: true}},
 			},
 			want: []string{"Claude Code cannot use any provider available to you: OpenAI (openai)"},
 		},
@@ -136,9 +136,28 @@ func TestAgentNetworkSetupRefusals(t *testing.T) {
 			name: "vertex needs project",
 			resp: &proto.GetAgentNetworkInfoResponse{
 				State: proto.GetAgentNetworkInfoResponse_OK, Endpoint: "https://127.0.0.1:1",
-				Providers: []*proto.AgentNetworkProvider{{Name: "V", CatalogId: "vertex_ai_api"}},
+				Providers: []*proto.AgentNetworkProvider{{Name: "V", CatalogId: "vertex_ai_api", AllModelsAllowed: true}},
 			},
 			want: []string{"needs --vertex-project"},
+		},
+		{
+			// An allowlist that matches none of the provider's models: the
+			// proxy denies every request, so setup must not write a config.
+			name: "named provider allows no model",
+			resp: &proto.GetAgentNetworkInfoResponse{
+				State: proto.GetAgentNetworkInfoResponse_OK, Endpoint: "https://127.0.0.1:1",
+				Providers: []*proto.AgentNetworkProvider{{Name: "A", CatalogId: "anthropic_api", ApiFlavor: "anthropic"}},
+			},
+			args: []string{"--provider", "A", "--model", "claude-opus-5"},
+			want: []string{"no model on A is allowed for this peer"},
+		},
+		{
+			name: "only provider allows no model",
+			resp: &proto.GetAgentNetworkInfoResponse{
+				State: proto.GetAgentNetworkInfoResponse_OK, Endpoint: "https://127.0.0.1:1",
+				Providers: []*proto.AgentNetworkProvider{{Name: "A", CatalogId: "anthropic_api", ApiFlavor: "anthropic"}},
+			},
+			want: []string{"no model on A is allowed for this peer"},
 		},
 	}
 	for _, tc := range cases {
@@ -153,4 +172,18 @@ func TestAgentNetworkSetupRefusals(t *testing.T) {
 			assert.True(t, os.IsNotExist(err), "a refused setup writes nothing")
 		})
 	}
+}
+
+func TestAgentNetworkSetupSkipsProviderWithNoModel(t *testing.T) {
+	addr, _ := anSetupTestHost(t, &proto.GetAgentNetworkInfoResponse{
+		State:    proto.GetAgentNetworkInfoResponse_OK,
+		Endpoint: "https://127.0.0.1:1",
+		Providers: []*proto.AgentNetworkProvider{
+			{Name: "Blocked", CatalogId: "anthropic_api", ApiFlavor: "anthropic"},
+			{Name: "Open", CatalogId: "anthropic_api", ApiFlavor: "anthropic", AllModelsAllowed: true},
+		},
+	})
+	out, err := runAgentNetworkCmd(addr, "setup", "claude-code", "--dry-run")
+	require.NoError(t, err, out)
+	assert.Contains(t, out, "Provider: Open", "the provider with no allowed model is skipped")
 }
