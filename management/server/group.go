@@ -777,8 +777,13 @@ func (op groupPeersOp) delta(members, requested []string) []string {
 	if op == groupPeersAdd {
 		return util.Difference(requested, members)
 	}
+	memberSet := make(map[string]struct{}, len(members))
+	for _, id := range members {
+		memberSet[id] = struct{}{}
+	}
 	return slices.DeleteFunc(slices.Clone(requested), func(id string) bool {
-		return !slices.Contains(members, id)
+		_, ok := memberSet[id]
+		return !ok
 	})
 }
 
