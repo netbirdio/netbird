@@ -225,7 +225,7 @@ func NewLoader(f PolicyFetcher) *Loader {
 func (l *Loader) Load() *Policy {
 	policy, err := l.LoadWithError()
 	if err != nil {
-		log.Tracef("MDM policy load: %v", err)
+		log.Warnf("MDM policy unreadable, running without it: %v", err)
 		return &Policy{values: map[string]any{}}
 	}
 	return policy
