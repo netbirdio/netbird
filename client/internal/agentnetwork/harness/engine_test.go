@@ -576,3 +576,71 @@ func TestRelativeConfigDirResolved(t *testing.T) {
 	assert.Equal(t, "cfg"+sep+"settings.json", f.Path(Env{GOOS: other, Home: "/h", Getenv: rel}),
 		"another OS's path is not resolved against this host's working directory")
 }
+
+// blockDir replaces dir with a regular file, so creating anything under it
+// fails even for root.
+func blockDir(t *testing.T, dir string) {
+	t.Helper()
+	require.NoError(t, os.RemoveAll(dir))
+	require.NoError(t, os.MkdirAll(filepath.Dir(dir), 0o700))
+	require.NoError(t, os.WriteFile(dir, nil, 0o600))
+}
+
+func TestApplyRollsBackWhenRecordSaveFails(t *testing.T) {
+	for name, orig := range map[string]string{"existing file": `{"theme":"dark"}`, "new file": ""} {
+		t.Run(name, func(t *testing.T) {
+			h := newTestHost(t)
+			if orig != "" {
+				h.write(t, orig, 0o600)
+			}
+			p, rec, err := h.plan(t, h.render(t, "anthropic", "claude-opus-5"), false)
+			require.NoError(t, err)
+
+			recDir := filepath.Join(t.TempDir(), "netbird")
+			blockDir(t, recDir)
+			backups, err := p.Apply(rec, filepath.Join(recDir, "agent-network-setup.json"), testNow)
+			require.Error(t, err, "the record cannot be saved")
+
+			if orig != "" {
+				assert.Equal(t, orig, h.read(t), "the settings file is restored")
+			} else {
+				_, err := os.Stat(h.settings)
+				assert.True(t, os.IsNotExist(err), "the settings file setup created is removed")
+			}
+			assert.Empty(t, backups, "no backup is reported")
+			assert.Empty(t, h.backups(t), "the backup went back into place")
+			assert.Empty(t, rec.Harnesses, "the in-memory record is unchanged")
+		})
+	}
+}
+
+func TestApplyRollsBackEarlierFiles(t *testing.T) {
+	h := newTestHost(t)
+	root := t.TempDir()
+	first := filepath.Join(root, "a", "settings.json")
+	second := filepath.Join(root, "b", "settings.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(first), 0o700))
+	orig := `{"theme":"dark"}`
+	require.NoError(t, os.WriteFile(first, []byte(orig), 0o600))
+
+	settings := []Setting{
+		{File: first, Format: FormatJSON, Path: []string{"k"}, Value: "v"},
+		{File: second, Format: FormatJSON, Path: []string{"k"}, Value: "v"},
+	}
+	p, rec, err := h.plan(t, settings, false)
+	require.NoError(t, err)
+
+	// The second file's directory cannot be created once planning is done.
+	blockDir(t, filepath.Dir(second))
+	_, err = p.Apply(rec, h.env.RecordPath, testNow)
+	require.Error(t, err, "the second write fails")
+
+	data, err := os.ReadFile(first)
+	require.NoError(t, err)
+	assert.Equal(t, orig, string(data), "the first file is restored")
+	backups, err := filepath.Glob(first + ".netbird-backup-*")
+	require.NoError(t, err)
+	assert.Empty(t, backups, "the backup went back into place")
+	_, err = os.Stat(h.env.RecordPath)
+	assert.True(t, os.IsNotExist(err), "no record is written")
+}

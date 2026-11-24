@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -232,31 +233,36 @@ func (p *Plan) release(file string, st *fileState, own OwnedKey) error {
 
 // Apply writes the planned files, each after a backup, updates the record
 // and returns the backups made. A plan that changes neither the files nor
-// the record writes nothing.
+// the record writes nothing. When a write or the record save fails, the
+// files already written are put back and rec is left as it was.
 func (p *Plan) Apply(rec *Record, recordPath string, now time.Time) ([]string, error) {
-	if !p.Pending() && !p.releasesKeys() {
+	if !p.Pending() {
 		return nil, nil
 	}
-	hr := rec.Harnesses[p.harness]
-	if hr == nil {
-		hr = &Entry{}
-	}
-	if hr.Files == nil {
-		hr.Files = map[string]*FileRecord{}
+	prev := rec.Harnesses[p.harness]
+	next := &Entry{Files: map[string]*FileRecord{}}
+	if prev != nil {
+		for file, fr := range prev.Files {
+			c := *fr
+			c.Backups = slices.Clone(fr.Backups)
+			next.Files[file] = &c
+		}
 	}
 
 	var backups []string
+	var written []writtenFile
 	for _, file := range SortedFiles(p.files) {
 		st := p.files[file]
-		fr := hr.Files[file]
+		fr := next.Files[file]
 		if fr == nil {
 			fr = &FileRecord{Format: st.format}
 		}
 		if st.dirty {
 			backup, err := st.write(now)
 			if err != nil {
-				return backups, fmt.Errorf("write %s: %w", file, err)
+				return nil, rollback(written, fmt.Errorf("write %s: %w", file, err))
 			}
+			written = append(written, writtenFile{target: st.target, backup: backup})
 			if backup != "" {
 				fr.Backups = append(fr.Backups, backup)
 				backups = append(backups, backup)
@@ -264,20 +270,55 @@ func (p *Plan) Apply(rec *Record, recordPath string, now time.Time) ([]string, e
 		}
 		fr.Keys = st.owned
 		if len(fr.Keys) == 0 {
-			delete(hr.Files, file)
+			delete(next.Files, file)
 			continue
 		}
-		hr.Files[file] = fr
+		next.Files[file] = fr
 	}
 
 	if rec.Harnesses == nil {
 		rec.Harnesses = map[string]*Entry{}
 	}
-	rec.Harnesses[p.harness] = hr
-	if len(hr.Files) == 0 {
-		delete(rec.Harnesses, p.harness)
+	setEntry(rec, p.harness, next)
+	if err := rec.Save(recordPath); err != nil {
+		setEntry(rec, p.harness, prev)
+		return nil, rollback(written, fmt.Errorf("save setup record: %w", err))
 	}
-	return backups, rec.Save(recordPath)
+	return backups, nil
+}
+
+func setEntry(rec *Record, id string, e *Entry) {
+	if e == nil || len(e.Files) == 0 {
+		delete(rec.Harnesses, id)
+		return
+	}
+	rec.Harnesses[id] = e
+}
+
+// writtenFile is a file Apply replaced: backup holds its old content, or is
+// empty when Apply created it.
+type writtenFile struct {
+	target string
+	backup string
+}
+
+// rollback puts the written files back, newest first, and returns cause
+// joined with any file it could not restore.
+func rollback(written []writtenFile, cause error) error {
+	errs := []error{cause}
+	for i := len(written) - 1; i >= 0; i-- {
+		w := written[i]
+		var err error
+		if w.backup != "" {
+			err = os.Rename(w.backup, w.target)
+		} else {
+			err = os.Remove(w.target)
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("roll back %s: %w", w.target, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // releasesKeys reports whether the plan gives up keys the user changed, which
@@ -302,7 +343,13 @@ func (st *fileState) write(now time.Time) (string, error) {
 			return "", fmt.Errorf("back up: %w", err)
 		}
 	}
-	return backup, writeAtomic(st.target, data, st.mode)
+	if err := writeAtomic(st.target, data, st.mode); err != nil {
+		if backup != "" {
+			_ = os.Remove(backup)
+		}
+		return "", err
+	}
+	return backup, nil
 }
 
 func loadFile(file string, format Format) (*fileState, error) {
