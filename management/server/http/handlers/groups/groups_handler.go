@@ -112,20 +112,9 @@ func (h *handler) updateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	existingGroup, err := h.accountManager.GetGroup(r.Context(), accountID, groupID, userID)
+	existingGroup, err := GetUpdatableGroup(r.Context(), h.accountManager, accountID, userID, groupID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	allGroup, err := h.accountManager.GetGroupByName(r.Context(), "All", accountID, userID)
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	if allGroup.ID == groupID {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "updating group ALL is not allowed"), w)
 		return
 	}
 
@@ -136,34 +125,13 @@ func (h *handler) updateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Name == "" {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "group name shouldn't be empty"), w)
-		return
-	}
-
-	var peers []string
-	if req.Peers == nil {
-		peers = make([]string, 0)
-	} else {
-		peers = *req.Peers
-	}
-
-	resources, err := resourcesFromAPIRequest(req.Resources)
+	group, err := UpdatedGroup(existingGroup, groupInputFromAPI(req.Name, req.Peers, req.Resources))
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	group := types.Group{
-		ID:                   groupID,
-		Name:                 req.Name,
-		Peers:                peers,
-		Resources:            resources,
-		Issued:               existingGroup.Issued,
-		IntegrationReference: existingGroup.IntegrationReference,
-	}
-
-	if err := h.accountManager.UpdateGroup(r.Context(), accountID, userID, &group); err != nil {
+	if err := h.accountManager.UpdateGroup(r.Context(), accountID, userID, group); err != nil {
 		log.WithContext(r.Context()).Errorf("failed updating group %s under account %s %v", groupID, accountID, err)
 		util.WriteError(r.Context(), err, w)
 		return
@@ -175,7 +143,7 @@ func (h *handler) updateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, toGroupResponse(accountPeers, &group))
+	util.WriteJSONObject(r.Context(), w, toGroupResponse(accountPeers, group))
 }
 
 // createGroup handles group creation request
@@ -195,32 +163,13 @@ func (h *handler) createGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Name == "" {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "group name shouldn't be empty"), w)
-		return
-	}
-
-	var peers []string
-	if req.Peers == nil {
-		peers = make([]string, 0)
-	} else {
-		peers = *req.Peers
-	}
-
-	resources, err := resourcesFromAPIRequest(req.Resources)
+	group, err := NewGroup(groupInputFromAPI(req.Name, req.Peers, req.Resources))
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	group := types.Group{
-		Name:      req.Name,
-		Peers:     peers,
-		Resources: resources,
-		Issued:    types.GroupIssuedAPI,
-	}
-
-	err = h.accountManager.CreateGroup(r.Context(), accountID, userID, &group)
+	err = h.accountManager.CreateGroup(r.Context(), accountID, userID, group)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -232,7 +181,7 @@ func (h *handler) createGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, toGroupResponse(accountPeers, &group))
+	util.WriteJSONObject(r.Context(), w, toGroupResponse(accountPeers, group))
 }
 
 // deleteGroup handles group deletion request
@@ -339,20 +288,16 @@ func toGroupResponse(peers []*nbpeer.Peer, group *types.Group) *api.Group {
 	return &gr
 }
 
-func resourcesFromAPIRequest(req *[]api.Resource) ([]types.Resource, error) {
-	resources := make([]types.Resource, 0)
-	if req == nil {
-		return resources, nil
+func groupInputFromAPI(name string, peers *[]string, resources *[]api.Resource) GroupInput {
+	in := GroupInput{Name: name, Peers: peers}
+	if resources == nil {
+		return in
 	}
 
-	for _, res := range *req {
-		if res.Id == "" || !types.ResourceType(res.Type).Valid() {
-			return nil, status.Errorf(status.InvalidArgument, "resource id shouldn't be empty and type must be one of: peer, domain, host, subnet")
-		}
-		resource := types.Resource{}
-		resource.FromAPIRequest(&res)
-		resources = append(resources, resource)
+	converted := make([]ResourceInput, 0, len(*resources))
+	for _, res := range *resources {
+		converted = append(converted, ResourceInput{ID: res.Id, Type: string(res.Type)})
 	}
-
-	return resources, nil
+	in.Resources = &converted
+	return in
 }
