@@ -67,8 +67,9 @@ type Registration struct {
 	Stale func()
 	// Addr is the server address, shown in the status.
 	Addr string
-	// AlignedPeriod is the heartbeat period the server confirmed when the
-	// stream opened, zero when it opened stock.
+	// AlignedPeriod is the heartbeat period the server confirmed, set when
+	// the stream opens or later by Confirm at the server answer. Zero while
+	// stock.
 	AlignedPeriod time.Duration
 }
 
@@ -436,6 +437,13 @@ func CurrentSnapshot() (Snapshot, bool) {
 // def returns the default Watcher. It exists only on builds that ask for
 // the aligned heartbeat, so a missing result is kept.
 func def() *Watcher {
+	return loadDefault(newDefaultWatcher)
+}
+
+// loadDefault returns the default Watcher, built by create on the first
+// call. The result is published only after create returns, so a concurrent
+// caller never sees a decided state without its Watcher.
+func loadDefault(create func() *Watcher) *Watcher {
 	if e := defaultEntry.Load(); e != nil {
 		return e.w
 	}
@@ -444,12 +452,16 @@ func def() *Watcher {
 	if e := defaultEntry.Load(); e != nil {
 		return e.w
 	}
-	var w *Watcher
-	if alignedhb.Supported() {
-		w = New(realClock{}, alignedhb.DefaultPeriod)
-	}
+	w := create()
 	defaultEntry.Store(&defaultState{w: w})
 	return w
+}
+
+func newDefaultWatcher() *Watcher {
+	if !alignedhb.Supported() {
+		return nil
+	}
+	return New(realClock{}, alignedhb.DefaultPeriod)
 }
 
 func (w *Watcher) now() time.Time {

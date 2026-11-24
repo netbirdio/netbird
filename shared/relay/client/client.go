@@ -288,13 +288,6 @@ func (c *Client) startWatch(seq int, relayConn net.Conn, stopFlag *internalStopF
 	if !c.watch.Load() {
 		return
 	}
-	c.watchMu.Lock()
-	if c.watchStop != nil {
-		c.watchMu.Unlock()
-		return
-	}
-	c.watchMu.Unlock()
-
 	reconnect := func() {
 		c.log.Warnf("relay connection is stale, closing it like a health check timeout")
 		if stopFlag != nil {
@@ -304,29 +297,34 @@ func (c *Client) startWatch(seq int, relayConn net.Conn, stopFlag *internalStopF
 			c.log.Debugf("failed to close stale relay connection: %s", err)
 		}
 	}
-	stop := hbwatch.Register(hbwatch.Relay, hbwatch.Registration{
-		Kind:  hbwatch.ActionReconnect,
-		Stale: reconnect,
-		Addr:  c.connectionURL,
-	})
+
+	// Register under watchMu, so only the connection that still owns seq
+	// takes the hbwatch slot. hbwatch never calls back into the relay client
+	// while it holds its own lock.
 	c.watchMu.Lock()
-	if c.watchStop == nil && c.watchSeq == seq {
-		c.watchStop = stop
-		c.watchGen = seq
-		c.watchMu.Unlock()
-		// The period is read after Register: a server frame that switched
-		// the connection before it found no registration to record.
-		hbwatch.Confirm(hbwatch.Relay, c.AlignedPeriod())
+	defer c.watchMu.Unlock()
+	if c.watchStop != nil || c.watchSeq != seq {
 		return
 	}
-	c.watchMu.Unlock()
-	stop()
+	// The period of a server frame that switched the connection before it
+	// registered goes in with the registration.
+	c.watchStop = hbwatch.Register(hbwatch.Relay, hbwatch.Registration{
+		Kind:          hbwatch.ActionReconnect,
+		Stale:         reconnect,
+		Addr:          c.connectionURL,
+		AlignedPeriod: c.AlignedPeriod(),
+	})
+	c.watchGen = seq
 }
 
 // clearWatchGen unregisters the registration of connection sequence seq,
-// and only that one.
+// and only that one. It also retires seq, so a WatchHeartbeats that read
+// seq before the read loop exited cannot register the closed connection.
 func (c *Client) clearWatchGen(seq int) {
 	c.watchMu.Lock()
+	if c.watchSeq == seq {
+		c.watchSeq++
+	}
 	if c.watchGen != seq || c.watchStop == nil {
 		c.watchMu.Unlock()
 		return

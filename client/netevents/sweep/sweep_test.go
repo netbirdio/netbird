@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/shared/alignedhb/keepalive"
 )
 
 func TestSweepClosesRegisteredConns(t *testing.T) {
@@ -238,4 +240,20 @@ func connPair(t *testing.T) net.Conn {
 // sweepAll cuts every registration regardless of generation.
 func (s *Sweeper) sweepAll() int {
 	return s.sweep(math.MaxUint64)
+}
+
+// TestWrappedConnExposesTCPSocket checks that the sweeper's wrapper keeps
+// the TCP socket reachable: the relay client tunes its keepalive through it.
+func TestWrappedConnExposesTCPSocket(t *testing.T) {
+	sweeper := New()
+	dial := sweeper.StartDial(context.Background())
+	defer dial.Release()
+
+	conn := connPair(t)
+	wrapped, err := dial.WrapConn(conn)
+	require.NoError(t, err)
+
+	tcp, ok := keepalive.TCPConn(wrapped)
+	require.True(t, ok, "the TCP socket must be reachable through the wrapper")
+	assert.Same(t, conn, net.Conn(tcp), "the wrapper exposes the dialed socket")
 }

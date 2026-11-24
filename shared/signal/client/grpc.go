@@ -279,7 +279,7 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 		// A stale stream is cancelled and the retry loop reconnects.
 		unregisterStale := hbwatch.Register(hbwatch.Signal, hbwatch.Registration{
 			Kind:          hbwatch.ActionReconnect,
-			Stale:         cancelStream,
+			Stale:         c.staleReconnect(cancelStream),
 			Addr:          c.serverURL,
 			AlignedPeriod: c.getAlignedPeriod(),
 		})
@@ -667,6 +667,20 @@ func (c *GrpcClient) idleSinceReceive() time.Duration {
 func (c *GrpcClient) receiveAlive() bool {
 	return c.idleSinceReceive() < c.inactivityThreshold() ||
 		c.receiveHandoffBlocked.Load()
+}
+
+// staleReconnect returns the hbwatch stale action of a stream: cancel it,
+// unless the receive loop is parked on a busy decryption worker, which
+// stops it reading heartbeats while the stream is healthy (as in
+// receiveAlive).
+func (c *GrpcClient) staleReconnect(cancelStream context.CancelFunc) func() {
+	return func() {
+		if c.receiveHandoffBlocked.Load() {
+			log.Debugf("signal stream stale while the receive handoff is blocked, keeping it")
+			return
+		}
+		cancelStream()
+	}
 }
 
 // inactivityThreshold returns how long the receive stream may be silent

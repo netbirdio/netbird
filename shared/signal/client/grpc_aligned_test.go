@@ -303,3 +303,22 @@ func (c *testClock) Advance(d time.Duration) {
 		f()
 	}
 }
+
+// TestStaleReconnectKeepsStreamDuringBlockedHandoff: while the receive loop
+// is parked on a busy decryption worker it reads no heartbeats, so hbwatch
+// may find the stream stale; the stale action must keep it, as the receive
+// watchdog does, and cancel it once the handoff is over.
+func TestStaleReconnectKeepsStreamDuringBlockedHandoff(t *testing.T) {
+	c := newSignalTestClient(t, "signal-handoff.example:443")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stale := c.staleReconnect(cancel)
+
+	c.receiveHandoffBlocked.Store(true)
+	stale()
+	assert.NoError(t, ctx.Err(), "a stream parked on the worker must not be cancelled")
+
+	c.receiveHandoffBlocked.Store(false)
+	stale()
+	assert.ErrorIs(t, ctx.Err(), context.Canceled, "a stale stream is cancelled")
+}

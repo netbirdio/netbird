@@ -317,3 +317,57 @@ func TestSeenConcurrent(t *testing.T) {
 		assert.Equal(t, time.Minute, st.Period, "stream %s period", st.Service)
 	}
 }
+
+// TestDefaultWatcherPublishedAfterCreate covers the first lookups of the
+// default Watcher at engine start: nothing may be published while the
+// Watcher is still being built, or a concurrent caller on the fast path
+// would get a decided state without its Watcher.
+func TestDefaultWatcherPublishedAfterCreate(t *testing.T) {
+	prev := defaultEntry.Swap(nil)
+	t.Cleanup(func() { defaultEntry.Store(prev) })
+
+	built := New(newFakeClock(time.Unix(0, 0)), time.Minute)
+	got := loadDefault(func() *Watcher {
+		assert.Nil(t, defaultEntry.Load(), "nothing is published while create runs")
+		return built
+	})
+	assert.Same(t, built, got, "the first caller gets the Watcher it built")
+
+	got = loadDefault(func() *Watcher {
+		t.Error("create must run only once")
+		return nil
+	})
+	assert.Same(t, built, got, "a later caller gets the published Watcher")
+}
+
+// TestDefaultWatcherKeepsNil covers builds without the aligned heartbeat:
+// the missing Watcher is decided once and kept.
+func TestDefaultWatcherKeepsNil(t *testing.T) {
+	prev := defaultEntry.Swap(nil)
+	t.Cleanup(func() { defaultEntry.Store(prev) })
+
+	calls := 0
+	create := func() *Watcher {
+		calls++
+		return nil
+	}
+	assert.Nil(t, loadDefault(create), "a build without the aligned heartbeat has no Watcher")
+	assert.Nil(t, loadDefault(create), "the missing Watcher is kept")
+	assert.Equal(t, 1, calls, "create runs once")
+}
+
+func TestSetDefaultRestore(t *testing.T) {
+	prev := defaultEntry.Swap(nil)
+	t.Cleanup(func() { defaultEntry.Store(prev) })
+
+	first := New(newFakeClock(time.Unix(0, 0)), time.Minute)
+	restoreFirst := SetDefault(first)
+	second := New(newFakeClock(time.Unix(0, 0)), time.Minute)
+	restoreSecond := SetDefault(second)
+	assert.Same(t, second, def(), "SetDefault replaces the default Watcher")
+
+	restoreSecond()
+	assert.Same(t, first, def(), "restore brings back the previous Watcher")
+	restoreFirst()
+	assert.Nil(t, defaultEntry.Load(), "restore brings back the undecided state")
+}

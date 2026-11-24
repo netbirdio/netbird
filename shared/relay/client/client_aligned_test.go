@@ -261,6 +261,64 @@ func TestWatchAfterAlignedSwitchKeepsThePeriod(t *testing.T) {
 	assert.Equal(t, time.Minute, snap.Streams[0].Period, "the registration carries the confirmed period")
 }
 
+// TestLateWatchAfterReadLoopExitDoesNotRegister covers WatchHeartbeats
+// reading the connection sequence just before the read loop of that
+// connection exits: its late registration must not stick, so the next
+// Connect still registers its own connection.
+func TestLateWatchAfterReadLoopExitDoesNotRegister(t *testing.T) {
+	w := hbwatch.New(wallClock{}, time.Minute)
+	t.Cleanup(hbwatch.SetDefault(w))
+
+	c, conn := newAlignedTestClient(t, true)
+	c.watch.Store(true)
+	stopFlag := newInternalStopFlag()
+
+	c.watchMu.Lock()
+	seq := c.watchSeq
+	c.watchMu.Unlock()
+
+	// The read loop exits before the late registration.
+	c.clearWatchGen(seq)
+	c.startWatch(seq, conn, stopFlag)
+	assert.Empty(t, w.Snapshot().Streams, "a closed connection must not be registered")
+
+	// The next Connect.
+	c.watchMu.Lock()
+	c.watchSeq++
+	next := c.watchSeq
+	c.watchMu.Unlock()
+	c.startWatch(next, conn, stopFlag)
+	assert.Len(t, w.Snapshot().Streams, 1, "the next connection registers")
+}
+
+// TestStaleWatchKeepsNewerRegistration covers WatchHeartbeats racing a full
+// reconnect: a registration for a replaced sequence must neither take the
+// hbwatch slot of the newer stock connection nor give it the old period.
+func TestStaleWatchKeepsNewerRegistration(t *testing.T) {
+	w := hbwatch.New(wallClock{}, time.Minute)
+	t.Cleanup(hbwatch.SetDefault(w))
+
+	c, conn := newAlignedTestClient(t, true)
+	c.watch.Store(true)
+	stopFlag := newInternalStopFlag()
+
+	// A reconnect replaced the old connection with a stock one that
+	// registered.
+	c.watchMu.Lock()
+	old := c.watchSeq
+	c.watchSeq++
+	current := c.watchSeq
+	c.watchMu.Unlock()
+	c.startWatch(current, conn, stopFlag)
+
+	// The late call for the old connection still sees an aligned period.
+	c.alignedPeriod.Store(int64(time.Minute))
+	c.startWatch(old, conn, stopFlag)
+	snap := w.Snapshot()
+	require.Len(t, snap.Streams, 1, "the newer connection stays registered")
+	assert.Zero(t, snap.Streams[0].Period, "a stale registration must not set the period")
+}
+
 type wallClock struct{}
 
 func (wallClock) Now() time.Time                      { return time.Now() }

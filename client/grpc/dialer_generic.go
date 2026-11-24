@@ -53,8 +53,7 @@ func WithDialHooks(sweeper Sweeper, keepAlive *TCPKeepAlive) grpc.DialOption {
 		if err != nil {
 			return nil, err
 		}
-		// Track the raw connection: the sweeper's wrapper hides the TCP
-		// socket the keepalive is set on.
+		// Track the raw connection, below the sweeper's wrapper.
 		keepAlive.Track(conn)
 		return wrapped, nil
 	})
