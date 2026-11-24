@@ -107,11 +107,9 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 		nmdataStore: nmdataStore,
 	}
 
-	if nmdataStore != nil {
-		interval := requestbuffer.Interval(ctx, "NB_NETWORK_MAP_DATA_BUFFER_INTERVAL", defaultNetworkMapDataBufferInterval)
-		log.WithContext(ctx).Infof("set network map data request buffer interval to %s", interval)
-		c.nmdataBuffer = requestbuffer.NewSerialized(ctx, "network map data request buffer", interval, c.fetchNetworkMapData)
-	}
+	interval := requestbuffer.Interval(ctx, "NB_NETWORK_MAP_DATA_BUFFER_INTERVAL", defaultNetworkMapDataBufferInterval)
+	log.WithContext(ctx).Infof("set network map data request buffer interval to %s", interval)
+	c.nmdataBuffer = requestbuffer.NewSerialized(ctx, "network map data request buffer", interval, c.fetchNetworkMapData)
 
 	return c
 }

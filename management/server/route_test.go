@@ -28,7 +28,6 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
-	"github.com/netbirdio/netbird/management/server/store"
 	nbstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -1108,7 +1107,7 @@ func TestGetNetworkMap_RouteSyncPeerGroups(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, peer4Routes.Routes, 1, "HA route should have 1 server route")
 
-	groups, err := am.Store.GetAccountGroups(context.Background(), store.LockingStrengthNone, account.Id)
+	groups, err := am.Store.GetAccountGroups(context.Background(), nbstore.LockingStrengthNone, account.Id)
 	require.NoError(t, err)
 	var groupHA1, groupHA2 *types.Group
 	for _, group := range groups {
@@ -1328,9 +1327,9 @@ func createRouterManager(t *testing.T) (*DefaultAccountManager, *update_channel.
 	return am, updateManager, nil
 }
 
-func createRouterStore(t *testing.T, dataDir string) (store.Store, error) {
+func createRouterStore(t *testing.T, dataDir string) (nbstore.Store, error) {
 	t.Helper()
-	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "", dataDir)
+	store, cleanUp, err := nbstore.NewTestStoreFromSQL(context.Background(), "", dataDir)
 	if err != nil {
 		return nil, err
 	}

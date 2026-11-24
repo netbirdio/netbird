@@ -25,7 +25,6 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
-	"github.com/netbirdio/netbird/management/server/store"
 	nbstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -826,9 +825,9 @@ func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 	return BuildManager(context.Background(), nil, store, networkMapController, job.NewJobManager(nil, store, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 }
 
-func createNSStore(t *testing.T, dataDir string) (store.Store, error) {
+func createNSStore(t *testing.T, dataDir string) (nbstore.Store, error) {
 	t.Helper()
-	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "", dataDir)
+	store, cleanUp, err := nbstore.NewTestStoreFromSQL(context.Background(), "", dataDir)
 	if err != nil {
 		return nil, err
 	}

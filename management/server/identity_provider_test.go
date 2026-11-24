@@ -28,7 +28,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
-	"github.com/netbirdio/netbird/management/server/store"
 	nbstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -48,14 +47,14 @@ func createManagerWithEmbeddedIdPMode(t testing.TB, singleAccountModeDomain stri
 func createManagerWithEmbeddedIdPModeAndSetup(
 	t testing.TB,
 	singleAccountModeDomain string,
-	setupStore func(context.Context, store.Store) error,
+	setupStore func(context.Context, nbstore.Store) error,
 ) (*DefaultAccountManager, *update_channel.PeersUpdateManager, error) {
 	t.Helper()
 
 	ctx := context.Background()
 
 	dataDir := t.TempDir()
-	testStore, cleanUp, err := store.NewTestStoreFromSQL(ctx, "", dataDir)
+	testStore, cleanUp, err := nbstore.NewTestStoreFromSQL(ctx, "", dataDir)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -236,7 +235,7 @@ func TestDefaultAccountManager_GetIdentityProvider_NotFound(t *testing.T) {
 
 func TestUpdateUserAuthWithSingleModeKeepsConfiguredDomain(t *testing.T) {
 	ctx := context.Background()
-	manager, _, err := createManagerWithEmbeddedIdPModeAndSetup(t, "netbird.selfhosted", func(ctx context.Context, testStore store.Store) error {
+	manager, _, err := createManagerWithEmbeddedIdPModeAndSetup(t, "netbird.selfhosted", func(ctx context.Context, testStore nbstore.Store) error {
 		// An account with no domain, as left behind by an IdP that emitted no domain claims.
 		return testStore.SaveAccount(ctx, newAccountWithId(ctx, "account-1", "user-1", "", "", "", false))
 	})

@@ -40,7 +40,6 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
-	"github.com/netbirdio/netbird/management/server/store"
 	nbstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -342,7 +341,7 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 
 	dataDir := t.TempDir()
-	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), testFile, dataDir)
+	store, cleanup, err := nbstore.NewTestStoreFromSQL(context.Background(), testFile, dataDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -599,7 +598,7 @@ func testSyncStatusRace(t *testing.T) {
 	}
 
 	time.Sleep(10 * time.Millisecond)
-	peer, err := am.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, peerWithInvalidStatus.PublicKey().String())
+	peer, err := am.Store.GetPeerByPeerPubKey(context.Background(), nbstore.LockingStrengthNone, peerWithInvalidStatus.PublicKey().String())
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -854,7 +853,7 @@ func testLoginPerformance(t *testing.T, loginCalls []func() error) {
 
 type expireOnConnectController struct {
 	peerliveness.Controller
-	store store.Store
+	store nbstore.Store
 	once  sync.Once
 	err   error
 }
@@ -866,7 +865,7 @@ func (c *expireOnConnectController) Connect(ctx context.Context, accountID, peer
 	}
 
 	c.once.Do(func() {
-		peer, getErr := c.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
+		peer, getErr := c.store.GetPeerByID(ctx, nbstore.LockingStrengthNone, accountID, peerID)
 		if getErr != nil {
 			c.err = getErr
 			return
@@ -919,21 +918,21 @@ func Test_SyncRejectsPeerExpiredWhileConnecting(t *testing.T) {
 	require.Equal(t, codes.PermissionDenied, status.Code(err), "sync stream ended with: %v", err)
 	require.NoError(t, decorated.err)
 
-	peer, err := am.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, key.PublicKey().String())
+	peer, err := am.Store.GetPeerByPeerPubKey(context.Background(), nbstore.LockingStrengthNone, key.PublicKey().String())
 	require.NoError(t, err)
 	require.True(t, peer.Status.LoginExpired)
 	require.Eventually(t, func() bool {
-		peer, err = am.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, key.PublicKey().String())
+		peer, err = am.Store.GetPeerByPeerPubKey(context.Background(), nbstore.LockingStrengthNone, key.PublicKey().String())
 		return err == nil && !peer.Status.Connected
 	}, 5*time.Second, 50*time.Millisecond)
 }
 
 type settingsCountingStore struct {
-	store.Store
+	nbstore.Store
 	reads atomic.Int32
 }
 
-func (s *settingsCountingStore) GetAccountSettings(ctx context.Context, lockStrength store.LockingStrength, accountID string) (*types.Settings, error) {
+func (s *settingsCountingStore) GetAccountSettings(ctx context.Context, lockStrength nbstore.LockingStrength, accountID string) (*types.Settings, error) {
 	s.reads.Add(1)
 	return s.Store.GetAccountSettings(ctx, lockStrength, accountID)
 }
@@ -974,7 +973,7 @@ func Test_LoginAndSyncReuseRequestSettings(t *testing.T) {
 	require.NoError(t, sync.RecvMsg(&mgmtProto.EncryptedMessage{}))
 
 	require.Eventually(t, func() bool {
-		peer, err := counting.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, key.PublicKey().String())
+		peer, err := counting.GetPeerByPeerPubKey(context.Background(), nbstore.LockingStrengthNone, key.PublicKey().String())
 		return err == nil && peer.Status.Connected
 	}, 5*time.Second, 50*time.Millisecond)
 	require.Zero(t, counting.reads.Load(), "sync must not read settings through the account manager")

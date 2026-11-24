@@ -49,6 +49,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/management/server/store"
 	nbstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -65,7 +66,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
-	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	nbroute "github.com/netbirdio/netbird/route"
@@ -1333,7 +1333,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 	}
 
 	dataDir := t.TempDir()
-	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", dataDir)
+	s, cleanup, err := nbstore.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", dataDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1406,7 +1406,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, newPeer.ExtraDNSLabels, addedPeer.ExtraDNSLabels)
 
-	peer, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, addedPeer.Key)
+	peer, err := s.GetPeerByPeerPubKey(context.Background(), nbstore.LockingStrengthNone, addedPeer.Key)
 	require.NoError(t, err)
 	assert.Equal(t, peer.AccountID, existingAccountID)
 	assert.Equal(t, peer.UserID, existingUserID)
@@ -1432,7 +1432,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 	}
 
 	dataDir := t.TempDir()
-	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", dataDir)
+	s, cleanup, err := nbstore.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", dataDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1565,7 +1565,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 			assert.NotNil(t, addedPeer, "addedPeer should not be nil on success")
 			assert.Equal(t, currentPeer.ExtraDNSLabels, addedPeer.ExtraDNSLabels, "ExtraDNSLabels mismatch")
 
-			peerFromStore, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, currentPeer.Key)
+			peerFromStore, err := s.GetPeerByPeerPubKey(context.Background(), nbstore.LockingStrengthNone, currentPeer.Key)
 			require.NoError(t, err, "Failed to get peer by pub key: %s", currentPeer.Key)
 			assert.Equal(t, existingAccountID, peerFromStore.AccountID, "AccountID mismatch for peer from store")
 			assert.Equal(t, currentPeer.ExtraDNSLabels, peerFromStore.ExtraDNSLabels, "ExtraDNSLabels mismatch for peer from store")
@@ -1607,7 +1607,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 	}
 
 	dataDir := t.TempDir()
-	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", dataDir)
+	s, cleanup, err := nbstore.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", dataDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1675,7 +1675,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 	_, _, _, _, err = am.AddPeer(context.Background(), "", faultyKey, "", newPeer, false)
 	require.Error(t, err)
 
-	_, err = s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, newPeer.Key)
+	_, err = s.GetPeerByPeerPubKey(context.Background(), nbstore.LockingStrengthNone, newPeer.Key)
 	require.Error(t, err)
 
 	account, err := s.GetAccount(context.Background(), existingAccountID)
@@ -1701,7 +1701,7 @@ func Test_LoginPeer(t *testing.T) {
 	}
 
 	dataDir := t.TempDir()
-	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", dataDir)
+	s, cleanup, err := nbstore.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", dataDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1812,7 +1812,7 @@ func Test_LoginPeer(t *testing.T) {
 			upperKey := strings.ToUpper(tc.setupKey)
 			hashedKey := sha256.Sum256([]byte(upperKey))
 			encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
-			sk, err := s.GetSetupKeyBySecret(context.Background(), store.LockingStrengthUpdate, encodedHashedKey)
+			sk, err := s.GetSetupKeyBySecret(context.Background(), nbstore.LockingStrengthUpdate, encodedHashedKey)
 			require.NoError(t, err, "Failed to get setup key %s from storage", tc.setupKey)
 
 			currentPeer := &nbpeer.Peer{
@@ -1869,7 +1869,7 @@ func Test_LoginPeer(t *testing.T) {
 
 			assert.Equal(t, existingAccountID, loggedinPeer.AccountID, "AccountID mismatch for logged peer")
 
-			peerFromStore, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, loginInput.WireGuardPubKey)
+			peerFromStore, err := s.GetPeerByPeerPubKey(context.Background(), nbstore.LockingStrengthNone, loginInput.WireGuardPubKey)
 			require.NoError(t, err, "Failed to get peer by pub key: %s", loginInput.WireGuardPubKey)
 			assert.Equal(t, existingAccountID, peerFromStore.AccountID, "AccountID mismatch for peer from store")
 			assert.Equal(t, loggedinPeer.ID, peerFromStore.ID, "Peer ID mismatch between loggedinPeer and peerFromStore")
@@ -2295,7 +2295,7 @@ func Test_IsUniqueConstraintError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("NETBIRD_STORE_ENGINE", string(tt.engine))
-			s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+			s, cleanup, err := nbstore.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
 			if err != nil {
 				t.Fatalf("Error when creating store: %s", err)
 			}
@@ -3250,7 +3250,7 @@ func TestAddPeer_HostnameCollisionRejectedConcurrent(t *testing.T) {
 	}
 	assert.Equal(t, 1, succeeded)
 
-	peers, err := manager.Store.GetAccountPeers(context.Background(), store.LockingStrengthNone, account.Id, "", "", "")
+	peers, err := manager.Store.GetAccountPeers(context.Background(), nbstore.LockingStrengthNone, account.Id, "", "", "")
 	require.NoError(t, err)
 	require.Len(t, peers, 1)
 	assert.Equal(t, "same-host", peers[0].DNSLabel)
@@ -3301,11 +3301,11 @@ func TestAddPeer_StoresAuthKey(t *testing.T) {
 	}, false)
 	require.NoError(t, err)
 
-	saved, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, added.ID)
+	saved, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, added.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "auth-key", saved.AuthPubKey, "registration must store the auth key the peer sent")
 
-	peers, err := manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, account.Id, "", "", "")
+	peers, err := manager.Store.GetAccountPeers(ctx, nbstore.LockingStrengthNone, account.Id, "", "", "")
 	require.NoError(t, err)
 	require.Len(t, peers, 1)
 	assert.Equal(t, "auth-key", peers[0].AuthPubKey, "the account peer list must load the auth key")
@@ -3341,7 +3341,7 @@ func TestAddPeer_ExhaustedIPAllocationFails(t *testing.T) {
 	err = addPeer("host-2")
 	require.Error(t, err, "no free IP left, registration must fail")
 
-	peers, err := manager.Store.GetAccountPeers(context.Background(), store.LockingStrengthNone, account.Id, "", "", "")
+	peers, err := manager.Store.GetAccountPeers(context.Background(), nbstore.LockingStrengthNone, account.Id, "", "", "")
 	require.NoError(t, err)
 	require.Len(t, peers, 1)
 	assert.Equal(t, netip.MustParseAddr("100.64.0.1"), peers[0].IP)
@@ -3352,7 +3352,7 @@ func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("SyncPeer with changed meta bumps, unchanged does not", func(t *testing.T) {
-		current, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		current, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer1.ID)
 		require.NoError(t, err)
 
 		before := networkSerial(t, manager, account.Id)
@@ -3368,7 +3368,7 @@ func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
 	})
 
 	t.Run("LoginPeer with changed ssh key bumps, unchanged does not", func(t *testing.T) {
-		current, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		current, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer1.ID)
 		require.NoError(t, err)
 
 		before := networkSerial(t, manager, account.Id)
@@ -3382,7 +3382,7 @@ func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
 	})
 
 	t.Run("LoginPeer replaces the auth key without bumping", func(t *testing.T) {
-		current, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		current, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer1.ID)
 		require.NoError(t, err)
 		login := types.PeerLogin{WireGuardPubKey: peer1.Key, SSHKey: current.SSHKey, Meta: current.Meta}
 
@@ -3407,7 +3407,7 @@ func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
 			_, _, _, _, err = manager.LoginPeer(ctx, login)
 			require.NoError(t, err)
 
-			saved, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+			saved, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer1.ID)
 			require.NoError(t, err)
 			assert.Equal(t, step.authKey, saved.AuthPubKey, "every login must replace the stored auth key, empty included")
 
@@ -3431,7 +3431,7 @@ func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
 		require.NoError(t, manager.MarkPeerDisconnected(ctx, peer2.Key, account.Id, session))
 		assert.Equal(t, before, networkSerial(t, manager, account.Id), "regular peers must not bump")
 
-		expired, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+		expired, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer2.ID)
 		require.NoError(t, err)
 		expired.Status.LoginExpired = true
 		require.NoError(t, manager.Store.SavePeer(ctx, account.Id, expired))
@@ -3441,7 +3441,7 @@ func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
 		afterExpired := networkSerial(t, manager, account.Id)
 		assert.Equal(t, before, afterExpired, "login-expired reconnect writes no network map data")
 
-		embedded, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+		embedded, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer2.ID)
 		require.NoError(t, err)
 		embedded.Status.LoginExpired = false
 		embedded.ProxyMeta.Embedded = true
@@ -3457,7 +3457,7 @@ func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
 	})
 
 	t.Run("embedded proxy write is not applied when the increment fails", func(t *testing.T) {
-		embedded, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+		embedded, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer2.ID)
 		require.NoError(t, err)
 		require.True(t, embedded.ProxyMeta.Embedded)
 		session := embedded.Status.SessionStartedAt
@@ -3467,7 +3467,7 @@ func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
 		t.Cleanup(func() { manager.Store = original })
 
 		require.Error(t, manager.MarkPeerDisconnected(ctx, peer2.Key, account.Id, session))
-		current, err := original.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+		current, err := original.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer2.ID)
 		require.NoError(t, err)
 		assert.Equal(t, session, current.Status.SessionStartedAt, "a failed increment leaves the connection untouched")
 		assert.True(t, current.Status.Connected)
@@ -3476,14 +3476,14 @@ func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
 		before := networkSerial(t, manager, account.Id)
 		require.NoError(t, manager.MarkPeerConnected(ctx, peer2.Key, account.Id, session-1, nil))
 		assert.Greater(t, networkSerial(t, manager, account.Id), before, "a write that does not apply still bumped")
-		current, err = original.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+		current, err = original.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer2.ID)
 		require.NoError(t, err)
 		assert.Equal(t, session, current.Status.SessionStartedAt)
 	})
 }
 
 type serialFailingStore struct {
-	store.Store
+	nbstore.Store
 }
 
 func (s *serialFailingStore) IncrementNetworkSerial(context.Context, string) error {
@@ -3491,11 +3491,11 @@ func (s *serialFailingStore) IncrementNetworkSerial(context.Context, string) err
 }
 
 type txCountingStore struct {
-	store.Store
+	nbstore.Store
 	txs atomic.Int32
 }
 
-func (s *txCountingStore) ExecuteInTransaction(ctx context.Context, f func(store.Store) error) error {
+func (s *txCountingStore) ExecuteInTransaction(ctx context.Context, f func(nbstore.Store) error) error {
 	s.txs.Add(1)
 	return s.Store.ExecuteInTransaction(ctx, f)
 }
@@ -3506,7 +3506,7 @@ func TestPeerSyncAndLogin_LockOnlyOnChange(t *testing.T) {
 	counting := &txCountingStore{Store: manager.Store}
 	manager.Store = counting
 
-	current, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+	current, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer1.ID)
 	require.NoError(t, err)
 
 	t.Run("SyncPeer without meta change opens no transaction", func(t *testing.T) {
@@ -3524,13 +3524,13 @@ func TestPeerSyncAndLogin_LockOnlyOnChange(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, int32(1), counting.txs.Load())
 
-		saved, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		saved, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer1.ID)
 		require.NoError(t, err)
 		assert.Equal(t, "lock-on-change-host", saved.Meta.Hostname)
 	})
 
 	t.Run("LoginPeer without change opens no transaction", func(t *testing.T) {
-		saved, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		saved, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer1.ID)
 		require.NoError(t, err)
 
 		counting.txs.Store(0)
@@ -3545,7 +3545,7 @@ func TestPeerSyncAndLogin_LockOnlyOnChange(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, int32(1), counting.txs.Load())
 
-		saved, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		saved, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer1.ID)
 		require.NoError(t, err)
 		assert.Equal(t, "ssh-ed25519 AAAAlockonchange", saved.SSHKey)
 	})
@@ -3556,7 +3556,7 @@ func TestPeerSyncAndLogin_LockOnlyOnChange(t *testing.T) {
 		assert.Equal(t, status.NewPeerLoginMismatchError(), err)
 		assert.Zero(t, counting.txs.Load())
 
-		saved, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		saved, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer1.ID)
 		require.NoError(t, err)
 		assert.Equal(t, "ssh-ed25519 AAAAlockonchange", saved.SSHKey, "a rejected login must not store its ssh key")
 	})
@@ -3577,7 +3577,7 @@ func TestCheckPeerMaySync(t *testing.T) {
 
 	require.NoError(t, manager.CheckPeerMaySync(ctx, account.Id, peer1.Key, nil))
 
-	expired, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+	expired, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer1.ID)
 	require.NoError(t, err)
 	expired.Status.LoginExpired = true
 	require.NoError(t, manager.Store.SavePeer(ctx, account.Id, expired))
@@ -3587,7 +3587,7 @@ func TestCheckPeerMaySync(t *testing.T) {
 	owner.AccountID = account.Id
 	owner.Blocked = true
 	require.NoError(t, manager.Store.SaveUser(ctx, owner))
-	blocked, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+	blocked, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer2.ID)
 	require.NoError(t, err)
 	blocked.UserID = owner.Id
 	require.NoError(t, manager.Store.SavePeer(ctx, account.Id, blocked))
@@ -3603,7 +3603,7 @@ type failingPeerLookupStore struct {
 	store.Store
 }
 
-func (s *failingPeerLookupStore) GetPeerByPeerPubKey(context.Context, store.LockingStrength, string) (*nbpeer.Peer, error) {
+func (s *failingPeerLookupStore) GetPeerByPeerPubKey(context.Context, nbstore.LockingStrength, string) (*nbpeer.Peer, error) {
 	return nil, status.Errorf(status.Internal, "issue getting peer from store: connection reset")
 }
 
