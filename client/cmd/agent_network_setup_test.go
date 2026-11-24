@@ -187,3 +187,24 @@ func TestAgentNetworkSetupSkipsProviderWithNoModel(t *testing.T) {
 	require.NoError(t, err, out)
 	assert.Contains(t, out, "Provider: Open", "the provider with no allowed model is skipped")
 }
+
+func TestAgentNetworkSetupHidesKeyHelper(t *testing.T) {
+	addr, settings := anSetupTestHost(t, &proto.GetAgentNetworkInfoResponse{
+		State:     proto.GetAgentNetworkInfoResponse_OK,
+		Endpoint:  "https://127.0.0.1:1",
+		Providers: []*proto.AgentNetworkProvider{{Name: "A", CatalogId: "anthropic_api", ApiFlavor: "anthropic", AllModelsAllowed: true}},
+	})
+	require.NoError(t, os.MkdirAll(filepath.Dir(settings), 0o700))
+	require.NoError(t, os.WriteFile(settings, []byte(`{"apiKeyHelper":"echo sk-ant-secret"}`), 0o600))
+
+	out, err := runAgentNetworkCmd(addr, "setup", "claude-code", "--dry-run")
+	require.Error(t, err, "the user's helper is a conflict")
+	assert.NotContains(t, out, "sk-ant-secret", "the user's key helper is not printed")
+	assert.Contains(t, out, "apiKeyHelper: (set, hidden) -> \"echo '-'\"", "NetBird's own helper is shown")
+
+	out, err = runAgentNetworkCmd(addr, "setup", "claude-code", "--force")
+	require.NoError(t, err, out)
+	out, err = runAgentNetworkCmd(addr, "setup", "undo", "claude-code", "--dry-run")
+	require.NoError(t, err, out)
+	assert.NotContains(t, out, "sk-ant-secret", "the value undo restores is not printed")
+}

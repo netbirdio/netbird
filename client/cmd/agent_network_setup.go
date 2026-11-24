@@ -24,6 +24,8 @@ import (
 const (
 	anSetupEndpointTimeout = 10 * time.Second
 	anSetupInfoTimeout     = 30 * time.Second
+	// anSetupHiddenPath holds a command that may print a credential.
+	anSetupHiddenPath = "apiKeyHelper"
 )
 
 var (
@@ -407,12 +409,28 @@ func anSetupPrintChanges(cmd *cobra.Command, plan *harness.Plan) {
 		if c.Conflict {
 			mark = "!"
 		}
-		line := fmt.Sprintf("  %s %-7s %s: %s -> %s", mark, c.Action, harness.PathString(c.Path), anSetupValue(c.Before), anSetupValue(c.After))
+		path := harness.PathString(c.Path)
+		before, after := anSetupValue(c.Before), anSetupValue(c.After)
+		if path == anSetupHiddenPath {
+			// Only the value NetBird sets is known to hold no credential.
+			before = anSetupHidden(c.Before)
+			if c.Action != harness.ActionSet {
+				after = anSetupHidden(c.After)
+			}
+		}
+		line := fmt.Sprintf("  %s %-7s %s: %s -> %s", mark, c.Action, path, before, after)
 		if c.Action == harness.ActionKeep {
-			line = fmt.Sprintf("  %s %-7s %s: %s (changed since NetBird wrote it, left alone)", mark, c.Action, harness.PathString(c.Path), anSetupValue(c.Before))
+			line = fmt.Sprintf("  %s %-7s %s: %s (changed since NetBird wrote it, left alone)", mark, c.Action, path, before)
 		}
 		cmd.Println(line)
 	}
+}
+
+func anSetupHidden(raw []byte) string {
+	if raw == nil {
+		return "(absent)"
+	}
+	return "(set, hidden)"
 }
 
 func anSetupValue(raw []byte) string {
