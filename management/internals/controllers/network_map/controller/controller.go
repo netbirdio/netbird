@@ -187,7 +187,9 @@ func (c *Controller) accountExitNodes(ctx context.Context, accountID string) []*
 	if c.exitNodes == nil {
 		return nil
 	}
-	nodes, err := c.exitNodes.ListByAccount(ctx, db.LockingStrengthNone, accountID)
+	// The map is sent to every peer even when the request that triggered it was cancelled,
+	// so a cancellation must not drop the exit nodes from it.
+	nodes, err := c.exitNodes.ListByAccount(context.WithoutCancel(ctx), db.LockingStrengthNone, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get exit nodes for account %s: %v", accountID, err)
 		return nil
