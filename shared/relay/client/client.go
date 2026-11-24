@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"net"
@@ -9,19 +10,15 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/hbwatch"
 	"github.com/netbirdio/netbird/client/netevents/sweep"
 	"github.com/netbirdio/netbird/shared/alignedhb"
-	"github.com/netbirdio/netbird/shared/alignedhb/keepalive"
+	"github.com/netbirdio/netbird/shared/peerauth"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	"github.com/netbirdio/netbird/shared/relay/client/dialer"
-	netErr "github.com/netbirdio/netbird/shared/relay/client/dialer/net"
-	"github.com/netbirdio/netbird/shared/relay/healthcheck"
 	"github.com/netbirdio/netbird/shared/relay/messages"
 )
 
@@ -86,7 +83,7 @@ type connContainer struct {
 	cancel      context.CancelCauseFunc
 }
 
-func newConnContainer(log *log.Entry, c *Client, peerID messages.PeerID, instanceURL *RelayAddr) *connContainer {
+func newConnContainer(log *log.Entry, s *session, peerID messages.PeerID, instanceURL *RelayAddr) *connContainer {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	msgChan := make(chan Msg, connChannelSize)
 	cn := &Conn{
@@ -103,15 +100,15 @@ func newConnContainer(log *log.Entry, c *Client, peerID messages.PeerID, instanc
 		cancel:   cancel,
 	}
 
-	// bind conn to client
+	// bind conn to the session
 	cn.writeFn = func(dstID messages.PeerID, payload []byte) (int, error) {
-		return c.writeTo(cc, dstID, payload)
+		return s.writeTo(cc, dstID, payload)
 	}
 	cn.closeFn = func(dstID messages.PeerID) error {
-		return c.closeConn(cc, dstID)
+		return s.closeConn(cc, dstID)
 	}
 	cn.localAddrFn = func() net.Addr {
-		return c.relayConn.LocalAddr()
+		return s.conn.LocalAddr()
 	}
 	return cc
 }
@@ -179,23 +176,14 @@ type Client struct {
 	serverIP       netip.Addr
 	authTokenStore *auth.TokenStore
 	hashedID       messages.PeerID
+	// authKey signs the proof presented with the auth token. Shared via the manager.
+	authKey ed25519.PrivateKey
 
 	bufPool *sync.Pool
 
-	relayConn        net.Conn
-	conns            map[messages.PeerID]*connContainer
-	earlyMsgs        *earlyMsgBuffer
-	serviceIsRunning bool
-	mu               sync.Mutex // protect serviceIsRunning and conns
-	readLoopMutex    sync.Mutex
-	wgReadLoop       sync.WaitGroup
-	instanceURL      *RelayAddr
-	muInstanceURL    sync.Mutex
-
-	onDisconnectListener func(string)
-	listenerMutex        sync.Mutex
-
-	stateSubscription *PeersStateSubscription
+	session   *session
+	mu        sync.Mutex // protect session
+	connectMu sync.Mutex
 
 	mtu uint16
 
@@ -208,131 +196,15 @@ type Client struct {
 	// read loop reports the disconnect and the guard reconnects. Shared via
 	// the manager.
 	netEvents NetEvents
-	// datagramFallbackTriggered guards a single fallback per connection so a
-	// burst of oversized datagrams triggers one reconnect, not many.
-	datagramFallbackTriggered atomic.Bool
 
-	// transport is the negotiated relay transport of the
-	// current connection, guarded by mu.
-	transport string
-
-	maxMsgSize int
-
-	// alignedPeriod is the heartbeat period the server confirmed on the
-	// current connection in nanoseconds, zero while stock. Connect and the
-	// read loop of the current connection write it under watchMu, status
-	// reads it atomically.
-	alignedPeriod atomic.Int64
 	// alignedRequest returns the aligned heartbeat period to ask for, ok
 	// false for none.
 	alignedRequest func() (period time.Duration, ok bool)
-	// watch marks the home relay client: only it registers with hbwatch.
-	watch atomic.Bool
-	// watchMu guards watchStop, watchSeq and watchGen. watchSeq counts
-	// the Connect calls and watchGen is the sequence the current
-	// registration belongs to: the read loop of an old connection must
-	// not unregister a newer one.
-	watchMu   sync.Mutex
-	watchStop func()
-	watchSeq  int
-	watchGen  int
-	// stopFlag is the flag listenForStopEvents sets on a timeout close of
-	// the current connection. Guarded by mu.
-	stopFlag *internalStopFlag
-}
-
-// Transport returns the negotiated relay transport of the current connection,
-// or an empty string when not connected.
-func (c *Client) Transport() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.transport
 }
 
 // SetTransportFallback wires the shared datagram-transport fallback tracker.
 func (c *Client) SetTransportFallback(tf *transportFallback) {
 	c.transportFallback = tf
-}
-
-// WatchHeartbeats marks this client as the home relay client: it registers
-// with hbwatch on every Connect, and at once when already connected. The
-// manager calls it only for the home client, so foreign relay connections
-// are never watched. It is idempotent.
-func (c *Client) WatchHeartbeats() {
-	c.watch.Store(true)
-	c.mu.Lock()
-	running := c.serviceIsRunning
-	relayConn := c.relayConn
-	stopFlag := c.stopFlag
-	c.mu.Unlock()
-	if !running {
-		return
-	}
-	c.watchMu.Lock()
-	seq := c.watchSeq
-	c.watchMu.Unlock()
-	c.startWatch(seq, relayConn, stopFlag)
-}
-
-// AlignedPeriod returns the heartbeat period the server confirmed on the
-// current connection, zero while stock.
-func (c *Client) AlignedPeriod() time.Duration {
-	return time.Duration(c.alignedPeriod.Load())
-}
-
-// startWatch registers the connection of sequence seq with hbwatch, unless
-// a registration is already in place. Its stale action closes relayConn
-// like a health check timeout, with stopFlag the flag of that connection.
-// It takes only watchMu, so Connect can call it while it holds c.mu.
-func (c *Client) startWatch(seq int, relayConn net.Conn, stopFlag *internalStopFlag) {
-	if !c.watch.Load() {
-		return
-	}
-	reconnect := func() {
-		c.log.Warnf("relay connection is stale, closing it like a health check timeout")
-		if stopFlag != nil {
-			stopFlag.set()
-		}
-		if err := relayConn.Close(); err != nil {
-			c.log.Debugf("failed to close stale relay connection: %s", err)
-		}
-	}
-
-	// Register under watchMu, so only the connection that still owns seq
-	// takes the hbwatch slot. hbwatch never calls back into the relay client
-	// while it holds its own lock.
-	c.watchMu.Lock()
-	defer c.watchMu.Unlock()
-	if c.watchStop != nil || c.watchSeq != seq {
-		return
-	}
-	// The period of a server frame that switched the connection before it
-	// registered goes in with the registration.
-	c.watchStop = hbwatch.Register(hbwatch.Relay, hbwatch.Registration{
-		Kind:          hbwatch.ActionReconnect,
-		Stale:         reconnect,
-		Addr:          c.connectionURL,
-		AlignedPeriod: c.AlignedPeriod(),
-	})
-	c.watchGen = seq
-}
-
-// clearWatchGen unregisters the registration of connection sequence seq,
-// and only that one. It also retires seq, so a WatchHeartbeats that read
-// seq before the read loop exited cannot register the closed connection.
-func (c *Client) clearWatchGen(seq int) {
-	c.watchMu.Lock()
-	if c.watchSeq == seq {
-		c.watchSeq++
-	}
-	if c.watchGen != seq || c.watchStop == nil {
-		c.watchMu.Unlock()
-		return
-	}
-	stop := c.watchStop
-	c.watchStop = nil
-	c.watchMu.Unlock()
-	stop()
 }
 
 // NewClient creates a new client for the relay server. The client is not connected to the server until the Connect
@@ -361,11 +233,8 @@ func NewClientWithServerIP(serverURL string, serverIP netip.Addr, authTokenStore
 				return &buf
 			},
 		},
-		conns:          make(map[messages.PeerID]*connContainer),
 		alignedRequest: alignedhb.ClientPeriod,
 	}
-
-	c.earlyMsgs = newEarlyMsgBuffer()
 
 	c.log.Infof("create new relay connection: local peerID: %s, local peer hashedID: %s", peerID, hashedID)
 	return c
@@ -373,55 +242,8 @@ func NewClientWithServerIP(serverURL string, serverIP netip.Addr, authTokenStore
 
 // Connect establishes a connection to the relay server. It blocks until the connection is established or an error occurs.
 func (c *Client) Connect(ctx context.Context) error {
-	c.log.Infof("connecting to relay server")
-	c.readLoopMutex.Lock()
-	defer c.readLoopMutex.Unlock()
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.serviceIsRunning {
-		return nil
-	}
-
-	instanceURL, err := c.connect(ctx)
-	if err != nil {
-		return err
-	}
-	c.muInstanceURL.Lock()
-	c.instanceURL = instanceURL
-	c.muInstanceURL.Unlock()
-
-	c.stateSubscription = NewPeersStateSubscription(c.log, c.relayConn, c.maxMsgSize, c.closeConnsByPeerID)
-
-	c.log = c.log.WithField("relay", instanceURL.String())
-	c.log.Infof("relay connection established, server IP: %s", connectedIP(c.relayConn))
-
-	c.serviceIsRunning = true
-	c.stopFlag = newInternalStopFlag()
-	internallyStoppedFlag := c.stopFlag
-	c.watchMu.Lock()
-	c.watchSeq++
-	watchSeq := c.watchSeq
-	c.alignedPeriod.Store(0)
-	c.watchMu.Unlock()
-
-	// Ask for the aligned heartbeat right after the auth response. A stock
-	// server ignores the payload and stays stock.
-	if period, ok := c.askedPeriod(); ok {
-		if _, err := c.relayConn.Write(messages.MarshalHealthcheckWithPeriod(uint16(period / time.Second))); err != nil {
-			c.log.Debugf("failed to send aligned heartbeat request: %s", err)
-		}
-	}
-	c.startWatch(watchSeq, c.relayConn, internallyStoppedFlag)
-
-	hc := healthcheck.NewReceiver(c.log)
-	go c.listenForStopEvents(ctx, hc, c.relayConn, internallyStoppedFlag)
-
-	c.wgReadLoop.Add(1)
-	go c.readLoop(hc, c.relayConn, internallyStoppedFlag, watchSeq)
-
-	return nil
+	_, err := c.ConnectSession(ctx)
+	return err
 }
 
 // OpenConn create a new Conn for the destination peer ID. In case if the connection is in progress
@@ -430,97 +252,103 @@ func (c *Client) Connect(ctx context.Context) error {
 // It block until the server confirm the peer is online.
 // todo: what should happen if call with the same peerID with multiple times?
 func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (*Conn, error) {
-	peerID := messages.HashID(dstPeerID)
-
-	c.mu.Lock()
-	if !c.serviceIsRunning {
-		c.mu.Unlock()
+	c.connectMu.Lock()
+	s := c.CurrentSession()
+	c.connectMu.Unlock()
+	if s == nil {
 		return nil, fmt.Errorf("relay connection is not established")
 	}
-	_, ok := c.conns[peerID]
-	if ok {
-		c.mu.Unlock()
-		return nil, ErrConnAlreadyExists
-	}
-
-	c.log.Infof("prepare the relayed connection, waiting for remote peer: %s", peerID)
-
-	c.muInstanceURL.Lock()
-	instanceURL := c.instanceURL
-	c.muInstanceURL.Unlock()
-
-	container := newConnContainer(c.log, c, peerID, instanceURL)
-	c.conns[peerID] = container
-	earlyMsg, hasEarly := c.earlyMsgs.pop(peerID)
-	c.mu.Unlock()
-
-	if hasEarly {
-		container.writeMsg(earlyMsg)
-		c.log.Tracef("flushed buffered early message for peer: %s", peerID)
-	}
-
-	if err := c.stateSubscription.WaitToBeOnlineAndSubscribe(ctx, peerID); err != nil {
-		c.log.Errorf("peer not available: %s, %s", peerID, err)
-		c.mu.Lock()
-		if savedContainer, ok := c.conns[peerID]; ok && savedContainer == container {
-			delete(c.conns, peerID)
-		}
-		c.mu.Unlock()
-		container.close(err)
-		return nil, err
-	}
-
-	c.mu.Lock()
-	if !c.serviceIsRunning {
-		if savedContainer, ok := c.conns[peerID]; ok && savedContainer == container {
-			delete(c.conns, peerID)
-		}
-		c.mu.Unlock()
-		container.close(ErrServerDisconnected)
-		return nil, fmt.Errorf("relay connection is not established")
-	}
-	c.mu.Unlock()
-
-	c.log.Infof("remote peer is available: %s", peerID)
-	return container.conn, nil
+	return s.OpenConn(ctx, messages.HashID(dstPeerID))
 }
 
 // ServerInstanceURL returns the address of the relay server. It could change after the close and reopen the connection.
 func (c *Client) ServerInstanceURL() (string, error) {
-	c.muInstanceURL.Lock()
-	defer c.muInstanceURL.Unlock()
-	if c.instanceURL == nil {
+	s := c.CurrentSession()
+	if s == nil {
 		return "", fmt.Errorf("relay connection is not established")
 	}
-	return c.instanceURL.String(), nil
-}
-
-// SetOnDisconnectListener sets a function that will be called when the connection to the relay server is closed.
-func (c *Client) SetOnDisconnectListener(fn func(string)) {
-	c.listenerMutex.Lock()
-	defer c.listenerMutex.Unlock()
-	c.onDisconnectListener = fn
+	return s.instanceURL.String(), nil
 }
 
 // HasConns returns true if there are connections.
 func (c *Client) HasConns() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return len(c.conns) > 0
+	s := c.CurrentSession()
+	return s != nil && s.HasConns()
 }
 
 func (c *Client) Ready() bool {
+	return c.CurrentSession() != nil
+}
+
+// Close closes the connection to the relay server and all connections to other peers,
+// and waits until the session has ended. It returns nil right away when the client has
+// no current session. A session is detached as the first step of its teardown, so
+// Close does not wait for a teardown that was started elsewhere and is still running.
+func (c *Client) Close() error {
+	c.connectMu.Lock()
+	s := c.CurrentSession()
+	c.connectMu.Unlock()
+	if s == nil {
+		return nil
+	}
+
+	err := s.Close(true)
+	s.Wait(context.Background())
+	return err
+}
+
+func (c *Client) ConnectSession(ctx context.Context) (*session, error) {
+	c.log.Infof("connecting to relay server")
+	c.connectMu.Lock()
+	defer c.connectMu.Unlock()
+
+	if s := c.CurrentSession(); s != nil {
+		return s, nil
+	}
+
+	s, err := c.connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	c.mu.Lock()
+	c.session = s
+	c.mu.Unlock()
+
+	s.log.Infof("relay connection established, server IP: %s", connectedIP(s.conn))
+
+	s.askAligned()
+
+	go s.ListenForStopEvents(ctx)
+	go s.ReadLoop()
+
+	return s, nil
+}
+
+func (c *Client) DetachSession(s *session) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.serviceIsRunning
+	if c.session == s {
+		c.session = nil
+	}
 }
 
-// Close closes the connection to the relay server and all connections to other peers.
-func (c *Client) Close() error {
-	return c.close(true)
+func (c *Client) CurrentSession() *session {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.session
 }
 
-func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
+// askedPeriod returns the aligned heartbeat period this client asks for, ok
+// false for none, also on a Client built without NewClient.
+func (c *Client) askedPeriod() (time.Duration, bool) {
+	if c.alignedRequest == nil {
+		return 0, false
+	}
+	return c.alignedRequest()
+}
+
+func (c *Client) connect(ctx context.Context) (*session, error) {
 	// A sweep cancels this context, so a dial started on the old network
 	// aborts instead of waiting out its handshake timeout.
 	var dial *sweep.Dial
@@ -558,19 +386,18 @@ func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 	}
 	// Read the transport off the concrete connection: the sweeper's wrapper
 	// embeds net.Conn only, so it does not promote Protocol().
+	var transport string
 	if tc, ok := conn.(transportConn); ok {
-		c.transport = tc.Protocol()
+		transport = tc.Protocol()
 	}
-	c.maxMsgSize = maxMessageSize(conn)
+	maxMsgSize := maxMessageSize(conn)
 
 	conn, err := dial.WrapConn(conn)
 	if err != nil {
 		return nil, fmt.Errorf("register connection: %w", err)
 	}
-	c.relayConn = conn
-	c.datagramFallbackTriggered.Store(false)
 
-	instanceURL, err := c.handShake(ctx)
+	instanceURL, version, err := c.handShake(ctx, conn)
 	if err != nil {
 		cErr := conn.Close()
 		if cErr != nil {
@@ -579,7 +406,7 @@ func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 		return nil, err
 	}
 
-	return instanceURL, nil
+	return newSession(c, conn, instanceURL, transport, messages.NewEncoder(version, maxMsgSize)), nil
 }
 
 // dialRaceDirect dials c.serverIP, preserving the original FQDN as the TLS ServerName for SNI.
@@ -631,461 +458,86 @@ func substituteHost(serverURL string, ip netip.Addr) (string, string, error) {
 	return u.String(), origHost, nil
 }
 
-func (c *Client) handShake(ctx context.Context) (*RelayAddr, error) {
-	msg, err := messages.MarshalAuthMsg(c.hashedID, c.authTokenStore.TokenBinary())
+func (c *Client) handShake(ctx context.Context, conn net.Conn) (*RelayAddr, messages.ProtocolVersion, error) {
+	msg, advertised, err := c.authMsg()
 	if err != nil {
 		c.log.Errorf("failed to marshal auth message: %s", err)
-		return nil, err
+		return nil, 0, err
 	}
 
-	_, err = c.relayConn.Write(msg)
+	_, err = conn.Write(msg)
 	if err != nil {
 		c.log.Errorf("failed to send auth message: %s", err)
-		return nil, err
+		return nil, 0, err
 	}
 	buf := make([]byte, messages.MaxHandshakeRespSize)
-	n, err := c.readWithTimeout(ctx, buf)
+	n, err := c.readWithTimeout(ctx, conn, buf)
 	if err != nil {
-		c.log.Errorf("failed to read auth response: %s", err)
-		return nil, err
+		c.log.Errorf("failed to read auth response, bound token presented: %t: %s", advertised == messages.ProtocolV2, err)
+		return nil, 0, err
 	}
 
-	_, err = messages.ValidateVersion(buf[:n])
+	version, err := messages.ValidateSelectedVersion(buf[:n], advertised)
 	if err != nil {
-		return nil, fmt.Errorf("validate version: %w", err)
+		return nil, 0, fmt.Errorf("validate version: %w", err)
 	}
 
 	msgType, err := messages.DetermineServerMessageType(buf[:n])
 	if err != nil {
 		c.log.Errorf("failed to determine message type: %s", err)
-		return nil, err
+		return nil, 0, err
 	}
 
 	if msgType != messages.MsgTypeAuthResponse {
 		c.log.Errorf("unexpected message type: %s", msgType)
-		return nil, fmt.Errorf("unexpected message type")
+		return nil, 0, fmt.Errorf("unexpected message type")
 	}
 
 	addr, err := messages.UnmarshalAuthResponse(buf[:n])
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return &RelayAddr{addr: addr}, nil
+	return &RelayAddr{addr: addr}, version, nil
 }
 
-func (c *Client) readLoop(hc *healthcheck.Receiver, relayConn net.Conn, internallyStoppedFlag *internalStopFlag, watchSeq int) {
-	var (
-		errExit error
-		n       int
-	)
-	for {
-		bufPtr := c.bufPool.Get().(*[]byte)
-		buf := *bufPtr
-		n, errExit = relayConn.Read(buf)
-		if errExit != nil {
-			c.log.Infof("start to Relay read loop exit")
-			c.mu.Lock()
-			if c.serviceIsRunning && !internallyStoppedFlag.isSet() {
-				c.log.Errorf("failed to read message from relay server: %s", errExit)
-			}
-			c.mu.Unlock()
-			c.bufPool.Put(bufPtr)
-			break
-		}
-
-		buf = buf[:n]
-
-		_, err := messages.ValidateVersion(buf)
-		if err != nil {
-			c.log.Errorf("failed to validate protocol version: %s", err)
-			c.bufPool.Put(bufPtr)
-			continue
-		}
-
-		msgType, err := messages.DetermineServerMessageType(buf)
-		if err != nil {
-			c.log.Errorf("failed to determine message type: %s", err)
-			c.bufPool.Put(bufPtr)
-			continue
-		}
-
-		if !c.handleMsg(msgType, buf, bufPtr, hc, relayConn, watchSeq, internallyStoppedFlag) {
-			break
-		}
+// authMsg builds the auth envelope with a proof when the store holds the auth token, otherwise
+// the legacy auth message, and returns the version it advertises.
+func (c *Client) authMsg() ([]byte, messages.ProtocolVersion, error) {
+	token, isAuthToken := c.authTokenStore.Credentials()
+	if !isAuthToken {
+		msg, err := messages.MarshalAuthMsg(c.hashedID, token)
+		return msg, messages.CurrentProtocolVersion, err
+	}
+	if c.authKey == nil {
+		return nil, 0, errors.New("auth token without auth key")
 	}
 
-	hc.Stop()
-	c.clearWatchGen(watchSeq)
-
-	c.stateSubscription.Cleanup()
-	c.wgReadLoop.Done()
-	_ = c.close(false)
-	c.notifyDisconnected()
-}
-
-func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte, hc *healthcheck.Receiver, relayConn net.Conn, watchSeq int, internallyStoppedFlag *internalStopFlag) (continueLoop bool) {
-	switch msgType {
-	case messages.MsgTypeHealthCheck:
-		c.handleHealthCheck(buf, hc, relayConn, watchSeq, internallyStoppedFlag)
-		c.bufPool.Put(bufPtr)
-	case messages.MsgTypeTransport:
-		return c.handleTransportMsg(buf, bufPtr, internallyStoppedFlag)
-	case messages.MsgTypePeersOnline:
-		c.handlePeersOnlineMsg(buf)
-		c.bufPool.Put(bufPtr)
-		return true
-	case messages.MsgTypePeersWentOffline:
-		c.handlePeersWentOfflineMsg(buf)
-		c.bufPool.Put(bufPtr)
-		return true
-	case messages.MsgTypeClose:
-		c.log.Debugf("relay connection close by server")
-		c.bufPool.Put(bufPtr)
-		return false
-	}
-
-	return true
-}
-
-func (c *Client) handleHealthCheck(buf []byte, hc *healthcheck.Receiver, relayConn net.Conn, watchSeq int, internallyStoppedFlag *internalStopFlag) {
-	c.switchAligned(buf, hc, relayConn, watchSeq)
-
-	msg := messages.MarshalHealthcheck()
-	if period := c.answerPeriod(); period > 0 {
-		msg = messages.MarshalHealthcheckWithPeriod(uint16(period / time.Second))
-	}
-	_, wErr := c.relayConn.Write(msg)
-	if wErr != nil {
-		if c.serviceIsRunning && !internallyStoppedFlag.isSet() {
-			c.log.Errorf("failed to send heartbeat: %s", wErr)
-		}
-	}
-	hc.Heartbeat()
-}
-
-// answerPeriod returns the period a health check answer carries: the
-// confirmed one once aligned, else the requested one, so a server that
-// missed the first frame switches at a later answer. Zero keeps the stock
-// frame.
-func (c *Client) answerPeriod() time.Duration {
-	if period := c.AlignedPeriod(); period > 0 {
-		return period
-	}
-	if period, ok := c.askedPeriod(); ok {
-		return period
-	}
-	return 0
-}
-
-// askedPeriod returns the aligned heartbeat period this client asks for, ok
-// false for none, also on a Client built without NewClient.
-func (c *Client) askedPeriod() (time.Duration, bool) {
-	if c.alignedRequest == nil {
-		return 0, false
-	}
-	return c.alignedRequest()
-}
-
-// switchAligned moves the receiver to the aligned timeout at the first
-// server health check that carries a valid period, and records every
-// aligned server frame with hbwatch. relayConn and watchSeq are the
-// connection and Connect sequence of the read loop that got the frame. A
-// payload of one byte or a period of zero stays stock.
-func (c *Client) switchAligned(buf []byte, hc *healthcheck.Receiver, relayConn net.Conn, watchSeq int) {
-	periodSeconds, ok, err := messages.UnmarshalHealthcheckPeriod(buf)
+	u, err := url.Parse(c.connectionURL)
 	if err != nil {
-		c.log.Tracef("ignoring health check period: %s", err)
-		return
+		return nil, 0, fmt.Errorf("parse relay URL: %w", err)
 	}
-	if !ok {
-		return
-	}
-	period := alignedhb.ClampPeriod(time.Duration(periodSeconds) * time.Second)
-	switched, current := c.storeAlignedPeriod(watchSeq, period)
-	if !current {
-		return
-	}
-	if switched {
-		hc.SetTimeout(alignedhb.ReceiveTimeout(period))
-		if err := keepalive.SetAligned(relayConn, period); err != nil && !errors.Is(err, keepalive.ErrNotTCP) {
-			c.log.Debugf("failed to set TCP keepalive for heartbeat period %s: %v", period, err)
-		}
-		phase := alignedhb.Phase(c.hashedID, period)
-		c.log.Infof("aligned heartbeat on, period %s, phase %d ms", period, phase.Milliseconds())
-	}
-	if c.watch.Load() {
-		hbwatch.Seen(hbwatch.Relay, period)
-	}
-}
-
-// storeAlignedPeriod records period for the connection of Connect sequence
-// watchSeq and reports whether it changed. current is false once a newer
-// Connect replaced that connection: an old read loop that drains its last
-// frames must not mark the new connection aligned before its server does.
-func (c *Client) storeAlignedPeriod(watchSeq int, period time.Duration) (switched, current bool) {
-	c.watchMu.Lock()
-	defer c.watchMu.Unlock()
-	if c.watchSeq != watchSeq {
-		return false, false
-	}
-	return c.alignedPeriod.Swap(int64(period)) != int64(period), true
-}
-
-func (c *Client) handleTransportMsg(buf []byte, bufPtr *[]byte, internallyStoppedFlag *internalStopFlag) bool {
-	peerID, payload, err := messages.UnmarshalTransportMsg(buf)
+	proof, err := peerauth.SignProof(c.authKey, peerauth.ServiceRelay, token, u.Hostname(), time.Now())
 	if err != nil {
-		if c.serviceIsRunning && !internallyStoppedFlag.isSet() {
-			c.log.Errorf("failed to parse transport message: %v", err)
-		}
-
-		c.bufPool.Put(bufPtr)
-		return true
+		return nil, 0, fmt.Errorf("sign proof: %w", err)
 	}
-
-	c.mu.Lock()
-	if !c.serviceIsRunning {
-		c.mu.Unlock()
-		c.bufPool.Put(bufPtr)
-		return false
-	}
-	container, ok := c.conns[*peerID]
-	earlyBuf := c.earlyMsgs
-	c.mu.Unlock()
-	if !ok {
-		msg := Msg{
-			bufPool: c.bufPool,
-			bufPtr:  bufPtr,
-			Payload: payload,
-		}
-		if earlyBuf == nil || !earlyBuf.put(*peerID, msg) {
-			c.log.Warnf("failed to buffer early message for peer: %s", peerID.String())
-			c.bufPool.Put(bufPtr)
-		} else {
-			c.log.Debugf("buffered early transport message for peer: %s", peerID.String())
-		}
-		return true
-	}
-	msg := Msg{
-		bufPool: c.bufPool,
-		bufPtr:  bufPtr,
-		Payload: payload,
-	}
-	container.writeMsg(msg)
-	return true
-}
-
-func (c *Client) writeTo(containerRef *connContainer, dstID messages.PeerID, payload []byte) (int, error) {
-	c.mu.Lock()
-	current, ok := c.conns[dstID]
-	c.mu.Unlock()
-	if !ok {
-		return 0, net.ErrClosed
-	}
-
-	if current != containerRef {
-		return 0, net.ErrClosed
-	}
-
-	// todo: use buffer pool instead of create new transport msg.
-	msg, err := messages.MarshalTransportMsg(dstID, payload)
+	ext, err := peerauth.MarshalRelayExtension(proof)
 	if err != nil {
-		c.log.Errorf("failed to marshal transport message: %s", err)
-		return 0, err
+		return nil, 0, fmt.Errorf("marshal proof: %w", err)
 	}
-
-	// the write always return with 0 length because the underling does not support the size feedback.
-	conn := c.relayConn
-	_, err = conn.Write(msg)
-	if err != nil {
-		if errors.Is(err, netErr.ErrDatagramTooLarge) {
-			c.onDatagramTooLarge(conn, err)
-		} else {
-			c.log.Errorf("failed to write transport message: %s", err)
-		}
-	}
-	return len(payload), err
-}
-
-// onDatagramTooLarge reacts to a datagram rejected as too large for the path.
-// When a non-datagram transport is available, it records a fallback for this
-// server and closes the connection so the reconnect avoids datagram-sized
-// transports. A single fallback is triggered per connection regardless of how
-// many oversized datagrams arrive. cause carries the datagram size and budget.
-func (c *Client) onDatagramTooLarge(conn net.Conn, cause error) {
-	// Handle one oversized datagram per connection; a burst triggers a single
-	// fallback (and a single log line), not many.
-	if !c.datagramFallbackTriggered.CompareAndSwap(false, true) {
-		return
-	}
-
-	// If the selected mode offers no non-datagram transport (e.g. pinned to a
-	// datagram-sized transport), reconnecting would just re-fail, so leave the
-	// connection up rather than loop.
-	if len(nonDatagramSized(c.baseDialers(transportModeFromEnv()))) == 0 {
-		c.log.Warnf("%s, but no non-datagram transport is available, not falling back", cause)
-		return
-	}
-
-	// Without the shared tracker a reconnect would just select the same
-	// transport again and re-fail, so leave the connection up rather than loop.
-	if c.transportFallback == nil {
-		c.log.Debugf("%s, but no transport fallback configured, leaving connection up", cause)
-		return
-	}
-
-	window := c.transportFallback.recordFailure(c.connectionURL)
-	c.log.Warnf("%s, avoiding datagram-sized transport for %s", cause, window)
-
-	if err := conn.Close(); err != nil {
-		c.log.Debugf("close relay connection for transport fallback: %s", err)
-	}
-}
-
-func (c *Client) listenForStopEvents(ctx context.Context, hc *healthcheck.Receiver, conn net.Conn, internalStopFlag *internalStopFlag) {
-	for {
-		select {
-		case _, ok := <-hc.OnTimeout:
-			if !ok {
-				return
-			}
-			c.log.Errorf("health check timeout")
-			internalStopFlag.set()
-			if err := conn.Close(); err != nil {
-				// ignore the err handling because the readLoop will handle it
-				c.log.Warnf("failed to close connection: %s", err)
-			}
-			return
-		case <-ctx.Done():
-			err := c.close(true)
-			if err != nil {
-				c.log.Errorf("failed to teardown connection: %s", err)
-			}
-			return
-		}
-	}
+	msg, err := messages.MarshalAuthEnvelope(messages.ProtocolV2, c.hashedID, token, ext)
+	return msg, messages.ProtocolV2, err
 }
 
 func (c *Client) serverInstanceAddress() (string, netip.Addr, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	addr, err := c.ServerInstanceURL()
-	if err != nil {
-		return "", netip.Addr{}, err
+	s := c.CurrentSession()
+	if s == nil {
+		return "", netip.Addr{}, fmt.Errorf("relay connection is not established")
 	}
-	return addr, connectedIP(c.relayConn), nil
+	return s.instanceURL.String(), connectedIP(s.conn), nil
 }
 
-func (c *Client) closeAllConns() {
-	for _, container := range c.conns {
-		container.close(ErrServerDisconnected)
-	}
-	c.conns = make(map[messages.PeerID]*connContainer)
-
-	c.earlyMsgs.close()
-	c.earlyMsgs = newEarlyMsgBuffer()
-}
-
-func (c *Client) closeConnsByPeerID(peerIDs []messages.PeerID) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	for _, peerID := range peerIDs {
-		container, ok := c.conns[peerID]
-		if !ok {
-			c.log.Warnf("can not close connection, peer not found: %s", peerID)
-			continue
-		}
-
-		container.log.Infof("remote peer has been disconnected, free up connection: %s", peerID)
-		container.close(ErrPeerDisconnected)
-		delete(c.conns, peerID)
-	}
-
-	if err := c.stateSubscription.UnsubscribeStateChange(peerIDs); err != nil {
-		c.log.Errorf("failed to unsubscribe from peer state change: %s, %s", peerIDs, err)
-	}
-}
-
-func (c *Client) closeConn(containerRef *connContainer, id messages.PeerID) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	current, ok := c.conns[id]
-	if !ok {
-		return net.ErrClosed
-	}
-
-	if current != containerRef {
-		return fmt.Errorf("conn reference mismatch")
-	}
-
-	if err := c.stateSubscription.UnsubscribeStateChange([]messages.PeerID{id}); err != nil {
-		current.log.Errorf("failed to unsubscribe from peer state change: %s", err)
-	}
-
-	c.log.Infof("free up connection to peer: %s", id)
-	delete(c.conns, id)
-	current.close(net.ErrClosed)
-
-	return nil
-}
-
-func (c *Client) close(gracefullyExit bool) error {
-	c.readLoopMutex.Lock()
-	defer c.readLoopMutex.Unlock()
-
-	c.mu.Lock()
-	var err error
-	if !c.serviceIsRunning {
-		c.mu.Unlock()
-		c.log.Warn("relay connection was already marked as not running")
-		return nil
-	}
-	c.serviceIsRunning = false
-	c.transport = ""
-
-	c.muInstanceURL.Lock()
-	c.instanceURL = nil
-	c.muInstanceURL.Unlock()
-
-	c.log.Infof("closing all peer connections")
-	c.closeAllConns()
-	if gracefullyExit {
-		c.writeCloseMsg()
-	}
-	err = c.relayConn.Close()
-	c.mu.Unlock()
-
-	c.log.Infof("waiting for read loop to close")
-	c.wgReadLoop.Wait()
-	// Reset only once the read loop is gone: a frame it still drains would
-	// store the period again.
-	c.alignedPeriod.Store(0)
-	c.log.Infof("relay connection closed")
-	return err
-}
-
-func (c *Client) notifyDisconnected() {
-	c.listenerMutex.Lock()
-	defer c.listenerMutex.Unlock()
-
-	if c.onDisconnectListener == nil {
-		return
-	}
-	go c.onDisconnectListener(c.connectionURL)
-}
-
-func (c *Client) writeCloseMsg() {
-	msg := messages.MarshalCloseMsg()
-	_, err := c.relayConn.Write(msg)
-	if err != nil {
-		c.log.Errorf("failed to send close message: %s", err)
-	}
-}
-
-func (c *Client) readWithTimeout(ctx context.Context, buf []byte) (int, error) {
+func (c *Client) readWithTimeout(ctx context.Context, conn net.Conn, buf []byte) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, serverResponseTimeout)
 	defer cancel()
 
@@ -1096,7 +548,7 @@ func (c *Client) readWithTimeout(ctx context.Context, buf []byte) (int, error) {
 	)
 
 	go func() {
-		n, err = c.relayConn.Read(buf)
+		n, err = conn.Read(buf)
 		close(readDone)
 	}()
 
@@ -1106,24 +558,6 @@ func (c *Client) readWithTimeout(ctx context.Context, buf []byte) (int, error) {
 	case <-readDone:
 		return n, err
 	}
-}
-
-func (c *Client) handlePeersOnlineMsg(buf []byte) {
-	peersID, err := messages.UnmarshalPeersOnlineMsg(buf)
-	if err != nil {
-		c.log.Errorf("failed to unmarshal peers online msg: %s", err)
-		return
-	}
-	c.stateSubscription.OnPeersOnline(peersID)
-}
-
-func (c *Client) handlePeersWentOfflineMsg(buf []byte) {
-	peersID, err := messages.UnMarshalPeersWentOffline(buf)
-	if err != nil {
-		c.log.Errorf("failed to unmarshal peers went offline msg: %s", err)
-		return
-	}
-	c.stateSubscription.OnPeersWentOffline(peersID)
 }
 
 func connectedIP(conn net.Conn) netip.Addr {

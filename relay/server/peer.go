@@ -19,25 +19,37 @@ import (
 )
 
 const (
-	bufferSize = messages.MaxMessageSize
+	bufferSize    = messages.MaxMessageSize
+	sendQueueSize = 128
 
 	errCloseConn = "failed to close connection to peer: %s"
 )
 
+var msgBufPool = sync.Pool{
+	New: func() any {
+		buf := make([]byte, bufferSize)
+		return &buf
+	},
+}
+
 // Peer represents a peer connection
 type Peer struct {
-	metrics  *metrics.Metrics
-	log      *log.Entry
-	id       messages.PeerID
-	version  messages.ProtocolVersion
-	enc      messages.Encoder
-	conn     listener.Conn
-	connMu   sync.RWMutex
-	store    *store.Store
-	notifier *store.PeerNotifier
+	metrics *metrics.Metrics
+	log     *log.Entry
+	id      messages.PeerID
+	version messages.ProtocolVersion
+	enc     messages.Encoder
+	// authenticated is set before the peer is stored and never changes after.
+	authenticated bool
+	conn          listener.Conn
+	connMu        sync.RWMutex
+	store         *store.Store
+	notifier      *store.PeerNotifier
 
 	ctx       context.Context
 	ctxCancel context.CancelFunc
+
+	sendQueue chan *[]byte
 
 	peersListener *store.Listener
 
@@ -67,6 +79,7 @@ func NewPeer(metrics *metrics.Metrics, id messages.PeerID, version messages.Prot
 		notifier:  notifier,
 		ctx:       ctx,
 		ctxCancel: cancel,
+		sendQueue: make(chan *[]byte, sendQueueSize),
 	}
 
 	return p
@@ -94,9 +107,15 @@ func (p *Peer) Work() {
 	hc := healthcheck.NewSender(p.log)
 	go hc.StartHealthCheck(ctx)
 	go p.handleHealthcheckEvents(ctx, hc)
+	go p.sendLoop(ctx)
 
-	buf := make([]byte, bufferSize)
+	bufPtr := msgBufPool.Get().(*[]byte)
+	defer func() {
+		msgBufPool.Put(bufPtr)
+	}()
+
 	for {
+		buf := (*bufPtr)[:bufferSize]
 		n, err := p.conn.Read(ctx, buf)
 		if err != nil {
 			if !errors.Is(err, net.ErrClosed) {
@@ -123,7 +142,9 @@ func (p *Peer) Work() {
 			continue
 		}
 
-		p.handleMsgType(ctx, msgType, hc, n, msg)
+		if p.handleMsgType(ctx, msgType, hc, msg, bufPtr) {
+			bufPtr = msgBufPool.Get().(*[]byte)
+		}
 	}
 }
 
@@ -131,20 +152,25 @@ func (p *Peer) ID() messages.PeerID {
 	return p.id
 }
 
+// Authenticated reports whether the peer presented a valid token bound to its keys with a proof.
+func (p *Peer) Authenticated() bool {
+	return p.authenticated
+}
+
 // Version returns the protocol version selected for this connection
 func (p *Peer) Version() messages.ProtocolVersion {
 	return p.version
 }
 
-func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, hc *healthcheck.Sender, n int, msg []byte) {
+func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, hc *healthcheck.Sender, msg []byte, bufPtr *[]byte) bool {
 	switch msgType {
 	case messages.MsgTypeHealthCheck:
 		hc.OnHCResponse()
 		p.switchAligned(msg, hc)
 	case messages.MsgTypeTransport:
-		p.metrics.TransferBytesRecv.Add(ctx, int64(n))
+		p.metrics.TransferBytesRecv.Add(ctx, int64(len(msg)))
 		p.metrics.PeerActivity(p.String())
-		p.handleTransportMsg(msg)
+		return p.handleTransportMsg(msg, bufPtr)
 	case messages.MsgTypeClose:
 		p.log.Infof("peer exited gracefully")
 		if err := p.conn.Close(); err != nil {
@@ -157,6 +183,7 @@ func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, hc *
 	default:
 		p.log.Tracef("drop %s message: not allowed after authentication", msgType)
 	}
+	return false
 }
 
 // Write writes data to the connection
@@ -233,32 +260,29 @@ func (p *Peer) handleHealthcheckEvents(ctx context.Context, hc *healthcheck.Send
 	}
 }
 
-func (p *Peer) handleTransportMsg(msg []byte) {
+func (p *Peer) handleTransportMsg(msg []byte, bufPtr *[]byte) bool {
 	peerID, err := messages.UnmarshalTransportID(msg)
 	if err != nil {
 		p.log.Errorf("failed to unmarshal transport message: %s", err)
-		return
+		return false
 	}
 
 	item, ok := p.store.Peer(*peerID)
 	if !ok {
 		p.log.Debugf("peer not found: %s", peerID)
-		return
+		return false
 	}
 	dp := item.(*Peer)
 
 	err = messages.UpdateTransportMsg(msg, dp.version, p.id)
 	if err != nil {
 		p.log.Errorf("failed to update transport message: %s", err)
-		return
+		return false
 	}
 
-	n, err := dp.Write(dp.ctx, msg)
-	if err != nil {
-		p.log.Errorf("failed to write transport message to: %s", dp.String())
-		return
-	}
-	p.metrics.TransferBytesSent.Add(p.ctx, int64(n))
+	*bufPtr = msg
+	dp.enqueueTransport(bufPtr)
+	return true
 }
 
 func (p *Peer) handleSubscribePeerState(msg []byte) {
@@ -360,4 +384,58 @@ func (p *Peer) healthcheckFrame() []byte {
 		return p.enc.HealthcheckWithPeriod(uint16(period))
 	}
 	return p.enc.Healthcheck()
+}
+
+func (p *Peer) enqueueTransport(bufPtr *[]byte) {
+	for {
+		select {
+		case p.sendQueue <- bufPtr:
+			return
+		default:
+		}
+		p.dropOldestQueued()
+	}
+}
+
+func (p *Peer) dropOldestQueued() {
+	select {
+	case oldest := <-p.sendQueue:
+		msgBufPool.Put(oldest)
+		p.log.Tracef("drop the oldest queued transport message: send queue is full")
+	default:
+	}
+}
+
+func (p *Peer) sendLoop(ctx context.Context) {
+	defer p.drainSendQueue()
+
+	for {
+		select {
+		case bufPtr := <-p.sendQueue:
+			n, err := p.Write(ctx, *bufPtr)
+			msgBufPool.Put(bufPtr)
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
+			if err != nil {
+				p.log.Error("failed to write transport message")
+				p.log.Debugf("transport message write error: %s", err)
+				continue
+			}
+			p.metrics.TransferBytesSent.Add(ctx, int64(n))
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (p *Peer) drainSendQueue() {
+	for {
+		select {
+		case bufPtr := <-p.sendQueue:
+			msgBufPool.Put(bufPtr)
+		default:
+			return
+		}
+	}
 }

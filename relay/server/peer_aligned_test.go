@@ -34,7 +34,7 @@ func alignedTestPeer(t *testing.T, ctx context.Context, name string) (*Peer, *sc
 
 // answer feeds a client health check frame to the peer's message handler.
 func answer(ctx context.Context, p *Peer, hc *healthcheck.Sender, frame []byte) {
-	p.handleMsgType(ctx, messages.MsgTypeHealthCheck, hc, len(frame), frame)
+	p.handleMsgType(ctx, messages.MsgTypeHealthCheck, hc, frame, nil)
 }
 
 // lastFrame returns the last frame the peer wrote.
@@ -70,6 +70,8 @@ func TestPeerAlignedHealthchecks(t *testing.T) {
 		const period = 30 * time.Second
 		phase := alignedhb.Phase(messages.HashID("aligned-peer"), period)
 		withPeriod := messages.MarshalHealthcheckWithPeriod(1)
+		answer(ctx, p, hc, withPeriod)
+		<-writes // the send at the switch, see TestPeerAlignedSwitchSendsAtOnce
 		var lastAnswer time.Time
 		for i := 0; i < 3; i++ {
 			answer(ctx, p, hc, withPeriod)
@@ -91,6 +93,56 @@ func TestPeerAlignedHealthchecks(t *testing.T) {
 			}
 		}
 		assert.LessOrEqual(t, time.Since(lastAnswer), 2*(period+20*time.Second), "silent aligned peer closed")
+	})
+}
+
+// A client that asks for the period just after its phase gets a health
+// check with the period at once, not at the next phase almost a period
+// later: the client keeps its stock 35 s receive timeout until such a frame.
+func TestPeerAlignedSwitchSendsAtOnce(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		p, conn, hc, writes := alignedTestPeer(t, ctx, "switch-peer")
+		const period = 60 * time.Second
+		const clientStockTimeout = 35 * time.Second
+		phase := alignedhb.Phase(messages.HashID("switch-peer"), period)
+
+		// Answer the stock sends until 1 ms past the phase.
+		offset := time.Duration(time.Now().UnixMilli()%period.Milliseconds()) * time.Millisecond
+		deadline := time.Now().Add((phase + time.Millisecond - offset + period) % period)
+		stock := messages.MarshalHealthcheck()
+		lastStock := time.Now()
+		for remaining := time.Until(deadline); remaining > 0; remaining = time.Until(deadline) {
+			select {
+			case lastStock = <-writes:
+				answer(ctx, p, hc, stock)
+			case <-time.After(remaining):
+			}
+		}
+		synctest.Wait()
+		for len(writes) > 0 {
+			lastStock = <-writes
+			answer(ctx, p, hc, stock)
+		}
+
+		answer(ctx, p, hc, messages.MarshalHealthcheckWithPeriod(60))
+		switched := time.Now()
+		var at time.Time
+		select {
+		case at = <-writes:
+		case <-time.After(clientStockTimeout - time.Since(lastStock)):
+			t.Fatal("no health check within the client's stock receive timeout after the switch")
+		}
+		assert.Equal(t, switched, at, "the switch sends at once")
+		got, ok, err := messages.UnmarshalHealthcheckPeriod(lastFrame(t, conn))
+		require.NoError(t, err)
+		require.True(t, ok, "the switch frame carries the period")
+		assert.Equal(t, uint16(60), got)
+
+		answer(ctx, p, hc, messages.MarshalHealthcheckWithPeriod(60))
+		at = <-writes
+		assert.Equal(t, phase.Milliseconds(), at.UnixMilli()%period.Milliseconds(), "then the sends follow the phase")
 	})
 }
 

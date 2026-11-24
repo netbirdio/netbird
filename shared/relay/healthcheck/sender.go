@@ -80,9 +80,10 @@ func NewSenderWithOpts(log *log.Entry, opts SenderOptions) *Sender {
 	return hc
 }
 
-// SetAligned moves the sends to schedule s from the next tick on: a stock
-// connection switches to the aligned heartbeat, an aligned one changes its
-// schedule. Only the latest schedule is kept. It never blocks.
+// SetAligned moves the sends to schedule s: the sender sends once at the
+// switch, then on the schedule. A stock connection switches to the aligned
+// heartbeat, an aligned one changes its schedule. Only the latest schedule
+// is kept. It never blocks.
 func (hc *Sender) SetAligned(s AlignedSchedule) {
 	if s.Period <= 0 {
 		return
@@ -156,6 +157,10 @@ func (hc *Sender) StartHealthCheck(ctx context.Context) {
 			tick, stopTick = hc.tickChannel(ctx)
 			timeoutTicker.Reset(hc.timeout)
 			failureCounter = 0
+			// Send at once: the peer keeps its old receive timeout until
+			// it gets a health check with the new period, and the next
+			// phase can be up to a period away.
+			hc.requestHealthCheck()
 		case <-ctx.Done():
 			return
 		}

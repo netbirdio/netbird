@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"io"
@@ -59,7 +60,8 @@ type ConnStateNotifier interface {
 }
 
 type GrpcClient struct {
-	key wgtypes.Key
+	key     wgtypes.Key
+	authPub ed25519.PublicKey
 	// conn is the connection, replaced by a redial after a stock answer.
 	conn nbgrpc.RedialConn[proto.ManagementServiceClient]
 	// dial creates a connection with the keepalive the stock marks give.
@@ -135,6 +137,12 @@ func MaxRecvMsgSize() int {
 
 // Option configures optional GrpcClient behavior.
 type Option func(*GrpcClient)
+
+// WithAuthKey sends the peer's auth public key on login, so Management can issue Signal and
+// Relay tokens bound to it.
+func WithAuthKey(pub ed25519.PublicKey) Option {
+	return func(c *GrpcClient) { c.authPub = pub }
+}
 
 // WithNetEvents injects the OS network event handling.
 func WithNetEvents(events *netevents.Manager) Option {
@@ -742,8 +750,9 @@ func (c *GrpcClient) login(req *proto.LoginRequest) (*proto.LoginResponse, error
 // This method will also collect system info and send it with the request (e.g. hostname, os, etc)
 func (c *GrpcClient) Register(setupKey string, jwtToken string, sysInfo *system.Info, pubSSHKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error) {
 	keys := &proto.PeerKeys{
-		SshPubKey: pubSSHKey,
-		WgPubKey:  []byte(c.key.PublicKey().String()),
+		SshPubKey:  pubSSHKey,
+		WgPubKey:   []byte(c.key.PublicKey().String()),
+		AuthPubKey: c.authPub,
 	}
 	return c.login(&proto.LoginRequest{SetupKey: setupKey, Meta: infoToMetaData(sysInfo), JwtToken: jwtToken, PeerKeys: keys, DnsLabels: dnsLabels.ToPunycodeList()})
 }
@@ -751,8 +760,9 @@ func (c *GrpcClient) Register(setupKey string, jwtToken string, sysInfo *system.
 // Login attempts login to Management Server. Takes care of encrypting and decrypting messages.
 func (c *GrpcClient) Login(sysInfo *system.Info, pubSSHKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error) {
 	keys := &proto.PeerKeys{
-		SshPubKey: pubSSHKey,
-		WgPubKey:  []byte(c.key.PublicKey().String()),
+		SshPubKey:  pubSSHKey,
+		WgPubKey:   []byte(c.key.PublicKey().String()),
+		AuthPubKey: c.authPub,
 	}
 	return c.login(&proto.LoginRequest{Meta: infoToMetaData(sysInfo), PeerKeys: keys, DnsLabels: dnsLabels.ToPunycodeList()})
 }
@@ -1161,6 +1171,7 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			RosenpassPermissive: info.RosenpassPermissive,
 			ServerSSHAllowed:    info.ServerSSHAllowed,
 			RemoteJobsAllowed:   info.RemoteJobsAllowed,
+			ServerVNCAllowed:    info.ServerVNCAllowed,
 
 			DisableClientRoutes: info.DisableClientRoutes,
 			DisableServerRoutes: info.DisableServerRoutes,
@@ -1169,6 +1180,8 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			BlockLANAccess:      info.BlockLANAccess,
 			BlockInbound:        info.BlockInbound,
 			DisableIPv6:         info.DisableIPv6,
+
+			DisableSSHAuth: info.DisableSSHAuth,
 		},
 
 		Capabilities: peerCapabilities(*info),

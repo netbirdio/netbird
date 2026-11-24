@@ -4,18 +4,27 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/shared/relay/messages"
 )
+
+const writeTimeout = 10 * time.Second
 
 type Conn struct {
 	ctx context.Context
 	*websocket.Conn
 	remoteAddr net.Addr
 	underlying net.Conn
+
+	writeMu      sync.Mutex
+	writeTimeout time.Duration
+	writeTimer   *time.Timer
 }
 
 // NewConn builds a relay ws.Conn. underlying is the raw TCP/TLS conn captured
@@ -29,12 +38,16 @@ func NewConn(wsConn *websocket.Conn, serverAddress string, underlying net.Conn) 
 			addr = ra
 		}
 	}
-	return &Conn{
-		ctx:        context.Background(),
-		Conn:       wsConn,
-		remoteAddr: addr,
-		underlying: underlying,
+	c := &Conn{
+		ctx:          context.Background(),
+		Conn:         wsConn,
+		remoteAddr:   addr,
+		underlying:   underlying,
+		writeTimeout: writeTimeout,
 	}
+	c.writeTimer = time.AfterFunc(writeTimeout, c.closeOnWriteTimeout)
+	c.writeTimer.Stop()
+	return c
 }
 
 // NetConn returns the raw connection below the WebSocket, nil when unknown.
@@ -69,7 +82,15 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 }
 
 func (c *Conn) Write(b []byte) (n int, err error) {
-	return 0, c.Conn.Write(c.ctx, websocket.MessageBinary, b)
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+
+	c.writeTimer.Reset(c.writeTimeout)
+	err = c.Conn.Write(c.ctx, websocket.MessageBinary, b)
+	if !c.writeTimer.Stop() && err != nil {
+		return 0, fmt.Errorf("write timed out after %s: %w", c.writeTimeout, os.ErrDeadlineExceeded)
+	}
+	return 0, err
 }
 
 func (c *Conn) RemoteAddr() net.Addr {
@@ -94,4 +115,10 @@ func (c *Conn) SetDeadline(t time.Time) error {
 
 func (c *Conn) Close() error {
 	return c.closeConn()
+}
+
+func (c *Conn) closeOnWriteTimeout() {
+	if err := c.closeConn(); err != nil {
+		log.Debugf("failed to close relay websocket after a write timeout: %v", err)
+	}
 }
