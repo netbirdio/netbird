@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -207,4 +208,34 @@ func TestAgentNetworkSetupHidesKeyHelper(t *testing.T) {
 	out, err = runAgentNetworkCmd(addr, "setup", "undo", "claude-code", "--dry-run")
 	require.NoError(t, err, out)
 	assert.NotContains(t, out, "sk-ant-secret", "the value undo restores is not printed")
+}
+
+func TestAnSetupCheckEndpointIgnoresProxy(t *testing.T) {
+	// A proxy that records whether anything reached it.
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = lis.Close() })
+	reached := make(chan struct{}, 1)
+	go func() {
+		c, err := lis.Accept()
+		if err != nil {
+			return
+		}
+		_ = c.Close()
+		reached <- struct{}{}
+	}()
+	t.Setenv("HTTPS_PROXY", "http://"+lis.Addr().String())
+	t.Setenv("NO_PROXY", "")
+
+	// TEST-NET-1 never answers; loopback would bypass the proxy anyway.
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	err = anSetupCheckEndpoint(ctx, "https://192.0.2.1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "HTTPS_PROXY", "the warning mentions the proxy the agent may use")
+	select {
+	case <-reached:
+		t.Fatal("the probe went through the proxy instead of the overlay")
+	default:
+	}
 }

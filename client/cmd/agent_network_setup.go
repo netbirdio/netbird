@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/net/http/httpproxy"
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal/agentnetwork/harness"
@@ -364,8 +365,8 @@ func anSetupPickModel(cmd *cobra.Command, def *harness.Definition, p *proto.Agen
 	}
 }
 
-// anSetupCheckEndpoint makes one request to the endpoint with TLS verified.
-// Any HTTP answer proves the overlay path.
+// anSetupCheckEndpoint makes one request to the endpoint with TLS verified
+// and no proxy, so any HTTP answer proves the overlay path.
 func anSetupCheckEndpoint(ctx context.Context, endpoint string) error {
 	ctx, cancel := context.WithTimeout(ctx, anSetupEndpointTimeout)
 	defer cancel()
@@ -373,7 +374,10 @@ func anSetupCheckEndpoint(ctx context.Context, endpoint string) error {
 	if err != nil {
 		return fmt.Errorf("endpoint: %w", err)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.Proxy = nil
+	defer tr.CloseIdleConnections()
+	resp, err := (&http.Client{Transport: tr}).Do(req)
 	if err == nil {
 		_ = resp.Body.Close()
 		return nil
@@ -383,6 +387,10 @@ func anSetupCheckEndpoint(ctx context.Context, endpoint string) error {
 	if errors.As(err, &verr) || errors.As(err, &uerr) {
 		return fmt.Errorf("the endpoint's TLS certificate is not trusted: %w. "+
 			"If it is issued by a private CA, Node-based agents such as Claude Code need NODE_EXTRA_CA_CERTS set to that CA", err)
+	}
+	if proxy, perr := httpproxy.FromEnvironment().ProxyFunc()(req.URL); perr == nil && proxy != nil {
+		return fmt.Errorf("the endpoint did not answer over NetBird, check 'netbird status': %w. "+
+			"HTTPS_PROXY or HTTP_PROXY is set: add the endpoint to NO_PROXY if the agent cannot reach it through the proxy", err)
 	}
 	return fmt.Errorf("the endpoint did not answer over NetBird, check 'netbird status': %w", err)
 }
