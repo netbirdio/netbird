@@ -91,6 +91,39 @@ func privilegedChangeFromLogin(msg *proto.LoginRequest) privilegedConfigChange {
 	}
 }
 
+// setsFlag reports whether the change carries any privileged flag.
+func (c privilegedConfigChange) setsFlag() bool {
+	return c.serverSSHAllowed != nil || c.remoteJobsAllowed != nil || c.enableSSHRoot != nil ||
+		c.disableSSHAuth != nil || c.serverVNCAllowed != nil || c.disableVNCApproval != nil ||
+		c.blockInbound != nil || c.enableLocalMetrics != nil || c.localMetricsAddress != nil
+}
+
+// gatePolicy returns the MDM policy the managed-field and privilege checks run
+// against. A source that exists but cannot be read leaves those checks blind to
+// what it enforces, so a caller without privilege is refused any change until it
+// reads again; a request that changes nothing still goes through.
+func gatePolicy(ctx context.Context, policy *mdm.Policy, loadErr error, changes func() bool) (*mdm.Policy, error) {
+	if loadErr == nil {
+		return policy, nil
+	}
+	log.Warnf("MDM policy unreadable: %v", loadErr)
+	if changes() {
+		if err := denyPrivileged(ctx, "changing the configuration while the MDM policy cannot be read", ""); err != nil {
+			return nil, err
+		}
+	}
+	return mdm.NewPolicy(nil), nil
+}
+
+// loginGatePolicy is gatePolicy for a login, which changes the config through
+// the overrides it persists or the privileged flags it carries.
+func (s *Server) loginGatePolicy(ctx context.Context, stored *profilemanager.Config, msg *proto.LoginRequest) (*mdm.Policy, error) {
+	loaded, loadErr := s.mdmLoader.LoadWithError()
+	return gatePolicy(ctx, loaded, loadErr, func() bool {
+		return configChangeRequested(stored, loginOverridesInput(msg)) || privilegedChangeFromLogin(msg).setsFlag()
+	})
+}
+
 // requirePrivilegeForConfigChange refuses the privileged parts of a config
 // change when the caller is not root/administrator. stored is the profile's
 // current config, or nil when it has none yet.

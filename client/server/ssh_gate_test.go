@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"os"
 	"runtime"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 )
 
 // ctxWithIdentity builds a request context carrying the identity the transport
@@ -549,4 +551,39 @@ func TestRequirePrivilegeForConfigChange_UnblockInbound(t *testing.T) {
 			assertAllowed(t, err)
 		})
 	}
+}
+
+// A policy source that exists but cannot be read must not leave the gate judging
+// a change against no policy: an unprivileged caller is refused any change, while
+// a restatement and a privileged caller still go through.
+func TestGatePolicy_UnreadableSource(t *testing.T) {
+	readErr := errors.New("registry access denied")
+	managed := mdm.NewPolicy(map[string]any{mdm.KeyAllowServerSSH: true})
+	changes := func() bool { return true }
+	restates := func() bool { return false }
+
+	got, err := gatePolicy(userCtx(), managed, nil, changes)
+	assertAllowed(t, err)
+	if !got.HasKey(mdm.KeyAllowServerSSH) {
+		t.Error("a readable policy must reach the checks unchanged")
+	}
+
+	_, err = gatePolicy(userCtx(), nil, readErr, changes)
+	if gstatus.Code(err) != codes.PermissionDenied {
+		t.Fatalf("unprivileged change with an unreadable policy: code = %v, want PermissionDenied", gstatus.Code(err))
+	}
+
+	_, err = gatePolicy(noIdentityCtx(), nil, readErr, changes)
+	if gstatus.Code(err) != codes.PermissionDenied {
+		t.Fatalf("unidentified change with an unreadable policy: code = %v, want PermissionDenied", gstatus.Code(err))
+	}
+
+	got, err = gatePolicy(userCtx(), nil, readErr, restates)
+	assertAllowed(t, err)
+	if !got.IsEmpty() {
+		t.Error("a restatement with an unreadable policy must be judged against no policy")
+	}
+
+	_, err = gatePolicy(rootCtx(), nil, readErr, changes)
+	assertAllowed(t, err)
 }

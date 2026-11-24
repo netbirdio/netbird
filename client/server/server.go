@@ -576,7 +576,11 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	// by the active MDM policy. The error carries an MDMManagedFields-
 	// Violation detail listing the offending key names. Non-conflicting
 	// fields in the same request are not applied either.
-	policy := s.mdmLoader.Load()
+	loaded, loadErr := s.mdmLoader.LoadWithError()
+	policy, err := gatePolicy(callerCtx, loaded, loadErr, func() bool { return configChangeRequested(stored, config) })
+	if err != nil {
+		return nil, err
+	}
 	if err := rejectMDMManagedFieldConflicts(mdmManagedFieldConflicts(msg, policy)); err != nil {
 		return nil, err
 	}
@@ -725,7 +729,10 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		return nil, gstatus.Errorf(codes.FailedPrecondition, errUpdateSettingsDisabled)
 	}
 
-	policy := s.mdmLoader.Load()
+	policy, err := s.loginGatePolicy(callerCtx, stored, msg)
+	if err != nil {
+		return nil, err
+	}
 	if err := rejectMDMManagedFieldConflicts(loginRequestMDMConflicts(msg, policy)); err != nil {
 		return nil, err
 	}
@@ -3095,7 +3102,11 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 	if err != nil {
 		return nil, nil, false, err
 	}
-	if err := requirePrivilegeForConfigChange(callerCtx, stored, s.mdmLoader.Load(), privilegedChangeFromLogin(msg)); err != nil {
+	policy, err := s.loginGatePolicy(callerCtx, stored, msg)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if err := requirePrivilegeForConfigChange(callerCtx, stored, policy, privilegedChangeFromLogin(msg)); err != nil {
 		return nil, nil, false, err
 	}
 
