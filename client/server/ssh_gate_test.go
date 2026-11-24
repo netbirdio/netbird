@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/mdm"
+	"github.com/netbirdio/netbird/client/proto"
 )
 
 // ctxWithIdentity builds a request context carrying the identity the transport
@@ -586,4 +587,20 @@ func TestGatePolicy_UnreadableSource(t *testing.T) {
 
 	_, err = gatePolicy(rootCtx(), nil, readErr, changes)
 	assertAllowed(t, err)
+}
+
+// With the policy unreadable, a login is refused only when it changes something:
+// a privileged flag restating the stored value is not a change.
+func TestLoginGateInput_RestatedFlagIsNoChange(t *testing.T) {
+	stored := &profilemanager.Config{ServerSSHAllowed: boolPtr(true), BlockInbound: false}
+
+	restate := &proto.LoginRequest{ServerSSHAllowed: boolPtr(true), BlockInbound: boolPtr(false)}
+	if configChangeRequested(stored, loginGateInput(restate)) {
+		t.Error("a login restating the stored privileged flags must not count as a change")
+	}
+
+	change := &proto.LoginRequest{ServerSSHAllowed: boolPtr(false)}
+	if !configChangeRequested(stored, loginGateInput(change)) {
+		t.Error("a login flipping a privileged flag must count as a change")
+	}
 }

@@ -91,13 +91,6 @@ func privilegedChangeFromLogin(msg *proto.LoginRequest) privilegedConfigChange {
 	}
 }
 
-// setsFlag reports whether the change carries any privileged flag.
-func (c privilegedConfigChange) setsFlag() bool {
-	return c.serverSSHAllowed != nil || c.remoteJobsAllowed != nil || c.enableSSHRoot != nil ||
-		c.disableSSHAuth != nil || c.serverVNCAllowed != nil || c.disableVNCApproval != nil ||
-		c.blockInbound != nil || c.enableLocalMetrics != nil || c.localMetricsAddress != nil
-}
-
 // gatePolicy returns the MDM policy the managed-field and privilege checks run
 // against. A source that exists but cannot be read leaves those checks blind to
 // what it enforces, so a caller without privilege is refused any change until it
@@ -120,8 +113,24 @@ func gatePolicy(ctx context.Context, policy *mdm.Policy, loadErr error, changes 
 func (s *Server) loginGatePolicy(ctx context.Context, stored *profilemanager.Config, msg *proto.LoginRequest) (*mdm.Policy, error) {
 	loaded, loadErr := s.mdmLoader.LoadWithError()
 	return gatePolicy(ctx, loaded, loadErr, func() bool {
-		return configChangeRequested(stored, loginOverridesInput(msg)) || privilegedChangeFromLogin(msg).setsFlag()
+		return configChangeRequested(stored, loginGateInput(msg))
 	})
+}
+
+// loginGateInput adds the privileged flags a login carries to the overrides it
+// persists, so a login restating them compares as no change.
+func loginGateInput(msg *proto.LoginRequest) profilemanager.ConfigInput {
+	input := loginOverridesInput(msg)
+	input.ServerSSHAllowed = msg.ServerSSHAllowed
+	input.RemoteJobsAllowed = msg.RemoteJobsAllowed
+	input.EnableSSHRoot = msg.EnableSSHRoot
+	input.DisableSSHAuth = msg.DisableSSHAuth
+	input.ServerVNCAllowed = msg.ServerVNCAllowed
+	input.DisableVNCApproval = msg.DisableVNCApproval
+	input.BlockInbound = msg.BlockInbound
+	input.LocalMetricsEnabled = msg.EnableLocalMetrics
+	input.LocalMetricsAddress = msg.LocalMetricsAddress
+	return input
 }
 
 // requirePrivilegeForConfigChange refuses the privileged parts of a config
