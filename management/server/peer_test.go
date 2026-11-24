@@ -49,7 +49,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
-	"github.com/netbirdio/netbird/management/server/store"
 	nbstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -3600,7 +3599,7 @@ func TestCheckPeerMaySync(t *testing.T) {
 }
 
 type failingPeerLookupStore struct {
-	store.Store
+	nbstore.Store
 }
 
 func (s *failingPeerLookupStore) GetPeerByPeerPubKey(context.Context, nbstore.LockingStrength, string) (*nbpeer.Peer, error) {

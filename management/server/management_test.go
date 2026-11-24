@@ -36,7 +36,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
-	"github.com/netbirdio/netbird/management/server/store"
 	nbstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -180,7 +179,7 @@ func startServer(
 	}
 	s := grpc.NewServer()
 
-	str, _, err := store.NewTestStoreFromSQL(context.Background(), testFile, dataDir)
+	str, _, err := nbstore.NewTestStoreFromSQL(context.Background(), testFile, dataDir)
 	if err != nil {
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}

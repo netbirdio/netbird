@@ -43,7 +43,7 @@ func NewNetworkMapDBStore(
 	replicaPool *pgxpool.Pool,
 	meter metric.Meter) (*networkmapdb.NetworkMapDBStoreImpl, error) {
 	switch kind {
-	case types.SqliteStoreEngine:
+	case "", types.SqliteStoreEngine:
 		log.WithContext(ctx).Info("networkmap store is using SQLite")
 		storeFile := storeSqliteFileName
 		if envFile, ok := os.LookupEnv("NB_STORE_ENGINE_SQLITE_FILE"); ok && envFile != "" {
