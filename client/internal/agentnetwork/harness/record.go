@@ -3,6 +3,7 @@ package harness
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 )
@@ -47,6 +48,16 @@ func LoadRecord(path string) (*Record, error) {
 	}
 	if rec.Harnesses == nil {
 		rec.Harnesses = map[string]*Entry{}
+	}
+	for id, e := range rec.Harnesses {
+		if e == nil {
+			continue
+		}
+		for file, fr := range e.Files {
+			if fr == nil {
+				return nil, fmt.Errorf("%s: the %s entry for %s is null, fix or delete the record", path, id, file)
+			}
+		}
 	}
 	return rec, nil
 }

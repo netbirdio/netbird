@@ -510,3 +510,23 @@ func TestInvalidUTF8IsUnparseable(t *testing.T) {
 	require.ErrorAs(t, err, &perr, "invalid UTF-8 would be rewritten as U+FFFD")
 	assert.Equal(t, orig, h.read(t), "the file is untouched")
 }
+
+func TestRecordNullEntries(t *testing.T) {
+	h := newTestHost(t)
+	require.NoError(t, os.MkdirAll(filepath.Dir(h.env.RecordPath), 0o700))
+
+	// A null harness is the same as no harness.
+	require.NoError(t, os.WriteFile(h.env.RecordPath, []byte(`{"harnesses":{"claude-code":null}}`), 0o600))
+	rec, err := LoadRecord(h.env.RecordPath)
+	require.NoError(t, err)
+	assert.Equal(t, "not configured", Status(claudeCode.ID, rec))
+	_, err = NewPlan(claudeCode.ID, h.render(t, "anthropic", ""), rec, false)
+	assert.NoError(t, err, "a null harness plans like an empty record")
+
+	// A null file entry loses which keys NetBird owns, so it is refused
+	// instead of panicking later.
+	require.NoError(t, os.WriteFile(h.env.RecordPath, []byte(`{"harnesses":{"claude-code":{"files":{"/x":null}}}}`), 0o600))
+	_, err = LoadRecord(h.env.RecordPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), h.env.RecordPath, "the error names the record")
+}
