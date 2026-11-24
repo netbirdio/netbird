@@ -16,14 +16,17 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness/peerlivenesstest"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	networkmapdbfactory "github.com/netbirdio/netbird/management/internals/network_map_db/factory"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/cache"
+	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/job"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
+	nbstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 )
@@ -773,7 +776,8 @@ func TestGetNameServerGroup(t *testing.T) {
 func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 	t.Helper()
 
-	store, err := createNSStore(t)
+	dataDir := t.TempDir()
+	store, err := createNSStore(t, dataDir)
 	if err != nil {
 		return nil, err
 	}
@@ -804,14 +808,26 @@ func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, store)
-	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager, peerLiveness)), &config.Config{}, nil)
+	nmapDbStore, err := networkmapdbfactory.NewNetworkMapDBStore(
+		context.Background(),
+		nbstore.GetStoreEngineFromEnv(),
+		dataDir,
+		&integrated_validator.MockIntegratedValidator{},
+		settingsMockManager,
+		nil,
+		metrics.GetMeter(),
+	)
+	if err != nil {
+		t.Fatalf("Failed to create networkmap db store: %v", err)
+	}
+
+	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager, peerLiveness)), &config.Config{}, nmapDbStore)
 
 	return BuildManager(context.Background(), nil, store, networkMapController, job.NewJobManager(nil, store, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 }
 
-func createNSStore(t *testing.T) (store.Store, error) {
+func createNSStore(t *testing.T, dataDir string) (store.Store, error) {
 	t.Helper()
-	dataDir := t.TempDir()
 	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "", dataDir)
 	if err != nil {
 		return nil, err

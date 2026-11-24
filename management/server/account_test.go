@@ -4028,6 +4028,7 @@ func buildTestManager(t testing.TB, store store.Store, nmdataStore *networkmapdb
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, store)
+
 	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager, peerLiveness)), &config.Config{}, nmdataStore)
 	manager, err := BuildManager(ctx, &config.Config{}, store, networkMapController, job.NewJobManager(nil, store, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 	if err != nil {
@@ -4080,14 +4081,11 @@ func waitTimeout(wg *sync.WaitGroup, timeout time.Duration) bool {
 func setupNetworkMapTest(t *testing.T) (*DefaultAccountManager, *update_channel.PeersUpdateManager, *types.Account, *nbpeer.Peer, *nbpeer.Peer, *nbpeer.Peer) {
 	t.Helper()
 
-	manager, updateManager, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-	}
+	manager, updateManager := createManagerWithNetworkMapStore(t)
 
 	account := newAccountWithId(context.Background(), "test_account", userID, "", "", "", false)
 	account.Network.Net = net.IPNet{IP: net.IPv4(100, 64, 0, 0).To4(), Mask: net.CIDRMask(16, 32)}
-	if err = manager.Store.SaveAccount(context.Background(), account); err != nil {
+	if err := manager.Store.SaveAccount(context.Background(), account); err != nil {
 		t.Fatal(err)
 	}
 
