@@ -180,21 +180,6 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 			GetPeersFunc: func(_ context.Context, accountID, userID string, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, int, error) {
 				return peers, len(peers), nil
 			},
-			GetPeerGroupsFunc: func(ctx context.Context, accountID, peerID string) ([]*types.Group, error) {
-				peersID := make([]string, len(peers))
-				for _, peer := range peers {
-					peersID = append(peersID, peer.ID)
-				}
-				return []*types.Group{
-					{
-						ID:        "group1",
-						AccountID: accountID,
-						Name:      "group1",
-						Issued:    "api",
-						Peers:     peersID,
-					},
-				}, nil
-			},
 			GetDNSDomainFunc: func(settings *types.Settings) string {
 				return "netbird.selfhosted"
 			},
@@ -335,6 +320,10 @@ func TestGetPeer(t *testing.T) {
 			assert.Equal(t, tc.expectedPeer.SSHEnabled, got.SshEnabled)
 			assert.Equal(t, tc.expectedPeer.Status.Connected, got.Connected)
 			assert.Equal(t, tc.expectedPeer.Meta.SystemSerialNumber, got.SerialNumber)
+
+			var raw map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(content, &raw))
+			assert.NotContains(t, raw, "groups", "v1alpha1 peers must not embed groups")
 		})
 	}
 }

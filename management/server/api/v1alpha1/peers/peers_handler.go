@@ -17,7 +17,6 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/api/v1alpha1/groups"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
@@ -70,9 +69,6 @@ func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string,
 
 	dnsDomain := h.networkMapController.GetDNSDomain(settings)
 
-	grps, _ := h.accountManager.GetPeerGroups(ctx, accountID, peerID)
-	grpsInfoMap := groups.ToGroupsInfoMap(grps, 0)
-
 	validPeers, invalidPeers, err := h.accountManager.GetValidatedPeers(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to list approved peers: %v", err)
@@ -83,7 +79,7 @@ func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string,
 	_, valid := validPeers[peer.ID]
 	reason := invalidPeers[peer.ID]
 
-	util.WriteJSONObject(ctx, w, toSinglePeerResponse(peer, grpsInfoMap[peerID], dnsDomain, valid, reason))
+	util.WriteJSONObject(ctx, w, toSinglePeerResponse(peer, dnsDomain, valid, reason))
 }
 
 func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID string, w http.ResponseWriter, r *http.Request) {
@@ -147,14 +143,6 @@ func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID stri
 	}
 	dnsDomain := h.networkMapController.GetDNSDomain(settings)
 
-	peerGroups, err := h.accountManager.GetPeerGroups(ctx, accountID, peer.ID)
-	if err != nil {
-		util.WriteError(ctx, err, w)
-		return
-	}
-
-	grpsInfoMap := groups.ToGroupsInfoMap(peerGroups, 0)
-
 	validPeers, invalidPeers, err := h.accountManager.GetValidatedPeers(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get validated peers: %v", err)
@@ -165,7 +153,7 @@ func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID stri
 	_, valid := validPeers[peer.ID]
 	reason := invalidPeers[peer.ID]
 
-	util.WriteJSONObject(r.Context(), w, toSinglePeerResponse(peer, grpsInfoMap[peerID], dnsDomain, valid, reason))
+	util.WriteJSONObject(r.Context(), w, toSinglePeerResponse(peer, dnsDomain, valid, reason))
 }
 
 func (h *Handler) deletePeer(ctx context.Context, accountID, userID string, peerID string, w http.ResponseWriter) {
@@ -254,9 +242,6 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 	}
 	dnsDomain := h.networkMapController.GetDNSDomain(settings)
 
-	grps, _ := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
-
-	grpsInfoMap := groups.ToGroupsInfoMap(grps, len(peers))
 	validPeers, invalidPeers, err := h.accountManager.GetValidatedPeers(r.Context(), accountID)
 	if err != nil {
 		log.WithContext(r.Context()).Errorf("failed to get validated peers: %v", err)
@@ -269,7 +254,7 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 		_, valid := validPeers[peer.ID]
 		reason := invalidPeers[peer.ID]
 
-		respBody.Peers = append(respBody.Peers, *toSinglePeerResponse(peer, grpsInfoMap[peer.ID], dnsDomain, valid, reason))
+		respBody.Peers = append(respBody.Peers, *toSinglePeerResponse(peer, dnsDomain, valid, reason))
 	}
 	respBody.Page = pagination.Page
 	respBody.PageSize = pagination.PageSize
@@ -403,7 +388,7 @@ func parseIPv6(s *string) (netip.Addr, error) {
 	return addr, nil
 }
 
-func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []apiv1alpha1.GroupMinimum, dnsDomain string, approved bool, reason string) *apiv1alpha1.Peer {
+func toSinglePeerResponse(peer *nbpeer.Peer, dnsDomain string, approved bool, reason string) *apiv1alpha1.Peer {
 	osVersion := peer.Meta.OSVersion
 	if osVersion == "" {
 		osVersion = peer.Meta.Core
@@ -424,7 +409,6 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []apiv1alpha1.GroupMinim
 		KernelVersion:               peer.Meta.KernelVersion,
 		GeonameId:                   int(peer.Location.GeoNameID),
 		Version:                     peer.Meta.WtVersion,
-		Groups:                      groupsInfo,
 		SshEnabled:                  peer.SSHEnabled,
 		Hostname:                    peer.Meta.Hostname,
 		UserId:                      peer.UserID,
