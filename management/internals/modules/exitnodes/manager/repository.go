@@ -16,6 +16,7 @@ import (
 type sqlRepository struct {
 	conn *db.Conn
 	db   *gorm.DB
+	inTx bool
 }
 
 // NewRepository returns the exit node repository backed by conn.
@@ -24,12 +25,21 @@ func NewRepository(conn *db.Conn) exitnodes.Repository {
 }
 
 func (r *sqlRepository) WithTx(tx *db.Tx) exitnodes.Repository {
-	return &sqlRepository{conn: r.conn, db: r.conn.DB(tx)}
+	return &sqlRepository{conn: r.conn, db: r.conn.DB(tx), inTx: tx != nil}
+}
+
+// query returns the handle for a call made with ctx. A transaction already runs on its own
+// context, which carries the transaction timeout, so only queries outside one take ctx.
+func (r *sqlRepository) query(ctx context.Context) *gorm.DB {
+	if r.inTx {
+		return r.db
+	}
+	return r.db.WithContext(ctx)
 }
 
 func (r *sqlRepository) LockAccount(ctx context.Context, accountID string) error {
 	var ids []string
-	err := withLock(r.db, db.LockingStrengthUpdate).Table("accounts").Where("id = ?", accountID).Pluck("id", &ids).Error
+	err := withLock(r.query(ctx), db.LockingStrengthUpdate).Table("accounts").Where("id = ?", accountID).Pluck("id", &ids).Error
 	if err != nil {
 		log.WithContext(ctx).WithField("account_id", accountID).Errorf("failed to lock account: %v", err)
 		return status.Errorf(status.Internal, "failed to lock account")
@@ -41,7 +51,7 @@ func (r *sqlRepository) LockAccount(ctx context.Context, accountID string) error
 }
 
 func (r *sqlRepository) ListByAccount(ctx context.Context, lockStrength db.LockingStrength, accountID string) ([]*exitnodes.ExitNode, error) {
-	query := withLock(r.db, lockStrength).Preload("Peers", orderPeers)
+	query := withLock(r.query(ctx), lockStrength).Preload("Peers", orderPeers)
 
 	var nodes []*exitnodes.ExitNode
 	if err := query.Where("account_id = ?", accountID).Order("name").Find(&nodes).Error; err != nil {
@@ -52,7 +62,7 @@ func (r *sqlRepository) ListByAccount(ctx context.Context, lockStrength db.Locki
 }
 
 func (r *sqlRepository) Get(ctx context.Context, lockStrength db.LockingStrength, accountID string, exitNodeID exitnodes.ID) (*exitnodes.ExitNode, error) {
-	query := withLock(r.db, lockStrength).Preload("Peers", orderPeers)
+	query := withLock(r.query(ctx), lockStrength).Preload("Peers", orderPeers)
 
 	var node exitnodes.ExitNode
 	err := query.Where("account_id = ? AND id = ?", accountID, exitNodeID).Take(&node).Error
@@ -67,7 +77,7 @@ func (r *sqlRepository) Get(ctx context.Context, lockStrength db.LockingStrength
 }
 
 func (r *sqlRepository) Create(ctx context.Context, exitNode *exitnodes.ExitNode) error {
-	if err := r.db.Omit("Peers").Create(exitNode).Error; err != nil {
+	if err := r.query(ctx).Omit("Peers").Create(exitNode).Error; err != nil {
 		log.WithContext(ctx).WithFields(log.Fields{"account_id": exitNode.AccountID, "exit_node_id": exitNode.ID}).Errorf("failed to create exit node: %v", err)
 		return status.Errorf(status.Internal, "failed to create exit node")
 	}
@@ -78,7 +88,7 @@ func (r *sqlRepository) Update(ctx context.Context, exitNode *exitnodes.ExitNode
 	fields := log.Fields{"account_id": exitNode.AccountID, "exit_node_id": exitNode.ID}
 
 	// RowsAffected is not checked: MySQL reports 0 when no column changes.
-	err := r.db.Model(&exitnodes.ExitNode{}).
+	err := r.query(ctx).Model(&exitnodes.ExitNode{}).
 		Where("account_id = ? AND id = ?", exitNode.AccountID, exitNode.ID).
 		Select("name", "description", "enabled", "auto_apply").
 		Updates(exitNode).Error
@@ -87,7 +97,7 @@ func (r *sqlRepository) Update(ctx context.Context, exitNode *exitnodes.ExitNode
 		return status.Errorf(status.Internal, "failed to update exit node")
 	}
 
-	if err := r.db.Where("exit_node_id = ?", exitNode.ID).Delete(&exitnodes.Peer{}).Error; err != nil {
+	if err := r.query(ctx).Where("exit_node_id = ?", exitNode.ID).Delete(&exitnodes.Peer{}).Error; err != nil {
 		log.WithContext(ctx).WithFields(fields).Errorf("failed to delete exit node peers: %v", err)
 		return status.Errorf(status.Internal, "failed to update exit node")
 	}
@@ -97,12 +107,12 @@ func (r *sqlRepository) Update(ctx context.Context, exitNode *exitnodes.ExitNode
 func (r *sqlRepository) Delete(ctx context.Context, accountID string, exitNodeID exitnodes.ID) error {
 	fields := log.Fields{"account_id": accountID, "exit_node_id": exitNodeID}
 
-	if err := r.db.Where("account_id = ? AND exit_node_id = ?", accountID, exitNodeID).Delete(&exitnodes.Peer{}).Error; err != nil {
+	if err := r.query(ctx).Where("account_id = ? AND exit_node_id = ?", accountID, exitNodeID).Delete(&exitnodes.Peer{}).Error; err != nil {
 		log.WithContext(ctx).WithFields(fields).Errorf("failed to delete exit node peers: %v", err)
 		return status.Errorf(status.Internal, "failed to delete exit node")
 	}
 
-	result := r.db.Where("account_id = ? AND id = ?", accountID, exitNodeID).Delete(&exitnodes.ExitNode{})
+	result := r.query(ctx).Where("account_id = ? AND id = ?", accountID, exitNodeID).Delete(&exitnodes.ExitNode{})
 	if result.Error != nil {
 		log.WithContext(ctx).WithFields(fields).Errorf("failed to delete exit node: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to delete exit node")
@@ -119,7 +129,7 @@ func (r *sqlRepository) createPeers(ctx context.Context, exitNode *exitnodes.Exi
 	}
 
 	exitNode.BindPeers()
-	if err := r.db.Create(&exitNode.Peers).Error; err != nil {
+	if err := r.query(ctx).Create(&exitNode.Peers).Error; err != nil {
 		log.WithContext(ctx).WithFields(log.Fields{"account_id": exitNode.AccountID, "exit_node_id": exitNode.ID}).Errorf("failed to create exit node peers: %v", err)
 		return status.Errorf(status.Internal, "failed to save exit node peers")
 	}
