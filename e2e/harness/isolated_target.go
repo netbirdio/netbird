@@ -18,7 +18,8 @@ import (
 const isolatedTargetPort = "8080"
 
 // isolatedTargetNginxConf answers every request with the address it came from, so a
-// test can tell which peer forwarded the request.
+// test can tell which peer forwarded the request. It also serves plain HTTP on 80 and
+// 443, so a test can tell ports apart when a policy allows only some of them.
 const isolatedTargetNginxConf = `pid /tmp/nginx.pid;
 worker_processes 1;
 events {}
@@ -26,6 +27,8 @@ http {
   access_log off;
   server {
     listen ` + isolatedTargetPort + `;
+    listen 80;
+    listen 443;
     location / {
       default_type text/plain;
       return 200 '$remote_addr';
@@ -110,7 +113,13 @@ func (t *IsolatedTarget) NetworkName() string {
 
 // URL returns the target's address for requests from inside the overlay.
 func (t *IsolatedTarget) URL() string {
-	return "http://" + t.IP + ":" + isolatedTargetPort + "/"
+	return t.URLOnPort(isolatedTargetPort)
+}
+
+// URLOnPort returns the target's plain HTTP address on one of the ports it listens
+// on: 8080, 80 or 443.
+func (t *IsolatedTarget) URLOnPort(port string) string {
+	return "http://" + t.IP + ":" + port + "/"
 }
 
 // Logs returns the target container logs for failure diagnostics.

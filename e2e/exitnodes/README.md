@@ -21,6 +21,6 @@ The harness builds the combined server and client from the current checkout.
 To test existing images, set `NB_E2E_COMBINED_IMAGE` and `NB_E2E_CLIENT_IMAGE`.
 
 The suite covers policy source changes, multiple source groups, source group
-membership, disabled and deleted policies, disabled exit nodes and exit peers,
+membership, disabled and deleted policies, disabled exit nodes and exit peers, port-restricted policies,
 deleted exit nodes, and exit nodes that are not auto applied. It runs in the
 nightly `./e2e/...` job.

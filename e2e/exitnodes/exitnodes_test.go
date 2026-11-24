@@ -136,6 +136,23 @@ func TestExitNode_Disabled(t *testing.T) {
 	requireNoAccess(t, env.alice, "an exit node whose only peer is disabled should route nothing")
 }
 
+// TestExitNode_PolicyPortRestriction allows only TCP 443 through the exit node, so plain
+// HTTP on 80 to the same host stays blocked at the exit peer.
+func TestExitNode_PolicyPortRestriction(t *testing.T) {
+	node := createExitNode(t, "en-tcp-443", true)
+	req := policyRequest("en-tcp-443", node.Id, true, env.groupA)
+	req.Rules[0].Protocol = api.PolicyRuleUpdateProtocolTcp
+	req.Rules[0].Ports = &[]string{"443"}
+	createPolicyFrom(t, req)
+
+	body := requireAccessTo(t, env.alice, env.target.URLOnPort("443"),
+		"TCP 443 should reach the internet through the exit node when the policy allows it")
+	assert.Equal(t, env.exitPeerTargetIP, body,
+		"the target should see the exit peer's address on the allowed port")
+	assertStaysWithoutAccessTo(t, env.alice, env.target.URLOnPort("80"),
+		"plain HTTP on 80 should be blocked when the policy allows only TCP 443")
+}
+
 // TestExitNode_AutoApplyOff checks that an exit node that is not auto applied reaches
 // the client unselected, and routes once the user selects it.
 func TestExitNode_AutoApplyOff(t *testing.T) {
@@ -188,8 +205,14 @@ func updateExitNode(t *testing.T, id string, req api.ExitNodeRequest) {
 // createPolicy creates a policy giving the source groups access to the exit node.
 func createPolicy(t *testing.T, name, exitNodeID string, sources ...string) *api.Policy {
 	t.Helper()
-	policy, err := srv.API().Policies.Create(context.Background(), policyRequest(name, exitNodeID, true, sources...))
-	require.NoError(t, err, "create policy %s", name)
+	return createPolicyFrom(t, policyRequest(name, exitNodeID, true, sources...))
+}
+
+// createPolicyFrom creates the policy and deletes it when the test ends.
+func createPolicyFrom(t *testing.T, req api.PolicyUpdate) *api.Policy {
+	t.Helper()
+	policy, err := srv.API().Policies.Create(context.Background(), req)
+	require.NoError(t, err, "create policy %s", req.Name)
 	t.Cleanup(func() {
 		if policy.Id != nil {
 			_ = srv.API().Policies.Delete(context.Background(), *policy.Id)
@@ -232,20 +255,26 @@ func setGroupPeers(t *testing.T, groupID string, peerIDs ...string) {
 	require.NoError(t, err, "update group %s", groupID)
 }
 
-// fetch requests the target from inside the peer, returning the body and whether the
+// fetch requests the URL from inside the peer, returning the body and whether the
 // request succeeded.
-func fetch(cl *harness.Client) (string, bool) {
-	code, out, err := cl.Exec(context.Background(), "wget", "-q", "-O", "-", "-T", "3", env.target.URL())
+func fetch(cl *harness.Client, url string) (string, bool) {
+	code, out, err := cl.Exec(context.Background(), "wget", "-q", "-O", "-", "-T", "3", url)
 	return strings.TrimSpace(out), err == nil && code == 0
 }
 
 // requireAccess waits until the peer reaches the target and returns the response body.
 func requireAccess(t *testing.T, cl *harness.Client, msg string) string {
 	t.Helper()
+	return requireAccessTo(t, cl, env.target.URL(), msg)
+}
+
+// requireAccessTo waits until the peer reaches the URL and returns the response body.
+func requireAccessTo(t *testing.T, cl *harness.Client, url, msg string) string {
+	t.Helper()
 	var body string
 	require.Eventually(t, func() bool {
 		var ok bool
-		body, ok = fetch(cl)
+		body, ok = fetch(cl, url)
 		return ok
 	}, propagationTimeout, pollInterval, "%s: %s", cl.Hostname(), msg)
 	return body
@@ -255,7 +284,7 @@ func requireAccess(t *testing.T, cl *harness.Client, msg string) string {
 func requireNoAccess(t *testing.T, cl *harness.Client, msg string) {
 	t.Helper()
 	require.Eventually(t, func() bool {
-		_, ok := fetch(cl)
+		_, ok := fetch(cl, env.target.URL())
 		return !ok
 	}, propagationTimeout, pollInterval, "%s: %s", cl.Hostname(), msg)
 }
@@ -264,8 +293,15 @@ func requireNoAccess(t *testing.T, cl *harness.Client, msg string) {
 // deny window.
 func assertStaysWithoutAccess(t *testing.T, cl *harness.Client, msg string) {
 	t.Helper()
+	assertStaysWithoutAccessTo(t, cl, env.target.URL(), msg)
+}
+
+// assertStaysWithoutAccessTo checks that the peer cannot reach the URL for the whole
+// deny window.
+func assertStaysWithoutAccessTo(t *testing.T, cl *harness.Client, url, msg string) {
+	t.Helper()
 	assert.Never(t, func() bool {
-		_, ok := fetch(cl)
+		_, ok := fetch(cl, url)
 		return ok
 	}, denyWindow, pollInterval, "%s: %s", cl.Hostname(), msg)
 }
