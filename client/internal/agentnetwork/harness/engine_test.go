@@ -552,3 +552,27 @@ func TestKeepOnlyPlanReleasesOwnership(t *testing.T) {
 	}
 	assert.Equal(t, "configured", Status(claudeCode.ID, rec), "the remaining keys are as written")
 }
+
+func TestRelativeConfigDirResolved(t *testing.T) {
+	t.Chdir(t.TempDir())
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+	rel := func(k string) string {
+		if k == "CLAUDE_CONFIG_DIR" {
+			return "cfg"
+		}
+		return ""
+	}
+	f := claudeCode.Files[0]
+
+	assert.Equal(t, filepath.Join(cwd, "cfg", "settings.json"),
+		f.Path(Env{GOOS: runtime.GOOS, Home: cwd, Getenv: rel}),
+		"a relative dir is recorded as the absolute path undo will find")
+
+	other, sep := "windows", `\`
+	if runtime.GOOS == "windows" {
+		other, sep = "linux", "/"
+	}
+	assert.Equal(t, "cfg"+sep+"settings.json", f.Path(Env{GOOS: other, Home: "/h", Getenv: rel}),
+		"another OS's path is not resolved against this host's working directory")
+}
