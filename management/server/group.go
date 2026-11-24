@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -245,11 +246,17 @@ func removedGroupNetworkResources(ctx context.Context, transaction store.Store, 
 	return removed, nil
 }
 
-// syncGroupMembership applies the peer membership delta for a group within a transaction.
+// syncGroupMembership validates the peers to add and applies the membership delta for a group
+// within a transaction.
 func syncGroupMembership(ctx context.Context, transaction store.Store, accountID, groupID string, peersToAdd, peersToRemove []string) error {
 	if err := validateGroupPeers(ctx, transaction, accountID, peersToAdd); err != nil {
 		return err
 	}
+	return applyGroupMembership(ctx, transaction, accountID, groupID, peersToAdd, peersToRemove)
+}
+
+// applyGroupMembership writes the membership delta without validating the peers.
+func applyGroupMembership(ctx context.Context, transaction store.Store, accountID, groupID string, peersToAdd, peersToRemove []string) error {
 	for _, peerID := range peersToAdd {
 		if err := transaction.AddPeerToGroup(ctx, accountID, peerID, groupID); err != nil {
 			return status.Errorf(status.Internal, "failed to add peer %s to group %s: %v", peerID, groupID, err)
@@ -535,37 +542,8 @@ func (am *DefaultAccountManager) prepareGroupEvents(ctx context.Context, transac
 	}
 	dnsDomain := am.networkMapController.GetDNSDomain(settings)
 
-	for _, peerID := range addedPeers {
-		peer, ok := peers[peerID]
-		if !ok {
-			log.WithContext(ctx).Debugf("skipped adding peer: %s GroupAddedToPeer activity: peer not found in store", peerID)
-			continue
-		}
-
-		eventsToStore = append(eventsToStore, func() {
-			meta := map[string]any{
-				"group": newGroup.Name, "group_id": newGroup.ID,
-				"peer_ip": peer.IP.String(), "peer_fqdn": peer.FQDN(dnsDomain),
-			}
-			am.StoreEvent(ctx, userID, peer.ID, accountID, activity.GroupAddedToPeer, meta)
-		})
-	}
-
-	for _, peerID := range removedPeers {
-		peer, ok := peers[peerID]
-		if !ok {
-			log.WithContext(ctx).Debugf("skipped adding peer: %s GroupRemovedFromPeer activity: peer not found in store", peerID)
-			continue
-		}
-
-		eventsToStore = append(eventsToStore, func() {
-			meta := map[string]any{
-				"group": newGroup.Name, "group_id": newGroup.ID,
-				"peer_ip": peer.IP.String(), "peer_fqdn": peer.FQDN(dnsDomain),
-			}
-			am.StoreEvent(ctx, userID, peer.ID, accountID, activity.GroupRemovedFromPeer, meta)
-		})
-	}
+	eventsToStore = append(eventsToStore, am.groupMembershipEvents(ctx, userID, accountID, newGroup, peers, dnsDomain, addedPeers, activity.GroupAddedToPeer)...)
+	eventsToStore = append(eventsToStore, am.groupMembershipEvents(ctx, userID, accountID, newGroup, peers, dnsDomain, removedPeers, activity.GroupRemovedFromPeer)...)
 
 	return eventsToStore
 }
@@ -784,6 +762,177 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 	am.ExpandAndUpdateAffected(ctx, accountID, snap, change, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 
 	return nil
+}
+
+// groupPeersOp selects whether a batch membership request adds or removes peers.
+type groupPeersOp string
+
+const (
+	groupPeersAdd    groupPeersOp = "add"
+	groupPeersRemove groupPeersOp = "remove"
+)
+
+// delta returns the requested IDs that change the membership of a group with the given members.
+func (op groupPeersOp) delta(members, requested []string) []string {
+	if op == groupPeersAdd {
+		return util.Difference(requested, members)
+	}
+	return slices.DeleteFunc(slices.Clone(requested), func(id string) bool {
+		return !slices.Contains(members, id)
+	})
+}
+
+func (op groupPeersOp) activity() activity.Activity {
+	if op == groupPeersAdd {
+		return activity.GroupAddedToPeer
+	}
+	return activity.GroupRemovedFromPeer
+}
+
+// AddPeersToGroup adds the peers to the group in one transaction and returns the updated group.
+// Every ID must belong to the account, otherwise nothing is changed.
+func (am *DefaultAccountManager) AddPeersToGroup(ctx context.Context, accountID, userID, groupID string, peerIDs []string) (*types.Group, error) {
+	return am.changeGroupPeers(ctx, accountID, userID, groupID, peerIDs, groupPeersAdd)
+}
+
+// RemovePeersFromGroup removes the peers from the group in one transaction and returns the updated
+// group. Every ID must belong to the account, otherwise nothing is changed.
+func (am *DefaultAccountManager) RemovePeersFromGroup(ctx context.Context, accountID, userID, groupID string, peerIDs []string) (*types.Group, error) {
+	return am.changeGroupPeers(ctx, accountID, userID, groupID, peerIDs, groupPeersRemove)
+}
+
+func (am *DefaultAccountManager) changeGroupPeers(ctx context.Context, accountID, userID, groupID string, peerIDs []string, op groupPeersOp) (*types.Group, error) {
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Update)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	requested := slices.Compact(slices.Sorted(slices.Values(peerIDs)))
+	if len(requested) == 0 {
+		return nil, status.Errorf(status.InvalidArgument, "peer IDs list is empty")
+	}
+
+	var result *types.Group
+	var eventsToStore []func()
+	var snap *affectedpeers.Snapshot
+	var delta []string
+	change := affectedpeers.Change{LinkGroups: []string{groupID}}
+
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		result, eventsToStore, snap, delta = nil, nil, nil, nil
+		change.OutputPeerIDs, change.ChangedPeerIDs = nil, nil
+
+		group, err := transaction.GetGroupByID(ctx, store.LockingStrengthUpdate, accountID, groupID)
+		if err != nil {
+			return err
+		}
+		if group.IsGroupAll() {
+			return status.Errorf(status.InvalidArgument, "updating group ALL is not allowed")
+		}
+
+		if err = validateGroupPeers(ctx, transaction, accountID, requested); err != nil {
+			return err
+		}
+
+		delta = op.delta(group.Peers, requested)
+		if len(delta) == 0 {
+			result = group
+			return nil
+		}
+
+		var toAdd, toRemove []string
+		if op == groupPeersAdd {
+			toAdd = delta
+		} else {
+			toRemove = delta
+		}
+		if err = applyGroupMembership(ctx, transaction, accountID, groupID, toAdd, toRemove); err != nil {
+			return err
+		}
+
+		// Same scope as GroupAddPeer and GroupDeletePeer: the changed peers and the
+		// opposite side of this group's policies refresh, not the group's other
+		// members or the peers' other groups.
+		change.OutputPeerIDs = delta
+
+		ipv6Changed, err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, []string{groupID})
+		if err != nil {
+			return err
+		}
+		change.ChangedPeerIDs = ipv6Changed
+
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+			return err
+		}
+
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return err
+		}
+
+		if result, err = transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, groupID); err != nil {
+			return err
+		}
+
+		eventsToStore = am.groupPeersEvents(ctx, transaction, accountID, userID, result, delta, op.activity())
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(delta) == 0 {
+		return result, nil
+	}
+
+	for _, storeEvent := range eventsToStore {
+		storeEvent()
+	}
+
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
+
+	return result, nil
+}
+
+// groupPeersEvents prepares one activity event per peer whose membership of the group changed.
+func (am *DefaultAccountManager) groupPeersEvents(ctx context.Context, transaction store.Store, accountID, userID string, group *types.Group, peerIDs []string, code activity.Activity) []func() {
+	peers, err := transaction.GetPeersByIDs(ctx, store.LockingStrengthNone, accountID, peerIDs)
+	if err != nil {
+		log.WithContext(ctx).Debugf("failed to get peers for group events: %v", err)
+		return nil
+	}
+
+	settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		log.WithContext(ctx).Debugf("failed to get account settings for group events: %v", err)
+		return nil
+	}
+	dnsDomain := am.networkMapController.GetDNSDomain(settings)
+
+	return am.groupMembershipEvents(ctx, userID, accountID, group, peers, dnsDomain, peerIDs, code)
+}
+
+// groupMembershipEvents builds one event of the given activity per listed peer found in peers.
+func (am *DefaultAccountManager) groupMembershipEvents(ctx context.Context, userID, accountID string, group *types.Group, peers map[string]*nbpeer.Peer, dnsDomain string, peerIDs []string, code activity.Activity) []func() {
+	events := make([]func(), 0, len(peerIDs))
+	for _, peerID := range peerIDs {
+		peer, ok := peers[peerID]
+		if !ok {
+			log.WithContext(ctx).Debugf("skipped group activity %s for peer %s: peer not found in store", code.StringCode(), peerID)
+			continue
+		}
+
+		events = append(events, func() {
+			meta := map[string]any{
+				"group": group.Name, "group_id": group.ID,
+				"peer_ip": peer.IP.String(), "peer_fqdn": peer.FQDN(dnsDomain),
+			}
+			am.StoreEvent(ctx, userID, peer.ID, accountID, code, meta)
+		})
+	}
+	return events
 }
 
 // GroupDeleteResource removes resource from the group
