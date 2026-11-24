@@ -47,10 +47,17 @@ const (
 var (
 	services = []Service{Management, Signal, Relay}
 
-	defaultMu      sync.Mutex
-	defaultSet     atomic.Bool
-	defaultWatcher atomic.Pointer[Watcher]
+	defaultMu sync.Mutex
+	// defaultEntry is nil until the default Watcher is decided. A nil w
+	// inside means this build has none.
+	defaultEntry atomic.Pointer[defaultState]
 )
+
+// defaultState holds the default Watcher, so the decision and the Watcher
+// are published in one atomic store.
+type defaultState struct {
+	w *Watcher
+}
 
 // Registration is what a connected stream hands to the Watcher.
 type Registration struct {
@@ -351,13 +358,11 @@ func (w *Watcher) Snapshot() Snapshot {
 func SetDefault(w *Watcher) (restore func()) {
 	defaultMu.Lock()
 	defer defaultMu.Unlock()
-	prevSet := defaultSet.Swap(true)
-	prev := defaultWatcher.Swap(w)
+	prev := defaultEntry.Swap(&defaultState{w: w})
 	return func() {
 		defaultMu.Lock()
 		defer defaultMu.Unlock()
-		defaultWatcher.Store(prev)
-		defaultSet.Store(prevSet)
+		defaultEntry.Store(prev)
 	}
 }
 
@@ -431,20 +436,19 @@ func CurrentSnapshot() (Snapshot, bool) {
 // def returns the default Watcher. It exists only on builds that ask for
 // the aligned heartbeat, so a missing result is kept.
 func def() *Watcher {
-	if w := defaultWatcher.Load(); w != nil || defaultSet.Load() {
-		return w
+	if e := defaultEntry.Load(); e != nil {
+		return e.w
 	}
 	defaultMu.Lock()
 	defer defaultMu.Unlock()
-	if w := defaultWatcher.Load(); w != nil || defaultSet.Load() {
-		return w
+	if e := defaultEntry.Load(); e != nil {
+		return e.w
 	}
-	defaultSet.Store(true)
-	if !alignedhb.Supported() {
-		return nil
+	var w *Watcher
+	if alignedhb.Supported() {
+		w = New(realClock{}, alignedhb.DefaultPeriod)
 	}
-	w := New(realClock{}, alignedhb.DefaultPeriod)
-	defaultWatcher.Store(w)
+	defaultEntry.Store(&defaultState{w: w})
 	return w
 }
 
