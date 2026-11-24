@@ -64,7 +64,7 @@ func TestPrivateDenyLeavesAgentNetworkLog(t *testing.T) {
 
 	rec, cd := serveProtected(t, mw, testTunnelIP, "")
 
-	assert.Equal(t, http.StatusForbidden, rec.Code, "an unvalidated tunnel peer must be refused")
+	assert.Equal(t, http.StatusNotFound, rec.Code, "a caller outside the overlay must be refused with 404")
 	assert.Equal(t, proxy.OriginAuth, cd.GetOrigin(), "the proxy's own refusal is an auth rejection")
 	assert.False(t, cd.GetAgentNetwork(), "a refused caller goes to the reverse-proxy log, not the agent-network log")
 	assert.False(t, cd.GetSuppressAccessLog(), "the agent-network log collection setting does not apply to a refused caller")
@@ -96,7 +96,7 @@ func TestCrossAccountDenyIsNotAgentNetwork(t *testing.T) {
 
 	rec, cd := serveProtected(t, mw, testTunnelIP, "acct-other")
 
-	assert.Equal(t, http.StatusForbidden, rec.Code, "a request from another account must be refused")
+	assert.Equal(t, http.StatusNotFound, rec.Code, "a request from another account must be refused with 404")
 	assert.Equal(t, proxy.OriginAuth, cd.GetOrigin(), "the refusal is still the proxy's")
 	assert.False(t, cd.GetAgentNetwork(), "another account's request is not this gateway's agent-network traffic")
 }

@@ -2229,12 +2229,13 @@ func (s *ProxyServiceServer) ValidateTunnelPeer(ctx context.Context, req *proto.
 		log.WithFields(log.Fields{"domain": domain, "peer_id": peer.ID, "error": err.Error()}).Debug("ValidateTunnelPeer: access denied")
 		//nolint:nilerr
 		return &proto.ValidateTunnelPeerResponse{
-			Valid:          false,
-			UserId:         principalID,
-			UserEmail:      displayIdentity,
-			DeniedReason:   "not_in_group",
-			PeerGroupIds:   groupIDs,
-			PeerGroupNames: groupNames,
+			Valid:            false,
+			UserId:           principalID,
+			UserEmail:        displayIdentity,
+			DeniedReason:     "not_in_group",
+			PeerGroupIds:     groupIDs,
+			PeerGroupNames:   groupNames,
+			HasPrivateAccess: s.hasOtherPrivateAccess(ctx, service, groupIDs),
 		}, nil
 	}
 
@@ -2260,6 +2261,26 @@ func (s *ProxyServiceServer) ValidateTunnelPeer(ctx context.Context, req *proto.
 		PeerGroupIds:   groupIDs,
 		PeerGroupNames: groupNames,
 	}, nil
+}
+
+// hasOtherPrivateAccess reports whether the peer's groups reach any other
+// enabled private service in the account. The proxy uses it only to choose the
+// status of a refusal, so a failed lookup reads as no access.
+func (s *ProxyServiceServer) hasOtherPrivateAccess(ctx context.Context, denied *rpservice.Service, peerGroupIDs []string) bool {
+	services, err := s.serviceManager.GetAccountServices(ctx, denied.AccountID)
+	if err != nil {
+		log.WithContext(ctx).Debugf("ValidateTunnelPeer: list services of account %s: %v", denied.AccountID, err)
+		return false
+	}
+	for _, svc := range services {
+		if svc.ID == denied.ID || !svc.Enabled || !svc.Private {
+			continue
+		}
+		if checkPeerGroupAccess(svc, peerGroupIDs) == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // recordPeerSeen hands the mesh request to the activity manager. The RPC must

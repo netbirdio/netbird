@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"net"
@@ -10,6 +12,8 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 
 	"github.com/netbirdio/netbird/client/iface"
@@ -40,8 +44,9 @@ func TestEmptyURL(t *testing.T) {
 func TestForeignConn(t *testing.T) {
 	ctx := context.Background()
 
+	addr1, _ := freeAddr(t)
 	lstCfg1 := server.ListenerConfig{
-		Address: "localhost:52101",
+		Address: addr1,
 	}
 
 	srv1, err := server.NewServer(newManagerTestServerConfig(lstCfg1.Address))
@@ -67,8 +72,9 @@ func TestForeignConn(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
+	addr2, _ := freeAddr(t)
 	srvCfg2 := server.ListenerConfig{
-		Address: "localhost:52102",
+		Address: addr2,
 	}
 	srv2, err := server.NewServer(newManagerTestServerConfig(srvCfg2.Address))
 	if err != nil {
@@ -228,8 +234,9 @@ func TestForeignAutoClose(t *testing.T) {
 	relayCleanupInterval = 1 * time.Second
 	keepUnusedServerTime = 2 * time.Second
 
+	addr1, _ := freeAddr(t)
 	srvCfg1 := server.ListenerConfig{
-		Address: "localhost:52301",
+		Address: addr1,
 	}
 	srv1, err := server.NewServer(newManagerTestServerConfig(srvCfg1.Address))
 	if err != nil {
@@ -255,8 +262,9 @@ func TestForeignAutoClose(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
+	addr2, _ := freeAddr(t)
 	srvCfg2 := server.ListenerConfig{
-		Address: "localhost:52302",
+		Address: addr2,
 	}
 	srv2, err := server.NewServer(newManagerTestServerConfig(srvCfg2.Address))
 	if err != nil {
@@ -375,7 +383,7 @@ func TestAutoReconnect(t *testing.T) {
 
 	t.Log("closing client relay connection")
 	// todo figure out moc server
-	_ = clientAlice.relayClient.relayConn.Close()
+	_ = clientAlice.relayClient.CurrentSession().conn.Close()
 	t.Log("start test reading")
 	_, err = conn.Read(make([]byte, 1))
 	if err == nil {
@@ -466,7 +474,7 @@ func TestConnContextCancelledOnServerDisconnect(t *testing.T) {
 	default:
 	}
 
-	_ = mgr.relayClient.relayConn.Close()
+	_ = mgr.relayClient.CurrentSession().conn.Close()
 
 	select {
 	case <-relayedConn.Context().Done():
@@ -539,4 +547,16 @@ func TestConnContextCauseOnLocalClose(t *testing.T) {
 	if cause := context.Cause(relayedConn.Context()); !errors.Is(cause, net.ErrClosed) {
 		t.Errorf("unexpected cancellation cause after a local close: %v, want %v", cause, net.ErrClosed)
 	}
+}
+
+func TestManager_AuthKeyAndAuthTokenReachTheRelayClients(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	m := NewManager(context.Background(), nil, "alice", iface.DefaultMTU, WithAuthKey(priv))
+	assert.Equal(t, priv, m.serverPicker.AuthKey, "home relay clients must sign with the auth key")
+
+	require.NoError(t, m.UpdateAuthToken([]byte("opaque auth token")))
+	token, isAuthToken := m.serverPicker.TokenStore.Credentials()
+	assert.True(t, isAuthToken, "relay clients must present the auth token")
+	assert.Equal(t, []byte("opaque auth token"), token, "relay clients must present the token Management sent")
 }

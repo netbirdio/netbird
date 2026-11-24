@@ -218,7 +218,7 @@ func transportFrames(t *testing.T, dst messages.PeerID, n int) [][]byte {
 	t.Helper()
 	frames := make([][]byte, n)
 	for i := range frames {
-		frame, err := messages.MarshalTransportMsg(dst, make([]byte, 1400))
+		frame, err := messages.MarshalTransportMsg(messages.CurrentProtocolVersion, dst, make([]byte, 1400))
 		require.NoError(t, err)
 		frames[i] = frame
 	}

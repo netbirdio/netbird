@@ -13,6 +13,7 @@
       "IPv6": "fdf4:ba80:6aa5:89f1:44d7:8701:8699:4940",
       "RequiresApproval": false,
       "Connected": true,
+      "StatusLoginExpired": false,
       "ExtraDNSLabels": [
         "extra-peer-1"
       ],
@@ -69,6 +70,7 @@
       "IPv6": "fdf5:ba80:6aa5:89f1:44d7:8701:8699:4940",
       "RequiresApproval": false,
       "Connected": true,
+      "StatusLoginExpired": false,
       "ExtraDNSLabels": [
         "extra-peer-2"
       ],
@@ -125,6 +127,7 @@
       "IPv6": "fdf6:ba80:6aa5:89f1:44d7:8701:8699:4940",
       "RequiresApproval": false,
       "Connected": true,
+      "StatusLoginExpired": false,
       "ExtraDNSLabels": [
         "extra-peer-3"
       ],
@@ -260,7 +263,9 @@
               "user-2"
             ]
           },
-          "AuthorizedUser": "user-3"
+          "AuthorizedUser": "user-3",
+          "SessionPubKey": "",
+          "SessionDisplayName": ""
         }
       ]
     }
@@ -355,7 +360,8 @@
       "Address": "",
       "Domain": "",
       "Prefix": "10.0.0.0/16",
-      "Enabled": true
+      "Enabled": true,
+      "SkipAutoApply": false
     },
     {
       "ID": "net-resource-332",
@@ -368,7 +374,8 @@
       "Address": "",
       "Domain": "test.com",
       "Prefix": "",
-      "Enabled": true
+      "Enabled": true,
+      "SkipAutoApply": false
     }
   ],
   "Network": {

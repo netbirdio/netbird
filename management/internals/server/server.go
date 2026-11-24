@@ -223,7 +223,7 @@ func (s *BaseServer) start(ctx context.Context) (err error) {
 
 	var compatListener net.Listener
 	if s.mgmtPort != ManagementLegacyPort && !s.disableLegacyManagementPort {
-		// The Management gRPC server was running on port 33073 previously. Old agents that are already connected to it
+		// The Management gRPC server was running on port 33073 previously. Old clients that are already connected to it
 		// are using port 33073. For compatibility purposes we keep running a 2nd gRPC server on port 33073.
 		compatListener, err = s.serveGRPC(srvCtx, s.GRPCServer(), ManagementLegacyPort)
 		if err != nil {

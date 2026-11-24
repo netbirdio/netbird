@@ -1893,3 +1893,67 @@ func TestCollectAffectedFromProxyServices_NonPeerTargetType(t *testing.T) {
 	assert.Contains(t, directPeers, peerIDs[0], "host target service still refreshes its proxy peer when the proxy peer changes")
 	assert.NotContains(t, directPeers, "10.0.0.1", "non-peer target ids must not appear as affected peer IDs")
 }
+
+// setupRouteAccessControlPolicy creates a route served by the members of
+// groupIDs[0], distributed to the All group and guarded by the access-control group
+// groupIDs[2], plus the policy from groupIDs[3] to that access-control group.
+func setupRouteAccessControlPolicy(t *testing.T, manager *DefaultAccountManager, accountID string, groupIDs []string) *types.Policy {
+	t.Helper()
+	ctx := context.Background()
+
+	allGroup, err := manager.Store.GetGroupByName(ctx, store.LockingStrengthNone, accountID, "All")
+	require.NoError(t, err)
+
+	_, err = manager.CreateRoute(ctx, accountID,
+		netip.MustParsePrefix("10.8.0.0/24"),
+		route.IPv4Network,
+		nil,
+		"",
+		[]string{groupIDs[0]},
+		"acl policy route",
+		"aclpolicynet",
+		false,
+		9999,
+		[]string{allGroup.ID},
+		[]string{groupIDs[2]},
+		true,
+		userID,
+		false,
+		false,
+	)
+	require.NoError(t, err)
+
+	policy, err := manager.SavePolicy(ctx, accountID, userID, &types.Policy{
+		Enabled: true,
+		Rules: []*types.PolicyRule{{
+			Enabled:      true,
+			Sources:      []string{groupIDs[3]},
+			Destinations: []string{groupIDs[2]},
+			Action:       types.PolicyTrafficActionAccept,
+		}},
+	}, true)
+	require.NoError(t, err)
+
+	return policy
+}
+
+func TestResolveAffectedPeers_DeletePolicyTargetingRouteAccessControlGroup_RefreshesRoutingPeer(t *testing.T) {
+	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
+	policy := setupRouteAccessControlPolicy(t, manager, accountID, groupIDs)
+
+	result := resolveAffected(t, s, accountID, affectedpeers.Change{Policies: []*types.Policy{policy}})
+
+	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[2], peerIDs[3]}, result)
+}
+
+func TestResolveAffectedPeers_SourcePeerLeavesRouteAccessControlPolicy_RefreshesRoutingPeer(t *testing.T) {
+	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
+	setupRouteAccessControlPolicy(t, manager, accountID, groupIDs)
+	ctx := context.Background()
+
+	require.NoError(t, manager.GroupDeletePeer(ctx, accountID, groupIDs[3], peerIDs[3]))
+
+	result := resolveAffected(t, s, accountID, affectedpeers.Change{OutputPeerIDs: []string{peerIDs[3]}, LinkGroups: []string{groupIDs[3]}})
+
+	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[2], peerIDs[3]}, result)
+}
