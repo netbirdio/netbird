@@ -557,6 +557,96 @@ components:
       required:
         - modules
         - is_restricted
+    Group:
+      allOf:
+        - $ref: '#/components/schemas/GroupMinimum'
+        - type: object
+          properties:
+            peers:
+              description: List of IDs of the group's peers that the caller is allowed to see
+              type: array
+              items:
+                type: string
+                example: "chacbco6lnnbn6cg5s90"
+            resources:
+              type: array
+              items:
+                $ref: '#/components/schemas/Resource'
+          required:
+            - peers
+            - resources
+    GroupRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Group name identifier
+          example: devs
+        peers:
+          type: array
+          description: List of peers ids
+          items:
+            type: string
+            example: "ch8i4ug6lnn4g9hqv7m1"
+        resources:
+          type: array
+          items:
+            $ref: '#/components/schemas/Resource'
+      required:
+        - name
+    Resource:
+      type: object
+      properties:
+        id:
+          description: ID of the resource
+          type: string
+          example: chacdk86lnnboviihd7g
+        type:
+          $ref: '#/components/schemas/ResourceType'
+      required:
+        - id
+        - type
+    GroupMinimum:
+      type: object
+      properties:
+        id:
+          description: Group ID
+          type: string
+          example: ch8i4ug6lnn4g9hqv7m0
+        name:
+          description: Group Name identifier
+          type: string
+          example: devs
+        peers_count:
+          description: Count of peers associated to the group
+          type: integer
+          example: 2
+        resources_count:
+          description: Count of resources associated to the group
+          type: integer
+          example: 5
+        issued:
+          description: How the group was issued (api, integration, jwt)
+          type: string
+          enum:
+            - "api"
+            - "integration"
+            - "jwt"
+          example: api
+      required:
+        - id
+        - name
+        - peers_count
+        - resources_count
+    ResourceType:
+      description: Type of the resource
+      type: string
+      enum:
+        - "host"
+        - "subnet"
+        - "domain"
+        - "peer"
+      example: peer
   responses:
     not_found:
       description: Resource not found
@@ -1020,11 +1110,188 @@ components:
             "$ref": "#/components/responses/forbidden"
           '500':
             "$ref": "#/components/responses/internal_error"
+    groups:
+      get:
+        summary: List all Groups
+        description: Returns a list of all groups
+        tags:
+          - Groups
+        security:
+          - BearerAuth: []
+          - TokenAuth: []
+        parameters:
+          - name: name
+            in: query
+            description: Filter groups by name (exact match)
+            required: false
+            schema:
+              type: string
+            example: "devs"
+        responses:
+          '200':
+            description: A JSON Array of Groups
+            content:
+              application/json:
+                schema:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Group'
+          '400':
+            "$ref": '#/components/responses/bad_request'
+          '401':
+            "$ref": '#/components/responses/requires_authentication'
+          '403':
+            "$ref": '#/components/responses/forbidden'
+          '404':
+            "$ref": '#/components/responses/not_found'
+          '422':
+            "$ref": '#/components/responses/unprocessable'
+          '500':
+            "$ref": '#/components/responses/internal_error'
+      post:
+        summary: Create a Group
+        description: Creates a group
+        tags:
+          - Groups
+        security:
+          - BearerAuth: []
+          - TokenAuth: []
+        requestBody:
+          description: New group request
+          required: true
+          content:
+            'application/json':
+              schema:
+                $ref: '#/components/schemas/GroupRequest'
+        responses:
+          '200':
+            description: A Group object
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/Group'
+          '400':
+            "$ref": '#/components/responses/bad_request'
+          '401':
+            "$ref": '#/components/responses/requires_authentication'
+          '403':
+            "$ref": '#/components/responses/forbidden'
+          '422':
+            "$ref": '#/components/responses/unprocessable'
+          '500':
+            "$ref": '#/components/responses/internal_error'
+    group:
+      get:
+        summary: Retrieve a Group
+        description: Get information about a group
+        tags:
+          - Groups
+        security:
+          - BearerAuth: []
+          - TokenAuth: []
+        parameters:
+          - in: path
+            name: groupId
+            required: true
+            schema:
+              type: string
+            description: The unique identifier of a group
+        responses:
+          '200':
+            description: A Group object
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/Group'
+          '400':
+            "$ref": '#/components/responses/bad_request'
+          '401':
+            "$ref": '#/components/responses/requires_authentication'
+          '403':
+            "$ref": '#/components/responses/forbidden'
+          '404':
+            "$ref": '#/components/responses/not_found'
+          '500':
+            "$ref": '#/components/responses/internal_error'
+      put:
+        summary: Update a Group
+        description: Update/Replace a group and its peers and resources
+        tags:
+          - Groups
+        security:
+          - BearerAuth: []
+          - TokenAuth: []
+        parameters:
+          - in: path
+            name: groupId
+            required: true
+            schema:
+              type: string
+            description: The unique identifier of a group
+        requestBody:
+          description: Update group request
+          required: true
+          content:
+            'application/json':
+              schema:
+                $ref: '#/components/schemas/GroupRequest'
+        responses:
+          '200':
+            description: A Group object
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/Group'
+          '400':
+            "$ref": '#/components/responses/bad_request'
+          '401':
+            "$ref": '#/components/responses/requires_authentication'
+          '403':
+            "$ref": '#/components/responses/forbidden'
+          '404':
+            "$ref": '#/components/responses/not_found'
+          '422':
+            "$ref": '#/components/responses/unprocessable'
+          '500':
+            "$ref": '#/components/responses/internal_error'
+      delete:
+        summary: Delete a Group
+        description: Delete a group
+        tags:
+          - Groups
+        security:
+          - BearerAuth: []
+          - TokenAuth: []
+        parameters:
+          - in: path
+            name: groupId
+            required: true
+            schema:
+              type: string
+            description: The unique identifier of a group
+        responses:
+          '200':
+            description: Delete status code
+            content: {}
+          '400':
+            "$ref": '#/components/responses/bad_request'
+          '401':
+            "$ref": '#/components/responses/requires_authentication'
+          '403':
+            "$ref": '#/components/responses/forbidden'
+          '404':
+            "$ref": '#/components/responses/not_found'
+          '500':
+            "$ref": '#/components/responses/internal_error'
 paths:
   /peers:
     $ref: '#/components/pathItems/peers'
   /peers/{peerId}:
     $ref: '#/components/pathItems/peer'
+  /groups:
+    $ref: '#/components/pathItems/groups'
+  /groups/{groupId}:
+    $ref: '#/components/pathItems/group'
   /users:
     $ref: '#/components/pathItems/UsersPath'
   /users/{userId}:

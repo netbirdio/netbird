@@ -1,0 +1,67 @@
+get:
+  summary: List all Groups
+  description: Returns a list of all groups
+  tags: [ Groups ]
+  security:
+    - BearerAuth: [ ]
+    - TokenAuth: [ ]
+  parameters:
+    - name: name
+      in: query
+      description: Filter groups by name (exact match)
+      required: false
+      schema:
+        type: string
+      example: "devs"
+  responses:
+    '200':
+      description: A JSON Array of Groups
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: './components.yaml#/components/schemas/Group'
+    '400':
+      "$ref": '../openapi.yaml#/components/responses/bad_request'
+    '401':
+      "$ref": '../openapi.yaml#/components/responses/requires_authentication'
+    '403':
+      "$ref": '../openapi.yaml#/components/responses/forbidden'
+    '404':
+      "$ref": '../openapi.yaml#/components/responses/not_found'
+    '422':
+      "$ref": '../openapi.yaml#/components/responses/unprocessable'
+    '500':
+      "$ref": '../openapi.yaml#/components/responses/internal_error'
+post:
+  summary: Create a Group
+  description: Creates a group
+  tags: [ Groups ]
+  security:
+    - BearerAuth: [ ]
+    - TokenAuth: [ ]
+  requestBody:
+    description: New group request
+    required: true
+    content:
+      'application/json':
+        schema:
+          $ref: './components.yaml#/components/schemas/GroupRequest'
+  responses:
+    '200':
+      description: A Group object
+      content:
+        application/json:
+          schema:
+            $ref: './components.yaml#/components/schemas/Group'
+    '400':
+      "$ref": '../openapi.yaml#/components/responses/bad_request'
+    '401':
+      "$ref": '../openapi.yaml#/components/responses/requires_authentication'
+    '403':
+      "$ref": '../openapi.yaml#/components/responses/forbidden'
+    '422':
+      "$ref": '../openapi.yaml#/components/responses/unprocessable'
+    '500':
+      "$ref": '../openapi.yaml#/components/responses/internal_error'

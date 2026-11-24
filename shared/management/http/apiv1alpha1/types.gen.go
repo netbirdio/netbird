@@ -386,3 +386,65 @@ type UserPermissions struct {
 	// Modules example value is defined in the OpenAPI schema.
 	Modules map[string]map[string]bool `json:"modules"`
 }
+
+type Group struct {
+	GroupMinimum
+	// Peers List of IDs of the group's peers that the caller is allowed to see.
+	Peers     []string   `json:"peers"`
+	Resources []Resource `json:"resources"`
+}
+
+type GroupRequest struct {
+	// Name Group name identifier.
+	// Name example value is defined in the OpenAPI schema.
+	Name string `json:"name"`
+	// Peers List of peers ids.
+	Peers     []string   `json:"peers,omitempty"`
+	Resources []Resource `json:"resources,omitempty"`
+}
+
+type Resource struct {
+	// Id ID of the resource.
+	// Id example value is defined in the OpenAPI schema.
+	Id   string       `json:"id"`
+	Type ResourceType `json:"type"`
+}
+
+// GroupMinimumIssued How the group was issued (api, integration, jwt).
+// GroupMinimumIssued example value is defined in the OpenAPI schema.
+type GroupMinimumIssued string
+
+const (
+	GroupMinimumIssuedAPI         GroupMinimumIssued = "api"
+	GroupMinimumIssuedIntegration GroupMinimumIssued = "integration"
+	GroupMinimumIssuedJWT         GroupMinimumIssued = "jwt"
+)
+
+type GroupMinimum struct {
+	// Id Group ID.
+	// Id example value is defined in the OpenAPI schema.
+	Id string `json:"id"`
+	// Name Group Name identifier.
+	// Name example value is defined in the OpenAPI schema.
+	Name string `json:"name"`
+	// PeersCount Count of peers associated to the group.
+	// PeersCount example value is defined in the OpenAPI schema.
+	PeersCount int `json:"peers_count"`
+	// ResourcesCount Count of resources associated to the group.
+	// ResourcesCount example value is defined in the OpenAPI schema.
+	ResourcesCount int `json:"resources_count"`
+	// Issued How the group was issued (api, integration, jwt).
+	// Issued example value is defined in the OpenAPI schema.
+	Issued *GroupMinimumIssued `json:"issued,omitempty"`
+}
+
+// ResourceType Type of the resource.
+// ResourceType example value is defined in the OpenAPI schema.
+type ResourceType string
+
+const (
+	ResourceTypeHost   ResourceType = "host"
+	ResourceTypeSubnet ResourceType = "subnet"
+	ResourceTypeDomain ResourceType = "domain"
+	ResourceTypePeer   ResourceType = "peer"
+)

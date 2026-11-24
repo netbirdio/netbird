@@ -1,0 +1,99 @@
+get:
+  summary: Retrieve a Group
+  description: Get information about a group
+  tags: [ Groups ]
+  security:
+    - BearerAuth: [ ]
+    - TokenAuth: [ ]
+  parameters:
+    - in: path
+      name: groupId
+      required: true
+      schema:
+        type: string
+      description: The unique identifier of a group
+  responses:
+    '200':
+      description: A Group object
+      content:
+        application/json:
+          schema:
+            $ref: './components.yaml#/components/schemas/Group'
+    '400':
+      "$ref": '../openapi.yaml#/components/responses/bad_request'
+    '401':
+      "$ref": '../openapi.yaml#/components/responses/requires_authentication'
+    '403':
+      "$ref": '../openapi.yaml#/components/responses/forbidden'
+    '404':
+      "$ref": '../openapi.yaml#/components/responses/not_found'
+    '500':
+      "$ref": '../openapi.yaml#/components/responses/internal_error'
+put:
+  summary: Update a Group
+  description: Update/Replace a group and its peers and resources
+  tags: [ Groups ]
+  security:
+    - BearerAuth: [ ]
+    - TokenAuth: [ ]
+  parameters:
+    - in: path
+      name: groupId
+      required: true
+      schema:
+        type: string
+      description: The unique identifier of a group
+  requestBody:
+    description: Update group request
+    required: true
+    content:
+      'application/json':
+        schema:
+          $ref: './components.yaml#/components/schemas/GroupRequest'
+  responses:
+    '200':
+      description: A Group object
+      content:
+        application/json:
+          schema:
+            $ref: './components.yaml#/components/schemas/Group'
+    '400':
+      "$ref": '../openapi.yaml#/components/responses/bad_request'
+    '401':
+      "$ref": '../openapi.yaml#/components/responses/requires_authentication'
+    '403':
+      "$ref": '../openapi.yaml#/components/responses/forbidden'
+    '404':
+      "$ref": '../openapi.yaml#/components/responses/not_found'
+    '422':
+      "$ref": '../openapi.yaml#/components/responses/unprocessable'
+    '500':
+      "$ref": '../openapi.yaml#/components/responses/internal_error'
+delete:
+  summary: Delete a Group
+  description: Delete a group
+  tags: [ Groups ]
+  security:
+    - BearerAuth: [ ]
+    - TokenAuth: [ ]
+  parameters:
+    - in: path
+      name: groupId
+      required: true
+      schema:
+        type: string
+      description: The unique identifier of a group
+  responses:
+    '200':
+      description: Delete status code
+      content: { }
+    '400':
+      "$ref": '../openapi.yaml#/components/responses/bad_request'
+    '401':
+      "$ref": '../openapi.yaml#/components/responses/requires_authentication'
+    '403':
+      "$ref": '../openapi.yaml#/components/responses/forbidden'
+    '404':
+      "$ref": '../openapi.yaml#/components/responses/not_found'
+    '500':
+      "$ref": '../openapi.yaml#/components/responses/internal_error'
