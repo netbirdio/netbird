@@ -313,12 +313,23 @@ func TestModePreserved(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o640), backup.Mode().Perm(), "the backup keeps the mode")
 }
 
+// symlinkOrSkip creates link, skipping on Windows when the user lacks the
+// symlink privilege.
+func symlinkOrSkip(t *testing.T, target, link string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Dir(link), 0o700))
+	err := os.Symlink(target, link)
+	if err != nil && runtime.GOOS == "windows" {
+		t.Skipf("cannot create a symlink: %v", err)
+	}
+	require.NoError(t, err)
+}
+
 func TestSymlinkTargetWritten(t *testing.T) {
 	h := newTestHost(t)
 	target := filepath.Join(t.TempDir(), "dotfiles-settings.json")
 	require.NoError(t, os.WriteFile(target, []byte(`{"theme":"dark"}`), 0o600))
-	require.NoError(t, os.MkdirAll(filepath.Dir(h.settings), 0o700))
-	require.NoError(t, os.Symlink(target, h.settings))
+	symlinkOrSkip(t, target, h.settings)
 
 	h.apply(t, h.render(t, "anthropic", ""), false)
 	fi, err := os.Lstat(h.settings)
@@ -470,4 +481,21 @@ func TestMissingFileForeignParentRefuses(t *testing.T) {
 	assert.Equal(t, root, notOwner.Checked, "the nearest existing parent is checked")
 	assert.Contains(t, err.Error(), "does not exist", "the error says the file is missing")
 	assert.Equal(t, listing, dirListing(t, root), "no directory or file created")
+}
+
+func TestDanglingSymlinkRefused(t *testing.T) {
+	h := newTestHost(t)
+	// A dotfiles link whose target is not checked out yet.
+	missing := filepath.Join(t.TempDir(), "dotfiles", "settings.json")
+	symlinkOrSkip(t, missing, h.settings)
+
+	_, _, err := h.plan(t, h.render(t, "anthropic", ""), false)
+	require.Error(t, err, "a link whose target cannot be resolved is refused")
+	assert.Contains(t, err.Error(), "symlink", "the error says why")
+
+	fi, err := os.Lstat(h.settings)
+	require.NoError(t, err)
+	assert.NotZero(t, fi.Mode()&os.ModeSymlink, "the link is left in place")
+	_, err = os.Stat(missing)
+	assert.True(t, os.IsNotExist(err), "nothing is written through the link")
 }

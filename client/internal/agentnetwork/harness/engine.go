@@ -307,8 +307,12 @@ func (st *fileState) write(now time.Time) (string, error) {
 
 func loadFile(file string, format Format) (*fileState, error) {
 	st := &fileState{format: format, target: file, mode: 0o600, doc: map[string]any{}}
-	if resolved, err := filepath.EvalSymlinks(file); err == nil {
+	resolved, err := filepath.EvalSymlinks(file)
+	if err == nil {
 		st.target = resolved
+	} else if fi, lerr := os.Lstat(file); lerr == nil && fi.Mode()&fs.ModeSymlink != 0 {
+		// Writing would replace the link, such as a dotfiles one, with a file.
+		return nil, fmt.Errorf("%s is a symlink whose target cannot be resolved: %w", file, err)
 	}
 	info, err := os.Stat(st.target)
 	if errors.Is(err, fs.ErrNotExist) {
