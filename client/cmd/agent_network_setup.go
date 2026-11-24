@@ -21,7 +21,10 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 )
 
-const anSetupEndpointTimeout = 10 * time.Second
+const (
+	anSetupEndpointTimeout = 10 * time.Second
+	anSetupInfoTimeout     = 30 * time.Second
+)
 
 var (
 	anSetupProvider      string
@@ -247,7 +250,9 @@ func anSetupFetchInfo(cmd *cobra.Command) (*proto.GetAgentNetworkInfoResponse, e
 	}
 	defer conn.Close()
 
-	info, err := proto.NewDaemonServiceClient(conn).GetAgentNetworkInfo(cmd.Context(), &proto.GetAgentNetworkInfoRequest{})
+	ctx, cancel := context.WithTimeout(cmd.Context(), anSetupInfoTimeout)
+	defer cancel()
+	info, err := proto.NewDaemonServiceClient(conn).GetAgentNetworkInfo(ctx, &proto.GetAgentNetworkInfoRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("get Agent Networks info: %s", status.Convert(err).Message())
 	}
