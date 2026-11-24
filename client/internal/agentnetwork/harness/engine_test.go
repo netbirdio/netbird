@@ -499,3 +499,14 @@ func TestDanglingSymlinkRefused(t *testing.T) {
 	_, err = os.Stat(missing)
 	assert.True(t, os.IsNotExist(err), "nothing is written through the link")
 }
+
+func TestInvalidUTF8IsUnparseable(t *testing.T) {
+	h := newTestHost(t)
+	orig := "{\"theme\":\"caf\xe9\"}"
+	h.write(t, orig, 0o600)
+
+	_, _, err := h.plan(t, h.render(t, "anthropic", ""), false)
+	var perr *UnparseableError
+	require.ErrorAs(t, err, &perr, "invalid UTF-8 would be rewritten as U+FFFD")
+	assert.Equal(t, orig, h.read(t), "the file is untouched")
+}
