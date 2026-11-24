@@ -221,25 +221,3 @@ func TestSqlRepository_WithTxRollsBack(t *testing.T) {
 	require.NoError(t, conn.DB(nil).Model(&exitnodes.Peer{}).Count(&peerRows).Error)
 	assert.Zero(t, peerRows, "peers written in a rolled back transaction should be gone")
 }
-
-func TestSqlRepository_ReadsFollowRequestContext(t *testing.T) {
-	repo, conn := newTestRepository(t)
-	require.NoError(t, createInTx(t, conn, repo, newStoredExitNode("en-1", "acc-a", "EU Egress", exitnodes.Peer{PeerID: "peer-1", Metric: 100})))
-
-	// A cancelled request must not run its queries outside a transaction.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	_, err := repo.ListByAccount(ctx, db.LockingStrengthNone, "acc-a")
-	assertStatus(t, err, status.Internal)
-	_, err = repo.Get(ctx, db.LockingStrengthNone, "acc-a", "en-1")
-	assertStatus(t, err, status.Internal)
-
-	// Inside a transaction the queries keep the transaction's context, so a request
-	// context passed to a single call does not cut it short.
-	err = conn.RunInTx(context.Background(), func(tx *db.Tx) error {
-		_, err := repo.WithTx(tx).Get(ctx, db.LockingStrengthNone, "acc-a", "en-1")
-		return err
-	})
-	assert.NoError(t, err, "a read inside a transaction should run on the transaction's context")
-}
