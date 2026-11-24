@@ -117,8 +117,9 @@ func (s *Server) loginGatePolicy(ctx context.Context, stored *profilemanager.Con
 	})
 }
 
-// loginGateInput adds the privileged flags a login carries to the overrides it
-// persists, so a login restating them compares as no change.
+// loginGateInput is the dry-run input the gate compares a login against: the
+// overrides it persists plus the privileged flags it carries, which it does not
+// persist, so a login restating them compares as no change.
 func loginGateInput(msg *proto.LoginRequest) profilemanager.ConfigInput {
 	input := loginOverridesInput(msg)
 	input.ServerSSHAllowed = msg.ServerSSHAllowed
