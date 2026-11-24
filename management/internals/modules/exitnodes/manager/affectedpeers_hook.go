@@ -29,7 +29,7 @@ type connStore interface {
 func routingPeersByExitNode(ctx context.Context, s store.Store, accountID string) (map[string][]string, error) {
 	cs, ok := s.(connStore)
 	if !ok {
-		return nil, nil
+		return map[string][]string{}, nil
 	}
 
 	nodes, err := NewRepository(cs.Conn()).WithTx(cs.Tx()).ListByAccount(ctx, db.LockingStrengthNone, accountID)
