@@ -51,9 +51,9 @@ func decodeJSONDoc(data []byte) (map[string]any, error) {
 	return doc, nil
 }
 
-// encodeJSONDoc writes 2-space indented JSON.
-// ponytail: object keys come out sorted, not in the file's order; an
-// order-preserving decoder is the upgrade if users mind the reshuffle.
+// encodeJSONDoc writes 2-space indented JSON. Object keys come out sorted,
+// not in the file's order: the decoder keeps no order, and the backup holds
+// the original layout.
 func encodeJSONDoc(doc map[string]any) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
