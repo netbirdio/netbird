@@ -566,3 +566,30 @@ func TestLoginRequestMDMConflicts_ForceRelay(t *testing.T) {
 	assert.Equal(t, []string{mdm.KeyForceRelay}, loginRequestMDMConflicts(&proto.LoginRequest{ForceRelay: &off}, policy),
 		"a divergent value must be reported")
 }
+
+// A settings write while a policy is active must persist only the user's own
+// values: the enforced copy lives in memory, and a write that started from it
+// would pin the policy in the profile after the policy goes away.
+func TestSetConfig_MDMValuesNeverReachTheProfileFile(t *testing.T) {
+	s, ctx, profName, username, cfgPath := setupServerWithProfile(t)
+	managed := []string{"DisableDNS", "BlockLANAccess", "MTU", "ForceRelay", "NATExternalIPs", "EnableSSHRoot"}
+	before := readProfileFile(t, cfgPath)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
+		mdm.KeyDisableDNS:     true,
+		mdm.KeyBlockLANAccess: true,
+		mdm.KeyMTU:            int64(1300),
+		mdm.KeyForceRelay:     true,
+		mdm.KeyNATExternalIPs: "203.0.113.7",
+		mdm.KeyEnableSSHRoot:  true,
+	}))
+
+	rosenpass := true
+	_, err := s.SetConfig(ctx, &proto.SetConfigRequest{ProfileName: profName, Username: username, RosenpassEnabled: &rosenpass})
+	require.NoError(t, err, "a write of an unmanaged field must succeed")
+
+	after := readProfileFile(t, cfgPath)
+	require.Equal(t, true, after["RosenpassEnabled"], "precondition: the write reached the profile file")
+	for _, field := range managed {
+		assert.Equal(t, before[field], after[field], "%s must keep the user's value on disk", field)
+	}
+}

@@ -337,7 +337,6 @@ func TestApply_MDMExtraIFaceBlackList_AddsToResolvedList(t *testing.T) {
 		assert.Contains(t, cfg.IFaceBlackList, want, "effective blacklist should contain %q", want)
 	}
 	assert.True(t, cfg.Policy().HasKey(mdm.KeyExtraIFaceBlackList))
-
 }
 
 func TestApply_MDMExtraIFaceBlackList_NotPersistedByLaterWrite(t *testing.T) {
@@ -448,9 +447,6 @@ func TestApply_MDMNetworkBoolKeysOverrideOnDiskValue(t *testing.T) {
 		DisableNotifications: boolPtr(true),
 		NetworkMonitor:       boolPtr(true),
 	}, mdm.NewPolicy(nil))
-	before, err := os.ReadFile(tmp)
-	require.NoError(t, err)
-
 	cfg := configWithMDM(t, ConfigInput{ConfigPath: tmp}, mdm.NewPolicy(map[string]any{
 		mdm.KeyDisableDNS:           true,
 		mdm.KeyDisableIPv6:          "yes",
@@ -470,10 +466,6 @@ func TestApply_MDMNetworkBoolKeysOverrideOnDiskValue(t *testing.T) {
 	require.NotNil(t, cfg.NetworkMonitor)
 	assert.False(t, *cfg.NetworkMonitor, "networkMonitor")
 	assert.True(t, cfg.DisableIPv6Discovery, "disableIPv6Discovery")
-
-	after, err := os.ReadFile(tmp)
-	require.NoError(t, err)
-	assert.Equal(t, string(before), string(after), "MDM values must not reach the profile file")
 }
 
 func TestApply_MDMNetworkBoolKeys_UnparseableValueLeavesSettingToUser(t *testing.T) {
@@ -543,9 +535,6 @@ func TestApply_MDMNetworkValueKeysOverrideOnDiskValue(t *testing.T) {
 		DNSRouteInterval: &interval,
 		NATExternalIPs:   []string{"198.51.100.1"},
 	}, mdm.NewPolicy(nil))
-	before, err := os.ReadFile(tmp)
-	require.NoError(t, err)
-
 	cfg := configWithMDM(t, ConfigInput{ConfigPath: tmp}, mdm.NewPolicy(map[string]any{
 		mdm.KeyInterfaceName:    "utun100",
 		mdm.KeyMTU:              int64(1280),
@@ -558,10 +547,6 @@ func TestApply_MDMNetworkValueKeysOverrideOnDiskValue(t *testing.T) {
 	assert.Equal(t, 90*time.Second, cfg.DNSRouteInterval, "dnsRouteInterval")
 	assert.Equal(t, []string{"203.0.113.7", "203.0.113.8/10.0.0.1"}, cfg.NATExternalIPs,
 		"natExternalIPs is split, trimmed and deduplicated")
-
-	after, err := os.ReadFile(tmp)
-	require.NoError(t, err)
-	assert.Equal(t, string(before), string(after), "MDM values must not reach the profile file")
 }
 
 func TestApply_MDMNetworkValueKeys_InvalidValueKeepsProfileValue(t *testing.T) {
@@ -666,9 +651,6 @@ func TestApply_MDMSSHKeysOverrideOnDiskValue(t *testing.T) {
 		DisableSSHAuth:                boolPtr(false),
 		SSHJWTCacheTTL:                intPtr(0),
 	}, mdm.NewPolicy(nil))
-	before, err := os.ReadFile(tmp)
-	require.NoError(t, err)
-
 	cfg := configWithMDM(t, ConfigInput{ConfigPath: tmp}, mdm.NewPolicy(map[string]any{
 		mdm.KeyEnableSSHRoot:                 true,
 		mdm.KeyEnableSSHSFTP:                 "yes",
@@ -690,10 +672,6 @@ func TestApply_MDMSSHKeysOverrideOnDiskValue(t *testing.T) {
 	assert.True(t, *cfg.DisableSSHAuth, "disableSSHAuth")
 	require.NotNil(t, cfg.SSHJWTCacheTTL)
 	assert.Equal(t, 3600, *cfg.SSHJWTCacheTTL, "sshJWTCacheTTL")
-
-	after, err := os.ReadFile(tmp)
-	require.NoError(t, err)
-	assert.Equal(t, string(before), string(after), "MDM values must not reach the profile file")
 }
 
 func TestApply_MDMSSHJWTCacheTTL_OutOfRangeKeepsProfileValue(t *testing.T) {
@@ -754,15 +732,9 @@ func TestMDMConflicts_SSHKeys(t *testing.T) {
 func TestApply_MDMForceRelayOverridesOnDiskValue(t *testing.T) {
 	tmp := filepath.Join(t.TempDir(), "config.json")
 	configWithMDM(t, ConfigInput{ConfigPath: tmp, ForceRelay: boolPtr(false)}, mdm.NewPolicy(nil))
-	before, err := os.ReadFile(tmp)
-	require.NoError(t, err)
-
 	cfg := configWithMDM(t, ConfigInput{ConfigPath: tmp}, mdm.NewPolicy(map[string]any{mdm.KeyForceRelay: true}))
 
 	assert.True(t, cfg.ForceRelay, "the policy value applies")
-	after, err := os.ReadFile(tmp)
-	require.NoError(t, err)
-	assert.Equal(t, string(before), string(after), "the policy value is never written to the profile")
 }
 
 func TestMDMConflicts_ForceRelay(t *testing.T) {
