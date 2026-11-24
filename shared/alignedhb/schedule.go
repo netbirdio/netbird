@@ -19,12 +19,13 @@ func NextDelay(period, phase time.Duration, now time.Time) time.Duration {
 }
 
 // Ticker returns a channel that fires on every period at phase, measured on
-// the clock now, until ctx is done. Each fire is computed from the clock, so
-// the schedule does not drift. A tick the reader has not taken is dropped.
+// the wall clock of now, until ctx is done. Each fire is computed from the
+// clock, so the schedule does not drift. The channel holds one unread tick:
+// a late reader still gets it, and ticks that fire while it waits are dropped.
 func Ticker(ctx context.Context, period, phase time.Duration, now func() time.Time) <-chan time.Time {
 	ch := make(chan time.Time, 1)
 	go func() {
-		start := now()
+		start := now().Round(0)
 		target := start.Add(NextDelay(period, phase, start))
 		t := time.NewTimer(target.Sub(start))
 		defer t.Stop()
@@ -37,16 +38,24 @@ func Ticker(ctx context.Context, period, phase time.Duration, now func() time.Ti
 				case ch <- fired:
 				default:
 				}
-				// A timer can fire a little before its target. Counting from the
-				// target then keeps the same slot from firing twice.
-				base := now()
-				if base.Before(target) {
-					base = target
-				}
-				target = base.Add(NextDelay(period, phase, base))
-				t.Reset(target.Sub(now()))
+				target = nextFire(period, phase, target, now())
+				t.Reset(target.Sub(now().Round(0)))
 			}
 		}
 	}()
 	return ch
+}
+
+// nextFire returns the slot after the one that fired at slot. Both times are
+// read on the wall clock only, because the phase lives on the wall clock: a
+// timer that fires early, or a wall clock stepped back after the fire, would
+// otherwise select the fired slot again. A step back of a full period or more
+// restarts the schedule from now, so the ticker never pauses that long.
+func nextFire(period, phase time.Duration, slot, now time.Time) time.Time {
+	slot, now = slot.Round(0), now.Round(0)
+	base := now
+	if now.Before(slot) && slot.Sub(now) < period {
+		base = slot
+	}
+	return base.Add(NextDelay(period, phase, base))
 }

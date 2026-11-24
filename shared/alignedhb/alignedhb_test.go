@@ -149,7 +149,11 @@ func TestTickerFiresOnPhase(t *testing.T) {
 		off := time.Duration(f.UnixMilli()%period.Milliseconds()) * time.Millisecond
 		assert.InDelta(t, phase.Milliseconds(), off.Milliseconds(), 30, "fire %d offset %s", i, off)
 		if i > 0 {
-			assert.InDelta(t, period.Milliseconds(), f.Sub(fires[i-1]).Milliseconds(), 30, "fire %d spacing", i)
+			// A slow reader can lose a tick, so a gap of whole periods is fine.
+			gap := f.Sub(fires[i-1])
+			slots := int64((gap + period/2) / period)
+			assert.GreaterOrEqual(t, slots, int64(1), "fire %d came less than a period after the last", i)
+			assert.InDelta(t, slots*period.Milliseconds(), gap.Milliseconds(), 30, "fire %d spacing %s", i, gap)
 		}
 	}
 }
@@ -167,6 +171,52 @@ func TestTickerStopsWithContext(t *testing.T) {
 	case <-tick:
 		t.Fatal("ticker fired after cancel")
 	case <-time.After(150 * time.Millisecond):
+	}
+}
+
+// TestNextFireOnWallClock covers the slot choice after a fire. A wall clock
+// stepped back must not pick the fired slot again; a long step back restarts
+// from the wall clock instead of pausing for the whole step.
+func TestNextFireOnWallClock(t *testing.T) {
+	period := 60 * time.Second
+	phase := 5 * time.Second
+	slot := time.UnixMilli(1_700_000_045_000) // offset 5 s inside a 60 s period
+
+	assert.Equal(t, slot.Add(period), nextFire(period, phase, slot, slot.Add(-3*time.Millisecond)),
+		"a timer that fires early must move to the next slot")
+	assert.Equal(t, slot.Add(period), nextFire(period, phase, slot, slot.Add(2*time.Millisecond)),
+		"a fire on time must move to the next slot")
+	assert.Equal(t, slot.Add(period), nextFire(period, phase, slot, slot.Add(-5*time.Second)),
+		"a wall clock stepped back must not fire the same slot again")
+	assert.Equal(t, slot.Add(-period), nextFire(period, phase, slot, slot.Add(-90*time.Second)),
+		"a step back of over a period must restart from the wall clock")
+	assert.Equal(t, slot.Add(2*period), nextFire(period, phase, slot, slot.Add(period+time.Second)),
+		"a wall clock stepped forward must skip the passed slots")
+}
+
+// TestTickerKeepsOneTickForLateReader covers the one-tick buffer: a reader
+// that was busy over a fire must still get that tick, and only one.
+func TestTickerKeepsOneTickForLateReader(t *testing.T) {
+	period := 200 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tick := Ticker(ctx, period, 0, time.Now)
+	// Read in the middle of a period after at least two fires, so a late
+	// fire before the read and the next fire after it are both far away.
+	time.Sleep(NextDelay(period, 0, time.Now()) + 2*period + period/2)
+
+	select {
+	case <-tick:
+	default:
+		t.Fatal("a tick that fired while the reader was busy must wait for it")
+	}
+	// The window ends before the next slot, so only a queued tick can
+	// arrive in it. It is computed after the read, as the sleep may overshoot.
+	select {
+	case <-tick:
+		t.Fatal("only one unread tick must wait, the later ones are dropped")
+	case <-time.After(NextDelay(period, 0, time.Now()) / 2):
 	}
 }
 

@@ -34,7 +34,7 @@ func alignedTestPeer(t *testing.T, ctx context.Context, name string) (*Peer, *sc
 
 // answer feeds a client health check frame to the peer's message handler.
 func answer(ctx context.Context, p *Peer, hc *healthcheck.Sender, frame []byte) {
-	p.handleMsgType(ctx, messages.MsgTypeHealthCheck, hc, len(frame), frame)
+	p.handleMsgType(ctx, messages.MsgTypeHealthCheck, hc, frame, nil)
 }
 
 // lastFrame returns the last frame the peer wrote.
