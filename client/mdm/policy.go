@@ -316,7 +316,8 @@ func (p *Policy) GetString(key string) (string, bool) {
 
 // GetBool returns the managed value for key coerced to bool, and whether the
 // key was set. Accepts native bool and string literals (true/false, 1/0,
-// yes/no, on/off), case-insensitively and trimmed of surrounding whitespace.
+// yes/no, on/off), case-insensitively and trimmed of surrounding whitespace,
+// and integers, nonzero meaning true. A macOS plist <integer> decodes to uint64.
 func (p *Policy) GetBool(key string) (bool, bool) {
 	if p == nil {
 		return false, false
@@ -334,6 +335,8 @@ func (p *Policy) GetBool(key string) (bool, bool) {
 	case int:
 		return t != 0, true
 	case int64:
+		return t != 0, true
+	case uint64:
 		return t != 0, true
 	case float64:
 		return t != 0, true

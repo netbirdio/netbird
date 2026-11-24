@@ -95,6 +95,8 @@ func TestPolicy_GetBool(t *testing.T) {
 		{"int zero", 0, false, true},
 		{"int64 nonzero", int64(2), true, true},
 		{"int64 zero", int64(0), false, true},
+		{"uint64 nonzero (macOS plist integer)", uint64(1), true, true},
+		{"uint64 zero (macOS plist integer)", uint64(0), false, true},
 		{"string garbage", "maybe", false, false},
 		{"float nonzero", 1.0, true, true},
 		{"float zero", 0.0, false, true},
