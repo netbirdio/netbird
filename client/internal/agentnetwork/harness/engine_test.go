@@ -530,3 +530,25 @@ func TestRecordNullEntries(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), h.env.RecordPath, "the error names the record")
 }
+
+func TestKeepOnlyPlanReleasesOwnership(t *testing.T) {
+	h := newTestHost(t)
+	h.apply(t, h.render(t, "anthropic", "claude-opus-5"), false)
+	h.write(t, strings.Replace(h.read(t), `"claude-opus-5"`, `"claude-haiku-4-5"`, 1), 0o600)
+
+	// Rerun without a model: NetBird no longer wants "model", and the user
+	// changed it, so the only change is a keep.
+	p := h.apply(t, h.render(t, "anthropic", ""), false)
+	require.Len(t, p.Changes, 1, "one change planned")
+	assert.Equal(t, ActionKeep, p.Changes[0].Action, "the edited key is kept")
+	assert.True(t, p.Pending(), "releasing a key updates the record, so the plan is pending")
+
+	rec, err := LoadRecord(h.env.RecordPath)
+	require.NoError(t, err)
+	for _, fr := range rec.Harnesses[claudeCode.ID].Files {
+		for _, k := range fr.Keys {
+			assert.NotEqual(t, "model", PathString(k.Path), "the kept key is no longer NetBird's")
+		}
+	}
+	assert.Equal(t, "configured", Status(claudeCode.ID, rec), "the remaining keys are as written")
+}

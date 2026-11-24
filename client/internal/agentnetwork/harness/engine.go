@@ -74,14 +74,14 @@ func (e *UnparseableError) Error() string {
 
 func (e *UnparseableError) Unwrap() error { return e.Err }
 
-// Pending reports whether applying the plan writes anything.
+// Pending reports whether applying the plan writes a file or the record.
 func (p *Plan) Pending() bool {
 	for _, f := range p.files {
 		if f.dirty {
 			return true
 		}
 	}
-	return false
+	return p.releasesKeys()
 }
 
 // NewPlan compares the wanted settings of a harness with the files and the
