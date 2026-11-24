@@ -91,8 +91,9 @@ func setupManager(t *testing.T) *managerEnv {
 	t.Helper()
 
 	repo := exitnodes.NewMockRepository(gomock.NewController(t))
+	// No LockAccount expectation: a test that reaches the transaction must expect the lock
+	// with expectLock, so a missing or extra lock fails it.
 	repo.EXPECT().WithTx(gomock.Any()).Return(repo).AnyTimes()
-	repo.EXPECT().LockAccount(gomock.Any(), testAccountID).Return(nil).AnyTimes()
 
 	env := &managerEnv{repo: repo, store: newTestStore(t)}
 	repo.EXPECT().IncrementNetworkSerial(gomock.Any(), testAccountID).
@@ -118,6 +119,22 @@ func setupManager(t *testing.T) *managerEnv {
 	conn := dbtest.NewConn(t)
 	env.manager = NewManager(repo, conn, env.store, accountManager, allowAll(t)).(*managerImpl)
 	return env
+}
+
+// expectLock expects the account lock exactly once. Calls made inside the transaction are
+// ordered after it with After, so a lock taken after the reads fails the test.
+func (e *managerEnv) expectLock() *gomock.Call {
+	return e.repo.EXPECT().LockAccount(gomock.Any(), testAccountID).Return(nil)
+}
+
+// expectUpdateReads expects the read before the transaction, the lock, and the reads
+// inside the transaction, in that order.
+func (e *managerEnv) expectUpdateReads(current *exitnodes.ExitNode) {
+	before := e.repo.EXPECT().Get(gomock.Any(), db.LockingStrengthNone, testAccountID, current.ID).Return(current, nil)
+	lock := e.expectLock().After(before)
+	e.repo.EXPECT().Get(gomock.Any(), db.LockingStrengthNone, testAccountID, current.ID).Return(current, nil).After(lock)
+	e.repo.EXPECT().ListByAccount(gomock.Any(), db.LockingStrengthNone, testAccountID).
+		Return([]*exitnodes.ExitNode{current}, nil).After(lock)
 }
 
 func exitNode(name string, peerIDs ...string) *exitnodes.ExitNode {
@@ -148,8 +165,9 @@ func TestManager_CreateStoresBoundExitNode(t *testing.T) {
 	env := setupManager(t)
 	ctx := context.Background()
 
+	lock := env.expectLock()
 	env.repo.EXPECT().ListByAccount(gomock.Any(), db.LockingStrengthNone, testAccountID).
-		Return([]*exitnodes.ExitNode{storedExitNode("other", "EU Egress", "peer-a")}, nil)
+		Return([]*exitnodes.ExitNode{storedExitNode("other", "EU Egress", "peer-a")}, nil).After(lock)
 
 	var stored *exitnodes.ExitNode
 	env.repo.EXPECT().Create(gomock.Any(), gomock.Any()).
@@ -187,8 +205,7 @@ func TestManager_UpdateKeepsPublicIDs(t *testing.T) {
 	current.PublicID = "node-public"
 	current.Peers[0].PublicID = "peer-a-public"
 	current.Peers[1].PublicID = "peer-b-public"
-	env.repo.EXPECT().Get(gomock.Any(), gomock.Any(), testAccountID, exitnodes.ID("en-1")).Return(current, nil).Times(2)
-	env.repo.EXPECT().ListByAccount(gomock.Any(), db.LockingStrengthNone, testAccountID).Return([]*exitnodes.ExitNode{current}, nil)
+	env.expectUpdateReads(current)
 
 	var stored *exitnodes.ExitNode
 	env.repo.EXPECT().Update(gomock.Any(), gomock.Any()).
@@ -260,7 +277,8 @@ func TestManager_CreateConflicts(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// No Create expectation: a conflicting exit node must not be written.
 			env := setupManager(t)
-			env.repo.EXPECT().ListByAccount(gomock.Any(), db.LockingStrengthNone, testAccountID).Return(existing, nil)
+			lock := env.expectLock()
+			env.repo.EXPECT().ListByAccount(gomock.Any(), db.LockingStrengthNone, testAccountID).Return(existing, nil).After(lock)
 
 			_, err := env.manager.CreateExitNode(ctx, testAccountID, testUserID, tt.node)
 			assertStatus(t, err, status.AlreadyExists)
@@ -275,8 +293,7 @@ func TestManager_UpdateKeepsOwnNameAndPeers(t *testing.T) {
 	ctx := context.Background()
 
 	current := storedExitNode("en-1", "EU Egress", "peer-a", "peer-b")
-	env.repo.EXPECT().Get(gomock.Any(), gomock.Any(), testAccountID, exitnodes.ID("en-1")).Return(current, nil).Times(2)
-	env.repo.EXPECT().ListByAccount(gomock.Any(), db.LockingStrengthNone, testAccountID).Return([]*exitnodes.ExitNode{current}, nil)
+	env.expectUpdateReads(current)
 	env.repo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
 
 	// Toggling a single flag resends the same name and peers, which must not
@@ -294,14 +311,23 @@ func TestManager_UpdateKeepsDeletedPeer(t *testing.T) {
 
 	// peer-gone was deleted from the account after it was added to the exit node.
 	current := storedExitNode("en-1", "EU Egress", "peer-a", "peer-gone")
-	env.repo.EXPECT().Get(gomock.Any(), gomock.Any(), testAccountID, exitnodes.ID("en-1")).Return(current, nil).Times(2)
-	env.repo.EXPECT().ListByAccount(gomock.Any(), db.LockingStrengthNone, testAccountID).Return([]*exitnodes.ExitNode{current}, nil)
+	env.expectUpdateReads(current)
 	env.repo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
 
 	update := storedExitNode("en-1", "EU Egress", "peer-a", "peer-gone")
 	update.AutoApply = false
 	_, err := env.manager.UpdateExitNode(ctx, testAccountID, testUserID, update)
 	assert.NoError(t, err, "an exit node that lists a deleted peer should stay editable")
+}
+
+func TestManager_CreateLockFailureWritesNothing(t *testing.T) {
+	env := setupManager(t)
+
+	// No ListByAccount or Create expectation: nothing may be read or written without the lock.
+	env.repo.EXPECT().LockAccount(gomock.Any(), testAccountID).Return(status.Errorf(status.Internal, "lock timeout"))
+
+	_, err := env.manager.CreateExitNode(context.Background(), testAccountID, testUserID, exitNode("US Egress", "peer-c"))
+	assertStatus(t, err, status.Internal)
 }
 
 func TestManager_UpdateRejectsNewUnknownPeer(t *testing.T) {
@@ -361,7 +387,8 @@ func TestManager_DeleteRemovesPolicies(t *testing.T) {
 	assert.Zero(t, env.serialBumps, "a failed delete should not bump the network serial")
 
 	env.deletePolicyErr = nil
-	env.repo.EXPECT().Delete(gomock.Any(), testAccountID, exitnodes.ID("en-1")).Return(nil)
+	lock := env.expectLock()
+	env.repo.EXPECT().Delete(gomock.Any(), testAccountID, exitnodes.ID("en-1")).Return(nil).After(lock)
 	require.NoError(t, env.manager.DeleteExitNode(ctx, testAccountID, testUserID, "en-1"))
 	assert.Equal(t, []types.UpdateReason{{Resource: types.UpdateResourceExitNode, Operation: types.UpdateOperationDelete}},
 		env.peerUpdates, "delete should update the account peers once")
