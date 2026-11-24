@@ -45,7 +45,8 @@ server:
       email: ""
       awsRoute53: false
 
-  # Shared secret for relay authentication (required when running local relay).
+  # Shared secret for relay authentication (required when running local relay, until
+  # peerAuth.required replaces it on the flag day).
   # Can also be set via NB_AUTH_SECRET; a non-empty value overrides this field.
   authSecret: "your-secret-key-here"
 
@@ -136,6 +137,16 @@ server:
   #   engine: "sqlite3"  # sqlite3 or postgres
   #   dsn: ""  # Connection string for postgres (e.g., "host=localhost port=5432 user=postgres password=postgres dbname=netbird_idp sslmode=disable")
   #   file: ""  # Custom SQLite file path (optional, defaults to {dataDir}/idp.db)
+
+  # Peer authentication for Signal and Relay (optional, off by default).
+  # With a signing key, peers that send an auth key get a token bound to their keys, signed with
+  # it; the local Relay and Signal verify it with the derived public key. Any external Relay must
+  # list that public key in --peer-auth-public-keys first, or peers lose relayed connections.
+  # peerAuth:
+  #   signingKeyFile: "/var/lib/netbird/peer_auth_signing.pem" # PEM PKCS#8 Ed25519 key; generated if missing
+  #   hostnames: []        # if set, the only names accepted in proofs (local Relay and Signal)
+  #   required: false      # local Relay and Signal refuse peers without a bound token; remove authSecret when enabling
+  #   checkTime: false     # refuse proofs signed >10 min from the local clock; only with synced peer clocks
 
   # Reverse proxy settings (optional)
   # reverseProxy:

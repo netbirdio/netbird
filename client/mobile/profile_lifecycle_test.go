@@ -64,6 +64,7 @@ func TestProfileSurvivesLogoutAndReload(t *testing.T) {
 	after := loadAsTheMobileSDKsDo(t, configPath)
 	assert.Empty(t, after.PrivateKey, "loading a logged-out profile minted a key nothing will persist")
 	assert.Empty(t, after.SSHKey, "loading a logged-out profile minted an SSH key")
+	assert.Empty(t, after.AuthKey, "loading a logged-out profile kept or minted a peer auth key")
 	assert.Equal(t, managementURL, after.ManagementURL.String(), "the rest of the profile did not survive the logout")
 
 	// Switched away from and back: still the same profile, still loadable.

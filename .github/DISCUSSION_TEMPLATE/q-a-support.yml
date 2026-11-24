@@ -30,7 +30,7 @@ body:
       options:
         - Getting started
         - Self-hosting
-        - Client / Agent
+        - Client
         - CLI
         - Desktop UI
         - Mobile app

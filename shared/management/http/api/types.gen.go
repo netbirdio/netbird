@@ -2963,6 +2963,9 @@ type EDRFalconRequest struct {
 	// StaleGraceMinutes Minutes a previously approved device keeps access after a stale check-in. 0 disables it, maximum is 240.
 	StaleGraceMinutes *int `json:"stale_grace_minutes,omitempty"`
 
+	// StaleGraceNewPeers Whether newly added peers get the grace period while the EDR has not reported them compliant yet. When false, they are denied until it does.
+	StaleGraceNewPeers *bool `json:"stale_grace_new_peers,omitempty"`
+
 	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
 	SyncInterval *int `json:"sync_interval,omitempty"`
 
@@ -3002,6 +3005,9 @@ type EDRFalconResponse struct {
 	// StaleGraceMinutes Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
 	StaleGraceMinutes int `json:"stale_grace_minutes"`
 
+	// StaleGraceNewPeers Whether newly added peers get the grace period while the EDR has not reported them compliant yet.
+	StaleGraceNewPeers bool `json:"stale_grace_new_peers"`
+
 	// SyncInterval How often devices are synced from the integration, in minutes.
 	SyncInterval int `json:"sync_interval"`
 
@@ -3034,6 +3040,9 @@ type EDRFleetDMRequest struct {
 
 	// StaleGraceMinutes Minutes a previously approved device keeps access after a stale check-in. 0 disables it, maximum is 240.
 	StaleGraceMinutes *int `json:"stale_grace_minutes,omitempty"`
+
+	// StaleGraceNewPeers Whether newly added peers get the grace period while the EDR has not reported them compliant yet. When false, they are denied until it does.
+	StaleGraceNewPeers *bool `json:"stale_grace_new_peers,omitempty"`
 
 	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
 	SyncInterval *int `json:"sync_interval,omitempty"`
@@ -3074,6 +3083,9 @@ type EDRFleetDMResponse struct {
 	// StaleGraceMinutes Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
 	StaleGraceMinutes int `json:"stale_grace_minutes"`
 
+	// StaleGraceNewPeers Whether newly added peers get the grace period while the EDR has not reported them compliant yet.
+	StaleGraceNewPeers bool `json:"stale_grace_new_peers"`
+
 	// SyncInterval How often devices are synced from the integration, in minutes.
 	SyncInterval int `json:"sync_interval"`
 
@@ -3103,6 +3115,9 @@ type EDRHuntressRequest struct {
 
 	// StaleGraceMinutes Minutes a previously approved device keeps access after a stale check-in. 0 disables it, maximum is 240.
 	StaleGraceMinutes *int `json:"stale_grace_minutes,omitempty"`
+
+	// StaleGraceNewPeers Whether newly added peers get the grace period while the EDR has not reported them compliant yet. When false, they are denied until it does.
+	StaleGraceNewPeers *bool `json:"stale_grace_new_peers,omitempty"`
 
 	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
 	SyncInterval *int `json:"sync_interval,omitempty"`
@@ -3140,6 +3155,9 @@ type EDRHuntressResponse struct {
 	// StaleGraceMinutes Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
 	StaleGraceMinutes int `json:"stale_grace_minutes"`
 
+	// StaleGraceNewPeers Whether newly added peers get the grace period while the EDR has not reported them compliant yet.
+	StaleGraceNewPeers bool `json:"stale_grace_new_peers"`
+
 	// SyncInterval How often devices are synced from the integration, in minutes.
 	SyncInterval int `json:"sync_interval"`
 
@@ -3166,6 +3184,9 @@ type EDRIntuneRequest struct {
 
 	// StaleGraceMinutes Minutes a previously approved device keeps access after a stale check-in. 0 disables it, maximum is 240.
 	StaleGraceMinutes *int `json:"stale_grace_minutes,omitempty"`
+
+	// StaleGraceNewPeers Whether newly added peers get the grace period while the EDR has not reported them compliant yet. When false, they are denied until it does.
+	StaleGraceNewPeers *bool `json:"stale_grace_new_peers,omitempty"`
 
 	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
 	SyncInterval *int `json:"sync_interval,omitempty"`
@@ -3206,6 +3227,9 @@ type EDRIntuneResponse struct {
 	// StaleGraceMinutes Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
 	StaleGraceMinutes int `json:"stale_grace_minutes"`
 
+	// StaleGraceNewPeers Whether newly added peers get the grace period while the EDR has not reported them compliant yet.
+	StaleGraceNewPeers bool `json:"stale_grace_new_peers"`
+
 	// SyncInterval How often devices are synced from the integration, in minutes.
 	SyncInterval int `json:"sync_interval"`
 
@@ -3238,6 +3262,9 @@ type EDRSentinelOneRequest struct {
 
 	// StaleGraceMinutes Minutes a previously approved device keeps access after a stale check-in. 0 disables it, maximum is 240.
 	StaleGraceMinutes *int `json:"stale_grace_minutes,omitempty"`
+
+	// StaleGraceNewPeers Whether newly added peers get the grace period while the EDR has not reported them compliant yet. When false, they are denied until it does.
+	StaleGraceNewPeers *bool `json:"stale_grace_new_peers,omitempty"`
 
 	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
 	SyncInterval *int `json:"sync_interval,omitempty"`
@@ -3277,6 +3304,9 @@ type EDRSentinelOneResponse struct {
 
 	// StaleGraceMinutes Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
 	StaleGraceMinutes int `json:"stale_grace_minutes"`
+
+	// StaleGraceNewPeers Whether newly added peers get the grace period while the EDR has not reported them compliant yet.
+	StaleGraceNewPeers bool `json:"stale_grace_new_peers"`
 
 	// SyncInterval How often devices are synced from the integration, in minutes.
 	SyncInterval int `json:"sync_interval"`
@@ -4373,6 +4403,9 @@ type PeerLocalFlags struct {
 
 	// ServerSshAllowed Indicates whether SSH access this peer is allowed or not
 	ServerSshAllowed *bool `json:"server_ssh_allowed,omitempty"`
+
+	// ServerVncAllowed Indicates whether the embedded VNC server is enabled on this peer
+	ServerVncAllowed *bool `json:"server_vnc_allowed,omitempty"`
 }
 
 // PeerMinimum defines model for PeerMinimum.
@@ -4422,6 +4455,9 @@ type PeerTemporaryAccessRequest struct {
 	// Rules List of temporary access rules
 	Rules []string `json:"rules"`
 
+	// SessionPubKey Ephemeral base64-encoded X25519 public key used with Noise_IK to bind the VNC session. Required for VNC rules; ignored for SSH and L4.
+	SessionPubKey *string `json:"session_pub_key,omitempty"`
+
 	// WgPubKey Peer's WireGuard public key
 	WgPubKey string `json:"wg_pub_key"`
 }
@@ -4436,6 +4472,9 @@ type PeerTemporaryAccessResponse struct {
 
 	// Rules List of temporary access rules
 	Rules []string `json:"rules"`
+
+	// TargetPubKey Identity public key of the destination peer the temporary access was requested for. Used by the requester to verify the destination daemon's identity before transmitting credentials.
+	TargetPubKey string `json:"target_pub_key"`
 }
 
 // PersonalAccessToken defines model for PersonalAccessToken.

@@ -33,6 +33,8 @@ const (
 	PolicyRuleProtocolICMP = PolicyRuleProtocolType("icmp")
 	// PolicyRuleProtocolNetbirdSSH type of traffic
 	PolicyRuleProtocolNetbirdSSH = PolicyRuleProtocolType("netbird-ssh")
+	// PolicyRuleProtocolNetbirdVNC type of traffic
+	PolicyRuleProtocolNetbirdVNC = PolicyRuleProtocolType("netbird-vnc")
 )
 
 // RulePortRange represents a range of ports for a firewall rule.
@@ -64,6 +66,15 @@ func ParseRuleString(rule string) (PolicyRuleProtocolType, RulePortRange, error)
 	if rule == "icmp" {
 		return PolicyRuleProtocolICMP, RulePortRange{}, nil
 	}
+	// The NetBird marker protocols carry their own port, so they are written
+	// bare, the way "all" and "icmp" are. That is what the temporary-access
+	// flow sends. The protocol/port spellings below stay accepted.
+	if rule == string(PolicyRuleProtocolNetbirdSSH) {
+		return PolicyRuleProtocolNetbirdSSH, RulePortRange{Start: nativeSSHPortNumber, End: nativeSSHPortNumber}, nil
+	}
+	if rule == string(PolicyRuleProtocolNetbirdVNC) {
+		return PolicyRuleProtocolNetbirdVNC, RulePortRange{Start: VNCInternalPort, End: VNCInternalPort}, nil
+	}
 
 	split := strings.Split(rule, "/")
 	if len(split) != 2 {
@@ -83,6 +94,8 @@ func ParseRuleString(rule string) (PolicyRuleProtocolType, RulePortRange, error)
 		return "", RulePortRange{}, errors.New("icmp does not accept ports; use 'icmp' without '/…'")
 	case "netbird-ssh":
 		return PolicyRuleProtocolNetbirdSSH, RulePortRange{Start: nativeSSHPortNumber, End: nativeSSHPortNumber}, nil
+	case "netbird-vnc":
+		return PolicyRuleProtocolNetbirdVNC, RulePortRange{Start: VNCInternalPort, End: VNCInternalPort}, nil
 	default:
 		return "", RulePortRange{}, fmt.Errorf("invalid protocol: %q", protoStr)
 	}

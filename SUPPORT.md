@@ -27,7 +27,7 @@ questions.
 | Report a bug, regression, or unexpected behavior | [Issue Triage](https://github.com/netbirdio/netbird/discussions/new?category=issue-triage) |
 | Request a feature or share an idea | [Ideas & Feature Requests](https://github.com/netbirdio/netbird/discussions/new?category=ideas-feature-requests) |
 | Ask about setup, configuration, or self-hosting | [Q&A / Support](https://github.com/netbirdio/netbird/discussions/new?category=q-a-support) |
-| Chat with the community | [Slack](https://docs.netbird.io/slack-url) |
+| Chat with the community | [Discord](https://docs.netbird.io/discord-url) |
 
 ## Paid support
 
