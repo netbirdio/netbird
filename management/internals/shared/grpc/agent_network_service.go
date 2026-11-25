@@ -49,6 +49,8 @@ func (s *Server) GetAgentNetworkInfo(ctx context.Context, req *proto.EncryptedMe
 	}
 
 	info, err := svc.GetAgentNetworkInfoForPeer(ctx, accountID, peer.ID)
+	// A missing or foreign peer owner is a store integrity fault the caller
+	// cannot act on; clients read PermissionDenied as a rejected sign-in.
 	if err != nil {
 		log.WithContext(ctx).Errorf("get agent network info for peer %s: %v", peer.ID, err)
 		return nil, status.Errorf(codes.Internal, "internal error")

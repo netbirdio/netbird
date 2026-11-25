@@ -37,6 +37,8 @@ type PolicyRule struct {
 	PortRanges          []RulePortRange
 	AuthorizedGroups    map[string][]string
 	AuthorizedUser      string
+	SessionPubKey       string
+	SessionDisplayName  string
 }
 
 // RulePortRange is the slim twin of types.RulePortRange.

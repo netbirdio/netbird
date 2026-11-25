@@ -37,6 +37,7 @@ type Client interface {
 	SendToStream(msg *proto.EncryptedMessage) error
 	Send(msg *proto.Message) error
 	SetOnReconnectedListener(func())
+	UpdateAuthToken(token []byte)
 }
 
 // Credential is an instance of a GrpcClient's Credential
