@@ -1377,9 +1377,9 @@ func (m *Manager) filterTrailingFragment(meta fragmentMeta, srcIP, dstIP netip.A
 // filterFirstFragment runs the verdict part of the inbound pipeline on a first
 // fragment with its transport header decoded. It mirrors filterInboundDecoded
 // but skips DNAT (port rewriting on fragments is unsupported) and forwarder
-// injection (fragments are left to the stack to reassemble, not forwarded).
-// Allowed fragments have their verdict recorded so the datagram's trailing
-// fragments inherit it.
+// injection: fragments are left to the native stack to reassemble, so those
+// only the forwarder may carry are dropped. Allowed fragments have their
+// verdict recorded so the datagram's trailing fragments inherit it.
 func (m *Manager) filterFirstFragment(d *decoder, meta fragmentMeta, srcIP, dstIP netip.Addr, size int) bool {
 	if m.stateful && m.isValidTrackedConnection(d, srcIP, dstIP, size) {
 		m.recordFirstFragment(meta)
@@ -1410,8 +1410,6 @@ func (m *Manager) filterFirstFragment(d *decoder, meta fragmentMeta, srcIP, dstI
 		return false
 	}
 
-	// TODO: pass fragments of routed packets to the forwarder; until then
-	// allowed routed fragments go to the native stack.
 	srcPort, dstPort := getPortsFromPacket(d)
 	ruleID, pass := m.routeACLsPass(srcIP, dstIP, d.decoded[1], srcPort, dstPort)
 	if !pass {
@@ -1420,8 +1418,15 @@ func (m *Manager) filterFirstFragment(d *decoder, meta fragmentMeta, srcIP, dstI
 		return true
 	}
 
-	m.recordFirstFragment(meta)
-	return false
+	// TODO: pass fragments of routed packets to the forwarder. Until then drop
+	// them: like whole routed packets they passed only the route ACLs and must
+	// not reach the native stack, which delivers broadcast and multicast
+	// destinations to local sockets that only the peer ACLs may open. No verdict
+	// is recorded, so the trailing fragments are dropped too.
+	if m.logger.Enabled(nblog.LevelTrace) {
+		m.logger.Trace2("Dropping routed fragment (not supported by the forwarder): src=%s dst=%s", srcIP, dstIP)
+	}
+	return true
 }
 
 // recordFirstFragment caches an allowed first fragment's verdict for its

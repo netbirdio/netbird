@@ -106,6 +106,12 @@ func (m *prometheusMetrics) RecordLoginDuration(ctx context.Context, agentInfo A
 	m.next.RecordLoginDuration(ctx, agentInfo, duration, success)
 }
 
+// RecordVNCSessionTick implements metricsImplementation by delegating to the
+// wrapped implementation; there is no local Prometheus series for VNC sessions.
+func (m *prometheusMetrics) RecordVNCSessionTick(ctx context.Context, agentInfo AgentInfo, tick VNCSessionTick) {
+	m.next.RecordVNCSessionTick(ctx, agentInfo, tick)
+}
+
 // Export implements metricsImplementation by delegating to the wrapped
 // implementation; Prometheus metrics are pulled via the registry instead.
 func (m *prometheusMetrics) Export(w io.Writer) error {

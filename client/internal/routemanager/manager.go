@@ -695,7 +695,7 @@ func isRouteSupported(route *route.Route) bool {
 	// If prefix is too small, lets assume it is a possible default prefix which is not yet supported
 	// we skip this prefix management
 	if route.Network.Bits() <= vars.MinRangeBits {
-		log.Warnf("This agent version: %s, doesn't support default routes, received %s, skipping this prefix",
+		log.Warnf("This client version: %s, doesn't support default routes, received %s, skipping this prefix",
 			version.NetbirdVersion(), route.Network)
 		return false
 	}

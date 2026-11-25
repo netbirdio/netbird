@@ -920,8 +920,8 @@
     "settings.about.community.github": {
         "message": "GitHub"
     },
-    "settings.about.community.slack": {
-        "message": "Slack"
+    "settings.about.community.discord": {
+        "message": "Discord"
     },
     "settings.about.community.forum": {
         "message": "포럼"
@@ -1391,22 +1391,22 @@
     "error.elevation_failed": {
         "message": "이 변경 사항은 상승된 권한으로 적용될 수 없습니다. 대신 다음을 실행하세요:"
     },
-    "settings.ssh.privilege.actorRoot": {
+    "settings.privilege.actorRoot": {
         "message": "루트"
     },
-    "settings.ssh.privilege.actorAdministrator": {
+    "settings.privilege.actorAdministrator": {
         "message": "관리자 권한"
     },
-    "settings.ssh.privilege.hint": {
+    "settings.privilege.hint": {
         "message": "{actor}이(가) 필요합니다. 대신 이것을 실행하세요:"
     },
-    "settings.ssh.privilege.oneWay": {
+    "settings.privilege.oneWay": {
         "message": "이것을 끌 수 있지만, 다시 켜려면 {actor}이(가) 필요합니다:"
     },
-    "settings.ssh.privilege.oneWayInverted": {
+    "settings.privilege.oneWayInverted": {
         "message": "이것을 켤 수 있지만, 다시 끄려면 {actor}이(가) 필요합니다:"
     },
-    "settings.ssh.privilege.authorizePending": {
+    "settings.privilege.authorizePending": {
         "message": "인증 대기 중…"
     },
     "profile.ownedByAnother.name": {

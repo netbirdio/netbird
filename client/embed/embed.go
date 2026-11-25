@@ -118,7 +118,7 @@ type Options struct {
 	// DNSLabels defines additional DNS labels configured in the peer.
 	DNSLabels []string
 	// NATExternalIPs maps external IPs to internal IPs or interfaces for ICE
-	// candidates, same format as the agent's --external-ip-map flag.
+	// candidates, same format as the client's --external-ip-map flag.
 	NATExternalIPs []string
 	// Performance configures the tunnel's buffer pool cap and batch size.
 	Performance Performance
@@ -241,8 +241,13 @@ func New(opts Options) (*Client, error) {
 	// managed key takes effect on this embedded engine instance.
 	config.ApplyMDMPolicy(mdm.NewLoader(nil).Load())
 
-	if opts.PrivateKey != "" {
+	if opts.PrivateKey != "" && opts.PrivateKey != config.PrivateKey {
 		config.PrivateKey = opts.PrivateKey
+		// In memory only, like the key from the options: Management takes the new auth public key at login.
+		config.AuthKey = ""
+		if _, err := config.EnsureIdentity(); err != nil {
+			return nil, fmt.Errorf("generate auth key: %w", err)
+		}
 	}
 
 	if opts.LazyConnectionEnabled != nil {
@@ -267,7 +272,7 @@ func New(opts Options) (*Client, error) {
 		jwtToken:   opts.JWTToken,
 		config:     config,
 		recorder:   peer.NewRecorder(config.ManagementURL.String()),
-		// Without a path the default would be the installed agent's state
+		// Without a path the default would be the installed client's state
 		// file, which this client must neither read nor overwrite.
 		inMemoryState: opts.StatePath == "" && !opts.NoUserspace,
 	}, nil

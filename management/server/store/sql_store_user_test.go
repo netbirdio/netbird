@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"testing"
 	"time"
 
@@ -387,4 +389,80 @@ func TestSqlStore_SaveUserLastLogin(t *testing.T) {
 	assert.Equal(t, before.Role, after.Role)
 	assert.Equal(t, before.AutoGroups, after.AutoGroups)
 	assert.Equal(t, before.Blocked, after.Blocked)
+}
+
+func TestSqlStore_FillUserEmailAndName(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	key, err := crypt.GenerateKey()
+	require.NoError(t, err)
+	fieldEncrypt, err := crypt.NewFieldEncrypt(key)
+	require.NoError(t, err)
+	store.SetFieldEncrypt(fieldEncrypt)
+
+	ctx := context.Background()
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	userID := "f4f6d672-63fb-11ec-90d6-0242ac120003"
+
+	userInfo := func() (string, string) {
+		user, err := store.GetUserByUserID(ctx, LockingStrengthNone, userID)
+		require.NoError(t, err)
+		return user.Email, user.Name
+	}
+
+	require.NoError(t, store.FillUserEmailAndName(ctx, "other-account", userID, "alice@example.com", "Alice"))
+	email, name := userInfo()
+	assert.Empty(t, email+name, "a fill scoped to another account must not touch the user")
+
+	require.NoError(t, store.FillUserEmailAndName(ctx, accountID, userID, "", "Alice"))
+	email, name = userInfo()
+	assert.Empty(t, email, "an empty email must leave the email empty")
+	assert.Equal(t, "Alice", name, "an empty name must be filled")
+
+	require.NoError(t, store.FillUserEmailAndName(ctx, accountID, userID, "alice@example.com", "Bob"))
+	email, name = userInfo()
+	assert.Equal(t, "alice@example.com", email, "an empty email must be filled")
+	assert.Equal(t, "Alice", name, "a stored name must not be overwritten")
+
+	var raw struct{ Email, Name string }
+	require.NoError(t, store.(*SqlStore).db.Table("users").Select("email, name").Where("id = ?", userID).First(&raw).Error)
+	assert.NotEqual(t, "alice@example.com", raw.Email, "email must be stored encrypted")
+	assert.NotEqual(t, "Alice", raw.Name, "name must be stored encrypted")
+}
+
+func TestSqlStore_GetUsersMissingEmailOrName(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	key, err := crypt.GenerateKey()
+	require.NoError(t, err)
+	fieldEncrypt, err := crypt.NewFieldEncrypt(key)
+	require.NoError(t, err)
+	store.SetFieldEncrypt(fieldEncrypt)
+
+	ctx := context.Background()
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	require.NoError(t, store.SaveUsers(ctx, []*types.User{
+		{Id: "complete", AccountID: accountID, Role: types.UserRoleUser, Email: "complete@example.com", Name: "Complete"},
+		{Id: "no-name", AccountID: accountID, Role: types.UserRoleUser, Email: "no-name@example.com"},
+		{Id: "service", AccountID: accountID, Role: types.UserRoleUser, IsServiceUser: true},
+	}))
+
+	users, err := store.GetUsersMissingEmailOrName(ctx)
+	require.NoError(t, err)
+
+	byID := make(map[string]*types.User, len(users))
+	for _, user := range users {
+		byID[user.Id] = user
+	}
+	// The two fixture users have neither email nor name.
+	assert.ElementsMatch(t, []string{"edafee4e-63fb-11ec-90d6-0242ac120003", "f4f6d672-63fb-11ec-90d6-0242ac120003", "no-name"},
+		slices.Collect(maps.Keys(byID)), "only non-service users with an empty email or name must be returned")
+
+	require.Contains(t, byID, "no-name")
+	assert.Equal(t, accountID, byID["no-name"].AccountID, "account ID must be returned")
+	assert.Equal(t, "no-name@example.com", byID["no-name"].Email, "stored email must be decrypted")
 }
