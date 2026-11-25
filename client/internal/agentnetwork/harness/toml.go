@@ -40,6 +40,9 @@ type tomlFile struct {
 	doc      map[string]any
 	spans    map[string]tomlSpan
 	sections []tomlSection
+	// dotted holds the pathKey of every table a dotted key defines. TOML
+	// does not let a later [header] define such a table again.
+	dotted map[string]bool
 	// topEnd is the last line of the top-level key/values, -1 when none.
 	topEnd int
 }
@@ -64,6 +67,7 @@ func parseTOML(data []byte) (*tomlFile, error) {
 		crlf:   strings.Contains(text, "\r\n"),
 		doc:    map[string]any{},
 		spans:  map[string]tomlSpan{},
+		dotted: map[string]bool{},
 		topEnd: -1,
 	}
 	if text != "" {
@@ -165,6 +169,9 @@ func (f *tomlFile) keyValue(i int, table []string, inArray bool) (int, error) {
 		return i, err
 	}
 	f.spans[pathKey(path)] = tomlSpan{line: i, col: col, endLine: end, endCol: endCol}
+	for n := len(table) + 1; n < len(path); n++ {
+		f.dotted[pathKey(path[:n])] = true
+	}
 	return end, nil
 }
 
@@ -460,7 +467,7 @@ func (e *tomlEdit) add(path []string, enc string) error {
 		e.before[s.lastKey+1] = append(e.before[s.lastKey+1], line)
 		return nil
 	}
-	if dottedTable(e.f.doc, parent) {
+	if e.f.dotted[pathKey(parent)] {
 		return fmt.Errorf("cannot add to %s: it is defined with dotted keys", PathString(parent))
 	}
 	pk := pathKey(parent)
@@ -510,25 +517,6 @@ func (e *tomlEdit) render() []byte {
 		eol = "\r\n"
 	}
 	return []byte(strings.Join(lines, eol) + eol)
-}
-
-// dottedTable reports whether path is a table holding values but no [header],
-// which TOML does not let a later header extend.
-func dottedTable(doc map[string]any, path []string) bool {
-	cur := doc
-	for _, k := range path {
-		m, ok := cur[k].(map[string]any)
-		if !ok {
-			return false
-		}
-		cur = m
-	}
-	for _, v := range cur {
-		if _, ok := v.(map[string]any); !ok {
-			return true
-		}
-	}
-	return false
 }
 
 func (f *tomlFile) section(path []string) *tomlSection {
