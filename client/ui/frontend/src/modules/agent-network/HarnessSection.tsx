@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Skeleton from "react-loading-skeleton";
 import { AgentNetwork as AgentNetworkSvc } from "@bindings/services";
@@ -38,11 +38,18 @@ export const HarnessSection = ({ refreshKey }: SectionProps) => {
     const [undoing, setUndoing] = useState<string | null>(null);
     const [kept, setKept] = useState<Kept | null>(null);
 
+    // Loads overlap (a poll refresh during an apply's reload); only the latest
+    // may update the list, or an older answer could restore a stale status.
+    const loadSeq = useRef(0);
     const load = useCallback(async () => {
+        const seq = ++loadSeq.current;
         try {
-            setHarnesses(await AgentNetworkSvc.Harnesses());
+            const list = await AgentNetworkSvc.Harnesses();
+            if (seq !== loadSeq.current) return;
+            setHarnesses(list);
             setLoadError(null);
         } catch (e: unknown) {
+            if (seq !== loadSeq.current) return;
             setLoadError(formatErrorMessage(e));
         }
     }, []);
