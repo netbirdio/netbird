@@ -1,12 +1,14 @@
 package harness
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 
+	toml "github.com/pelletier/go-toml/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -548,11 +550,23 @@ func TestCodexTOMLKeepsCRLF(t *testing.T) {
 	assert.Equal(t, orig, readFile(t, file))
 }
 
+func TestCodexTOMLKeepsMissingFinalEOL(t *testing.T) {
+	h := newDefHost(t, codex)
+	file := h.files()[0]
+	orig := "model = \"o3\""
+	writeFile(t, file, orig, 0o600)
+	h.apply(t, h.render(t, "openai", "gpt-5.5"), true)
+	assert.False(t, strings.HasSuffix(readFile(t, file), "\n"), "no newline is added at the end")
+	h.apply(t, nil, false)
+	assert.Equal(t, orig, readFile(t, file), "undo restores the file byte for byte")
+}
+
 func TestCodexTOMLUnsupported(t *testing.T) {
 	for name, content := range map[string]string{
 		"unterminated string": "model = \"gpt\n",
 		"no value":            "model =\n",
 		"garbage":             "this is not toml\n",
+		"invalid UTF-8":       "theme = \"\xff\"\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := newDefHost(t, codex)
@@ -564,16 +578,101 @@ func TestCodexTOMLUnsupported(t *testing.T) {
 	}
 }
 
-func TestCodexTOMLDottedTable(t *testing.T) {
+// TestCodexTOMLDottedKeys runs setup over the ways a config can define
+// model_providers.netbird. A table a dotted key defines cannot take a
+// [model_providers.netbird] header, so setup must refuse those files instead
+// of writing TOML that Codex rejects.
+func TestCodexTOMLDottedKeys(t *testing.T) {
+	providers := "model = \"gpt-5.5\"\nmodel_provider = \"netbird\"\n" +
+		"model_providers.netbird.base_url = \"" + testEndpoint + "/v1\"\n" +
+		"model_providers.netbird.wire_api = \"responses\"\n"
+	cases := []struct {
+		name    string
+		in      string
+		refused bool
+	}{
+		{"dotted table at top level", "model_providers.netbird.name = \"x\"\n", true},
+		{"dotted table under a header", "[model_providers]\nnetbird.name = \"x\"\n", true},
+		{"dotted table holding only a sub-table", "model_providers.netbird.http_headers.X = \"h\"\n", true},
+		{"dotted table holding only a sub-table, under a header", "[model_providers]\nnetbird.http_headers.X = \"h\"\n", true},
+		{"dotted query_params under a header", "[model_providers]\nnetbird.query_params.api-version = \"1\"\n", true},
+		{"dotted sibling provider", "model_providers.other.name = \"o\"\n", false},
+		{"dotted sibling provider under a header", "[model_providers]\nother.name = \"o\"\n", false},
+		{"sub-table header only", "[model_providers.netbird.http_headers]\nX = \"h\"\n", false},
+		{"every key dotted, same values", providers + "model_providers.netbird.name = \"NetBird\"\n", false},
+		{"every key dotted, other name", providers + "model_providers.netbird.name = \"Other\"\n", false},
+		{"header and a later parent header", "[model_providers.netbird]\nname = \"x\"\n\n[model_providers]\nother.name = \"o\"\n", false},
+		{"dotted sub-table inside the header", "[model_providers.netbird]\nhttp_headers.X = \"h\"\n", false},
+		{"unrelated dotted key", "a.b = 1\n[tui]\nx = 1\n", false},
+	}
+	for _, tc := range cases {
+		for _, force := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/force=%v", tc.name, force), func(t *testing.T) {
+				require.NoError(t, toml.Unmarshal([]byte(tc.in), &map[string]any{}), "the input is valid TOML")
+				h := newDefHost(t, codex)
+				file := h.files()[0]
+				writeFile(t, file, tc.in, 0o600)
+
+				p, rec, err := h.plan(t, h.render(t, "openai", "gpt-5.5"), force)
+				if err == nil {
+					_, err = p.Apply(rec, h.env.RecordPath, testNow)
+				}
+				out := readFile(t, file)
+				if tc.refused {
+					assert.Error(t, err, "setup refuses a table defined by dotted keys")
+				} else if force {
+					assert.NoError(t, err, "forced setup succeeds")
+				}
+				if err != nil {
+					assert.Equal(t, tc.in, out, "a refused setup writes nothing")
+					return
+				}
+				var doc map[string]any
+				require.NoError(t, toml.Unmarshal([]byte(out), &doc), "the written file is valid TOML:\n%s", out)
+				netbird, _ := doc["model_providers"].(map[string]any)["netbird"].(map[string]any)
+				assert.Equal(t, testEndpoint+"/v1", netbird["base_url"], "base_url is set:\n%s", out)
+				assert.Equal(t, "netbird", doc["model_provider"], "model_provider is set:\n%s", out)
+			})
+		}
+	}
+}
+
+// TestCodexTOMLArrayOfTables covers tables nested under an array of tables,
+// which belong to its last element. NetBird never writes inside them, so they
+// are kept as they are.
+func TestCodexTOMLArrayOfTables(t *testing.T) {
 	h := newDefHost(t, codex)
 	file := h.files()[0]
-	orig := "model_providers.netbird.name = \"NetBird\"\n"
+	orig := `[[profiles]]
+name = "a"
+
+[profiles.env]
+X = "1"
+
+[[profiles.hooks]]
+cmd = "x"
+
+[[profiles]]
+name = "b"
+
+[tui]
+theme = "dark"
+
+[profiles.limits]
+max = 2
+`
+	require.NoError(t, toml.Unmarshal([]byte(orig), &map[string]any{}), "the input is valid TOML")
 	writeFile(t, file, orig, 0o600)
-	p, rec, err := h.plan(t, h.render(t, "openai", ""), false)
-	require.NoError(t, err)
-	_, err = p.Apply(rec, h.env.RecordPath, testNow)
-	require.Error(t, err, "a table defined by dotted keys cannot take a [header]")
-	assert.Equal(t, orig, readFile(t, file), "nothing is written")
+
+	h.apply(t, h.render(t, "openai", "gpt-5.5"), false)
+	out := readFile(t, file)
+	var doc map[string]any
+	require.NoError(t, toml.Unmarshal([]byte(out), &doc), "the written file is valid TOML:\n%s", out)
+	assert.Equal(t, "netbird", doc["model_provider"], "setup applied:\n%s", out)
+	assert.Len(t, doc["profiles"], 2, "the array of tables is kept:\n%s", out)
+
+	h.apply(t, nil, false)
+	assert.Equal(t, orig, readFile(t, file), "undo restores the file byte for byte")
 }
 
 func TestTOMLDecodeValues(t *testing.T) {

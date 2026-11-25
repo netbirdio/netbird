@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // The TOML codec edits a file line by line rather than re-encoding it, so
@@ -35,11 +36,18 @@ type tomlSection struct {
 }
 
 type tomlFile struct {
-	lines    []string
-	crlf     bool
-	doc      map[string]any
-	spans    map[string]tomlSpan
-	sections []tomlSection
+	lines []string
+	crlf  bool
+	// noFinalEOL is set when the file does not end with a line break.
+	noFinalEOL bool
+	doc        map[string]any
+	spans      map[string]tomlSpan
+	sections   []tomlSection
+	// dotted holds the pathKey of every table a dotted key defines. TOML
+	// does not let a later [header] define such a table again.
+	dotted map[string]bool
+	// arrays holds the pathKey of every array of tables.
+	arrays map[string]bool
 	// topEnd is the last line of the top-level key/values, -1 when none.
 	topEnd int
 }
@@ -59,14 +67,20 @@ func decodeTOMLDoc(data []byte) (map[string]any, error) {
 }
 
 func parseTOML(data []byte) (*tomlFile, error) {
+	if !utf8.Valid(data) {
+		return nil, errors.New("not valid UTF-8")
+	}
 	text := string(data)
 	f := &tomlFile{
 		crlf:   strings.Contains(text, "\r\n"),
 		doc:    map[string]any{},
 		spans:  map[string]tomlSpan{},
+		dotted: map[string]bool{},
+		arrays: map[string]bool{},
 		topEnd: -1,
 	}
 	if text != "" {
+		f.noFinalEOL = !strings.HasSuffix(text, "\n")
 		f.lines = strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
 		if f.lines[len(f.lines)-1] == "" {
 			f.lines = f.lines[:len(f.lines)-1]
@@ -85,8 +99,7 @@ func parseTOML(data []byte) (*tomlFile, error) {
 			table, err = f.arrayHeader(i, trimmed)
 			inArray = true
 		case trimmed[0] == '[':
-			table, err = f.tableHeader(i, trimmed)
-			inArray = false
+			table, inArray, err = f.tableHeader(i, trimmed)
 		default:
 			i, err = f.keyValue(i, table, inArray)
 		}
@@ -98,7 +111,7 @@ func parseTOML(data []byte) (*tomlFile, error) {
 }
 
 // arrayHeader records an array of tables as one raw value; NetBird never
-// writes inside one.
+// writes inside one, or inside the tables nested under it.
 func (f *tomlFile) arrayHeader(i int, line string) ([]string, error) {
 	path, rest, err := parseTOMLKey(line[2:])
 	if err != nil {
@@ -107,28 +120,49 @@ func (f *tomlFile) arrayHeader(i int, line string) ([]string, error) {
 	if !strings.HasPrefix(rest, "]]") || !tomlBlank(rest[2:]) {
 		return nil, errors.New("malformed array of tables header")
 	}
+	f.sections = append(f.sections, tomlSection{path: path, array: true, header: i, lastKey: i})
+	if f.underArray(path) {
+		return path, nil
+	}
+	f.arrays[pathKey(path)] = true
 	if _, present, _ := getPath(f.doc, path); !present {
 		if err := setPath(f.doc, path, tomlRaw("[[array of tables]]")); err != nil {
 			return nil, err
 		}
 	}
-	f.sections = append(f.sections, tomlSection{path: path, array: true, header: i, lastKey: i})
 	return path, nil
 }
 
-func (f *tomlFile) tableHeader(i int, line string) ([]string, error) {
+// tableHeader returns the table's path and whether it is nested under an
+// array of tables, whose contents are skipped like the array's own.
+func (f *tomlFile) tableHeader(i int, line string) ([]string, bool, error) {
 	path, rest, err := parseTOMLKey(line[1:])
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if !strings.HasPrefix(rest, "]") || !tomlBlank(rest[1:]) {
-		return nil, errors.New("malformed table header")
+		return nil, false, errors.New("malformed table header")
+	}
+	if f.underArray(path) {
+		f.sections = append(f.sections, tomlSection{path: path, array: true, header: i, lastKey: i})
+		return path, true, nil
 	}
 	if err := ensureTable(f.doc, path); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	f.sections = append(f.sections, tomlSection{path: path, header: i, lastKey: i})
-	return path, nil
+	return path, false, nil
+}
+
+// underArray reports whether path is nested under an array of tables, so it
+// belongs to the array's last element.
+func (f *tomlFile) underArray(path []string) bool {
+	for n := 1; n < len(path); n++ {
+		if f.arrays[pathKey(path[:n])] {
+			return true
+		}
+	}
+	return false
 }
 
 // keyValue parses the key/value starting on line i and returns the line it
@@ -165,6 +199,9 @@ func (f *tomlFile) keyValue(i int, table []string, inArray bool) (int, error) {
 		return i, err
 	}
 	f.spans[pathKey(path)] = tomlSpan{line: i, col: col, endLine: end, endCol: endCol}
+	for n := len(table) + 1; n < len(path); n++ {
+		f.dotted[pathKey(path[:n])] = true
+	}
 	return end, nil
 }
 
@@ -460,7 +497,7 @@ func (e *tomlEdit) add(path []string, enc string) error {
 		e.before[s.lastKey+1] = append(e.before[s.lastKey+1], line)
 		return nil
 	}
-	if dottedTable(e.f.doc, parent) {
+	if e.f.dotted[pathKey(parent)] {
 		return fmt.Errorf("cannot add to %s: it is defined with dotted keys", PathString(parent))
 	}
 	pk := pathKey(parent)
@@ -509,26 +546,10 @@ func (e *tomlEdit) render() []byte {
 	if e.f.crlf {
 		eol = "\r\n"
 	}
+	if e.f.noFinalEOL {
+		return []byte(strings.Join(lines, eol))
+	}
 	return []byte(strings.Join(lines, eol) + eol)
-}
-
-// dottedTable reports whether path is a table holding values but no [header],
-// which TOML does not let a later header extend.
-func dottedTable(doc map[string]any, path []string) bool {
-	cur := doc
-	for _, k := range path {
-		m, ok := cur[k].(map[string]any)
-		if !ok {
-			return false
-		}
-		cur = m
-	}
-	for _, v := range cur {
-		if _, ok := v.(map[string]any); !ok {
-			return true
-		}
-	}
-	return false
 }
 
 func (f *tomlFile) section(path []string) *tomlSection {
@@ -576,10 +597,9 @@ func sameJSON(a, b any) bool {
 }
 
 // encodeTOMLValue writes a scalar. A value restored from the record arrives
-// as a JSON-decoded string, number or boolean.
-// ponytail: a raw value (array, date) NetBird overwrote comes back from undo
-// as a quoted string; keeping its TOML type in the record is the upgrade if
-// --force over such values matters.
+// as a JSON-decoded string, number or boolean, so a raw value (array, date)
+// that NetBird overwrote comes back from undo as a quoted string. The record
+// would have to keep the TOML type to restore it.
 func encodeTOMLValue(v any) (string, error) {
 	switch v := v.(type) {
 	case string:

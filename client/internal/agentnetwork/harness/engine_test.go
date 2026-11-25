@@ -507,7 +507,7 @@ func TestDanglingSymlinkRefused(t *testing.T) {
 
 func TestInvalidUTF8IsUnparseable(t *testing.T) {
 	h := newTestHost(t)
-	orig := "{\"theme\":\"caf\xe9\"}"
+	orig := "{\"theme\":\"\xff\"}"
 	h.write(t, orig, 0o600)
 
 	_, _, err := h.plan(t, h.render(t, "anthropic", ""), false)
