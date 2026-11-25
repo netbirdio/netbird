@@ -662,7 +662,7 @@ func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID s
 	// Previously this path called only account.InjectProxyPolicies, which
 	// skipped the synth-services prepend — so peer-level changes
 	// (proxy restart, embedded peer connect/disconnect) propagated a
-	// network map that omitted the synth DNS zone, and the agent kept
+	// network map that omitted the synth DNS zone, and the client kept
 	// resolving against the stale or absent record.
 	c.injectAllProxyPolicies(ctx, account)
 	account.PrecomputePostureValidation(ctx)

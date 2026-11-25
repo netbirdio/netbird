@@ -10,8 +10,8 @@
     <a href="https://github.com/netbirdio/netbird/blob/main/LICENSE">
       <img src="https://img.shields.io/badge/license-BSD--3-blue" alt="BSD-3 License"/>
     </a>
-    <a href="https://docs.netbird.io/slack-url">
-      <img src="https://img.shields.io/badge/slack-@netbird-red.svg?logo=slack" alt="NetBird Slack"/>
+    <a href="https://docs.netbird.io/discord-url">
+      <img src="https://img.shields.io/badge/discord-@netbird-5865F2.svg?logo=discord&logoColor=white" alt="NetBird Discord"/>
     </a>
     <a href="https://forum.netbird.io">
       <img src="https://img.shields.io/badge/community%20forum-@netbird-red.svg?logo=discourse" alt="Community forum"/>
@@ -28,7 +28,7 @@
     <br/>
     See <a href="https://docs.netbird.io/">Documentation</a>
     <br/>
-    Join our <a href="https://docs.netbird.io/slack-url">Slack channel</a> or our <a href="https://forum.netbird.io">Community forum</a>
+    Join our <a href="https://docs.netbird.io/discord-url">Discord server</a> or our <a href="https://forum.netbird.io">Community forum</a>
   </strong>
   <br/>
   <br/>
@@ -69,9 +69,10 @@ https://github.com/user-attachments/assets/10cec749-bb56-4ab3-97af-4e38850108d2
 | ✓ [Reverse proxy with auto-TLS](https://docs.netbird.io/manage/reverse-proxy) | | ✓ [Periodic re-authentication](https://docs.netbird.io/how-to/enforce-periodic-user-authentication) | | ✓ [pfSense](https://docs.netbird.io/get-started/install/pfsense) |
 | | | | | ✓ [OPNsense](https://docs.netbird.io/get-started/install/opnsense) |
 | | | | | ✓ [MikroTik RouterOS](https://docs.netbird.io/use-cases/homelab/client-on-mikrotik-router) |
-| | | | | ✓ OpenWRT |
+| | | | | ✓ [OpenWrt](https://docs.netbird.io/get-started/install/openwrt) |
 | | | | | ✓ [Synology](https://docs.netbird.io/get-started/install/synology) |
 | | | | | ✓ [TrueNAS](https://docs.netbird.io/get-started/install/truenas) |
+| | | | | ✓ [Unraid](https://docs.netbird.io/get-started/install/unraid) |
 | | | | | ✓ [Proxmox](https://docs.netbird.io/get-started/install/proxmox-ve) |
 | | | | | ✓ [Raspberry Pi](https://docs.netbird.io/get-started/install/raspberrypi) |
 | | | | | ✓ [Serverless](https://docs.netbird.io/how-to/netbird-on-faas) |
@@ -102,11 +103,11 @@ export NETBIRD_DOMAIN=netbird.example.com; curl -fsSL https://github.com/netbird
 ```
 
 ### A bit on NetBird internals
-- Every machine in the network runs the [NetBird agent](client/), which manages WireGuard.
-- Every agent connects to the [Management Service](management/), which holds network state, manages peer IPs, and distributes updates to agents.
-- Agents use ICE (via [pion/ice](https://github.com/pion/ice)) to discover connection candidates for peer-to-peer connections.
+- Every machine in the network runs the [NetBird client](client/), which manages WireGuard.
+- Every client connects to the [Management Service](management/), which holds network state, manages peer IPs, and distributes updates to clients.
+- Clients use ICE (via [pion/ice](https://github.com/pion/ice)) to discover connection candidates for peer-to-peer connections.
 - Candidates are discovered with the help of [STUN](https://en.wikipedia.org/wiki/STUN) servers.
-- Agents negotiate a connection through the [Signal Service](signal/), exchanging end-to-end encrypted messages with candidates.
+- Clients negotiate a connection through the [Signal Service](signal/), exchanging end-to-end encrypted messages with candidates.
 - When NAT traversal fails (e.g. mobile carrier-grade NAT) and a direct p2p connection isn't possible, the system falls back to a [Relay Service](relay/) and a secure WireGuard tunnel is established through it.
 
 <p float="left" align="middle">

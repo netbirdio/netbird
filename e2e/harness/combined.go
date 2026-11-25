@@ -238,6 +238,9 @@ func resolveImage(ctx context.Context, root, envKey, localTag, dockerfile string
 func buildImage(ctx context.Context, root, dockerfile, tag string) error {
 	args := []string{"buildx", "build", "-f", dockerfile, "-t", tag, "--load"}
 	if dir := os.Getenv("NB_E2E_BUILDX_CACHE"); dir != "" {
+		// go test runs packages in parallel and a local cache dir is not safe for
+		// concurrent writers, so each test binary gets its own subdirectory.
+		dir = filepath.Join(dir, filepath.Base(os.Args[0]))
 		args = append(args,
 			"--cache-from", "type=local,src="+dir,
 			"--cache-to", "type=local,dest="+dir+",mode=max",
@@ -334,7 +337,7 @@ func (c *Combined) Restart(ctx context.Context) error {
 
 // NetworkName returns the Docker network the deployment runs on. Peers reach
 // management, signal and relay at the combined server's alias on this network
-// only, so a suite running agents outside the harness, such as in a Kind
+// only, so a suite running clients outside the harness, such as in a Kind
 // cluster, attaches them here.
 func (c *Combined) NetworkName() string {
 	return c.network.Name

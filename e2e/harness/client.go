@@ -31,7 +31,7 @@ const (
 // Client is a running NetBird client container joined to the combined server.
 type Client struct {
 	container testcontainers.Container
-	// name is the container hostname the agent reports to management at
+	// name is the container hostname the client reports to management at
 	// registration — the name the peer appears under in the peers API.
 	name string
 }
@@ -41,15 +41,15 @@ type clientOptions struct {
 	name string
 }
 
-// ClientOption adjusts how StartClient runs the agent.
+// ClientOption adjusts how StartClient runs the client.
 type ClientOption func(*clientOptions)
 
-// WithClientName names the agent, which sets both its network alias and its
-// container hostname. The hostname matters beyond addressing: the agent reports
+// WithClientName names the client, which sets both its network alias and its
+// container hostname. The hostname matters beyond addressing: the client reports
 // it to management at registration, so it is the name the peer appears under in
 // the API.
 //
-// Required to run more than one agent against the same server — the default name
+// Required to run more than one client against the same server — the default name
 // is shared, and two containers cannot hold the same alias on one network.
 func WithClientName(name string) ClientOption {
 	return func(o *clientOptions) { o.name = name }
@@ -72,7 +72,7 @@ func StartClient(ctx context.Context, c *Combined, setupKey string, opts ...Clie
 
 	req := testcontainers.ContainerRequest{
 		Image: clientImage,
-		// The agent reports the container's hostname to management, so this is
+		// The client reports the container's hostname to management, so this is
 		// the name the peer is addressable by in the API as well as on the
 		// network. The entrypoint takes no hostname flag of its own.
 		Hostname:       o.name,
@@ -103,7 +103,7 @@ func StartClient(ctx context.Context, c *Combined, setupKey string, opts ...Clie
 
 // ClientImage returns the client image StartClient runs, building it from this
 // module's source unless NB_E2E_CLIENT_IMAGE names a published one. A suite that
-// runs the agent outside a harness container, such as in a Kubernetes cluster,
+// runs the client outside a harness container, such as in a Kubernetes cluster,
 // uses it to get the same build.
 func ClientImage(ctx context.Context) (string, error) {
 	root, err := repoRoot(ctx)
@@ -114,7 +114,7 @@ func ClientImage(ctx context.Context) (string, error) {
 }
 
 // Exec runs a command inside the client container and returns its exit code and
-// combined output. It reaches whatever the agent routes, so a suite can check
+// combined output. It reaches whatever the client routes, so a suite can check
 // access the request helpers here do not model, such as plain HTTP to a routed
 // address.
 func (cl *Client) Exec(ctx context.Context, cmd ...string) (int, string, error) {
@@ -129,7 +129,7 @@ func (cl *Client) Exec(ctx context.Context, cmd ...string) (int, string, error) 
 	return code, string(out), nil
 }
 
-// Hostname returns the container hostname the agent reports to management —
+// Hostname returns the container hostname the client reports to management —
 // the name the registered peer appears under in the peers API.
 func (cl *Client) Hostname() string {
 	return cl.name
