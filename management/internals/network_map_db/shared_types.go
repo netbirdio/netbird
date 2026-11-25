@@ -29,6 +29,7 @@ var (
 type NetworkMapDBStore interface { //nolint:revive // established name across the codebase
 	BeginTx(ctx context.Context) (NetworkMapDBStoreConn, error)
 	Exec(ctx context.Context, query string, args ...any) error
+	Close() error
 }
 
 type NetworkMapDBStoreConn interface { //nolint:revive // established name across the codebase
@@ -352,37 +353,37 @@ func ConvertToNmdataPeers(peers []Peer) ([]nmdata.Peer, map[string][]*nmdata.Pee
 		if p.LocationCityName.Valid {
 			dp.Location.CityName = p.LocationCityName.String
 		}
-		if p.LocationConnectionIp != nil {
+		if len(p.LocationConnectionIp) != 0 {
 			err := json.Unmarshal(p.LocationConnectionIp, &dp.Location.ConnectionIP)
 			if err != nil {
 				return toret, nil, err
 			}
 		}
-		if p.MetaFiles != nil {
+		if len(p.MetaFiles) != 0 {
 			err := json.Unmarshal(p.MetaFiles, &dp.Meta.Files)
 			if err != nil {
 				return toret, nil, err
 			}
 		}
-		if p.MetaCertificates != nil {
+		if len(p.MetaCertificates) != 0 {
 			err := json.Unmarshal(p.MetaCertificates, &dp.Meta.Certificates)
 			if err != nil {
 				return toret, nil, err
 			}
 		}
-		if p.MetaCapabilities != nil {
+		if len(p.MetaCapabilities) != 0 {
 			err := json.Unmarshal(p.MetaCapabilities, &dp.Meta.Capabilities)
 			if err != nil {
 				return toret, nil, err
 			}
 		}
-		if p.MetaFlags != nil {
+		if len(p.MetaFlags) != 0 {
 			err := json.Unmarshal(p.MetaFlags, &dp.Meta.Flags)
 			if err != nil {
 				return toret, nil, err
 			}
 		}
-		if p.MetaNetworkAddresses != nil {
+		if len(p.MetaNetworkAddresses) != 0 {
 			err := json.Unmarshal(p.MetaNetworkAddresses, &dp.Meta.NetworkAddresses)
 			if err != nil {
 				return toret, nil, err

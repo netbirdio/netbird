@@ -52,8 +52,7 @@ func collectPostureCheckAffectedGroupsAndPeers(ctx context.Context, s store.Stor
 func setupAffectedPeersTest(t *testing.T) (*DefaultAccountManager, store.Store, string, []string, []string) {
 	t.Helper()
 
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	account, err := createAccount(manager, "affected_test", userID, "")
 	require.NoError(t, err)
@@ -1362,8 +1361,7 @@ func TestAffectedPeers_NetworkRouterUnlinkedPeerNoUpdate(t *testing.T) {
 	runPeerUpdateTest(t, func(t *testing.T) {
 		// Delete the default policy before adding peers so AddPeer schedules no async
 		// update that races with the test.
-		manager, updateManager, err := createManager(t)
-		require.NoError(t, err)
+		manager, updateManager := createManagerWithNetworkMapStore(t)
 
 		ctx := context.Background()
 

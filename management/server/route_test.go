@@ -20,7 +20,6 @@ import (
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/cache"
-	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/job"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
@@ -1306,15 +1305,16 @@ func createRouterManager(t *testing.T) (*DefaultAccountManager, *update_channel.
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, store)
 	nmapDbStore, err := networkmapdbfactory.NewNetworkMapDBStore(
-		context.Background(),
+		ctx,
 		nbstore.GetStoreEngineFromEnv(),
 		dataDir,
-		&integrated_validator.MockIntegratedValidator{},
+		MockIntegratedValidator{},
 		settingsMockManager,
 		nil,
 		metrics.GetMeter(),
 	)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = nmapDbStore.Store.Close() })
 
 	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager, peerLiveness)), &config.Config{}, nmapDbStore)
 

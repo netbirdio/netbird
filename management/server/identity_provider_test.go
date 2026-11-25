@@ -206,8 +206,7 @@ func TestDefaultAccountManager_CreateIdentityProvider_Validation(t *testing.T) {
 }
 
 func TestDefaultAccountManager_GetIdentityProviders(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	userID := "testingUser"
 	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID})

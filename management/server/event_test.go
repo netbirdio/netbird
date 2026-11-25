@@ -70,10 +70,7 @@ func generateAndStoreEvents(t *testing.T, manager *DefaultAccountManager, typ ac
 }
 
 func TestDefaultAccountManager_GetEvents(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID := "accountID"
 

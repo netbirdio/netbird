@@ -34,8 +34,7 @@ import (
 // map is asserted to actually carry the synth DNS surface, and provider
 // create/delete are exercised end to end.
 func TestAgentNetwork_ProviderCRUD_FansOutToProxyAndClientPeers(t *testing.T) {
-	am, updateManager, err := createManager(t)
-	require.NoError(t, err, "createManager must succeed")
+	am, updateManager := createManagerWithNetworkMapStore(t)
 	ctx := context.Background()
 
 	const (

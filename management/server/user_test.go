@@ -1437,11 +1437,7 @@ func TestUser_GetUsersFromAccount_ForUser(t *testing.T) {
 }
 
 func TestDefaultAccountManager_SaveUser(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	regularUserID := "regularUser"
 	serviceUserID := "serviceUser"
@@ -2191,14 +2187,11 @@ func mergeRolePermissions(role roles.RolePermissions) roles.Permissions {
 }
 
 func TestApproveUser(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	// Create account with admin and pending approval user
 	account := newAccountWithId(context.Background(), "account-1", "admin-user", "example.com", "", "", false)
-	err = manager.Store.SaveAccount(context.Background(), account)
+	err := manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	// Create admin user
@@ -2250,14 +2243,11 @@ func TestApproveUser(t *testing.T) {
 }
 
 func TestRejectUser(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	// Create account with admin and pending approval user
 	account := newAccountWithId(context.Background(), "account-1", "admin-user", "example.com", "", "", false)
-	err = manager.Store.SaveAccount(context.Background(), account)
+	err := manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	// Create admin user

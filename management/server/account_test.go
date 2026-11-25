@@ -438,11 +438,7 @@ func TestNewAccount(t *testing.T) {
 }
 
 func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID, Domain: ""})
 	if err != nil {
@@ -635,8 +631,7 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			manager, _, err := createManager(t)
-			require.NoError(t, err, "unable to create account manager")
+			manager, _ := createManagerWithNetworkMapStore(t)
 
 			accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: testCase.inputInitUserParams.UserId, Domain: testCase.inputInitUserParams.Domain})
 			require.NoError(t, err, "create init user failed")
@@ -676,8 +671,7 @@ func TestDefaultAccountManager_SyncUserJWTGroups(t *testing.T) {
 	userId := "user-id"
 	domain := "test.domain"
 	_ = newAccountWithId(context.Background(), "", userId, domain, "", "", false)
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userId, Domain: domain})
 	require.NoError(t, err, "create init user failed")
 	// as initAccount was created without account id we have to take the id after account initialization
@@ -759,11 +753,7 @@ func TestDefaultAccountManager_SyncUserJWTGroups(t *testing.T) {
 }
 
 func TestAccountManager_PrivateAccount(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	userId := "test_user"
 	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userId, Domain: ""})
@@ -785,11 +775,7 @@ func TestAccountManager_PrivateAccount(t *testing.T) {
 }
 
 func TestAccountManager_SetOrUpdateDomain(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	userId := "test_user"
 	domain := "hotmail.com"
@@ -822,11 +808,7 @@ func TestAccountManager_SetOrUpdateDomain(t *testing.T) {
 }
 
 func TestAccountManager_GetAccountByUserID(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	userId := "test_user"
 
@@ -863,15 +845,14 @@ func (m setupOwnerInstanceManager) CreateOwnerUser(context.Context, string, stri
 func TestSetupOwner_SingleAccountMode_LaterUsersJoinSetupAccount(t *testing.T) {
 	t.Setenv(instance.SetupPATEnabledEnvKey, "true")
 
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 	manager.singleAccountMode = true
 	manager.singleAccountModeDomain = "netbird.selfhosted"
 
 	ctx := context.Background()
 	owner := &idp.UserData{ID: "owner", Email: "owner@example.com", Name: "Owner"}
 	setup := instance.NewSetupService(setupOwnerInstanceManager{user: owner}, manager)
-	_, err = setup.SetupOwner(ctx, owner.Email, "password", owner.Name, instance.SetupOptions{CreatePAT: true})
+	_, err := setup.SetupOwner(ctx, owner.Email, "password", owner.Name, instance.SetupOptions{CreatePAT: true})
 	require.NoError(t, err)
 
 	ownerAccountID, err := manager.Store.GetAccountIDByUserID(ctx, store.LockingStrengthNone, owner.ID)
@@ -902,11 +883,7 @@ func createAccount(am *DefaultAccountManager, accountID, userID, domain string) 
 }
 
 func TestAccountManager_GetAccount(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	expectedId := "test_account"
 	userId := "account_creator"
@@ -940,11 +917,7 @@ func TestAccountManager_GetAccount(t *testing.T) {
 }
 
 func TestAccountManager_DeleteAccount(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	expectedId := "test_account"
 	userId := "account_creator"
@@ -1009,8 +982,7 @@ func TestAccountManager_DeleteAccount(t *testing.T) {
 }
 
 func TestAccountManager_DeleteAccount_RunsDeletionHooks(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	ownerID := "account_creator"
 	account, err := createAccount(manager, "test_account", ownerID, "")
@@ -1039,8 +1011,7 @@ func TestAccountManager_DeleteAccount_RunsDeletionHooks(t *testing.T) {
 }
 
 func TestAccountManager_DeleteAccount_DeletionHookErrorAbortsDeletion(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	ownerID := "account_creator"
 	account, err := createAccount(manager, "test_account", ownerID, "")
@@ -1072,8 +1043,7 @@ func TestAccountManager_DeleteAccount_DeletionHookErrorAbortsDeletion(t *testing
 }
 
 func TestAccountManager_AddAccountDeletionHook_RejectsNil(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	assert.PanicsWithValue(t, "nil account deletion hook", func() {
 		manager.AddAccountDeletionHook(nil)
@@ -1081,8 +1051,7 @@ func TestAccountManager_AddAccountDeletionHook_RejectsNil(t *testing.T) {
 }
 
 func TestAccountManager_DeleteAccount_DeletionHooksSkippedWithoutPermission(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	ownerID := "account_creator"
 	account, err := createAccount(manager, "test_account", ownerID, "")
@@ -1116,11 +1085,7 @@ func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 		DomainCategory: types.PublicCategory,
 	}
 
-	am, _, err := createManager(b)
-	if err != nil {
-		b.Fatal(err)
-		return
-	}
+	am, _ := createManagerWithNetworkMapStore(b)
 	id, err := am.getAccountIDWithAuthorizationClaims(context.Background(), claims)
 	if err != nil {
 		b.Fatal(err)
@@ -1207,11 +1172,7 @@ func genUsers(p string, n int) map[string]*types.User {
 }
 
 func TestAccountManager_AddPeer(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	userID := "testingUser"
 	account, err := createAccount(manager, "test_account", userID, "netbird.cloud")
@@ -1277,11 +1238,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 }
 
 func TestAccountManager_AddPeerWithUserID(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID, Domain: "netbird.cloud"})
 	if err != nil {
@@ -1638,11 +1595,7 @@ func testAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 }
 
 func TestAccountManager_DeletePeer(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	account, err := createAccount(manager, "test_account", userID, "netbird.cloud")
 	if err != nil {
@@ -1720,8 +1673,7 @@ func (r *deletionRecorder) ForgetAccount(accountID string) {
 }
 
 func TestAccountManager_DeletePeer_ForgetsPeerConnection(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 	recorder := &deletionRecorder{Controller: manager.peerLiveness}
 	manager.peerLiveness = recorder
 
@@ -1745,8 +1697,7 @@ func TestAccountManager_DeletePeer_ForgetsPeerConnection(t *testing.T) {
 }
 
 func TestDeletePeers_ForgetsPeerConnectionOnlyAfterCommit(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 	recorder := &deletionRecorder{Controller: manager.peerLiveness}
 	manager.peerLiveness = recorder
 
@@ -1783,8 +1734,7 @@ func TestDeletePeers_ForgetsPeerConnectionOnlyAfterCommit(t *testing.T) {
 }
 
 func TestAccountManager_DeleteAccount_ForgetsLivenessRegistry(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 	recorder := &deletionRecorder{Controller: manager.peerLiveness}
 	manager.peerLiveness = recorder
 
@@ -1817,10 +1767,7 @@ func getEvent(t *testing.T, accountID string, manager nbAccount.Manager, eventTy
 }
 
 func TestGetUsersFromAccount(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	users := map[string]*types.User{"1": {Id: "1", Role: types.UserRoleOwner}, "2": {Id: "2", Role: "user"}, "3": {Id: "3", Role: "user"}}
 	accountId := "test_account_id"
@@ -2061,8 +2008,7 @@ func hasNilField(x interface{}) error {
 }
 
 func TestDefaultAccountManager_DefaultAccountSettings(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
@@ -2076,10 +2022,9 @@ func TestDefaultAccountManager_DefaultAccountSettings(t *testing.T) {
 }
 
 func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 
-	_, err = manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	_, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
 
 	key, err := wgtypes.GenerateKey()
@@ -2132,8 +2077,7 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 }
 
 func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
@@ -2175,8 +2119,7 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 }
 
 func TestDefaultAccountManager_SchedulePeerLoginExpiration_IncludesOfflinePeers(t *testing.T) {
-	manager, updateManager, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, updateManager := createManagerWithNetworkMapStore(t)
 
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
@@ -2217,8 +2160,7 @@ func TestDefaultAccountManager_SchedulePeerLoginExpiration_IncludesOfflinePeers(
 }
 
 func TestDefaultAccountManager_SchedulePeerLoginExpiration_DetachesRequestContext(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
@@ -2246,8 +2188,7 @@ func TestDefaultAccountManager_SchedulePeerLoginExpiration_DetachesRequestContex
 }
 
 func TestDefaultAccountManager_ExpireAndUpdatePeers_SkipsPeerThatLoggedInAgain(t *testing.T) {
-	manager, updateManager, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, updateManager := createManagerWithNetworkMapStore(t)
 
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
@@ -2296,8 +2237,7 @@ func TestDefaultAccountManager_ExpireAndUpdatePeers_SkipsPeerThatLoggedInAgain(t
 }
 
 func TestDefaultAccountManager_ExpirePeerIfStillDue_ReleasesConnection(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 	ctx := context.Background()
 
 	accountID, err := manager.GetAccountIDByUserID(ctx, auth.UserAuth{UserId: userID})
@@ -2338,8 +2278,7 @@ func (s *afterTransactionStore) ExecuteInTransaction(ctx context.Context, f func
 }
 
 func TestDefaultAccountManager_ExpirePeerIfStillDue_KeepsSessionConnectedAfterCommit(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 	ctx := context.Background()
 
 	accountID, err := manager.GetAccountIDByUserID(ctx, auth.UserAuth{UserId: userID})
@@ -2407,8 +2346,7 @@ func setPeerLogin(t *testing.T, manager *DefaultAccountManager, accountID, peerK
 }
 
 func TestDefaultAccountManager_MarkPeerDisconnected_SchedulesInactivityExpiration(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
@@ -2463,8 +2401,7 @@ func TestDefaultAccountManager_MarkPeerDisconnected_SchedulesInactivityExpiratio
 }
 
 func TestDefaultAccountManager_PeerConnect_KeepsScheduledInactivityExpiration(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
@@ -2514,8 +2451,7 @@ func TestDefaultAccountManager_PeerConnect_KeepsScheduledInactivityExpiration(t 
 }
 
 func TestDefaultAccountManager_MarkPeerDisconnected_SkipsInactivityExpirationWhenDisabled(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
@@ -2569,8 +2505,7 @@ func TestDefaultAccountManager_MarkPeerDisconnected_SkipsInactivityExpirationWhe
 }
 
 func TestDefaultAccountManager_OnPeerDisconnected_LastSeenCheck(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
@@ -2659,8 +2594,7 @@ func TestDefaultAccountManager_OnPeerDisconnected_LastSeenCheck(t *testing.T) {
 // The contract is that the highest token always wins and is what remains
 // in the store, regardless of execution order.
 func TestDefaultAccountManager_MarkPeerConnected_ConcurrentRace(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to get account")
@@ -2724,10 +2658,9 @@ func TestDefaultAccountManager_MarkPeerConnected_ConcurrentRace(t *testing.T) {
 }
 
 func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 
-	_, err = manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	_, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
 
 	key, err := wgtypes.GenerateKey()
@@ -2786,8 +2719,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 }
 
 func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
@@ -2823,8 +2755,7 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 }
 
 func TestDefaultAccountManager_UpdateAccountSettings_OmittedExtraSkipsIntegration(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
@@ -2910,8 +2841,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerApproval(t *testing.T) 
 }
 
 func TestDefaultAccountManager_UpdateAccountSettings_DNSDomainConflict(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
@@ -3614,8 +3544,7 @@ func TestAccount_GetNextInactivePeerExpiration(t *testing.T) {
 
 func TestAccount_SetJWTGroups(t *testing.T) {
 	t.Setenv("NETBIRD_STORE_ENGINE", "postgres")
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	// create a new account
 	account := &types.Account{
@@ -3681,7 +3610,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 			Groups:    []string{"group3"},
 			IsPAT:     true,
 		}
-		err = manager.SyncUserJWTGroups(context.Background(), claims)
+		err := manager.SyncUserJWTGroups(context.Background(), claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
 		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, "user1")
@@ -3730,7 +3659,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 			AccountId: "accountID",
 			Groups:    []string{"group1"},
 		}
-		err = manager.SyncUserJWTGroups(context.Background(), claims)
+		err := manager.SyncUserJWTGroups(context.Background(), claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
 		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, "user1")
@@ -3748,7 +3677,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 			AccountId: "accountID",
 			Groups:    []string{"group1", "group2"},
 		}
-		err = manager.SyncUserJWTGroups(context.Background(), claims)
+		err := manager.SyncUserJWTGroups(context.Background(), claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
 		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, "user1")
@@ -3762,7 +3691,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 			AccountId: "accountID",
 			Groups:    []string{"group2"},
 		}
-		err = manager.SyncUserJWTGroups(context.Background(), claims)
+		err := manager.SyncUserJWTGroups(context.Background(), claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
 		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, "user1")
@@ -3776,7 +3705,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 			AccountId: "accountID",
 			Groups:    []string{"group1", "group3"},
 		}
-		err = manager.SyncUserJWTGroups(context.Background(), claims)
+		err := manager.SyncUserJWTGroups(context.Background(), claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
 		groups, err := manager.Store.GetAccountGroups(context.Background(), store.LockingStrengthNone, "accountID")
@@ -3804,7 +3733,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 			AccountId: "accountID",
 			Groups:    []string{},
 		}
-		err = manager.SyncUserJWTGroups(context.Background(), claims)
+		err := manager.SyncUserJWTGroups(context.Background(), claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
 		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, "user1")
@@ -3819,7 +3748,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 			AccountId: "accountID",
 			Groups:    []string{},
 		}
-		err = manager.SyncUserJWTGroups(context.Background(), claims)
+		err := manager.SyncUserJWTGroups(context.Background(), claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
 		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, "user2")
@@ -3900,16 +3829,6 @@ func TestAccount_UserGroupsRemoveFromPeers(t *testing.T) {
 //	Errorf(format string, args ...interface{})
 //	Fatalf(format string, args ...interface{})
 // }
-
-func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersUpdateManager, error) {
-	t.Helper()
-
-	store, err := createStore(t)
-	if err != nil {
-		return nil, nil, err
-	}
-	return buildTestManager(t, store, nil)
-}
 
 // createManagerWithNetworkMapStore builds a manager whose network map controller
 // reads the twin (nmdata) store, the production path on sqlite and postgres.
@@ -4432,11 +4351,7 @@ func TestMain(m *testing.M) {
 }
 
 func Test_GetCreateAccountByPrivateDomain(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	ctx := context.Background()
 	initiatorId := "test-user"
@@ -4478,11 +4393,7 @@ func Test_GetCreateAccountByPrivateDomain(t *testing.T) {
 }
 
 func Test_UpdateToPrimaryAccount(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	ctx := context.Background()
 	initiatorId := "test-user"
@@ -4508,8 +4419,7 @@ func Test_UpdateToPrimaryAccount(t *testing.T) {
 }
 
 func TestDefaultAccountManager_IsCacheCold(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	t.Run("memory cache", func(t *testing.T) {
 		t.Run("should always return true", func(t *testing.T) {
@@ -4558,8 +4468,7 @@ func TestDefaultAccountManager_IsCacheCold(t *testing.T) {
 }
 
 func TestDefaultAccountManager_WarmupIDPCacheFillsMissingEmailAndName(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	ctx := context.Background()
 	account, err := manager.GetOrCreateAccountByUser(ctx, auth.UserAuth{UserId: "owner"})
@@ -4617,8 +4526,7 @@ func TestDefaultAccountManager_WarmupIDPCacheFillsMissingEmailAndName(t *testing
 }
 
 func TestDefaultAccountManager_FillMissingEmailAndNameContinuesAfterFailure(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	ctx := context.Background()
 	account, err := manager.GetOrCreateAccountByUser(ctx, auth.UserAuth{UserId: "owner"})
@@ -4657,8 +4565,7 @@ func (s *failingFillStore) FillUserEmailAndName(ctx context.Context, accountID, 
 }
 
 func TestDefaultAccountManager_LoginFillsEmailAndNameFromIdP(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	var lookups []string
 	manager.idpManager = &idp.MockIDP{
@@ -4704,14 +4611,13 @@ func TestDefaultAccountManager_LoginFillsEmailAndNameFromIdP(t *testing.T) {
 	assert.Equal(t, []string{"public-user", "private-user", "domain-user", "idp-down"}, lookups,
 		"only new users whose token lacks email or name must be looked up")
 
-	_, err = manager.getAccountIDWithAuthorizationClaims(ctx, public(auth.UserAuth{UserId: "public-user"}))
+	_, err := manager.getAccountIDWithAuthorizationClaims(ctx, public(auth.UserAuth{UserId: "public-user"}))
 	require.NoError(t, err)
 	assert.Len(t, lookups, 4, "a returning user must not be looked up")
 }
 
 func TestPropagateUserGroupMemberships(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	ctx := context.Background()
 	initiatorId := "test-user"
@@ -4843,8 +4749,7 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 }
 
 func TestDefaultAccountManager_GetAccountOnboarding(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err)
@@ -4875,8 +4780,7 @@ func TestDefaultAccountManager_GetAccountOnboarding(t *testing.T) {
 }
 
 func TestDefaultAccountManager_UpdateAccountOnboarding(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err)
@@ -4914,8 +4818,7 @@ func TestDefaultAccountManager_UpdateAccountOnboarding(t *testing.T) {
 }
 
 func TestDefaultAccountManager_UpdatePeerIP(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
@@ -5001,8 +4904,7 @@ func TestDefaultAccountManager_UpdatePeerIP(t *testing.T) {
 }
 
 func TestDefaultAccountManager_UpdatePeerIP_ReloadsTargetingServices(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	ctx := context.Background()
 	accountID, err := manager.GetAccountIDByUserID(ctx, auth.UserAuth{UserId: userID})
@@ -5102,10 +5004,7 @@ func TestDefaultAccountManager_UpdatePeerIP_ReloadsTargetingServices(t *testing.
 }
 
 func TestAddNewUserToDomainAccountWithApproval(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	// Create a domain-based account with user approval enabled
 	existingAccountID := "existing-account"
@@ -5113,7 +5012,7 @@ func TestAddNewUserToDomainAccountWithApproval(t *testing.T) {
 	account.Settings.Extra = &types.ExtraSettings{
 		UserApprovalRequired: true,
 	}
-	err = manager.Store.SaveAccount(context.Background(), account)
+	err := manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	// Set the account as domain primary account
@@ -5148,10 +5047,7 @@ func TestAddNewUserToDomainAccountWithApproval(t *testing.T) {
 }
 
 func TestAddNewUserToDomainAccountWithoutApproval(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	// Create a domain-based account without user approval
 	ownerUserAuth := auth.UserAuth{
@@ -5196,8 +5092,7 @@ func TestAddNewUserToDomainAccountWithoutApproval(t *testing.T) {
 // The deadlock occurs because ReloadAllServicesForAccount is called inside a DB
 // transaction but uses the main store connection, which blocks on the transaction lock.
 func TestDefaultAccountManager_UpdateAccountSettings_NetworkRangeChange(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err)
@@ -5225,8 +5120,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_NetworkRangeChange(t *testi
 }
 
 func TestDefaultAccountManager_UpdateAccountSettings_NetworkRangeChangeReloadsDetached(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err)
@@ -5558,8 +5452,7 @@ func TestUpdateUserAuthWithSingleMode(t *testing.T) {
 }
 
 func TestDefaultAccountManager_ExpirationJobsStopForDeletedAccount(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	ctx := context.Background()
 	accountID, err := manager.GetAccountIDByUserID(ctx, auth.UserAuth{UserId: userID})
@@ -5582,8 +5475,7 @@ func TestDefaultAccountManager_ExpirationJobsStopForDeletedAccount(t *testing.T)
 }
 
 func TestDefaultAccountManager_ExpirationJobsStopWhenDisabledForAccount(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	ctx := context.Background()
 	accountID, err := manager.GetAccountIDByUserID(ctx, auth.UserAuth{UserId: userID})
@@ -5654,8 +5546,7 @@ func TestDefaultAccountManager_UpdatePeerIP_BumpsNetworkSerial(t *testing.T) {
 }
 
 func TestDefaultAccountManager_SyncUserJWTGroups_BumpsNetworkSerialWithoutPropagation(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: "jwt-user", Domain: "test.domain"})
 	require.NoError(t, err)

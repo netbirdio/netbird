@@ -32,7 +32,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/groups"
-	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -223,7 +222,7 @@ func startServer(
 		context.Background(),
 		nbstore.GetStoreEngineFromEnv(),
 		dataDir,
-		&integrated_validator.MockIntegratedValidator{},
+		server.MockIntegratedValidator{},
 		settingsMockManager,
 		nil,
 		metrics.GetMeter(),

@@ -19,8 +19,7 @@ import (
 // permission-gated manager (not the store directly) and asserts the reused
 // PolicyLimits cap shape and targets survive each step.
 func TestAgentNetwork_BudgetRuleCRUD_RealManager(t *testing.T) {
-	am, _, err := createManager(t)
-	require.NoError(t, err, "createManager must succeed")
+	am, _ := createManagerWithNetworkMapStore(t)
 	ctx := context.Background()
 
 	const (
@@ -73,8 +72,7 @@ func TestAgentNetwork_BudgetRuleCRUD_RealManager(t *testing.T) {
 // endpoint follows — and a request echoing anything else is rejected outright
 // rather than quietly ignored.
 func TestAgentNetwork_UpdateSettings_PreservesImmutableAndTogglesCollection(t *testing.T) {
-	am, _, err := createManager(t)
-	require.NoError(t, err, "createManager must succeed")
+	am, _ := createManagerWithNetworkMapStore(t)
 	ctx := context.Background()
 
 	const (

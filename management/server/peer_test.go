@@ -194,11 +194,7 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 }
 
 func testGetNetworkMapGeneral(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	expectedId := "test_account"
 	userId := "account_creator"
@@ -266,11 +262,7 @@ func testGetNetworkMapGeneral(t *testing.T) {
 func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	// TODO: disable until we start use policy again
 	t.Skip()
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	expectedID := "test_account"
 	userID := "account_creator"
@@ -443,11 +435,7 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 }
 
 func TestAccountManager_GetPeerNetwork(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	expectedId := "test_account"
 	userId := "account_creator"
@@ -504,11 +492,7 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 }
 
 func TestDefaultAccountManager_GetPeer(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	// account with an admin and a regular user
 	accountID := "test_account"
@@ -521,7 +505,7 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	}
 	account.Settings.RegularUsersViewBlocked = false
 
-	err = manager.Store.SaveAccount(context.Background(), account)
+	err := manager.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -675,11 +659,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			manager, _, err := createManager(t)
-			if err != nil {
-				t.Fatal(err)
-				return
-			}
+			manager, _ := createManagerWithNetworkMapStore(t)
 
 			// account with an admin and a regular user
 			accountID := "test_account"
@@ -694,7 +674,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 			account.Policies = []*types.Policy{}
 			account.Settings.RegularUsersViewBlocked = testCase.limitedViewSettings
 
-			err = manager.Store.SaveAccount(context.Background(), account)
+			err := manager.Store.SaveAccount(context.Background(), account)
 			if err != nil {
 				t.Fatal(err)
 				return
@@ -744,8 +724,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 
 func TestDefaultAccountManager_GetPeers_FilterByMac(t *testing.T) {
 	ctx := context.Background()
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 	account := newAccountWithId(ctx, "mac-account", "mac-admin", "", "", "", false)
 	account.Peers["matching"] = &nbpeer.Peer{
 		ID: "matching", Key: "matching-key", Name: "laptop", DNSLabel: "laptop",
@@ -810,10 +789,7 @@ func TestDefaultAccountManager_GetPeers_FilterByMac(t *testing.T) {
 func setupTestAccountManager(b testing.TB, peers int, groups int) (*DefaultAccountManager, *update_channel.PeersUpdateManager, string, string, error) {
 	b.Helper()
 
-	manager, updateManager, err := createManager(b)
-	if err != nil {
-		return nil, nil, "", "", err
-	}
+	manager, updateManager := createManagerWithNetworkMapStore(b)
 
 	accountID := "test_account"
 	adminUser := "account_creator"
@@ -977,7 +953,7 @@ func setupTestAccountManager(b testing.TB, peers int, groups int) (*DefaultAccou
 		},
 	}
 
-	err = manager.Store.SaveAccount(context.Background(), account)
+	err := manager.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		return nil, nil, "", "", err
 	}
@@ -2211,11 +2187,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 }
 
 func Test_DeletePeer(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	// account with an admin and a regular user
 	accountID := "test_account"
@@ -2247,7 +2219,7 @@ func Test_DeletePeer(t *testing.T) {
 		},
 	}
 
-	err = manager.Store.SaveAccount(context.Background(), account)
+	err := manager.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -2311,16 +2283,12 @@ func Test_IsUniqueConstraintError(t *testing.T) {
 }
 
 func Test_AddPeer(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID := "testaccount"
 	userID := "testuser"
 
-	_, err = createAccount(manager, accountID, userID, "domain.com")
+	_, err := createAccount(manager, accountID, userID, "domain.com")
 	if err != nil {
 		t.Fatalf("error creating account: %v", err)
 		return
@@ -2400,14 +2368,11 @@ func Test_AddPeer(t *testing.T) {
 }
 
 func TestAddPeer_UserPendingApprovalBlocked(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	// Create account
 	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
-	err = manager.Store.SaveAccount(context.Background(), account)
+	err := manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	// Create user pending approval
@@ -2437,14 +2402,11 @@ func TestAddPeer_UserPendingApprovalBlocked(t *testing.T) {
 }
 
 func TestAddPeer_ApprovedUserCanAddPeers(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	// Create account
 	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
-	err = manager.Store.SaveAccount(context.Background(), account)
+	err := manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	// Create regular user (not pending approval)
@@ -2471,14 +2433,11 @@ func TestAddPeer_ApprovedUserCanAddPeers(t *testing.T) {
 }
 
 func TestLoginPeer_UserPendingApprovalBlocked(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	// Create account
 	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
-	err = manager.Store.SaveAccount(context.Background(), account)
+	err := manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	// Create user pending approval
@@ -2536,14 +2495,11 @@ func TestLoginPeer_UserPendingApprovalBlocked(t *testing.T) {
 }
 
 func TestLoginPeer_ApprovedUserCanLogin(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	// Create account
 	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
-	err = manager.Store.SaveAccount(context.Background(), account)
+	err := manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	// Create regular user (not pending approval)
@@ -2583,11 +2539,10 @@ func TestLoginPeer_ApprovedUserCanLogin(t *testing.T) {
 }
 
 func TestHandleUserAddedPeer(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
-	err = manager.Store.SaveAccount(context.Background(), account)
+	err := manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	t.Run("regular user can add peer", func(t *testing.T) {
@@ -2648,11 +2603,10 @@ func TestHandleUserAddedPeer(t *testing.T) {
 }
 
 func TestHandleSetupKeyAddedPeer(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
-	err = manager.Store.SaveAccount(context.Background(), account)
+	err := manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	// Create admin user for setup key creation
@@ -2757,11 +2711,10 @@ func TestHandleSetupKeyAddedPeer(t *testing.T) {
 }
 
 func TestProcessPeerAddAuth(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
-	err = manager.Store.SaveAccount(context.Background(), account)
+	err := manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	adminUser := types.NewAdminUser("admin")
@@ -2899,8 +2852,7 @@ func TestSyncPeer_IPv6CapabilityChangePropagates(t *testing.T) {
 }
 
 func TestUpdatePeer_DnsLabelCollisionWithFQDN(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
@@ -2934,8 +2886,7 @@ func TestUpdatePeer_DnsLabelCollisionWithFQDN(t *testing.T) {
 }
 
 func TestUpdatePeer_DnsLabelUniqueName(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
@@ -3104,8 +3055,7 @@ func TestResolvePeerLocation(t *testing.T) {
 }
 
 func TestAddPeer_HostnameCollisionRejected(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
 	account.Settings.PeerHostnameCollisionRejected = true
@@ -3160,8 +3110,7 @@ func TestAddPeer_HostnameCollisionRejected(t *testing.T) {
 }
 
 func TestUpdatePeer_HostnameCollisionRejected(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
 	account.Settings.PeerHostnameCollisionRejected = true
@@ -3182,7 +3131,7 @@ func TestUpdatePeer_HostnameCollisionRejected(t *testing.T) {
 
 	update := second.Copy()
 	update.Name = "Web-Server"
-	_, err = manager.UpdatePeer(context.Background(), account.Id, "owner", update)
+	_, err := manager.UpdatePeer(context.Background(), account.Id, "owner", update)
 	require.Error(t, err)
 	e, ok := status.FromError(err)
 	require.True(t, ok)
@@ -3202,8 +3151,7 @@ func TestUpdatePeer_HostnameCollisionRejected(t *testing.T) {
 }
 
 func TestAddPeer_HostnameCollisionRejectedConcurrent(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
 	account.Settings.PeerHostnameCollisionRejected = true
@@ -3258,8 +3206,7 @@ func TestAddPeer_HostnameCollisionRejectedConcurrent(t *testing.T) {
 func TestAddPeer_IPCollisionKeepsLabel(t *testing.T) {
 	for _, rejectCollision := range []bool{false, true} {
 		t.Run(fmt.Sprintf("collision rejected %t", rejectCollision), func(t *testing.T) {
-			manager, _, err := createManager(t)
-			require.NoError(t, err)
+			manager, _ := createManagerWithNetworkMapStore(t)
 
 			account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
 			account.Settings.PeerHostnameCollisionRejected = rejectCollision
@@ -3285,8 +3232,7 @@ func TestAddPeer_IPCollisionKeepsLabel(t *testing.T) {
 }
 
 func TestAddPeer_StoresAuthKey(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 	ctx := context.Background()
 	account := newAccountWithId(ctx, "test-account", "owner", "", "", "", false)
 	require.NoError(t, manager.Store.SaveAccount(ctx, account))
@@ -3317,8 +3263,7 @@ func TestAddPeer_StoresAuthKey(t *testing.T) {
 }
 
 func TestAddPeer_ExhaustedIPAllocationFails(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
 	_, tinyNet, err := net.ParseCIDR("100.64.0.0/30")

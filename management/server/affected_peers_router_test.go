@@ -56,8 +56,7 @@ type routerScenario struct {
 func setupRouterScenario(t *testing.T, directRouterPeer bool) *routerScenario {
 	t.Helper()
 
-	manager, updateManager, err := createManager(t)
-	require.NoError(t, err)
+	manager, updateManager := createManagerWithNetworkMapStore(t)
 
 	return buildRouterScenario(t, manager, updateManager, directRouterPeer)
 }

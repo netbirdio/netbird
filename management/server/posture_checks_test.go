@@ -21,10 +21,7 @@ const (
 )
 
 func TestDefaultAccountManager_PostureCheck(t *testing.T) {
-	am, _, err := createManager(t)
-	if err != nil {
-		t.Error("failed to create account manager")
-	}
+	am, _ := createManagerWithNetworkMapStore(t)
 
 	account, err := initTestPostureChecksAccount(am)
 	if err != nil {
@@ -455,8 +452,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 }
 
 func TestArePostureCheckChangesAffectPeers(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "failed to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	account, err := initTestPostureChecksAccount(manager)
 	require.NoError(t, err, "failed to init testing account")
@@ -578,8 +574,7 @@ func TestArePostureCheckChangesAffectPeers(t *testing.T) {
 // (no incoming ID) allocates a non-zero AccountSeqID via the
 // account_seq_counters table.
 func TestSavePostureChecks_AllocatesSeqIDOnCreate(t *testing.T) {
-	am, _, err := createManager(t)
-	require.NoError(t, err)
+	am, _ := createManagerWithNetworkMapStore(t)
 
 	account, err := initTestPostureChecksAccount(am)
 	require.NoError(t, err)
@@ -598,8 +593,7 @@ func TestSavePostureChecks_AllocatesSeqIDOnCreate(t *testing.T) {
 // not reset AccountSeqID even when the caller passes a zero value (REST
 // handler shape, because the field is `json:"-"`).
 func TestSavePostureChecks_PreservesSeqIDOnUpdate(t *testing.T) {
-	am, _, err := createManager(t)
-	require.NoError(t, err)
+	am, _ := createManagerWithNetworkMapStore(t)
 
 	account, err := initTestPostureChecksAccount(am)
 	require.NoError(t, err)
