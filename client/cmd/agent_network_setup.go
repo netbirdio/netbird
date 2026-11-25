@@ -15,13 +15,19 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/net/http/httpproxy"
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal/agentnetwork/harness"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
-const anSetupEndpointTimeout = 10 * time.Second
+const (
+	anSetupEndpointTimeout = 10 * time.Second
+	anSetupInfoTimeout     = 30 * time.Second
+	// anSetupHiddenPath holds a command that may print a credential.
+	anSetupHiddenPath = "apiKeyHelper"
+)
 
 var (
 	anSetupProvider      string
@@ -251,7 +257,9 @@ func anSetupFetchInfo(cmd *cobra.Command) (*proto.GetAgentNetworkInfoResponse, e
 	}
 	defer conn.Close()
 
-	info, err := proto.NewDaemonServiceClient(conn).GetAgentNetworkInfo(cmd.Context(), &proto.GetAgentNetworkInfoRequest{})
+	ctx, cancel := context.WithTimeout(cmd.Context(), anSetupInfoTimeout)
+	defer cancel()
+	info, err := proto.NewDaemonServiceClient(conn).GetAgentNetworkInfo(ctx, &proto.GetAgentNetworkInfoRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("get Agent Networks info: %s", status.Convert(err).Message())
 	}
@@ -278,7 +286,7 @@ func anSetupCheckState(info *proto.GetAgentNetworkInfoResponse) error {
 }
 
 // anSetupPickProvider returns the requested provider, or the first one the
-// harness can drive.
+// harness can drive that allows a model.
 func anSetupPickProvider(def *harness.Definition, providers []*proto.AgentNetworkProvider, want string) (*proto.AgentNetworkProvider, harness.Variant, error) {
 	if len(providers) == 0 {
 		return nil, harness.Variant{}, errors.New("no Agent Networks provider is available to this peer yet: ask your administrator for a policy")
@@ -301,17 +309,40 @@ func anSetupPickProvider(def *harness.Definition, providers []*proto.AgentNetwor
 			if !ok {
 				return nil, harness.Variant{}, fmt.Errorf("%s cannot use provider %q: it speaks the %s API", def.Name, p.GetName(), p.GetApiFlavor())
 			}
+			if anSetupNoModelAllowed(p) {
+				return nil, harness.Variant{}, anSetupNoModelError(p.GetName())
+			}
 			return p, v, nil
 		}
 		return nil, harness.Variant{}, fmt.Errorf("no provider %q, available: %s", want, strings.Join(names, ", "))
 	}
 
+	var blocked []string
 	for _, p := range providers {
-		if v, ok := def.Variant(p.GetCatalogId(), p.GetApiFlavor()); ok {
-			return p, v, nil
+		v, ok := def.Variant(p.GetCatalogId(), p.GetApiFlavor())
+		if !ok {
+			continue
 		}
+		if anSetupNoModelAllowed(p) {
+			blocked = append(blocked, p.GetName())
+			continue
+		}
+		return p, v, nil
+	}
+	if len(blocked) > 0 {
+		return nil, harness.Variant{}, anSetupNoModelError(strings.Join(blocked, ", "))
 	}
 	return nil, harness.Variant{}, fmt.Errorf("%s cannot use any provider available to you: %s", def.Name, strings.Join(names, ", "))
+}
+
+// anSetupNoModelAllowed reports a provider whose model allowlist matches
+// none of its models, so the proxy denies every request through it.
+func anSetupNoModelAllowed(p *proto.AgentNetworkProvider) bool {
+	return !p.GetAllModelsAllowed() && len(p.GetModels()) == 0
+}
+
+func anSetupNoModelError(providers string) error {
+	return fmt.Errorf("no model on %s is allowed for this peer: ask your administrator to allow one", providers)
 }
 
 // anSetupPickModel returns the requested model, else the provider's first,
@@ -321,7 +352,7 @@ func anSetupPickModel(cmd *cobra.Command, def *harness.Definition, p *proto.Agen
 	models := p.GetModels()
 	switch {
 	case want != "":
-		if !p.GetAllModelsAllowed() && len(models) > 0 && !slices.Contains(models, want) {
+		if !p.GetAllModelsAllowed() && !slices.Contains(models, want) {
 			return "", fmt.Errorf("model %q is not allowed on %s, allowed: %s", want, p.GetName(), strings.Join(models, ", "))
 		}
 		cmd.Printf("Model: %s\n", want)
@@ -338,8 +369,8 @@ func anSetupPickModel(cmd *cobra.Command, def *harness.Definition, p *proto.Agen
 	}
 }
 
-// anSetupCheckEndpoint makes one request to the endpoint with TLS verified.
-// Any HTTP answer proves the overlay path.
+// anSetupCheckEndpoint makes one request to the endpoint with TLS verified
+// and no proxy, so any HTTP answer proves the overlay path.
 func anSetupCheckEndpoint(ctx context.Context, def *harness.Definition, endpoint string) error {
 	ctx, cancel := context.WithTimeout(ctx, anSetupEndpointTimeout)
 	defer cancel()
@@ -347,7 +378,10 @@ func anSetupCheckEndpoint(ctx context.Context, def *harness.Definition, endpoint
 	if err != nil {
 		return fmt.Errorf("endpoint: %w", err)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.Proxy = nil
+	defer tr.CloseIdleConnections()
+	resp, err := (&http.Client{Transport: tr}).Do(req)
 	if err == nil {
 		_ = resp.Body.Close()
 		return nil
@@ -357,6 +391,10 @@ func anSetupCheckEndpoint(ctx context.Context, def *harness.Definition, endpoint
 	if errors.As(err, &verr) || errors.As(err, &uerr) {
 		return fmt.Errorf("the endpoint's TLS certificate is not trusted: %w. "+
 			"If it is issued by a private CA, %s needs %s set to that CA", err, def.Name, def.CAEnv)
+	}
+	if proxy, perr := httpproxy.FromEnvironment().ProxyFunc()(req.URL); perr == nil && proxy != nil {
+		return fmt.Errorf("the endpoint did not answer over NetBird, check 'netbird status': %w. "+
+			"HTTPS_PROXY or HTTP_PROXY is set: add the endpoint to NO_PROXY if the agent cannot reach it through the proxy", err)
 	}
 	return fmt.Errorf("the endpoint did not answer over NetBird, check 'netbird status': %w", err)
 }
@@ -383,12 +421,28 @@ func anSetupPrintChanges(cmd *cobra.Command, plan *harness.Plan) {
 		if c.Conflict {
 			mark = "!"
 		}
-		line := fmt.Sprintf("  %s %-7s %s: %s -> %s", mark, c.Action, harness.PathString(c.Path), anSetupValue(c.Before), anSetupValue(c.After))
+		path := harness.PathString(c.Path)
+		before, after := anSetupValue(c.Before), anSetupValue(c.After)
+		if path == anSetupHiddenPath {
+			// Only the value NetBird sets is known to hold no credential.
+			before = anSetupHidden(c.Before)
+			if c.Action != harness.ActionSet {
+				after = anSetupHidden(c.After)
+			}
+		}
+		line := fmt.Sprintf("  %s %-7s %s: %s -> %s", mark, c.Action, path, before, after)
 		if c.Action == harness.ActionKeep {
-			line = fmt.Sprintf("  %s %-7s %s: %s (changed since NetBird wrote it, left alone)", mark, c.Action, harness.PathString(c.Path), anSetupValue(c.Before))
+			line = fmt.Sprintf("  %s %-7s %s: %s (changed since NetBird wrote it, left alone)", mark, c.Action, path, before)
 		}
 		cmd.Println(line)
 	}
+}
+
+func anSetupHidden(raw []byte) string {
+	if raw == nil {
+		return "(absent)"
+	}
+	return "(set, hidden)"
 }
 
 func anSetupValue(raw []byte) string {

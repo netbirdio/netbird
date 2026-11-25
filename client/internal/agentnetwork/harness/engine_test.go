@@ -313,12 +313,23 @@ func TestModePreserved(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o640), backup.Mode().Perm(), "the backup keeps the mode")
 }
 
+// symlinkOrSkip creates link, skipping on Windows when the user lacks the
+// symlink privilege.
+func symlinkOrSkip(t *testing.T, target, link string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Dir(link), 0o700))
+	err := os.Symlink(target, link)
+	if err != nil && runtime.GOOS == "windows" {
+		t.Skipf("cannot create a symlink: %v", err)
+	}
+	require.NoError(t, err)
+}
+
 func TestSymlinkTargetWritten(t *testing.T) {
 	h := newTestHost(t)
 	target := filepath.Join(t.TempDir(), "dotfiles-settings.json")
 	require.NoError(t, os.WriteFile(target, []byte(`{"theme":"dark"}`), 0o600))
-	require.NoError(t, os.MkdirAll(filepath.Dir(h.settings), 0o700))
-	require.NoError(t, os.Symlink(target, h.settings))
+	symlinkOrSkip(t, target, h.settings)
 
 	h.apply(t, h.render(t, "anthropic", ""), false)
 	fi, err := os.Lstat(h.settings)
@@ -470,4 +481,166 @@ func TestMissingFileForeignParentRefuses(t *testing.T) {
 	assert.Equal(t, root, notOwner.Checked, "the nearest existing parent is checked")
 	assert.Contains(t, err.Error(), "does not exist", "the error says the file is missing")
 	assert.Equal(t, listing, dirListing(t, root), "no directory or file created")
+}
+
+func TestDanglingSymlinkRefused(t *testing.T) {
+	h := newTestHost(t)
+	// A dotfiles link whose target is not checked out yet.
+	missing := filepath.Join(t.TempDir(), "dotfiles", "settings.json")
+	symlinkOrSkip(t, missing, h.settings)
+
+	_, _, err := h.plan(t, h.render(t, "anthropic", ""), false)
+	require.Error(t, err, "a link whose target cannot be resolved is refused")
+	assert.Contains(t, err.Error(), "symlink", "the error says why")
+
+	fi, err := os.Lstat(h.settings)
+	require.NoError(t, err)
+	assert.NotZero(t, fi.Mode()&os.ModeSymlink, "the link is left in place")
+	_, err = os.Stat(missing)
+	assert.True(t, os.IsNotExist(err), "nothing is written through the link")
+}
+
+func TestInvalidUTF8IsUnparseable(t *testing.T) {
+	h := newTestHost(t)
+	orig := "{\"theme\":\"caf\xe9\"}"
+	h.write(t, orig, 0o600)
+
+	_, _, err := h.plan(t, h.render(t, "anthropic", ""), false)
+	var perr *UnparseableError
+	require.ErrorAs(t, err, &perr, "invalid UTF-8 would be rewritten as U+FFFD")
+	assert.Equal(t, orig, h.read(t), "the file is untouched")
+}
+
+func TestRecordNullEntries(t *testing.T) {
+	h := newTestHost(t)
+	require.NoError(t, os.MkdirAll(filepath.Dir(h.env.RecordPath), 0o700))
+
+	// A null harness is the same as no harness.
+	require.NoError(t, os.WriteFile(h.env.RecordPath, []byte(`{"harnesses":{"claude-code":null}}`), 0o600))
+	rec, err := LoadRecord(h.env.RecordPath)
+	require.NoError(t, err)
+	assert.Equal(t, "not configured", Status(claudeCode.ID, rec))
+	_, err = NewPlan(claudeCode.ID, h.render(t, "anthropic", ""), rec, false)
+	assert.NoError(t, err, "a null harness plans like an empty record")
+
+	// A null file entry loses which keys NetBird owns, so it is refused
+	// instead of panicking later.
+	require.NoError(t, os.WriteFile(h.env.RecordPath, []byte(`{"harnesses":{"claude-code":{"files":{"/x":null}}}}`), 0o600))
+	_, err = LoadRecord(h.env.RecordPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), h.env.RecordPath, "the error names the record")
+}
+
+func TestKeepOnlyPlanReleasesOwnership(t *testing.T) {
+	h := newTestHost(t)
+	h.apply(t, h.render(t, "anthropic", "claude-opus-5"), false)
+	h.write(t, strings.Replace(h.read(t), `"claude-opus-5"`, `"claude-haiku-4-5"`, 1), 0o600)
+
+	// Rerun without a model: NetBird no longer wants "model", and the user
+	// changed it, so the only change is a keep.
+	p := h.apply(t, h.render(t, "anthropic", ""), false)
+	require.Len(t, p.Changes, 1, "one change planned")
+	assert.Equal(t, ActionKeep, p.Changes[0].Action, "the edited key is kept")
+	assert.True(t, p.Pending(), "releasing a key updates the record, so the plan is pending")
+
+	rec, err := LoadRecord(h.env.RecordPath)
+	require.NoError(t, err)
+	for _, fr := range rec.Harnesses[claudeCode.ID].Files {
+		for _, k := range fr.Keys {
+			assert.NotEqual(t, "model", PathString(k.Path), "the kept key is no longer NetBird's")
+		}
+	}
+	assert.Equal(t, "configured", Status(claudeCode.ID, rec), "the remaining keys are as written")
+}
+
+func TestRelativeConfigDirResolved(t *testing.T) {
+	t.Chdir(t.TempDir())
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+	rel := func(k string) string {
+		if k == "CLAUDE_CONFIG_DIR" {
+			return "cfg"
+		}
+		return ""
+	}
+	f := claudeCode.Files[0]
+
+	assert.Equal(t, filepath.Join(cwd, "cfg", "settings.json"),
+		f.Path(Env{GOOS: runtime.GOOS, Home: cwd, Getenv: rel}),
+		"a relative dir is recorded as the absolute path undo will find")
+
+	other, sep := "windows", `\`
+	if runtime.GOOS == "windows" {
+		other, sep = "linux", "/"
+	}
+	assert.Equal(t, "cfg"+sep+"settings.json", f.Path(Env{GOOS: other, Home: "/h", Getenv: rel}),
+		"another OS's path is not resolved against this host's working directory")
+}
+
+// blockDir replaces dir with a regular file, so creating anything under it
+// fails even for root.
+func blockDir(t *testing.T, dir string) {
+	t.Helper()
+	require.NoError(t, os.RemoveAll(dir))
+	require.NoError(t, os.MkdirAll(filepath.Dir(dir), 0o700))
+	require.NoError(t, os.WriteFile(dir, nil, 0o600))
+}
+
+func TestApplyRollsBackWhenRecordSaveFails(t *testing.T) {
+	for name, orig := range map[string]string{"existing file": `{"theme":"dark"}`, "new file": ""} {
+		t.Run(name, func(t *testing.T) {
+			h := newTestHost(t)
+			if orig != "" {
+				h.write(t, orig, 0o600)
+			}
+			p, rec, err := h.plan(t, h.render(t, "anthropic", "claude-opus-5"), false)
+			require.NoError(t, err)
+
+			recDir := filepath.Join(t.TempDir(), "netbird")
+			blockDir(t, recDir)
+			backups, err := p.Apply(rec, filepath.Join(recDir, "agent-network-setup.json"), testNow)
+			require.Error(t, err, "the record cannot be saved")
+
+			if orig != "" {
+				assert.Equal(t, orig, h.read(t), "the settings file is restored")
+			} else {
+				_, err := os.Stat(h.settings)
+				assert.True(t, os.IsNotExist(err), "the settings file setup created is removed")
+			}
+			assert.Empty(t, backups, "no backup is reported")
+			assert.Empty(t, h.backups(t), "the backup went back into place")
+			assert.Empty(t, rec.Harnesses, "the in-memory record is unchanged")
+		})
+	}
+}
+
+func TestApplyRollsBackEarlierFiles(t *testing.T) {
+	h := newTestHost(t)
+	root := t.TempDir()
+	first := filepath.Join(root, "a", "settings.json")
+	second := filepath.Join(root, "b", "settings.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(first), 0o700))
+	orig := `{"theme":"dark"}`
+	require.NoError(t, os.WriteFile(first, []byte(orig), 0o600))
+
+	settings := []Setting{
+		{File: first, Format: FormatJSON, Path: []string{"k"}, Value: "v"},
+		{File: second, Format: FormatJSON, Path: []string{"k"}, Value: "v"},
+	}
+	p, rec, err := h.plan(t, settings, false)
+	require.NoError(t, err)
+
+	// The second file's directory cannot be created once planning is done.
+	blockDir(t, filepath.Dir(second))
+	_, err = p.Apply(rec, h.env.RecordPath, testNow)
+	require.Error(t, err, "the second write fails")
+
+	data, err := os.ReadFile(first)
+	require.NoError(t, err)
+	assert.Equal(t, orig, string(data), "the first file is restored")
+	backups, err := filepath.Glob(first + ".netbird-backup-*")
+	require.NoError(t, err)
+	assert.Empty(t, backups, "the backup went back into place")
+	_, err = os.Stat(h.env.RecordPath)
+	assert.True(t, os.IsNotExist(err), "no record is written")
 }

@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 )
@@ -154,6 +156,13 @@ func (f File) Path(env Env) string {
 	dir := ""
 	if f.DirEnv != "" && env.Getenv != nil {
 		dir = env.Getenv(f.DirEnv)
+	}
+	if dir != "" && env.GOOS == runtime.GOOS && !filepath.IsAbs(dir) {
+		// The harness resolves a relative dir against its working directory;
+		// the record needs the absolute path so undo finds it from anywhere.
+		if abs, err := filepath.Abs(dir); err == nil {
+			dir = abs
+		}
 	}
 	if dir != "" && f.DirEnvSuffix != "" {
 		dir = strings.TrimRight(dir, `/\`) + sep + f.DirEnvSuffix

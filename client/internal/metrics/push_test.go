@@ -76,6 +76,9 @@ func (m *mockMetrics) RecordSyncPhase(_ context.Context, _ AgentInfo, _ string, 
 func (m *mockMetrics) RecordLoginDuration(_ context.Context, _ AgentInfo, _ time.Duration, _ bool) {
 }
 
+func (m *mockMetrics) RecordVNCSessionTick(_ context.Context, _ AgentInfo, _ VNCSessionTick) {
+}
+
 func (m *mockMetrics) Export(w io.Writer) error {
 	if m.exportData != "" {
 		_, err := w.Write([]byte(m.exportData))

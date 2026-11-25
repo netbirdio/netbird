@@ -97,7 +97,7 @@ func NewPush(metrics metricsImplementation, configManager remoteConfigProvider, 
 	parsedVersion, err := goversion.NewVersion(agentVersion)
 	if err != nil {
 		if !config.ForceSending {
-			return nil, fmt.Errorf("parse agent version %q: %w", agentVersion, err)
+			return nil, fmt.Errorf("parse client version %q: %w", agentVersion, err)
 		}
 	}
 
@@ -181,7 +181,7 @@ func (p *Push) resolve(ctx context.Context) (pushURL string, interval time.Durat
 	}
 
 	if !isVersionInRange(p.agentVersion, config.VersionSince, config.VersionUntil) {
-		log.Debugf("agent version %s not in range [%s, %s), skipping metrics push",
+		log.Debugf("client version %s not in range [%s, %s), skipping metrics push",
 			p.agentVersion, config.VersionSince, config.VersionUntil)
 		return "", interval
 	}
