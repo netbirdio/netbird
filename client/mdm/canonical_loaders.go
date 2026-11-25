@@ -21,6 +21,8 @@ var allKeys = []string{
 	KeyBlockInbound,
 	KeyDisableMetricsCollection,
 	KeyAllowServerSSH,
+	KeyAllowServerVNC,
+	KeyDisableVNCApproval,
 	KeyDisableAutoConnect,
 	KeyDisableAutostart,
 	KeyPreSharedKey,
@@ -35,6 +37,7 @@ var allKeys = []string{
 	KeyRemoteJobsAllowed,
 	KeyBundleUploadURL,
 	KeyAllowGroups,
+	KeyExtraIFaceBlackList,
 }
 
 // canonicalKey maps the lowercase form of a managed-config value name to

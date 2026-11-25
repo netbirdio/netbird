@@ -4,6 +4,8 @@ const (
 	policyRuleProtocolALL = "all"
 	policyRuleProtocolTCP = "tcp"
 
+	policyRuleActionAccept = "accept"
+
 	defaultSSHPortString        = "22"
 	nativeSSHPortString         = "22022"
 	defaultSSHPortNumber uint16 = 22
@@ -35,6 +37,8 @@ type PolicyRule struct {
 	PortRanges          []RulePortRange
 	AuthorizedGroups    map[string][]string
 	AuthorizedUser      string
+	SessionPubKey       string
+	SessionDisplayName  string
 }
 
 // RulePortRange is the slim twin of types.RulePortRange.
@@ -69,6 +73,11 @@ func (p *Policy) SourceGroups() []string {
 	}
 
 	return groupIDs
+}
+
+// IsAccept reports whether the rule allows traffic; only such rules may grant SSH access.
+func (r *PolicyRule) IsAccept() bool {
+	return r.Action == policyRuleActionAccept
 }
 
 // PolicyRuleImpliesLegacySSH is the twin-typed sibling of types.PolicyRuleImpliesLegacySSH.

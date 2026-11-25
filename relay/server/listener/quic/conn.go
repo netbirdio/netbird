@@ -3,22 +3,36 @@ package quic
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
+	"os"
 	"sync"
+	"time"
 
 	"github.com/quic-go/quic-go"
+	log "github.com/sirupsen/logrus"
+
+	nbRelay "github.com/netbirdio/netbird/shared/relay"
 )
+
+const writeTimeout = 10 * time.Second
 
 type Conn struct {
 	session  *quic.Conn
 	closed   bool
 	closedMu sync.Mutex
+
+	writeMu    sync.Mutex
+	writeTimer *time.Timer
 }
 
 func NewConn(session *quic.Conn) *Conn {
-	return &Conn{
+	c := &Conn{
 		session: session,
 	}
+	c.writeTimer = time.AfterFunc(writeTimeout, c.closeOnWriteTimeout)
+	c.writeTimer.Stop()
+	return c
 }
 
 func (c *Conn) Read(ctx context.Context, b []byte) (n int, err error) {
@@ -31,11 +45,25 @@ func (c *Conn) Read(ctx context.Context, b []byte) (n int, err error) {
 	return n, nil
 }
 
-func (c *Conn) Write(_ context.Context, b []byte) (int, error) {
-	if err := c.session.SendDatagram(b); err != nil {
-		return 0, c.remoteCloseErrHandling(err)
+func (c *Conn) Write(ctx context.Context, b []byte) (int, error) {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+
+	timeout := writeTimeout
+	if deadline, ok := ctx.Deadline(); ok {
+		timeout = min(timeout, time.Until(deadline))
 	}
-	return len(b), nil
+
+	c.writeTimer.Reset(timeout)
+	err := c.session.SendDatagram(b)
+	timedOut := !c.writeTimer.Stop()
+	if err == nil {
+		return len(b), nil
+	}
+	if timedOut {
+		return 0, fmt.Errorf("write timed out after %s: %w", timeout, os.ErrDeadlineExceeded)
+	}
+	return 0, c.remoteCloseErrHandling(err)
 }
 
 func (c *Conn) RemoteAddr() net.Addr {
@@ -45,6 +73,11 @@ func (c *Conn) RemoteAddr() net.Addr {
 // Protocol returns the transport name for this connection.
 func (c *Conn) Protocol() string {
 	return "quic"
+}
+
+// MaxMessageSize returns the largest message a single Write carries.
+func (c *Conn) MaxMessageSize() int {
+	return nbRelay.QUICMaxDatagramSize
 }
 
 func (c *Conn) Close() error {
@@ -78,4 +111,10 @@ func (c *Conn) remoteCloseErrHandling(err error) error {
 	}
 
 	return err
+}
+
+func (c *Conn) closeOnWriteTimeout() {
+	if err := c.session.CloseWithError(0, "write timeout"); err != nil {
+		log.Debugf("failed to close quic connection after a write timeout: %v", err)
+	}
 }

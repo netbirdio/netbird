@@ -110,6 +110,11 @@ func RenderDenyResponse(w http.ResponseWriter, middlewareID string, reason *Deny
 		Middleware: truncate(Scan(middlewareID), 64),
 	}
 	resp.Type, resp.Error = providerEnvelope(reason.Surface, resp.Code, resp.Message, status)
+	// Clients such as Claude Code show the top-level message rather than the
+	// envelope's when the body carries both, so it needs the same prefix.
+	if resp.Error != nil {
+		resp.Message = resp.Error.Message
+	}
 	if n := len(reason.Details); n > 0 {
 		resp.Details = make(map[string]string, min(n, 8))
 		for k, v := range reason.Details {

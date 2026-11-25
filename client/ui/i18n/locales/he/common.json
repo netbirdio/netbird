@@ -8,6 +8,9 @@
     "tray.status.daemonUnavailable": {
         "message": "לא פעיל"
     },
+    "tray.status.daemonAccessDenied": {
+        "message": "אין גישה"
+    },
     "tray.status.error": {
         "message": "שגיאה"
     },
@@ -674,6 +677,9 @@
     "settings.security.rosenpass.help": {
         "message": "הוספת החלפת מפתחות עמידה לפיענוח צפנים קוונטי דרך Rosenpass על גבי WireGuard®."
     },
+    "settings.security.rosenpass.deprecated": {
+        "message": "הוצא משימוש: התמיכה ב־Rosenpass עשויה להיות מוסרת בגרסה עתידית."
+    },
     "settings.security.rosenpassPermissive.label": {
         "message": "הפעלת מצב מתירני"
     },
@@ -914,8 +920,8 @@
     "settings.about.community.github": {
         "message": "GitHub"
     },
-    "settings.about.community.slack": {
-        "message": "Slack"
+    "settings.about.community.discord": {
+        "message": "Discord"
     },
     "settings.about.community.forum": {
         "message": "פורום"
@@ -1331,6 +1337,12 @@
     "daemon.unavailable.docsLink": {
         "message": "תיעוד"
     },
+    "daemon.accessDenied.title": {
+        "message": "אין גישה לשירות NetBird"
+    },
+    "daemon.accessDenied.description": {
+        "message": "הנהלת המערכת הגבילה את שירות NetBird במכשיר הזה למשתמשים או לקבוצות מסוימים, והחשבון שלך אינו ביניהם. נא ליצור קשר עם הנהלת המערכת לקבלת גישה."
+    },
     "daemon.outdated.title": {
         "message": "שירות NetBird אינו עדכני"
     },
@@ -1361,6 +1373,9 @@
     "error.daemon_unreachable": {
         "message": "הסוכן של NetBird לא מגיב. נא לבדוק שהשירות פעיל."
     },
+    "error.daemon_access_denied": {
+        "message": "לחשבון שלך אין הרשאה להשתמש בשירות NetBird במכשיר הזה. נא ליצור קשר עם הנהלת המערכת לקבלת גישה."
+    },
     "error.settings_locked": {
         "message": "אי אפשר לשנות את ההגדרות במכשיר הזה: הן ננעלו על ידי ההנהלה."
     },
@@ -1376,22 +1391,40 @@
     "error.elevation_failed": {
         "message": "אי אפשר להחיל את השינויים עם הרשאות גבוהות יותר. יש להריץ את זה במקום:"
     },
-    "settings.ssh.privilege.actorRoot": {
+    "settings.privilege.actorRoot": {
         "message": "משתמש על/root"
     },
-    "settings.ssh.privilege.actorAdministrator": {
+    "settings.privilege.actorAdministrator": {
         "message": "הרשאות ניהול"
     },
-    "settings.ssh.privilege.hint": {
+    "settings.privilege.hint": {
         "message": "דורש {actor}. יש להריץ את זה במקום:"
     },
-    "settings.ssh.privilege.oneWay": {
+    "settings.privilege.oneWay": {
         "message": "אפשר לכבות את זה, אבל ההפעלה דורשת {actor}."
     },
-    "settings.ssh.privilege.oneWayInverted": {
+    "settings.privilege.oneWayInverted": {
         "message": "אפשר להפעיל את זה, אבל הכיבוי דורש {actor}."
     },
-    "settings.ssh.privilege.authorizePending": {
+    "settings.privilege.authorizePending": {
         "message": "בהמתנה לאימות…"
+    },
+    "profile.ownedByAnother.name": {
+        "message": "משתמש אחר"
+    },
+    "profile.ownedByAnother.hint": {
+        "message": "הפרופיל הפעיל שייך למשתמש אחר. רק הבעלים שלו יכולים לשנות או לנתק אותו."
+    },
+    "error.privilege_required": {
+        "message": "הפעולה הזאת דורשת הרשאות גבוהות יותר."
+    },
+    "error.session_held": {
+        "message": "משתמש אחר כבר חיבר את המחשב הזה."
+    },
+    "error.not_profile_owner": {
+        "message": "הפרופיל הזה שייך למשתמש אחר."
+    },
+    "error.profile_unowned": {
+        "message": "לפרופיל הזה עדיין אין בעלים."
     }
 }

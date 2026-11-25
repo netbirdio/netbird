@@ -18,6 +18,7 @@ type Rule struct {
 	// sources is the canonical source list this rule was created for.
 	sources []netip.Prefix
 	id      manager.RuleID
+	action  manager.Action
 }
 
 // ID returns the rule id

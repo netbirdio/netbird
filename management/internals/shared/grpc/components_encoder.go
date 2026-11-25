@@ -266,6 +266,8 @@ func (e *componentEncoder) encodePolicyRule(pol *nmdata.Policy, r *nmdata.Policy
 		DestinationGroupIds:   e.groupPublicXids(r.Destinations),
 		AuthorizedUser:        r.AuthorizedUser,
 		AuthorizedGroups:      e.encodeAuthorizedGroups(r.AuthorizedGroups),
+		SessionPubKey:         r.SessionPubKey,
+		SessionDisplayName:    r.SessionDisplayName,
 		SourceResource:        e.resourceToProto(r.SourceResource),
 		DestinationResource:   e.resourceToProto(r.DestinationResource),
 		SourcePostureCheckIds: e.postureCheckSeqs(pol.SourcePostureChecks),
@@ -565,13 +567,14 @@ func (e *componentEncoder) encodeNetworkResources(resources []*nmdata.NetworkRes
 			continue
 		}
 		entry := &proto.NetworkResourceRaw{
-			Id:          r.PublicID,
-			Name:        r.Name,
-			Description: r.Description,
-			Type:        string(r.Type),
-			Address:     r.Address,
-			DomainValue: r.Domain,
-			Enabled:     r.Enabled,
+			Id:            r.PublicID,
+			Name:          r.Name,
+			Description:   r.Description,
+			Type:          string(r.Type),
+			Address:       r.Address,
+			DomainValue:   r.Domain,
+			Enabled:       r.Enabled,
+			SkipAutoApply: r.SkipAutoApply,
 		}
 		if id, ok := e.networkPublicId(r.NetworkID); ok {
 			entry.NetworkSeq = id
@@ -749,6 +752,7 @@ func toPeerCompact(p *nmdata.Peer) *proto.PeerCompact {
 		SupportsSourcePrefixes: p.SupportsSourcePrefixes(),
 		ServerSshAllowed:       p.Meta.Flags.ServerSSHAllowed,
 		ProxyEmbedded:          p.ProxyMeta.Embedded,
+		LoginExpired:           p.StatusLoginExpired,
 	}
 	if p.LastLogin != nil {
 		pc.LastLoginUnixNano = p.LastLogin.UnixNano()

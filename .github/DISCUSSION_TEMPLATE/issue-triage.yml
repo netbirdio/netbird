@@ -33,7 +33,7 @@ body:
       description: Select every area this report touches.
       multiple: true
       options:
-        - Client / Agent
+        - Client
         - Reverse Proxy
         - CLI
         - Desktop UI
