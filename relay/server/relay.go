@@ -207,6 +207,7 @@ func (r *Relay) Accept(conn listener.Conn) {
 
 	peer := NewPeer(r.metrics, *peerID, h.selectedVersion, conn, r.store, r.notifier)
 	peer.authenticated = h.authenticated
+	peer.alignedPeriod = h.alignedPeriod
 	storeTime := time.Now()
 	isReconnection, err := r.store.AddPeer(peer)
 	if err != nil {

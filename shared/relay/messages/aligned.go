@@ -1,52 +1,55 @@
 package messages
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+	"fmt"
+)
 
-// sizeOfHealthcheckPeriod is the size of the period payload of an aligned
-// health check frame: seconds, uint16 big endian.
-const sizeOfHealthcheckPeriod = 2
+const (
+	// ExtTypeAlignedHeartbeat is the type of the aligned heartbeat entry in the extension area
+	// of the Auth envelope and of the AuthResponse envelope. Type 1 is the peer auth proof.
+	ExtTypeAlignedHeartbeat byte = 2
 
-// HealthcheckWithPeriod creates a health check message that carries the
-// aligned heartbeat period in seconds as its payload. The same layout is
-// used in both directions: the client sends it right after the auth response
-// and in every health check answer, and an aligned server sends its health
-// checks with it. A period of zero creates the plain stock health check.
-//
-// The frame stays protocol v1 with the stock handshake. A stock server only
-// calls OnHCResponse for a health check and ignores the payload.
-func (e Encoder) HealthcheckWithPeriod(periodSeconds uint16) []byte {
-	if periodSeconds == 0 {
-		return e.Healthcheck()
-	}
-	msg := make([]byte, sizeOfProtoHeader, sizeOfProtoHeader+sizeOfHealthcheckPeriod)
-	msg[0] = byte(e.version)
-	msg[1] = byte(MsgTypeHealthCheck)
-	return binary.BigEndian.AppendUint16(msg, periodSeconds)
+	sizeOfExtHeader      = 1 + 2
+	offsetExtEntryLength = 1
+	sizeOfAlignedPeriod  = 2
+)
+
+// AppendAlignedHeartbeatEntry appends the aligned heartbeat entry to an extension area: type,
+// value length uint16 big endian, then the period in seconds, uint16 big endian. A client puts
+// the period it asks for in its Auth envelope, the relay the period it accepted in its
+// AuthResponse envelope.
+func AppendAlignedHeartbeatEntry(ext []byte, periodSeconds uint16) []byte {
+	ext = append(ext, ExtTypeAlignedHeartbeat)
+	ext = binary.BigEndian.AppendUint16(ext, sizeOfAlignedPeriod)
+	return binary.BigEndian.AppendUint16(ext, periodSeconds)
 }
 
-// MarshalHealthcheckWithPeriod creates a health check message that carries
-// the aligned heartbeat period in seconds, at CurrentProtocolVersion.
-func MarshalHealthcheckWithPeriod(periodSeconds uint16) []byte {
-	return NewEncoder(CurrentProtocolVersion, MaxMessageSize).HealthcheckWithPeriod(periodSeconds)
-}
-
-// UnmarshalHealthcheckPeriod returns the period a health check message
-// carries in the first 2 bytes of its payload. Bytes after the period are
-// ignored, so a later release can add fields there. ok is false for a message
-// without a payload and for a zero period: both stay stock. A 1-byte payload
-// is an error, and the caller then also stays stock. The period is returned
-// raw; the caller clamps it.
-func UnmarshalHealthcheckPeriod(msg []byte) (periodSeconds uint16, ok bool, err error) {
-	if len(msg) < sizeOfProtoHeader {
-		return 0, false, ErrInvalidMessageLength
+// AlignedHeartbeatEntry returns the period of the first aligned heartbeat entry in an
+// extension area, skipping entries of other types. Value bytes after the period are ignored,
+// so a later release can add fields there. ok is false without an entry and for a zero period.
+// An error means a malformed area or entry; the caller then stays stock. The period is
+// returned raw; the caller clamps it.
+func AlignedHeartbeatEntry(ext []byte) (periodSeconds uint16, ok bool, err error) {
+	for len(ext) > 0 {
+		if len(ext) < sizeOfExtHeader {
+			return 0, false, fmt.Errorf("extension entry header of %d bytes: %w", len(ext), ErrInvalidMessageLength)
+		}
+		typ := ext[0]
+		n := int(binary.BigEndian.Uint16(ext[offsetExtEntryLength:sizeOfExtHeader]))
+		if len(ext) < sizeOfExtHeader+n {
+			return 0, false, fmt.Errorf("extension entry of %d bytes beyond the area: %w", n, ErrInvalidMessageLength)
+		}
+		value := ext[sizeOfExtHeader : sizeOfExtHeader+n]
+		ext = ext[sizeOfExtHeader+n:]
+		if typ != ExtTypeAlignedHeartbeat {
+			continue
+		}
+		if n < sizeOfAlignedPeriod {
+			return 0, false, fmt.Errorf("aligned heartbeat entry of %d bytes: %w", n, ErrInvalidMessageLength)
+		}
+		periodSeconds = binary.BigEndian.Uint16(value)
+		return periodSeconds, periodSeconds != 0, nil
 	}
-	payload := msg[sizeOfProtoHeader:]
-	switch {
-	case len(payload) == 0:
-		return 0, false, nil
-	case len(payload) < sizeOfHealthcheckPeriod:
-		return 0, false, ErrInvalidMessageLength
-	}
-	periodSeconds = binary.BigEndian.Uint16(payload)
-	return periodSeconds, periodSeconds != 0, nil
+	return 0, false, nil
 }

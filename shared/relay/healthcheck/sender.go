@@ -24,6 +24,9 @@ type SenderOptions struct {
 	HealthCheckInterval time.Duration
 	HealthCheckTimeout  time.Duration
 	AttemptThreshold    int
+	// Aligned, when set with a positive period, replaces the interval with the aligned
+	// schedule from the start and the timeout with the period plus 20 s.
+	Aligned *AlignedSchedule
 }
 
 // AlignedSchedule is the aligned heartbeat schedule of one connection: a
@@ -50,10 +53,7 @@ type Sender struct {
 	ack              chan struct{}
 	alive            bool
 	attemptThreshold int
-	// aligned is read and written only by StartHealthCheck once it runs.
-	aligned *AlignedSchedule
-	// reschedule carries the latest schedule set with SetAligned.
-	reschedule chan AlignedSchedule
+	aligned          *AlignedSchedule
 }
 
 func NewSenderWithOpts(log *log.Entry, opts SenderOptions) *Sender {
@@ -74,31 +74,14 @@ func NewSenderWithOpts(log *log.Entry, opts SenderOptions) *Sender {
 		timeout:             opts.HealthCheckInterval + opts.HealthCheckTimeout,
 		ack:                 make(chan struct{}, 1),
 		attemptThreshold:    opts.AttemptThreshold,
-		reschedule:          make(chan AlignedSchedule, 1),
+	}
+	if opts.Aligned != nil && opts.Aligned.Period > 0 {
+		aligned := *opts.Aligned
+		hc.aligned = &aligned
+		hc.timeout = alignedTimeout(aligned.Period)
 	}
 
 	return hc
-}
-
-// SetAligned moves the sends to schedule s: the sender sends once at the
-// switch, then on the schedule. A stock connection switches to the aligned
-// heartbeat, an aligned one changes its schedule. Only the latest schedule
-// is kept. It never blocks.
-func (hc *Sender) SetAligned(s AlignedSchedule) {
-	if s.Period <= 0 {
-		return
-	}
-	for {
-		select {
-		case hc.reschedule <- s:
-			return
-		default:
-		}
-		select {
-		case <-hc.reschedule:
-		default:
-		}
-	}
 }
 
 // NewSender creates a new healthcheck sender
@@ -107,6 +90,16 @@ func NewSender(log *log.Entry) *Sender {
 		HealthCheckInterval: defaultHealthCheckInterval,
 		HealthCheckTimeout:  defaultHealthCheckTimeout,
 		AttemptThreshold:    getAttemptThresholdFromEnv(),
+	}
+	return NewSenderWithOpts(log, opts)
+}
+
+// NewAlignedSender creates a healthcheck sender that sends on the aligned schedule s from
+// the start, with the attempt threshold of NewSender.
+func NewAlignedSender(log *log.Entry, s AlignedSchedule) *Sender {
+	opts := SenderOptions{
+		AttemptThreshold: getAttemptThresholdFromEnv(),
+		Aligned:          &s,
 	}
 	return NewSenderWithOpts(log, opts)
 }
@@ -121,7 +114,7 @@ func (hc *Sender) OnHCResponse() {
 
 func (hc *Sender) StartHealthCheck(ctx context.Context) {
 	tick, stopTick := hc.tickChannel(ctx)
-	defer func() { stopTick() }()
+	defer stopTick()
 
 	timeoutTicker := time.NewTicker(hc.timeout)
 	defer timeoutTicker.Stop()
@@ -150,17 +143,6 @@ func (hc *Sender) StartHealthCheck(ctx context.Context) {
 		case <-hc.ack:
 			failureCounter = 0
 			hc.alive = true
-		case sched := <-hc.reschedule:
-			stopTick()
-			hc.aligned = &sched
-			hc.timeout = alignedTimeout(sched.Period)
-			tick, stopTick = hc.tickChannel(ctx)
-			timeoutTicker.Reset(hc.timeout)
-			failureCounter = 0
-			// Send at once: the peer keeps its old receive timeout until
-			// it gets a health check with the new period, and the next
-			// phase can be up to a period away.
-			hc.requestHealthCheck()
 		case <-ctx.Done():
 			return
 		}
