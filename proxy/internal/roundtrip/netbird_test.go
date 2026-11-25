@@ -339,15 +339,23 @@ func TestNetBird_AddPeer_ExistingStartedClient_NotifiesStatus(t *testing.T) {
 // countingMgmtClient counts CreateProxyPeer calls, so tests can tell a reused client from
 // a newly created peer.
 type countingMgmtClient struct {
-	mu    sync.Mutex
-	calls int
+	mu        sync.Mutex
+	calls     int
+	lastToken string
 }
 
-func (m *countingMgmtClient) CreateProxyPeer(_ context.Context, _ *proto.CreateProxyPeerRequest, _ ...grpc.CallOption) (*proto.CreateProxyPeerResponse, error) {
+func (m *countingMgmtClient) CreateProxyPeer(_ context.Context, req *proto.CreateProxyPeerRequest, _ ...grpc.CallOption) (*proto.CreateProxyPeerResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls++
+	m.lastToken = req.GetToken()
 	return &proto.CreateProxyPeerResponse{Success: true}, nil
+}
+
+func (m *countingMgmtClient) token() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastToken
 }
 
 func (m *countingMgmtClient) count() int {
@@ -615,4 +623,51 @@ func TestNotifyClientReady_UsesBackgroundCtx(t *testing.T) {
 	require.NotNil(t, calls[0].ctx, "NotifyStatus must receive a context")
 	require.NoError(t, calls[0].ctx.Err(),
 		"NotifyStatus must receive a background context, not an inherited cancelled one")
+}
+
+// TestNetBird_ReplaceExitedClient_UsesSpareToken covers the client dying right after a
+// mapping reused it, with no further mapping coming. The token that mapping carried is
+// kept and spent once to create a new peer.
+func TestNetBird_ReplaceExitedClient_UsesSpareToken(t *testing.T) {
+	mgmt := &countingMgmtClient{}
+	nb := NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
+		MgmtAddr: "http://invalid.test:9999",
+	}, nil, nil, mgmt)
+	nb.startClient = func(types.AccountID, *embed.Client) {}
+
+	var deadMu sync.Mutex
+	var dead *embed.Client
+	nb.clientRunErr = func(c *embed.Client) error {
+		deadMu.Lock()
+		defer deadMu.Unlock()
+		if c == dead {
+			return errors.New("peer is not registered")
+		}
+		return nil
+	}
+
+	accountID := types.AccountID("account-1")
+	require.NoError(t, nb.AddPeer(context.Background(), accountID, "domain1.test", "token-1", types.ServiceID("svc-1")))
+	// A snapshot arrives while the client still runs: it is reused and token-2 is kept.
+	require.NoError(t, nb.AddPeer(context.Background(), accountID, "domain1.test", "token-2", types.ServiceID("svc-1")))
+	require.Equal(t, 1, mgmt.count(), "a running client is reused")
+
+	nb.clientsMux.RLock()
+	old := nb.clients[accountID].client
+	nb.clientsMux.RUnlock()
+	deadMu.Lock()
+	dead = old
+	deadMu.Unlock()
+
+	nb.replaceExitedClient(accountID)
+	nb.replaceExitedClient(accountID)
+
+	require.Eventually(t, func() bool {
+		nb.clientsMux.RLock()
+		defer nb.clientsMux.RUnlock()
+		e, ok := nb.clients[accountID]
+		return ok && e.client != old
+	}, 10*time.Second, 10*time.Millisecond, "the dead client must be replaced using the spare token")
+	assert.Equal(t, "token-2", mgmt.token(), "the kept token must create the new peer")
+	assert.Equal(t, 2, mgmt.count(), "the spare token is spent once, even when asked twice")
 }

@@ -89,6 +89,9 @@ type clientEntry struct {
 	services          map[ServiceKey]serviceInfo
 	createdAt         time.Time
 	started           bool
+	// spare is the newest mapping token this entry did not need. It lets the
+	// proxy replace the client if it stops before another mapping arrives.
+	spare *spareToken
 	// inbound is opaque per-account state owned by the NetBird parent's
 	// ReadyHandler. The roundtrip package never inspects this value; it
 	// only stores it so RemovePeer / StopAll can hand it back to the
@@ -202,6 +205,14 @@ type NetBird struct {
 	clientRunErr func(client *embed.Client) error
 }
 
+// spareToken is an unused single-use CreateProxyPeer token and the service it is
+// bound to.
+type spareToken struct {
+	key       ServiceKey
+	serviceID types.ServiceID
+	token     string
+}
+
 // ClientDebugInfo contains debug information about a client.
 type ClientDebugInfo struct {
 	AccountID    types.AccountID
@@ -223,7 +234,7 @@ type skipTLSVerifyContextKey struct{}
 func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key ServiceKey, authToken string, serviceID types.ServiceID) error {
 	si := serviceInfo{serviceID: serviceID}
 
-	if n.registerExistingClient(accountID, key, si) {
+	if n.registerExistingClient(accountID, key, authToken, si) {
 		return nil
 	}
 
@@ -236,7 +247,7 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key Se
 		}
 	}()
 
-	if n.registerExistingClient(accountID, key, si) {
+	if n.registerExistingClient(accountID, key, authToken, si) {
 		return nil
 	}
 	exited := n.exitedClientEntry(accountID)
@@ -289,7 +300,7 @@ func (n *NetBird) startClientStartup(accountID types.AccountID, client *embed.Cl
 // registerExistingClient registers the service against an already-present
 // client for the account and returns true when it did. It notifies management
 // of the new service when the client is already started.
-func (n *NetBird) registerExistingClient(accountID types.AccountID, key ServiceKey, si serviceInfo) bool {
+func (n *NetBird) registerExistingClient(accountID types.AccountID, key ServiceKey, authToken string, si serviceInfo) bool {
 	n.clientsMux.Lock()
 	entry, exists := n.clients[accountID]
 	if !exists || n.runErr(entry) != nil {
@@ -297,6 +308,9 @@ func (n *NetBird) registerExistingClient(accountID types.AccountID, key ServiceK
 		return false
 	}
 	entry.services[key] = si
+	if authToken != "" {
+		entry.spare = &spareToken{key: key, serviceID: si.serviceID, token: authToken}
+	}
 	started := entry.started
 	n.clientsMux.Unlock()
 
@@ -333,6 +347,27 @@ func (n *NetBird) exitedClientEntry(accountID types.AccountID) *clientEntry {
 	}
 	n.logger.WithField("account_id", accountID).WithError(err).Warn("netbird client stopped, replacing it with a new peer")
 	return entry
+}
+
+// replaceExitedClient creates a new peer for an account whose client stopped on its
+// own, using the spare token kept from the last mapping. The token is single-use, so
+// it is taken once; an expired token fails CreateProxyPeer and the next mapping retries.
+func (n *NetBird) replaceExitedClient(accountID types.AccountID) {
+	n.clientsMux.Lock()
+	entry, exists := n.clients[accountID]
+	if !exists || entry.spare == nil {
+		n.clientsMux.Unlock()
+		return
+	}
+	spare := entry.spare
+	entry.spare = nil
+	n.clientsMux.Unlock()
+
+	go func() {
+		if err := n.AddPeer(n.ctx, accountID, spare.key, spare.token, spare.serviceID); err != nil {
+			n.logger.WithField("account_id", accountID).WithError(err).Warn("failed to replace stopped netbird client")
+		}
+	}()
 }
 
 // runErr returns why the entry's client stopped on its own, or nil while it runs.
@@ -709,6 +744,9 @@ func (n *NetBird) RoundTrip(req *http.Request) (*http.Response, error) {
 	startCtx, cancel := context.WithTimeout(req.Context(), 30*time.Second)
 	defer cancel()
 	if err := client.Start(startCtx); err != nil {
+		if errors.Is(err, embed.ErrClientRunExited) {
+			n.replaceExitedClient(accountID)
+		}
 		if !errors.Is(err, embed.ErrClientAlreadyStarted) {
 			return nil, fmt.Errorf("%w: %w", ErrClientStartFailed, err)
 		}
