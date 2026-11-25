@@ -6,8 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
 	"go.uber.org/mock/gomock"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
@@ -29,10 +32,24 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
+	sigProto "github.com/netbirdio/netbird/shared/signal/proto"
+	sigServer "github.com/netbirdio/netbird/signal/server"
 	"github.com/netbirdio/netbird/util"
 )
 
-const testSetupKey = "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
+const (
+	testSetupKey  = "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
+	testAccountID = "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	testAdminID   = "edafee4e-63fb-11ec-90d6-0242ac120003"
+)
+
+// testManagement is a Management instance started for a test, with the handles a test
+// needs to change its state underneath a running client.
+type testManagement struct {
+	addr         string
+	store        store.Store
+	peersManager peers.Manager
+}
 
 // TestClientStartTimeoutRollback reproduces a deadlock between Engine.Start and
 // Engine.Stop. The signal endpoint accepts gRPC connections but never serves the
@@ -41,7 +58,7 @@ const testSetupKey = "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
 // calls ConnectClient.Stop, which must not block forever acquiring that mutex.
 func TestClientStartTimeoutRollback(t *testing.T) {
 	signalAddr := startBlackholeSignal(t)
-	mgmAddr := startManagement(t, signalAddr)
+	mgmAddr := startManagement(t, signalAddr).addr
 
 	wgPort := 0
 	client, err := New(Options{
@@ -88,7 +105,69 @@ func startBlackholeSignal(t *testing.T) string {
 	return lis.Addr().String()
 }
 
-func startManagement(t *testing.T, signalAddr string) string {
+// TestClientStartReportsRunExit covers a client whose peer is deleted by Management while
+// it runs (an ephemeral peer left offline past its lifetime). The run loop exits on the
+// PermissionDenied login; Start must report that instead of ErrClientAlreadyStarted, so a
+// caller knows the client is dead and has to be replaced.
+func TestClientStartReportsRunExit(t *testing.T) {
+	mgm := startManagement(t, startSignal(t))
+
+	wgPort := 0
+	client, err := New(Options{
+		DeviceName:    "embed-run-exit-test",
+		SetupKey:      testSetupKey,
+		ManagementURL: "http://" + mgm.addr,
+		WireguardPort: &wgPort,
+	})
+	require.NoError(t, err, "embed client creation must succeed")
+
+	startCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	require.NoError(t, client.Start(startCtx), "client must start against a working Management")
+	t.Cleanup(func() {
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer stopCancel()
+		_ = client.Stop(stopCtx)
+	})
+
+	require.NoError(t, client.RunErr(), "a running client has no run error")
+	require.ErrorIs(t, client.Start(startCtx), ErrClientAlreadyStarted)
+
+	cfg, err := client.GetConfig()
+	require.NoError(t, err)
+	privateKey, err := wgtypes.ParseKey(cfg.PrivateKey)
+	require.NoError(t, err)
+	p, err := mgm.store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, privateKey.PublicKey().String())
+	require.NoError(t, err, "the started client must be registered in Management")
+	require.NoError(t, mgm.peersManager.DeletePeers(context.Background(), testAccountID, []string{p.ID}, testAdminID, false))
+
+	require.Eventually(t, func() bool { return client.RunErr() != nil }, 60*time.Second, 100*time.Millisecond,
+		"the run loop must exit once Management no longer knows the peer")
+	assert.ErrorIs(t, client.Start(startCtx), ErrClientRunExited,
+		"Start must report the exited run loop instead of claiming the client is running")
+}
+
+func startSignal(t *testing.T) string {
+	t.Helper()
+
+	lis, err := net.Listen("tcp", "localhost:0")
+	require.NoError(t, err)
+
+	s := grpc.NewServer()
+	srv, err := sigServer.NewServer(context.Background(), otel.Meter(""))
+	require.NoError(t, err)
+	sigProto.RegisterSignalExchangeServer(s, srv)
+	go func() {
+		if err := s.Serve(lis); err != nil {
+			t.Error(err)
+		}
+	}()
+	t.Cleanup(s.Stop)
+
+	return lis.Addr().String()
+}
+
+func startManagement(t *testing.T, signalAddr string) testManagement {
 	t.Helper()
 
 	cfg := &config.Config{
@@ -150,6 +229,9 @@ func startManagement(t *testing.T, signalAddr string) string {
 	networkMapController := controller.NewController(context.Background(), testStore, metrics, updateManager, requestBuffer, mgmt.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", manager.NewEphemeralManager(testStore, peersManager), cfg, nil)
 	accountManager, err := mgmt.BuildManager(context.Background(), cfg, testStore, networkMapController, jobManager, nil, "", eventStore, nil, false, iv, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 	require.NoError(t, err)
+	peersManager.SetNetworkMapController(networkMapController)
+	peersManager.SetAccountManager(accountManager)
+	peersManager.SetIntegratedPeerValidator(mgmt.MockIntegratedValidator{})
 
 	secretsManager, err := nbgrpc.NewTimeBasedAuthSecretsManager(updateManager, cfg.TURNConfig, cfg.Relay, settingsMockManager, groupsManager)
 	require.NoError(t, err)
@@ -165,5 +247,5 @@ func startManagement(t *testing.T, signalAddr string) string {
 	}()
 	t.Cleanup(s.Stop)
 
-	return lis.Addr().String()
+	return testManagement{addr: lis.Addr().String(), store: testStore, peersManager: peersManager}
 }
