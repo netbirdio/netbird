@@ -56,7 +56,10 @@ func newHarnessHost(t *testing.T) *harnessHost {
 		Providers: []*proto.AgentNetworkProvider{
 			{Id: "p-anthropic", Name: "Anthropic", CatalogId: "anthropic", Models: []string{"claude-opus-5", "claude-sonnet-5"}},
 			{Id: "p-openai", Name: "OpenAI", CatalogId: "openai", AllModelsAllowed: true},
-			{Id: "p-vertex", Name: "Vertex", CatalogId: "vertex_ai_api"},
+			{Id: "p-vertex", Name: "Vertex", CatalogId: "vertex_ai_api", AllModelsAllowed: true},
+			// An allowlist that matches none of the provider's models: the
+			// proxy denies every request through it.
+			{Id: "p-blocked", Name: "Blocked", CatalogId: "anthropic"},
 		},
 	}}
 	svc := NewAgentNetwork(fakeConn{cli: daemon})
@@ -103,7 +106,7 @@ func TestHarnessesListsProvidersEachHarnessCanUse(t *testing.T) {
 	claude := findHarness(t, list, "claude-code")
 	assert.Equal(t, harnessNotConfigured, claude.Status)
 	assert.Equal(t, []string{h.claudeSettings()}, claude.Files, "files resolve through the dir override")
-	assert.Equal(t, []string{"p-anthropic", "p-vertex"}, providerIDs(claude.Providers), "claude-code speaks anthropic and vertex")
+	assert.Equal(t, []string{"p-anthropic", "p-vertex"}, providerIDs(claude.Providers), "claude-code speaks anthropic and vertex, and a provider allowing no model is left out")
 	assert.Equal(t, "claude-opus-5", claude.Providers[0].DefaultModel, "the provider's first model is the default")
 	assert.False(t, claude.Providers[0].NeedsVertexProject)
 	assert.True(t, claude.Providers[1].NeedsVertexProject, "vertex needs a GCP project")
@@ -253,6 +256,14 @@ func TestPlanRejectsBadRequests(t *testing.T) {
 		"model not allowed": {
 			req:     HarnessSetup{Harness: "claude-code", Provider: "p-anthropic", Model: "gpt-5.5"},
 			wantErr: `model "gpt-5.5" is not allowed on Anthropic`,
+		},
+		"provider allows no model": {
+			req:     HarnessSetup{Harness: "claude-code", Provider: "p-blocked", Model: "claude-opus-5"},
+			wantErr: "no model on Blocked is allowed for this peer",
+		},
+		"provider allows no model, harness default": {
+			req:     HarnessSetup{Harness: "claude-code", Provider: "p-blocked"},
+			wantErr: "no model on Blocked is allowed for this peer",
 		},
 		"vertex without project": {
 			req:     HarnessSetup{Harness: "claude-code", Provider: "p-vertex"},

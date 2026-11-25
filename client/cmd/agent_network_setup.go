@@ -289,8 +289,8 @@ func anSetupPickProvider(def *harness.Definition, providers []*proto.AgentNetwor
 			if !ok {
 				return nil, harness.Variant{}, fmt.Errorf("%s cannot use provider %q: it speaks the %s API", def.Name, p.GetName(), p.GetApiFlavor())
 			}
-			if anSetupNoModelAllowed(p) {
-				return nil, harness.Variant{}, anSetupNoModelError(p.GetName())
+			if harness.NoModelAllowed(p.GetAllModelsAllowed(), p.GetModels()) {
+				return nil, harness.Variant{}, harness.NoModelError(p.GetName())
 			}
 			return p, v, nil
 		}
@@ -303,26 +303,16 @@ func anSetupPickProvider(def *harness.Definition, providers []*proto.AgentNetwor
 		if !ok {
 			continue
 		}
-		if anSetupNoModelAllowed(p) {
+		if harness.NoModelAllowed(p.GetAllModelsAllowed(), p.GetModels()) {
 			blocked = append(blocked, p.GetName())
 			continue
 		}
 		return p, v, nil
 	}
 	if len(blocked) > 0 {
-		return nil, harness.Variant{}, anSetupNoModelError(strings.Join(blocked, ", "))
+		return nil, harness.Variant{}, harness.NoModelError(strings.Join(blocked, ", "))
 	}
 	return nil, harness.Variant{}, fmt.Errorf("%s cannot use any provider available to you: %s", def.Name, strings.Join(names, ", "))
-}
-
-// anSetupNoModelAllowed reports a provider whose model allowlist matches
-// none of its models, so the proxy denies every request through it.
-func anSetupNoModelAllowed(p *proto.AgentNetworkProvider) bool {
-	return !p.GetAllModelsAllowed() && len(p.GetModels()) == 0
-}
-
-func anSetupNoModelError(providers string) error {
-	return fmt.Errorf("no model on %s is allowed for this peer: ask your administrator to allow one", providers)
 }
 
 // anSetupPickModel returns the requested model, else the provider's first,

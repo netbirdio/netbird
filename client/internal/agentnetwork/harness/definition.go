@@ -265,3 +265,14 @@ func SortedFiles[T any](m map[string]T) []string {
 	sort.Strings(files)
 	return files
 }
+
+// NoModelAllowed reports a provider whose model allowlist matches none of
+// its models, so the proxy denies every request through it.
+func NoModelAllowed(allModelsAllowed bool, models []string) bool {
+	return !allModelsAllowed && len(models) == 0
+}
+
+// NoModelError refuses setup with providers that allow no model.
+func NoModelError(providers string) error {
+	return fmt.Errorf("no model on %s is allowed for this peer: ask your administrator to allow one", providers)
+}

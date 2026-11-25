@@ -231,6 +231,9 @@ func (s *AgentNetwork) renderHarness(ctx context.Context, req HarnessSetup) (*ha
 	if !ok {
 		return nil, nil, harness.Env{}, fmt.Errorf("%s cannot use provider %q", def.Name, p.GetName())
 	}
+	if harness.NoModelAllowed(p.GetAllModelsAllowed(), p.GetModels()) {
+		return nil, nil, harness.Env{}, harness.NoModelError(p.GetName())
+	}
 	if req.Model != "" && !p.GetAllModelsAllowed() && len(p.GetModels()) > 0 && !slices.Contains(p.GetModels(), req.Model) {
 		return nil, nil, harness.Env{}, fmt.Errorf("model %q is not allowed on %s", req.Model, p.GetName())
 	}
@@ -253,7 +256,7 @@ func harnessProviders(def *harness.Definition, providers []*proto.AgentNetworkPr
 	out := []HarnessProvider{}
 	for _, p := range providers {
 		v, ok := def.Variant(p.GetCatalogId(), p.GetApiFlavor())
-		if !ok {
+		if !ok || harness.NoModelAllowed(p.GetAllModelsAllowed(), p.GetModels()) {
 			continue
 		}
 		hp := HarnessProvider{
