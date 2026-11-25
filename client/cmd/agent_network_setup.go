@@ -7,9 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -102,7 +99,7 @@ func anSetupRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	env, err := anSetupEnv()
+	env, err := harness.UserEnv()
 	if err != nil {
 		return err
 	}
@@ -182,7 +179,7 @@ func anSetupUndo(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	env, err := anSetupEnv()
+	env, err := harness.UserEnv()
 	if err != nil {
 		return err
 	}
@@ -215,7 +212,7 @@ func anSetupUndo(cmd *cobra.Command, args []string) error {
 }
 
 func anSetupList(cmd *cobra.Command, _ []string) error {
-	env, err := anSetupEnv()
+	env, err := harness.UserEnv()
 	if err != nil {
 		return err
 	}
@@ -231,23 +228,6 @@ func anSetupList(cmd *cobra.Command, _ []string) error {
 		cmd.Printf("%-14s %-14s %s (%s)\n", def.ID, def.Name, harness.Status(def.ID, rec), strings.Join(paths, ", "))
 	}
 	return nil
-}
-
-func anSetupEnv() (harness.Env, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return harness.Env{}, fmt.Errorf("find home directory: %w", err)
-	}
-	cfg, err := os.UserConfigDir()
-	if err != nil {
-		return harness.Env{}, fmt.Errorf("find config directory: %w", err)
-	}
-	return harness.Env{
-		GOOS:       runtime.GOOS,
-		Home:       home,
-		Getenv:     os.Getenv,
-		RecordPath: filepath.Join(cfg, "netbird", "agent-network-setup.json"),
-	}, nil
 }
 
 func anSetupFetchInfo(cmd *cobra.Command) (*proto.GetAgentNetworkInfoResponse, error) {
