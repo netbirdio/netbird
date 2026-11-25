@@ -38,8 +38,8 @@ const (
 	// DefaultSelfHostedDomain is the default domain used for self-hosted fresh installs.
 	DefaultSelfHostedDomain = "netbird.selfhosted"
 
-	// h2cMaxReadFrameSize keeps the HTTP/2 default frame size. With x/net's 1 MiB
-	// default, Go HTTP/2 clients such as proxies buffer up to 512 KiB per stream.
+	// h2cMaxReadFrameSize lowers the advertised HTTP/2 max frame size from Go's
+	// 1 MiB default to 16 KiB. Go-based proxies size their per-stream buffer from it.
 	h2cMaxReadFrameSize = 16 << 10
 
 	ContainerKeyBaseServer = "baseServer"

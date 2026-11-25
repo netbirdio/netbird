@@ -42,8 +42,8 @@ const (
 	// defaultLetsencryptListenAddress is where Let's Encrypt connects for
 	// TLS-ALPN-01 challenges unless public port 443 is forwarded elsewhere.
 	defaultLetsencryptListenAddress = ":443"
-	// h2cMaxReadFrameSize keeps the HTTP/2 default frame size. With x/net's 1 MiB
-	// default, Go HTTP/2 clients such as proxies buffer up to 512 KiB per stream.
+	// h2cMaxReadFrameSize lowers the advertised HTTP/2 max frame size from Go's
+	// 1 MiB default to 16 KiB. Go-based proxies size their per-stream buffer from it.
 	h2cMaxReadFrameSize = 16 << 10
 )
 
