@@ -360,7 +360,15 @@ func TestAuthResponseEnvelopeRejectsInvalidInput(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalidAddressLength, "an empty address must be refused")
 
 	_, err = enc.AuthResponseEnvelope("rels://relay.example.com", make([]byte, MaxHandshakeRespSize))
-	assert.Error(t, err, "a response above the handshake response limit must be refused")
+	assert.ErrorIs(t, err, ErrInvalidMessageLength, "a response above the handshake response limit must be refused")
+}
+
+func TestAuthResponseRejectsOversizedMessage(t *testing.T) {
+	address := string(make([]byte, MaxHandshakeRespSize))
+	for _, version := range []ProtocolVersion{ProtocolV1, ProtocolV2} {
+		_, err := NewEncoder(version, MaxMessageSize).AuthResponse(address)
+		assert.ErrorIs(t, err, ErrInvalidMessageLength, "version %d must refuse a response above the handshake response limit", version)
+	}
 }
 
 func TestUnmarshalAuthResponseRejectsMalformedEnvelope(t *testing.T) {

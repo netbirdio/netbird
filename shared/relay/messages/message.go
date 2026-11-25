@@ -151,7 +151,7 @@ func (e Encoder) AuthResponse(address string) ([]byte, error) {
 	msg = append(msg, ab...)
 
 	if len(msg) > MaxHandshakeRespSize {
-		return nil, fmt.Errorf("invalid message length: %d", len(msg))
+		return nil, fmt.Errorf("%d: %w", len(msg), ErrInvalidMessageLength)
 	}
 
 	return msg, nil
@@ -168,7 +168,7 @@ func (e Encoder) AuthResponseEnvelope(address string, ext []byte) ([]byte, error
 
 	size := offsetAuthRespAddr + len(address) + len(ext)
 	if size > MaxHandshakeRespSize {
-		return nil, fmt.Errorf("invalid message length: %d", size)
+		return nil, fmt.Errorf("%d: %w", size, ErrInvalidMessageLength)
 	}
 
 	msg := make([]byte, size)
