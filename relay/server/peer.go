@@ -32,11 +32,12 @@ var msgBufPool = sync.Pool{
 
 // Peer represents a peer connection
 type Peer struct {
-	metrics *metrics.Metrics
-	log     *log.Entry
-	id      messages.PeerID
-	version messages.ProtocolVersion
-	enc     messages.Encoder
+	metrics  *metrics.Metrics
+	activity *metrics.PeerActivity
+	log      *log.Entry
+	id       messages.PeerID
+	version  messages.ProtocolVersion
+	enc      messages.Encoder
 	// authenticated is set before the peer is stored and never changes after.
 	authenticated bool
 	conn          listener.Conn
@@ -56,10 +57,11 @@ type Peer struct {
 }
 
 // NewPeer creates a new Peer instance and prepare custom logging
-func NewPeer(metrics *metrics.Metrics, id messages.PeerID, version messages.ProtocolVersion, conn listener.Conn, store *store.Store, notifier *store.PeerNotifier) *Peer {
+func NewPeer(metrics *metrics.Metrics, activity *metrics.PeerActivity, id messages.PeerID, version messages.ProtocolVersion, conn listener.Conn, store *store.Store, notifier *store.PeerNotifier) *Peer {
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &Peer{
 		metrics:   metrics,
+		activity:  activity,
 		log:       log.WithField("peer_id", id.String()),
 		id:        id,
 		version:   version,
@@ -155,7 +157,7 @@ func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, hc *
 		hc.OnHCResponse()
 	case messages.MsgTypeTransport:
 		p.metrics.TransferBytesRecv.Add(ctx, int64(len(msg)))
-		p.metrics.PeerActivity(p.String())
+		p.activity.Mark()
 		return p.handleTransportMsg(msg, bufPtr)
 	case messages.MsgTypeClose:
 		p.log.Infof("peer exited gracefully")

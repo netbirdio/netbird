@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
@@ -26,8 +25,7 @@ type Metrics struct {
 	peerReconnections    metric.Int64Counter
 	peerProtocolVersions metric.Int64Counter
 	peers                metric.Int64UpDownCounter
-	peerActivityChan     chan string
-	peerLastActive       map[string]time.Time
+	peerActivities       map[string]*PeerActivity
 	mutexActivity        sync.Mutex
 	ctx                  context.Context
 }
@@ -108,9 +106,8 @@ func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 		peerReconnections:    peerReconnections,
 		peerProtocolVersions: peerProtocolVersions,
 
-		ctx:              ctx,
-		peerActivityChan: make(chan string, 10),
-		peerLastActive:   make(map[string]time.Time),
+		ctx:            ctx,
+		peerActivities: make(map[string]*PeerActivity),
 	}
 
 	_, err = meter.RegisterCallback(
@@ -126,17 +123,16 @@ func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 		return nil, err
 	}
 
-	go m.readPeerActivity()
 	return m, nil
 }
 
 // PeerConnected increments the number of connected peers and increments number of idle connections
-func (m *Metrics) PeerConnected(id, transport string) {
+func (m *Metrics) PeerConnected(id, transport string, activity *PeerActivity) {
 	m.peers.Add(m.ctx, 1, metric.WithAttributes(attribute.String("transport", transport)))
 	m.mutexActivity.Lock()
 	defer m.mutexActivity.Unlock()
 
-	m.peerLastActive[id] = time.Time{}
+	m.peerActivities[id] = activity
 }
 
 // RecordAuthenticationTime measures the time taken for peer authentication
@@ -150,12 +146,14 @@ func (m *Metrics) RecordPeerStoreTime(duration time.Duration) {
 }
 
 // PeerDisconnected decrements the number of connected peers and decrements number of idle or active connections
-func (m *Metrics) PeerDisconnected(id, transport string) {
+func (m *Metrics) PeerDisconnected(id, transport string, activity *PeerActivity) {
 	m.peers.Add(m.ctx, -1, metric.WithAttributes(attribute.String("transport", transport)))
 	m.mutexActivity.Lock()
 	defer m.mutexActivity.Unlock()
 
-	delete(m.peerLastActive, id)
+	if m.peerActivities[id] == activity {
+		delete(m.peerActivities, id)
+	}
 }
 
 func (m *Metrics) RecordPeerReconnection() {
@@ -171,41 +169,20 @@ func (m *Metrics) RecordProtocolVersion(advertised, selected messages.ProtocolVe
 	))
 }
 
-// PeerActivity increases the active connections
-func (m *Metrics) PeerActivity(peerID string) {
-	select {
-	case m.peerActivityChan <- peerID:
-	default:
-		log.Tracef("peer activity channel is full, dropping activity metrics for peer %s", peerID)
-	}
-}
-
 func (m *Metrics) calculateActiveIdleConnections() (int64, int64) {
 	active, idle := int64(0), int64(0)
 	m.mutexActivity.Lock()
 	defer m.mutexActivity.Unlock()
 
-	for _, lastActive := range m.peerLastActive {
-		if time.Since(lastActive) > idleTimeout {
+	now := time.Now()
+	for _, activity := range m.peerActivities {
+		if activity.Idle(now) {
 			idle++
 		} else {
 			active++
 		}
 	}
 	return active, idle
-}
-
-func (m *Metrics) readPeerActivity() {
-	for {
-		select {
-		case peerID := <-m.peerActivityChan:
-			m.mutexActivity.Lock()
-			m.peerLastActive[peerID] = time.Now()
-			m.mutexActivity.Unlock()
-		case <-m.ctx.Done():
-			return
-		}
-	}
 }
 
 func getStandardBucketBoundaries() []float64 {
