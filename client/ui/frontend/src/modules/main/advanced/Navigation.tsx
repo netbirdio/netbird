@@ -1,11 +1,16 @@
 import { type ComponentType, type KeyboardEvent, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { Layers3Icon, type LucideProps, MonitorSmartphoneIcon } from "lucide-react";
+import { BotIcon, Layers3Icon, type LucideProps, MonitorSmartphoneIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useNavSection, type NavSection } from "@/contexts/NavSectionContext";
 import { useStatus } from "@/contexts/StatusContext";
 import { useRestrictions } from "@/contexts/RestrictionsContext";
 import { useDirection } from "@/hooks/useDirection";
+import {
+    AGENT_NETWORK_POLL_MS,
+    isAgentNetworkAvailable,
+    useAgentNetworkInfo,
+} from "@/modules/agent-network/useAgentNetworkInfo";
 
 type TabEntry = {
     value: NavSection;
@@ -27,6 +32,19 @@ export const Navigation = () => {
         }
     }, [features.disableNetworks, section, setSection]);
 
+    // Polled so a failed first fetch, or an admin enabling or disabling the
+    // feature, shows or hides the tab without a reconnect.
+    const { info: agentNetworkInfo } = useAgentNetworkInfo({
+        enabled: isConnected,
+        pollMs: AGENT_NETWORK_POLL_MS,
+    });
+    const showAgentNetwork = isAgentNetworkAvailable(agentNetworkInfo);
+    useEffect(() => {
+        if (agentNetworkInfo && !showAgentNetwork && section === "agentNetwork") {
+            setSection("peers");
+        }
+    }, [agentNetworkInfo, showAgentNetwork, section, setSection]);
+
     const tabs: TabEntry[] = [
         {
             value: "peers",
@@ -39,6 +57,13 @@ export const Navigation = () => {
             value: "networks",
             label: t("nav.resources.title"),
             icon: Layers3Icon,
+        });
+    }
+    if (showAgentNetwork) {
+        tabs.push({
+            value: "agentNetwork",
+            label: t("nav.agentNetwork.title"),
+            icon: BotIcon,
         });
     }
 
@@ -108,8 +133,9 @@ export const Navigation = () => {
                         onKeyDown={handleKeyDown}
                         disabled={isDisabled}
                         className={cn(
-                            "group relative flex flex-1 items-center justify-center",
-                            "gap-2.5 px-5 py-3.5",
+                            // Sized by label, so a long one is not squeezed into an equal share.
+                            "group relative flex flex-auto items-center justify-center",
+                            "gap-2.5 px-5 py-3.5 whitespace-nowrap",
                             "outline-hidden transition-all",
                             isFirst && "rounded-ss-xl",
                             isLast && "rounded-se-xl",

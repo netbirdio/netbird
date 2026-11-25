@@ -1,5 +1,7 @@
 package types
 
+import "time"
+
 // AgentConfig is the caller-scoped answer to "what may this caller
 // use on the Agent Network?" — the account's proxy endpoint plus the
 // providers and models the caller's groups authorize. It intentionally
@@ -41,6 +43,41 @@ type AgentConfigProvider struct {
 	// Models is the effective model allowlist for the caller, or the
 	// declared/catalog models when AllModelsAllowed is true.
 	Models []string
+	// Allowance is the caller's remaining allowance on this provider. Set
+	// only on the peer answer, which knows the calling principal.
+	Allowance *ProviderAllowance
+}
+
+// AllowanceUnit is what a limit counts.
+type AllowanceUnit string
+
+const (
+	AllowanceUnitTokens AllowanceUnit = "tokens"
+	AllowanceUnitUSD    AllowanceUnit = "usd"
+)
+
+// AllowanceLimit is one cap that binds the caller on a provider, with the
+// caller's consumption in the cap's current epoch-aligned window.
+type AllowanceLimit struct {
+	Unit AllowanceUnit
+	Cap  float64
+	Used float64
+	// ResetsAt is the end of the cap's current window.
+	ResetsAt time.Time
+}
+
+// ProviderAllowance is what the caller may still spend on one provider.
+// Tokens and USD are never folded together: each binding cap is its own
+// limit.
+type ProviderAllowance struct {
+	// Unlimited means a policy without caps pays for the caller and no
+	// account rule binds them.
+	Unlimited bool
+	// Exhausted is true when the policy selector would deny the caller's next
+	// request on this provider for a spent cap. The model gate is not
+	// evaluated.
+	Exhausted bool
+	Limits    []AllowanceLimit
 }
 
 // PeerAgentNetworkState is the availability of Agent Networks for a peer.

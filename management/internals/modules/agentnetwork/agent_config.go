@@ -6,6 +6,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/catalog"
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
@@ -61,9 +62,22 @@ func (m *managerImpl) GetAgentNetworkInfoForPeer(ctx context.Context, accountID,
 		info.State = types.PeerAgentNetworkNotEnabled
 		return info, nil
 	}
+	if err := m.fillAllowances(ctx, accountID, usagePrincipal(peer), groupIDs, cfg.Providers); err != nil {
+		return nil, err
+	}
 	info.State = types.PeerAgentNetworkOK
 	info.Config = cfg
 	return info, nil
+}
+
+// usagePrincipal is the identity usage is booked and checked under. It
+// matches the principal the proxy resolves in ValidateTunnelPeer: the owner
+// for a user-owned peer, the peer itself for a setup-key peer.
+func usagePrincipal(p *nbpeer.Peer) string {
+	if p.UserID != "" {
+		return p.UserID
+	}
+	return p.ID
 }
 
 // peerOwnerActive reports whether the peer's owner may use Agent Networks:
