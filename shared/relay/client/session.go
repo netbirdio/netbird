@@ -49,9 +49,9 @@ type session struct {
 	// burst of oversized datagrams triggers one reconnect, not many.
 	datagramFallbackTriggered atomic.Bool
 
-	// alignedPeriod is the heartbeat period the server confirmed on this
-	// connection in nanoseconds, zero while stock.
-	alignedPeriod atomic.Int64
+	// alignedPeriod is the heartbeat period the relay confirmed at the handshake, zero for a
+	// stock connection. It never changes after newSession.
+	alignedPeriod time.Duration
 	// watchMu guards watchStop and watchEnded. watchStop unregisters the
 	// hbwatch registration of this session, nil while unregistered.
 	// watchEnded is set when the read loop exits, so a late registration
@@ -63,7 +63,7 @@ type session struct {
 	done chan struct{}
 }
 
-func newSession(c *Client, conn net.Conn, instanceURL *RelayAddr, transport string, encoder messages.Encoder) *session {
+func newSession(c *Client, conn net.Conn, instanceURL *RelayAddr, transport string, encoder messages.Encoder, alignedPeriod time.Duration) *session {
 	s := &session{
 		client:            c,
 		log:               c.log.WithField("relay", instanceURL.String()),
@@ -74,10 +74,16 @@ func newSession(c *Client, conn net.Conn, instanceURL *RelayAddr, transport stri
 		internallyStopped: newInternalStopFlag(),
 		conns:             make(map[messages.PeerID]*connContainer),
 		earlyMsgs:         newEarlyMsgBuffer(),
+		alignedPeriod:     alignedPeriod,
 		done:              make(chan struct{}),
 	}
 	s.stateSubscription = NewPeersStateSubscription(s.log, conn, encoder, s.closeConnsByPeerID)
-	s.hc = healthcheck.NewReceiver(s.log)
+	if alignedPeriod == 0 {
+		s.hc = healthcheck.NewReceiver(s.log)
+		return s
+	}
+	s.hc = healthcheck.NewReceiverWithTimeout(s.log, alignedhb.ReceiveTimeout(alignedPeriod))
+	s.startAligned()
 	return s
 }
 
@@ -234,7 +240,7 @@ func (s *session) stopping() bool {
 func (s *session) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte) (continueLoop bool) {
 	switch msgType {
 	case messages.MsgTypeHealthCheck:
-		s.handleHealthCheck(buf)
+		s.handleHealthCheck()
 		s.client.bufPool.Put(bufPtr)
 	case messages.MsgTypeTransport:
 		return s.handleTransportMsg(buf, bufPtr)
@@ -255,13 +261,10 @@ func (s *session) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte
 	return true
 }
 
-func (s *session) handleHealthCheck(buf []byte) {
-	s.switchAligned(buf)
+func (s *session) handleHealthCheck() {
+	s.seenAligned()
 
 	msg := s.encoder.Healthcheck()
-	if period := s.answerPeriod(); period > 0 {
-		msg = s.encoder.HealthcheckWithPeriod(uint16(period / time.Second))
-	}
 	_, wErr := s.conn.Write(msg)
 	if wErr != nil {
 		if !s.stopping() {
@@ -271,69 +274,26 @@ func (s *session) handleHealthCheck(buf []byte) {
 	s.hc.Heartbeat()
 }
 
-// askAligned asks for the aligned heartbeat right after the auth response,
-// in the protocol version of this connection. A stock server ignores the
-// payload and stays stock.
-func (s *session) askAligned() {
-	period, ok := s.client.askedPeriod()
-	if !ok {
-		return
+// startAligned sets the aligned TCP keepalive on the connection of an aligned session.
+func (s *session) startAligned() {
+	if err := keepalive.SetAligned(s.conn, s.alignedPeriod); err != nil && !errors.Is(err, keepalive.ErrNotTCP) {
+		s.log.Debugf("failed to set TCP keepalive for heartbeat period %s: %v", s.alignedPeriod, err)
 	}
-	if _, err := s.conn.Write(s.encoder.HealthcheckWithPeriod(uint16(period / time.Second))); err != nil {
-		s.log.Debugf("failed to send aligned heartbeat request: %s", err)
-	}
+	phase := alignedhb.Phase(s.client.hashedID, s.alignedPeriod)
+	s.log.Infof("aligned heartbeat on, period %s, phase %d ms", s.alignedPeriod, phase.Milliseconds())
 }
 
-// answerPeriod returns the period a health check answer carries: the
-// confirmed one once aligned, else the requested one, so a server that
-// missed the first frame switches at a later answer. Zero keeps the stock
-// frame.
-func (s *session) answerPeriod() time.Duration {
-	if period := s.confirmedPeriod(); period > 0 {
-		return period
-	}
-	if period, ok := s.client.askedPeriod(); ok {
-		return period
-	}
-	return 0
-}
-
-// confirmedPeriod returns the heartbeat period the server confirmed on this
-// connection, zero while stock.
-func (s *session) confirmedPeriod() time.Duration {
-	return time.Duration(s.alignedPeriod.Load())
-}
-
-// switchAligned moves the receiver to the aligned timeout at the first
-// server health check that carries a valid period, and records every
-// aligned server frame with hbwatch while the session is registered. A
-// payload of one byte or a period of zero stays stock.
-func (s *session) switchAligned(buf []byte) {
-	periodSeconds, ok, err := messages.UnmarshalHealthcheckPeriod(buf)
-	if err != nil {
-		s.log.Tracef("ignoring health check period: %s", err)
+// seenAligned records a server health check of an aligned session with hbwatch while the
+// session is registered.
+func (s *session) seenAligned() {
+	if s.alignedPeriod == 0 {
 		return
 	}
-	if !ok {
-		return
-	}
-	period := alignedhb.ClampPeriod(time.Duration(periodSeconds) * time.Second)
-	if s.alignedPeriod.Swap(int64(period)) != int64(period) {
-		s.hc.SetTimeout(alignedhb.ReceiveTimeout(period))
-		if err := keepalive.SetAligned(s.conn, period); err != nil && !errors.Is(err, keepalive.ErrNotTCP) {
-			s.log.Debugf("failed to set TCP keepalive for heartbeat period %s: %v", period, err)
-		}
-		phase := alignedhb.Phase(s.client.hashedID, period)
-		s.log.Infof("aligned heartbeat on, period %s, phase %d ms", period, phase.Milliseconds())
-	}
-
-	// The period is stored before this check, so a registration racing the
-	// frame either carries the period or is in place for Seen.
 	s.watchMu.Lock()
 	registered := s.watchStop != nil && !s.watchEnded
 	s.watchMu.Unlock()
 	if registered {
-		hbwatch.Seen(hbwatch.Relay, period)
+		hbwatch.Seen(hbwatch.Relay, s.alignedPeriod)
 	}
 }
 
@@ -353,7 +313,7 @@ func (s *session) startWatch() {
 		Kind:          hbwatch.ActionReconnect,
 		Stale:         s.closeStale,
 		Addr:          s.client.connectionURL,
-		AlignedPeriod: s.confirmedPeriod(),
+		AlignedPeriod: s.alignedPeriod,
 	})
 }
 

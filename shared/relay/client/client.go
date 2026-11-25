@@ -317,8 +317,6 @@ func (c *Client) ConnectSession(ctx context.Context) (*session, error) {
 
 	s.log.Infof("relay connection established, server IP: %s", connectedIP(s.conn))
 
-	s.askAligned()
-
 	go s.ListenForStopEvents(ctx)
 	go s.ReadLoop()
 
@@ -397,7 +395,7 @@ func (c *Client) connect(ctx context.Context) (*session, error) {
 		return nil, fmt.Errorf("register connection: %w", err)
 	}
 
-	instanceURL, version, err := c.handShake(ctx, conn)
+	instanceURL, version, alignedPeriod, err := c.handShake(ctx, conn)
 	if err != nil {
 		cErr := conn.Close()
 		if cErr != nil {
@@ -406,7 +404,7 @@ func (c *Client) connect(ctx context.Context) (*session, error) {
 		return nil, err
 	}
 
-	return newSession(c, conn, instanceURL, transport, messages.NewEncoder(version, maxMsgSize)), nil
+	return newSession(c, conn, instanceURL, transport, messages.NewEncoder(version, maxMsgSize), alignedPeriod), nil
 }
 
 // dialRaceDirect dials c.serverIP, preserving the original FQDN as the TLS ServerName for SNI.
@@ -458,51 +456,87 @@ func substituteHost(serverURL string, ip netip.Addr) (string, string, error) {
 	return u.String(), origHost, nil
 }
 
-func (c *Client) handShake(ctx context.Context, conn net.Conn) (*RelayAddr, messages.ProtocolVersion, error) {
+// handShake authenticates the connection and returns the relay instance URL, the selected
+// protocol version and the aligned heartbeat period the relay confirmed, zero for a stock
+// connection.
+func (c *Client) handShake(ctx context.Context, conn net.Conn) (*RelayAddr, messages.ProtocolVersion, time.Duration, error) {
 	msg, advertised, err := c.authMsg()
 	if err != nil {
 		c.log.Errorf("failed to marshal auth message: %s", err)
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 
 	_, err = conn.Write(msg)
 	if err != nil {
 		c.log.Errorf("failed to send auth message: %s", err)
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 	buf := make([]byte, messages.MaxHandshakeRespSize)
 	n, err := c.readWithTimeout(ctx, conn, buf)
 	if err != nil {
 		c.log.Errorf("failed to read auth response, bound token presented: %t: %s", advertised == messages.ProtocolV2, err)
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 
 	version, err := messages.ValidateSelectedVersion(buf[:n], advertised)
 	if err != nil {
-		return nil, 0, fmt.Errorf("validate version: %w", err)
+		return nil, 0, 0, fmt.Errorf("validate version: %w", err)
 	}
 
 	msgType, err := messages.DetermineServerMessageType(buf[:n])
 	if err != nil {
 		c.log.Errorf("failed to determine message type: %s", err)
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 
 	if msgType != messages.MsgTypeAuthResponse {
 		c.log.Errorf("unexpected message type: %s", msgType)
-		return nil, 0, fmt.Errorf("unexpected message type")
+		return nil, 0, 0, fmt.Errorf("unexpected message type")
 	}
 
 	addr, err := messages.UnmarshalAuthResponse(buf[:n])
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 
-	return &RelayAddr{addr: addr}, version, nil
+	var alignedPeriod time.Duration
+	if c.asksAligned(advertised) {
+		alignedPeriod = c.confirmedPeriod(buf[:n])
+	}
+	return &RelayAddr{addr: addr}, version, alignedPeriod, nil
+}
+
+// confirmedPeriod returns the clamped aligned heartbeat period of an AuthResponse, zero when
+// the relay did not confirm one. A malformed entry never fails the handshake; the connection
+// stays stock.
+func (c *Client) confirmedPeriod(resp []byte) time.Duration {
+	ext, err := messages.UnmarshalAuthResponseExtension(resp)
+	if err != nil {
+		c.log.Debugf("relay answer without an aligned heartbeat period: %s", err)
+		return 0
+	}
+	periodSeconds, ok, err := messages.AlignedHeartbeatEntry(ext)
+	switch {
+	case err != nil:
+		c.log.Debugf("relay answer without an aligned heartbeat period: %s", err)
+		return 0
+	case !ok:
+		c.log.Debugf("relay did not confirm the aligned heartbeat, staying stock")
+		return 0
+	}
+	return alignedhb.ClampPeriod(time.Duration(periodSeconds) * time.Second)
+}
+
+// asksAligned reports whether an Auth message of the advertised version carries the aligned
+// heartbeat request: only the envelope of a bound token has room for it.
+func (c *Client) asksAligned(advertised messages.ProtocolVersion) bool {
+	_, ok := c.askedPeriod()
+	return ok && advertised >= messages.ProtocolV2
 }
 
 // authMsg builds the auth envelope with a proof when the store holds the auth token, otherwise
-// the legacy auth message, and returns the version it advertises.
+// the legacy auth message, and returns the version it advertises. A client that asks for the
+// aligned heartbeat puts the period after the proof.
 func (c *Client) authMsg() ([]byte, messages.ProtocolVersion, error) {
 	token, isAuthToken := c.authTokenStore.Credentials()
 	if !isAuthToken {
@@ -524,6 +558,9 @@ func (c *Client) authMsg() ([]byte, messages.ProtocolVersion, error) {
 	ext, err := peerauth.MarshalRelayExtension(proof)
 	if err != nil {
 		return nil, 0, fmt.Errorf("marshal proof: %w", err)
+	}
+	if period, ok := c.askedPeriod(); ok {
+		ext = messages.AppendAlignedHeartbeatEntry(ext, uint16(alignedhb.ClampPeriod(period)/time.Second))
 	}
 	msg, err := messages.MarshalAuthEnvelope(messages.ProtocolV2, c.hashedID, token, ext)
 	return msg, messages.ProtocolV2, err

@@ -28,14 +28,22 @@ type Receiver struct {
 	heartbeat        chan struct{}
 	alive            bool
 	attemptThreshold int
-	// timeoutReset carries a new heartbeat timeout to the wait loop.
-	timeoutReset chan time.Duration
 }
 
 // NewReceiver creates a new healthcheck receiver and start the timer in the background
 func NewReceiver(log *log.Entry) *Receiver {
 	opts := ReceiverOptions{
 		HeartbeatTimeout: defaultHeartbeatTimeout,
+		AttemptThreshold: getAttemptThresholdFromEnv(),
+	}
+	return NewReceiverWithOpts(log, opts)
+}
+
+// NewReceiverWithTimeout creates a healthcheck receiver that waits heartbeatTimeout for each
+// heartbeat, with the attempt threshold of NewReceiver.
+func NewReceiverWithTimeout(log *log.Entry, heartbeatTimeout time.Duration) *Receiver {
+	opts := ReceiverOptions{
+		HeartbeatTimeout: heartbeatTimeout,
 		AttemptThreshold: getAttemptThresholdFromEnv(),
 	}
 	return NewReceiverWithOpts(log, opts)
@@ -60,7 +68,6 @@ func NewReceiverWithOpts(log *log.Entry, opts ReceiverOptions) *Receiver {
 		ctxCancel:        ctxCancel,
 		heartbeat:        make(chan struct{}, 1),
 		attemptThreshold: attemptThreshold,
-		timeoutReset:     make(chan time.Duration, 1),
 	}
 
 	go r.waitForHealthcheck(heartbeatTimeout)
@@ -80,26 +87,6 @@ func (r *Receiver) Stop() {
 	r.ctxCancel()
 }
 
-// SetTimeout changes how long the receiver waits for the next heartbeat
-// from now on. A non-positive timeout changes nothing. It never blocks.
-func (r *Receiver) SetTimeout(timeout time.Duration) {
-	if timeout <= 0 {
-		return
-	}
-	select {
-	case r.timeoutReset <- timeout:
-	default:
-		select {
-		case <-r.timeoutReset:
-		default:
-		}
-		select {
-		case r.timeoutReset <- timeout:
-		default:
-		}
-	}
-}
-
 func (r *Receiver) waitForHealthcheck(heartbeatTimeout time.Duration) {
 	ticker := time.NewTicker(heartbeatTimeout)
 	defer ticker.Stop()
@@ -109,9 +96,6 @@ func (r *Receiver) waitForHealthcheck(heartbeatTimeout time.Duration) {
 	failureCounter := 0
 	for {
 		select {
-		case timeout := <-r.timeoutReset:
-			ticker.Reset(timeout)
-			failureCounter = 0
 		case <-r.heartbeat:
 			r.alive = true
 			failureCounter = 0
