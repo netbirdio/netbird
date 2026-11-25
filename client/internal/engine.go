@@ -157,6 +157,7 @@ type EngineConfig struct {
 	DisableSSHAuth                *bool
 
 	DNSRouteInterval time.Duration
+	DNSPrimaryMode   string
 
 	DisableClientRoutes bool
 	DisableServerRoutes bool
@@ -2333,6 +2334,7 @@ func (e *Engine) newDnsServer() (dns.Server, error) {
 			StatusRecorder: e.statusRecorder,
 			StateManager:   e.stateManager,
 			DisableSys:     e.config.DisableDNS,
+			DNSPrimaryMode: e.config.DNSPrimaryMode,
 		})
 		if err != nil {
 			return nil, err

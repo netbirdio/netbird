@@ -146,6 +146,7 @@ type Config struct {
 	DisableClientRoutes bool
 	DisableServerRoutes bool
 	DisableDNS          bool
+	DNSPrimaryMode      string // "auto" (default) when empty, "never", or "always"
 	DisableFirewall     bool
 	BlockLANAccess      bool
 	BlockInbound        bool
