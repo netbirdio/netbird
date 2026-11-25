@@ -166,8 +166,12 @@ func TestPeer_RateLimitBudgets(t *testing.T) {
 			settle(t, sender, ids)
 
 			for name, want := range tc.want {
+				// Each destination writes from its own queue, so the sender's
+				// barrier does not cover it: wait for the frames the budget
+				// admits before checking that the relay dropped the rest.
+				frames := dsts[name].waitFrames(t, want+1)
 				// The first frame on each connection is the handshake response.
-				assert.Equal(t, want, len(dsts[name].frames())-1, "frames forwarded to %s", name)
+				assert.Equal(t, want, len(frames)-1, "frames forwarded to %s", name)
 			}
 			assert.False(t, sender.isClosed(), "a rate-limited sender must stay connected")
 		})
