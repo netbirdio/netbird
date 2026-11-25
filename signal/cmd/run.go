@@ -42,6 +42,9 @@ const (
 	// defaultLetsencryptListenAddress is where Let's Encrypt connects for
 	// TLS-ALPN-01 challenges unless public port 443 is forwarded elsewhere.
 	defaultLetsencryptListenAddress = ":443"
+	// h2cMaxReadFrameSize keeps the HTTP/2 default frame size. With x/net's 1 MiB
+	// default, Go HTTP/2 clients such as proxies buffer up to 512 KiB per stream.
+	h2cMaxReadFrameSize = 16 << 10
 )
 
 var (
@@ -340,7 +343,7 @@ func serveHTTP(httpListener net.Listener, handler http.Handler) {
 		// Use h2c to support HTTP/2 without TLS (needed for gRPC)
 		h1s := &http.Server{
 			//nolint:staticcheck // h2c also handles the HTTP/1 Upgrade mechanism, which http.Server's UnencryptedHTTP2 does not
-			Handler: h2c.NewHandler(handler, &http2.Server{}),
+			Handler: h2c.NewHandler(handler, &http2.Server{MaxReadFrameSize: h2cMaxReadFrameSize}),
 		}
 		err := h1s.Serve(httpListener)
 		// Closing the listener on shutdown is not a failure.
