@@ -38,6 +38,10 @@ const (
 	// DefaultSelfHostedDomain is the default domain used for self-hosted fresh installs.
 	DefaultSelfHostedDomain = "netbird.selfhosted"
 
+	// h2cMaxReadFrameSize lowers the advertised HTTP/2 max frame size from Go's
+	// 1 MiB default to 16 KiB. Go-based proxies size their per-stream buffer from it.
+	h2cMaxReadFrameSize = 16 << 10
+
 	ContainerKeyBaseServer = "baseServer"
 
 	applicationName = "management"
@@ -531,7 +535,7 @@ func (s *BaseServer) serveGRPCWithHTTP(ctx context.Context, listener net.Listene
 			// and still share a single port between gRPC and HTTP APIs
 			h1s := &http.Server{
 				//nolint:staticcheck // h2c also handles the HTTP/1 Upgrade mechanism, which http.Server's UnencryptedHTTP2 does not
-				Handler: h2c.NewHandler(handler, &http2.Server{}),
+				Handler: h2c.NewHandler(handler, &http2.Server{MaxReadFrameSize: h2cMaxReadFrameSize}),
 			}
 			err = h1s.Serve(listener)
 		}
