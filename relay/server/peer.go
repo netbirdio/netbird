@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -53,13 +52,9 @@ type Peer struct {
 
 	peersListener *store.Listener
 
-	// alignedPeriod is the heartbeat period the client asked for in
-	// seconds, 0 while the connection is stock. Work sets it, the health
-	// check writer reads it.
-	alignedPeriod atomic.Int64
-	// alignedCounted reports whether the gauge counts this peer. Only the
-	// Work goroutine uses it.
-	alignedCounted bool
+	// alignedPeriod is the aligned heartbeat period accepted at the handshake, zero for a
+	// stock connection. It is set before the peer is stored and never changes after.
+	alignedPeriod time.Duration
 
 	// between the online peer collection step and the notification sending should not be sent offline notifications from another thread
 	notificationMutex sync.Mutex
@@ -91,9 +86,6 @@ func NewPeer(metrics *metrics.Metrics, id messages.PeerID, version messages.Prot
 func (p *Peer) Work() {
 	p.peersListener = p.notifier.NewListener(p.sendPeersOnline, p.sendPeersWentOffline)
 	defer func() {
-		if p.alignedCounted {
-			p.metrics.AlignedPeerDisconnected()
-		}
 		p.ctxCancel()
 		p.notifier.RemoveListener(p.peersListener)
 
@@ -104,7 +96,11 @@ func (p *Peer) Work() {
 
 	ctx := p.ctx
 
-	hc := healthcheck.NewSender(p.log)
+	if p.alignedPeriod > 0 {
+		p.metrics.AlignedPeerConnected()
+		defer p.metrics.AlignedPeerDisconnected()
+	}
+	hc := p.newHealthcheckSender()
 	go hc.StartHealthCheck(ctx)
 	go p.handleHealthcheckEvents(ctx, hc)
 	go p.sendLoop(ctx)
@@ -166,7 +162,6 @@ func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, hc *
 	switch msgType {
 	case messages.MsgTypeHealthCheck:
 		hc.OnHCResponse()
-		p.switchAligned(msg, hc)
 	case messages.MsgTypeTransport:
 		p.metrics.TransferBytesRecv.Add(ctx, int64(len(msg)))
 		p.metrics.PeerActivity(p.String())
@@ -238,7 +233,7 @@ func (p *Peer) handleHealthcheckEvents(ctx context.Context, hc *healthcheck.Send
 				healthCheck = nil
 				continue
 			}
-			if _, err := p.Write(ctx, p.healthcheckFrame()); err != nil {
+			if _, err := p.Write(ctx, p.enc.Healthcheck()); err != nil {
 				p.log.Errorf("failed to send healthcheck message: %s", err)
 				p.Close()
 				return
@@ -348,42 +343,16 @@ func (p *Peer) sendPeersWentOffline(peers []messages.PeerID) {
 	}
 }
 
-// switchAligned moves the health check sender to the aligned schedule of
-// the period in a client health check, at the first valid period. Without
-// a valid period the connection stays stock. It never closes the
-// connection.
-func (p *Peer) switchAligned(msg []byte, hc *healthcheck.Sender) {
-	periodSeconds, ok, err := messages.UnmarshalHealthcheckPeriod(msg)
-	if err != nil {
-		p.log.Tracef("ignoring health check period: %s", err)
-		return
+// newHealthcheckSender returns the stock sender, or for an aligned connection one that
+// sends on the peer's phase from the start.
+func (p *Peer) newHealthcheckSender() *healthcheck.Sender {
+	if p.alignedPeriod == 0 {
+		return healthcheck.NewSender(p.log)
 	}
-	if !ok {
-		return
-	}
-	period := alignedhb.ClampPeriod(time.Duration(periodSeconds) * time.Second)
-	seconds := int64(period / time.Second)
-	if p.alignedPeriod.Swap(seconds) == seconds {
-		return
-	}
-	hc.SetAligned(healthcheck.AlignedSchedule{
-		Period: period,
-		Phase:  alignedhb.Phase(p.id, period),
+	return healthcheck.NewAlignedSender(p.log, healthcheck.AlignedSchedule{
+		Period: p.alignedPeriod,
+		Phase:  alignedhb.Phase(p.id, p.alignedPeriod),
 	})
-	if !p.alignedCounted {
-		p.alignedCounted = true
-		p.metrics.AlignedPeerConnected()
-	}
-}
-
-// healthcheckFrame returns the health check frame for the connection. On
-// an aligned connection it carries the period, so the client switches its
-// receiver to the aligned timeout.
-func (p *Peer) healthcheckFrame() []byte {
-	if period := p.alignedPeriod.Load(); period != 0 {
-		return p.enc.HealthcheckWithPeriod(uint16(period))
-	}
-	return p.enc.Healthcheck()
 }
 
 func (p *Peer) enqueueTransport(bufPtr *[]byte) {

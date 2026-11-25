@@ -9,25 +9,16 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// SetAligned moves a stock sender to the aligned schedule: one send at the
-// switch, then every send lands on the phase, a peer that answers each send
-// stays alive, and a later schedule without a period is ignored.
-func TestSenderSetAlignedSendsOnPhase(t *testing.T) {
+// An aligned sender sends on the phase from the start, with no send before the first phase,
+// and a peer that answers each send stays alive.
+func TestAlignedSenderSendsOnPhase(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		hc := NewSender(log.WithField("test", t.Name()))
 		schedule := AlignedSchedule{Period: 60 * time.Second, Phase: 12345 * time.Millisecond}
-		hc.SetAligned(schedule)
-		hc.SetAligned(AlignedSchedule{})
-		switched := time.Now()
+		hc := NewAlignedSender(log.WithField("test", t.Name()), schedule)
 		exited := startSender(ctx, hc)
 
-		<-hc.HealthCheck
-		if since := time.Since(switched); since != 0 {
-			t.Fatalf("first send %s after the switch, want at once", since)
-		}
-		hc.OnHCResponse()
 		for i := 0; i < 4; i++ {
 			select {
 			case <-hc.HealthCheck:
@@ -44,19 +35,37 @@ func TestSenderSetAlignedSendsOnPhase(t *testing.T) {
 	})
 }
 
-// An aligned peer that never answers times out at period plus 20 s, not
-// before. One that answered once and then went silent times out at most two
-// such spans after its answer (the stock alive and failure loop).
-func TestSenderSetAlignedSilentPeerTimesOut(t *testing.T) {
+// A schedule without a period keeps the stock interval.
+func TestSenderOptionsAlignedWithoutPeriodStaysStock(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		hc := NewSenderWithOpts(log.WithField("test", t.Name()), SenderOptions{Aligned: &AlignedSchedule{}})
+		start := time.Now()
+		exited := startSender(ctx, hc)
+
+		<-hc.HealthCheck
+		if since := time.Since(start); since != defaultHealthCheckInterval {
+			t.Fatalf("first send %s after the start, want the stock %s", since, defaultHealthCheckInterval)
+		}
+		cancel()
+		drainSender(hc, exited)
+	})
+}
+
+// An aligned peer that never answers times out at period plus 20 s, not before. One that
+// answered once and then went silent times out at most two such spans after its answer (the
+// stock alive and failure loop).
+func TestAlignedSenderSilentPeerTimesOut(t *testing.T) {
 	const period = 30 * time.Second
 	const span = period + 20*time.Second
+	opts := SenderOptions{AttemptThreshold: 1, Aligned: &AlignedSchedule{Period: period}}
 
 	t.Run("never answers", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			hc := NewSenderWithOpts(log.WithField("test", t.Name()), SenderOptions{AttemptThreshold: 1})
-			hc.SetAligned(AlignedSchedule{Period: period})
+			hc := NewSenderWithOpts(log.WithField("test", t.Name()), opts)
 			exited := startSender(ctx, hc)
 
 			time.Sleep(span - time.Millisecond)
@@ -81,8 +90,7 @@ func TestSenderSetAlignedSilentPeerTimesOut(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			hc := NewSenderWithOpts(log.WithField("test", t.Name()), SenderOptions{AttemptThreshold: 1})
-			hc.SetAligned(AlignedSchedule{Period: period})
+			hc := NewSenderWithOpts(log.WithField("test", t.Name()), opts)
 			exited := startSender(ctx, hc)
 
 			<-hc.HealthCheck

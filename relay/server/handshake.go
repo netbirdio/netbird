@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/relay/server/listener"
+	"github.com/netbirdio/netbird/shared/alignedhb"
 	"github.com/netbirdio/netbird/shared/peerauth"
 	"github.com/netbirdio/netbird/shared/relay/messages"
 )
@@ -34,6 +37,7 @@ type Validator interface {
 
 // preparedMsg contains the marshalled success response message for every supported protocol version
 type preparedMsg struct {
+	instanceURL     string
 	responseAuthMsg map[messages.ProtocolVersion][]byte
 }
 
@@ -48,6 +52,9 @@ type handshake struct {
 	advertisedVersion messages.ProtocolVersion
 	selectedVersion   messages.ProtocolVersion
 	authenticated     bool
+	// alignedPeriod is the clamped aligned heartbeat period the client asked for, zero for a
+	// stock connection.
+	alignedPeriod time.Duration
 }
 
 func newPreparedMsg(instanceURL string) (*preparedMsg, error) {
@@ -64,6 +71,7 @@ func newPreparedMsg(instanceURL string) (*preparedMsg, error) {
 	}
 
 	return &preparedMsg{
+		instanceURL:     instanceURL,
 		responseAuthMsg: responses,
 	}, nil
 }
@@ -107,11 +115,12 @@ func (h *handshake) handshakeReceive(ctx context.Context) (*messages.PeerID, err
 	h.peerID = peerID
 	h.advertisedVersion = advertised
 	h.selectedVersion = messages.SelectVersion(advertised, supportedProtocolVersion)
+	h.alignedPeriod = h.readAlignedPeriod(buf)
 	return peerID, nil
 }
 
 func (h *handshake) handshakeResponse(ctx context.Context) error {
-	msg, err := h.preparedMsg.authResponse(h.selectedVersion)
+	msg, err := h.authResponse()
 	if err != nil {
 		return err
 	}
@@ -121,6 +130,38 @@ func (h *handshake) handshakeResponse(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// authResponse returns the prepared response, or for a client that asked for the aligned
+// heartbeat the envelope with the accepted period, which only the v2 layout can carry.
+func (h *handshake) authResponse() ([]byte, error) {
+	if h.alignedPeriod == 0 {
+		return h.preparedMsg.authResponse(h.selectedVersion)
+	}
+	ext := messages.AppendAlignedHeartbeatEntry(nil, uint16(h.alignedPeriod/time.Second))
+	return messages.NewEncoder(h.selectedVersion, messages.MaxMessageSize).AuthResponseEnvelope(h.preparedMsg.instanceURL, ext)
+}
+
+// readAlignedPeriod returns the clamped aligned heartbeat period of an accepted Auth message,
+// zero when the client did not ask or the response cannot carry the answer. A malformed entry
+// never refuses the client; the connection stays stock.
+func (h *handshake) readAlignedPeriod(buf []byte) time.Duration {
+	if h.selectedVersion < messages.ProtocolV2 {
+		return 0
+	}
+	ext, err := messages.UnmarshalAuthExtension(buf)
+	if err != nil {
+		return 0
+	}
+	periodSeconds, ok, err := messages.AlignedHeartbeatEntry(ext)
+	if err != nil {
+		log.Debugf("ignoring aligned heartbeat entry of %s (%s): %s", h.peerID, h.conn.RemoteAddr(), err)
+		return 0
+	}
+	if !ok {
+		return 0
+	}
+	return alignedhb.ClampPeriod(time.Duration(periodSeconds) * time.Second)
 }
 
 func (h *handshake) handleAuthMsg(buf []byte) (*messages.PeerID, error) {
