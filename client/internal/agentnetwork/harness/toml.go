@@ -35,11 +35,13 @@ type tomlSection struct {
 }
 
 type tomlFile struct {
-	lines    []string
-	crlf     bool
-	doc      map[string]any
-	spans    map[string]tomlSpan
-	sections []tomlSection
+	lines []string
+	crlf  bool
+	// noFinalEOL is set when the file does not end with a line break.
+	noFinalEOL bool
+	doc        map[string]any
+	spans      map[string]tomlSpan
+	sections   []tomlSection
 	// dotted holds the pathKey of every table a dotted key defines. TOML
 	// does not let a later [header] define such a table again.
 	dotted map[string]bool
@@ -74,6 +76,7 @@ func parseTOML(data []byte) (*tomlFile, error) {
 		topEnd: -1,
 	}
 	if text != "" {
+		f.noFinalEOL = !strings.HasSuffix(text, "\n")
 		f.lines = strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
 		if f.lines[len(f.lines)-1] == "" {
 			f.lines = f.lines[:len(f.lines)-1]
@@ -538,6 +541,9 @@ func (e *tomlEdit) render() []byte {
 	eol := "\n"
 	if e.f.crlf {
 		eol = "\r\n"
+	}
+	if e.f.noFinalEOL {
+		return []byte(strings.Join(lines, eol))
 	}
 	return []byte(strings.Join(lines, eol) + eol)
 }

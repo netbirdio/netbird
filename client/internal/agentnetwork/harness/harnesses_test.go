@@ -550,6 +550,17 @@ func TestCodexTOMLKeepsCRLF(t *testing.T) {
 	assert.Equal(t, orig, readFile(t, file))
 }
 
+func TestCodexTOMLKeepsMissingFinalEOL(t *testing.T) {
+	h := newDefHost(t, codex)
+	file := h.files()[0]
+	orig := "model = \"o3\""
+	writeFile(t, file, orig, 0o600)
+	h.apply(t, h.render(t, "openai", "gpt-5.5"), true)
+	assert.False(t, strings.HasSuffix(readFile(t, file), "\n"), "no newline is added at the end")
+	h.apply(t, nil, false)
+	assert.Equal(t, orig, readFile(t, file), "undo restores the file byte for byte")
+}
+
 func TestCodexTOMLUnsupported(t *testing.T) {
 	for name, content := range map[string]string{
 		"unterminated string": "model = \"gpt\n",
