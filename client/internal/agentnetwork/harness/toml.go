@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // The TOML codec edits a file line by line rather than re-encoding it, so
@@ -66,6 +67,9 @@ func decodeTOMLDoc(data []byte) (map[string]any, error) {
 }
 
 func parseTOML(data []byte) (*tomlFile, error) {
+	if !utf8.Valid(data) {
+		return nil, errors.New("not valid UTF-8")
+	}
 	text := string(data)
 	f := &tomlFile{
 		crlf:   strings.Contains(text, "\r\n"),

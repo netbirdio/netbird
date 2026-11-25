@@ -566,6 +566,7 @@ func TestCodexTOMLUnsupported(t *testing.T) {
 		"unterminated string": "model = \"gpt\n",
 		"no value":            "model =\n",
 		"garbage":             "this is not toml\n",
+		"invalid UTF-8":       "theme = \"\xff\"\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := newDefHost(t, codex)
