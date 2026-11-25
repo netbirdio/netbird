@@ -2,6 +2,7 @@ package sweep
 
 import (
 	"context"
+	"errors"
 	"math"
 	"net"
 	"testing"
@@ -225,6 +226,12 @@ func connPair(t *testing.T) net.Conn {
 
 	conn, err := net.Dial("tcp", l.Addr().String())
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		// The test, a sweep or a rejected WrapConn may have closed it already.
+		if err := conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			t.Logf("client close error: %v", err)
+		}
+	})
 
 	peer, ok := <-accepted
 	require.True(t, ok, "listener must accept the dialed connection")

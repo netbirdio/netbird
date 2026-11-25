@@ -20,9 +20,7 @@ import (
 
 func withClientPeriod(t *testing.T, period time.Duration, ok bool) {
 	t.Helper()
-	prev := clientPeriod
-	clientPeriod = func() (time.Duration, bool) { return period, ok }
-	t.Cleanup(func() { clientPeriod = prev })
+	t.Cleanup(SetClientPeriodForTest(func() (time.Duration, bool) { return period, ok }))
 }
 
 func lazyConn(t *testing.T) *grpc.ClientConn {

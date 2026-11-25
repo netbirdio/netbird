@@ -74,6 +74,16 @@ func ClearStock(component, addr string) {
 	delete(stockMarks.servers, stockKey{component: component, addr: addr})
 }
 
+// SetClientPeriodForTest replaces the source of the aligned heartbeat period
+// that dials ask for, so tests can dial through NewConnDial as a build that
+// asks. Tests only: it writes without a lock and must not run while dials
+// run. The returned func restores the previous source.
+func SetClientPeriodForTest(f func() (time.Duration, bool)) (restore func()) {
+	prev := clientPeriod
+	clientPeriod = f
+	return func() { clientPeriod = prev }
+}
+
 // Track makes conn the connection to tune. It was dialed stock, and the
 // stream that confirms the heartbeat on it has yet to open.
 func (k *TCPKeepAlive) Track(conn net.Conn) {

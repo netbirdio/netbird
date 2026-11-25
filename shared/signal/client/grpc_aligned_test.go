@@ -106,26 +106,39 @@ func TestConnectSendsPeriodAndReadsAlignedAnswer(t *testing.T) {
 		"the watchdog waits for the aligned heartbeat")
 }
 
+// TestConnectStockAnswerMarksAndRedials runs the dial NewClient builds
+// against a real gRPC server: the connection is dialed with the aligned
+// keepalive, and a stock answer marks the server so the redial of the same
+// endpoint gets the stock keepalive.
 func TestConnectStockAnswerMarksAndRedials(t *testing.T) {
-	addr := "signal-stock.example:443"
+	t.Cleanup(nbgrpc.SetClientPeriodForTest(func() (time.Duration, bool) { return alignedhb.DefaultPeriod, true }))
+	addr := startTestSignalServer(t)
 	nbgrpc.ClearStock(wsproxy.SignalComponent, addr)
 	t.Cleanup(func() { nbgrpc.ClearStock(wsproxy.SignalComponent, addr) })
 
-	stream := &fakeSignalStream{header: metadata.Pairs(proto.HeaderRegistered, "1")}
-	fake := &fakeSignalClient{stream: stream}
-	c := newSignalTestClient(t, addr)
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	c, err := NewClient(ctx, addr, key, false)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
 	withSignalAlignedRequest(c, alignedhb.DefaultPeriod, true)
-	stockConn := lazySignalConn(t)
-	c.conn.Swap(lazySignalConn(t), fake, alignedhb.ReceiveTimeout(alignedhb.DefaultPeriod))
-	c.dial = func(context.Context) (*grpc.ClientConn, time.Duration, error) {
-		return stockConn, 30 * time.Second, nil
-	}
+	require.Equal(t, alignedhb.ReceiveTimeout(alignedhb.DefaultPeriod), c.conn.Keepalive(),
+		"the first dial uses the aligned keepalive")
 
-	_, err := c.connect(context.Background(), func() {}, c.key.PublicKey().String())
+	// The real server of this branch answers aligned, so the stream comes
+	// from a fake service client on the real connection.
+	alignedConn := c.conn.Conn()
+	stream := &fakeSignalStream{header: metadata.Pairs(proto.HeaderRegistered, "1")}
+	c.conn.Swap(alignedConn, &fakeSignalClient{stream: stream}, c.conn.Keepalive())
+
+	_, err = c.connect(ctx, func() {}, c.key.PublicKey().String())
 	require.NoError(t, err)
 	assert.Zero(t, c.getAlignedPeriod(), "no answer, the stream runs stock")
-	require.Eventually(t, func() bool { return c.conn.Conn() == stockConn }, 5*time.Second, 10*time.Millisecond,
-		"a stock answer redials with the stock keepalive")
+	require.Eventually(t, func() bool { return c.conn.Conn() != alignedConn }, 5*time.Second, 10*time.Millisecond,
+		"a stock answer redials")
+	assert.Equal(t, 30*time.Second, c.conn.Keepalive(), "the redial of the same endpoint uses the stock keepalive")
 	assert.Equal(t, receiveInactivityThreshold, c.inactivityThreshold(), "the watchdog stays stock")
 }
 

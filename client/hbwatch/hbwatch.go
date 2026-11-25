@@ -4,13 +4,15 @@
 // Stale check: one global tick number, raised by the first heartbeat at
 // least half a period after the previous tick; heartbeats that land sooner
 // join that tick. Each stream stores the tick of its last heartbeat, and at
-// a new tick a stream two or more ticks behind runs its stale action. All
-// servers send on the same phase, so ticks form about one period apart, and
-// a live stream is reconnected only if its heartbeat is late by about a full
-// period. A device wake runs the wake check: after a short grace, a stream
-// silent for longer than its receive timeout on the wall clock runs its
-// stale action, which covers the time the phone slept and no tick could
-// form.
+// a new tick a stream two or more ticks behind and silent for longer than
+// its receive timeout runs its stale action. All servers send on the same
+// phase, so ticks form about one period apart, and a live stream is
+// reconnected only if its heartbeat is late by about a full period. A
+// heartbeat late by half a period can open a tick early, so the tick count
+// alone does not make a stream stale. A device wake runs the wake check:
+// after a short grace, a stream silent for longer than its receive timeout
+// on the wall clock runs its stale action, which covers the time the phone
+// slept and no tick could form.
 //
 // Tick: the first heartbeat of each tick also runs the functions given to
 // OnTick, so periodic client work runs inside a wake the device has anyway.
@@ -210,7 +212,8 @@ func (w *Watcher) Confirm(svc Service, period time.Duration) {
 // Seen records an aligned heartbeat for svc with the given period. It
 // raises the global tick when the heartbeat is the first at least half a
 // period after the previous tick, joins the current tick otherwise, and
-// runs the stale action of every stream two or more ticks behind.
+// runs the stale action of every stream two or more ticks behind and silent
+// for longer than its receive timeout.
 func (w *Watcher) Seen(svc Service, period time.Duration) {
 	w.mu.Lock()
 	s, ok := w.svcs[svc]
@@ -225,10 +228,7 @@ func (w *Watcher) Seen(svc Service, period time.Duration) {
 	s.last = now
 	s.aligned = true
 
-	tickPeriod := s.period
-	if tickPeriod <= 0 {
-		tickPeriod = w.period
-	}
+	tickPeriod := w.streamPeriod(s)
 	gap := now.Sub(w.lastTick)
 	if !w.lastTick.IsZero() && gap >= 0 && gap < tickPeriod/2 {
 		s.tick = w.tick
@@ -250,6 +250,11 @@ func (w *Watcher) Seen(svc Service, period time.Duration) {
 			continue
 		}
 		if w.tick-st.tick < 2 {
+			continue
+		}
+		// A stream heard within its receive timeout is live. It keeps its
+		// tick, so the next tick checks it again.
+		if now.Sub(st.last) <= alignedhb.ReceiveTimeout(w.streamPeriod(st)) {
 			continue
 		}
 		behind := w.tick - st.tick
@@ -469,6 +474,15 @@ func (w *Watcher) now() time.Time {
 	return w.clk.Now().Round(0)
 }
 
+// streamPeriod returns the heartbeat period of s, or the Watcher period
+// while s has none.
+func (w *Watcher) streamPeriod(s *service) time.Duration {
+	if s.period > 0 {
+		return s.period
+	}
+	return w.period
+}
+
 func (w *Watcher) checkWake() {
 	w.mu.Lock()
 	at := w.wakeAt
@@ -486,10 +500,7 @@ func (w *Watcher) checkWake() {
 		if !s.registered || s.reg.Stale == nil {
 			continue
 		}
-		period := s.period
-		if period <= 0 {
-			period = w.period
-		}
+		period := w.streamPeriod(s)
 		if !s.aligned && s.reg.AlignedPeriod <= 0 {
 			continue
 		}

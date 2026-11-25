@@ -120,6 +120,69 @@ func TestLateArrivalsDoNotReconnectLiveStreams(t *testing.T) {
 	}
 }
 
+// TestHalfPeriodLateHeartbeatKeepsLiveStreams covers one heartbeat late by
+// half a period: Signal at 30 s opens tick 2, so Management on time at 60 s
+// opens tick 3 while Relay, on time too, is still on tick 1. Relay was heard
+// 60 s ago, inside its receive timeout, and must not be reconnected.
+func TestHalfPeriodLateHeartbeatKeepsLiveStreams(t *testing.T) {
+	clk := newFakeClock(testStart)
+	w := New(clk, time.Minute)
+	counts := map[Service]*int{}
+	for _, svc := range services {
+		stale, n := staleCounter()
+		counts[svc] = n
+		w.Register(svc, Registration{Kind: ActionReconnect, Stale: stale, AlignedPeriod: time.Minute})
+		w.Seen(svc, time.Minute) // tick 1
+	}
+
+	clk.Advance(30 * time.Second)
+	w.Seen(Signal, time.Minute) // half a period late: opens tick 2
+	clk.Advance(30 * time.Second)
+	w.Seen(Management, time.Minute) // on time: opens tick 3, Relay is 2 ticks behind
+	clk.Advance(time.Second)
+	w.Seen(Relay, time.Minute) // on time: joins tick 3
+	w.Seen(Signal, time.Minute)
+
+	for svc, n := range counts {
+		assert.Zero(t, *n, "live stream %s must not reconnect", svc)
+	}
+}
+
+// TestStaleStreamHeardWithinTimeoutIsCheckedAgain covers a dead Relay in the
+// tick pattern of a half-period-late heartbeat: at tick 3 it is 2 ticks
+// behind but silent only 60 s, so it is skipped and keeps its tick. At tick 4
+// it is silent past its receive timeout and is reconnected, then again only
+// after two more ticks while it stays dead.
+func TestStaleStreamHeardWithinTimeoutIsCheckedAgain(t *testing.T) {
+	clk := newFakeClock(testStart)
+	w := New(clk, time.Minute)
+	relayStale, relayN := staleCounter()
+	w.Register(Management, Registration{Kind: ActionReconnect, Stale: func() {}, AlignedPeriod: time.Minute})
+	w.Register(Signal, Registration{Kind: ActionReconnect, Stale: func() {}, AlignedPeriod: time.Minute})
+	w.Register(Relay, Registration{Kind: ActionReconnect, Stale: relayStale, AlignedPeriod: time.Minute})
+	for _, svc := range services {
+		w.Seen(svc, time.Minute) // tick 1, Relay's last heartbeat
+	}
+
+	clk.Advance(30 * time.Second)
+	w.Seen(Signal, time.Minute) // tick 2
+	clk.Advance(30 * time.Second)
+	w.Seen(Management, time.Minute) // tick 3
+	w.Seen(Signal, time.Minute)
+	assert.Zero(t, *relayN, "2 ticks behind but silent 60 s, inside the receive timeout")
+
+	clk.Advance(time.Minute)
+	w.Seen(Management, time.Minute) // tick 4
+	assert.Equal(t, 1, *relayN, "the skipped stream kept its tick and is silent 120 s now")
+
+	clk.Advance(time.Minute)
+	w.Seen(Management, time.Minute) // tick 5
+	assert.Equal(t, 1, *relayN, "not again on the very next tick")
+	clk.Advance(time.Minute)
+	w.Seen(Management, time.Minute) // tick 6
+	assert.Equal(t, 2, *relayN, "again after two more ticks while still dead")
+}
+
 // TestWakeCheckReconnectsSilentStream covers the all-streams-dead case: no
 // ticks form, and the wake check reconnects after the grace.
 func TestWakeCheckReconnectsSilentStream(t *testing.T) {
@@ -185,7 +248,7 @@ func TestOnTickRunsOncePerTick(t *testing.T) {
 
 	clk.Advance(50 * time.Second)
 	w.Seen(Management, time.Minute)
-	assert.Len(t, periods, 2)
+	require.Len(t, periods, 2, "a heartbeat half a period after the tick opens the next one")
 	assert.Equal(t, time.Minute, periods[0])
 
 	unsubscribe()
