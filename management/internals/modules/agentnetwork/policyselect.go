@@ -500,13 +500,16 @@ func scoreOne(
 }
 
 // capUsage is one user or group cap of an enabled token or budget limit,
-// with the caller's consumption in the limit's current window. Token
-// counts are carried as float64 so token and USD caps share one shape.
+// with the caller's consumption in the limit's current window. cap and used
+// are float64 so token and USD caps share one shape for display; token caps
+// also keep exact int64 counts, which enforcement compares.
 type capUsage struct {
 	unit          types.AllowanceUnit
 	scope         capScope
 	cap           float64
 	used          float64
+	tokenCap      int64
+	tokenUsed     int64
 	windowSeconds int64
 	windowStart   time.Time
 }
@@ -519,7 +522,12 @@ const (
 	capScopeGroup capScope = "group"
 )
 
-func (u capUsage) exhausted() bool { return u.used >= u.cap }
+func (u capUsage) exhausted() bool {
+	if u.unit == types.AllowanceUnitTokens {
+		return u.tokenUsed >= u.tokenCap
+	}
+	return u.used >= u.cap
+}
 
 // tokenCapUsages returns the token caps that bind the caller: the principal's
 // cap when principalID is set, the group cap when attrGroup is set. attrGroup
@@ -532,9 +540,11 @@ func tokenCapUsages(cache consumptionCache, accountID, principalID, attrGroup st
 	var out []capUsage
 	add := func(scope capScope, kind types.ConsumptionDimension, dimID string, limit int64) {
 		row := cache.get(accountID, kind, dimID, tl.WindowSeconds, windowStart)
+		used := row.TokensInput + row.TokensOutput
 		out = append(out, capUsage{
 			unit: types.AllowanceUnitTokens, scope: scope,
-			cap: float64(limit), used: float64(row.TokensInput + row.TokensOutput),
+			cap: float64(limit), used: float64(used),
+			tokenCap: limit, tokenUsed: used,
 			windowSeconds: tl.WindowSeconds, windowStart: windowStart,
 		})
 	}
@@ -585,7 +595,7 @@ func evalTokenCap(
 ) (bool, string) {
 	for _, u := range tokenCapUsages(cache, accountID, userID, attrGroup, tl, now) {
 		if u.exhausted() {
-			return true, fmt.Sprintf("%s token cap exhausted on %s (used %d of %d)", u.scope, label, int64(u.used), int64(u.cap))
+			return true, fmt.Sprintf("%s token cap exhausted on %s (used %d of %d)", u.scope, label, u.tokenUsed, u.tokenCap)
 		}
 	}
 	return false, ""

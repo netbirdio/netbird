@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -639,4 +639,21 @@ func TestSelectPolicy_BudgetTighterThanTokenWins(t *testing.T) {
 	assert.False(t, res.Allow,
 		"the tighter of (token, budget) wins — abundant token headroom must NOT mask an exhausted budget")
 	assert.Equal(t, denyCodeBudgetCapExceeded, res.DenyCode)
+}
+
+// Token caps compare as int64: above 2^53, float64 rounds cap and used to the
+// same value and would report a cap with one token left as exhausted.
+func TestEvalTokenCap_ExactAbove2Pow53(t *testing.T) {
+	now := time.Date(2026, 11, 23, 10, 30, 0, 0, time.UTC)
+	tl := types.PolicyTokenLimit{Enabled: true, UserCap: 1<<53 + 1, WindowSeconds: 3600}
+	key := types.ConsumptionKey{Kind: types.DimensionUser, DimID: "u1", WindowSeconds: 3600, WindowStartUTC: types.WindowStart(now, 3600).UTC()}
+
+	cache := consumptionCache{key: {TokensInput: 1 << 53}}
+	exhausted, reason := evalTokenCap(cache, "acc", "u1", "", tl, now, "policy p1")
+	assert.False(t, exhausted, "one token left must not be exhausted: %s", reason)
+
+	cache[key] = &types.Consumption{TokensInput: 1<<53 + 1}
+	exhausted, reason = evalTokenCap(cache, "acc", "u1", "", tl, now, "policy p1")
+	assert.True(t, exhausted, "used == cap must be exhausted")
+	assert.Contains(t, reason, "used 9007199254740993 of 9007199254740993", "deny reason must carry exact counts")
 }

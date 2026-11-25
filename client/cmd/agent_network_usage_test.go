@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -19,8 +20,6 @@ import (
 )
 
 var updateGolden = flag.Bool("update", false, "rewrite the golden files in testdata")
-
-const usageEmail = "ada@example.com"
 
 // usageNow is the local clock the reset countdowns are rendered against.
 var usageNow = time.Date(2026, 11, 6, 14, 18, 0, 0, time.UTC)
@@ -70,16 +69,13 @@ func TestRenderAgentNetworkUsage_Golden(t *testing.T) {
 	t.Cleanup(func() { time.Local = local })
 
 	cases := []struct {
-		name string
-		resp *proto.GetAgentNetworkInfoResponse
-		// noEmail renders for a profile without a stored email.
-		noEmail bool
-		asJSON  bool
+		name   string
+		resp   *proto.GetAgentNetworkInfoResponse
+		asJSON bool
 	}{
 		{name: "ok", resp: usageFixture()},
 		{name: "ok_json", resp: usageFixture(), asJSON: true},
-		{name: "ok_no_email", resp: usageFixture(), noEmail: true},
-		{name: "ok_no_email_json", resp: usageFixture(), noEmail: true, asJSON: true},
+		{name: "reset_passed", resp: resetPassedFixture()},
 		{name: "no_providers", resp: &proto.GetAgentNetworkInfoResponse{State: proto.GetAgentNetworkInfoResponse_OK}},
 		{name: "not_enabled", resp: &proto.GetAgentNetworkInfoResponse{State: proto.GetAgentNetworkInfoResponse_NOT_ENABLED}},
 		{name: "not_enabled_json", resp: &proto.GetAgentNetworkInfoResponse{State: proto.GetAgentNetworkInfoResponse_NOT_ENABLED}, asJSON: true},
@@ -90,13 +86,8 @@ func TestRenderAgentNetworkUsage_Golden(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var out bytes.Buffer
-			// An error is what the user sees on stderr, with exit code 1.
-			email := usageEmail
-			if tc.noEmail {
-				email = ""
-			}
-			if err := renderAgentNetworkUsage(&out, tc.resp, email, usageNow, tc.asJSON); err != nil {
-				out.WriteString("error: " + err.Error() + "\n")
+			if err := renderAgentNetworkUsage(&out, tc.resp, usageNow, tc.asJSON); err != nil {
+				out.WriteString(commandErrorText(err))
 			}
 			assertGolden(t, tc.name, out.Bytes())
 		})
@@ -104,8 +95,34 @@ func TestRenderAgentNetworkUsage_Golden(t *testing.T) {
 
 	t.Run("not_connected", func(t *testing.T) {
 		err := agentNetworkInfoError(gstatus.Error(codes.FailedPrecondition, "client is not running, run 'netbird up' first"))
-		assertGolden(t, "not_connected", []byte("error: "+err.Error()+"\n"))
+		assertGolden(t, "not_connected", []byte(commandErrorText(err)))
 	})
+}
+
+// commandErrorText is what the user sees on stderr, with exit code 1, when
+// the command returns err.
+func commandErrorText(err error) string {
+	var buf bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetErr(&buf)
+	printCommandError(cmd, err)
+	return buf.String()
+}
+
+// resetPassedFixture has a reset that management placed before the client
+// clock, as happens when the two clocks disagree.
+func resetPassedFixture() *proto.GetAgentNetworkInfoResponse {
+	return &proto.GetAgentNetworkInfoResponse{
+		State: proto.GetAgentNetworkInfoResponse_OK,
+		Providers: []*proto.AgentNetworkProvider{{
+			Id: "prov-openai", Name: "OpenAI", CatalogId: "openai_api",
+			Exhausted: true,
+			Limits: []*proto.AgentNetworkLimit{{
+				Unit: proto.AgentNetworkLimit_TOKENS,
+				Cap:  1000, Used: 1000, ResetsAt: timestamppb.New(usageNow.Add(-2 * time.Minute)),
+			}},
+		}},
+	}
 }
 
 func TestAgentNetworkInfoError_OtherErrorsKeepContext(t *testing.T) {
@@ -117,6 +134,11 @@ func TestGroupThousands(t *testing.T) {
 	for in, want := range map[int64]string{0: "0", 999: "999", 1000: "1,000", 1234567: "1,234,567", -1000: "-1,000"} {
 		assert.Equal(t, want, groupThousands(in), "groupThousands(%d)", in)
 	}
+}
+
+func TestFormatLimitAmount_UnknownUnit(t *testing.T) {
+	got := formatLimitAmount(proto.AgentNetworkLimit_Unit(99), 12.5, true)
+	assert.Equal(t, "12.5 (unknown unit)", got, "an unknown unit must not be shown as tokens")
 }
 
 func assertGolden(t *testing.T, name string, got []byte) {

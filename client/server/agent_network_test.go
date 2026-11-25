@@ -21,6 +21,12 @@ func TestGetAgentNetworkInfo_ClientNotRunning(t *testing.T) {
 	assert.Equal(t, codes.FailedPrecondition, gstatus.Code(err), "daemon must refuse while the client is down")
 }
 
+func TestGetAgentNetworkInfo_ClientStarting(t *testing.T) {
+	s := &Server{clientRunning: true}
+	_, err := s.GetAgentNetworkInfo(context.Background(), &proto.GetAgentNetworkInfoRequest{})
+	assert.Equal(t, codes.Unavailable, gstatus.Code(err), "a running but unconnected client must not look like a stopped one")
+}
+
 func TestRelayAgentNetworkInfo(t *testing.T) {
 	resetsAt := timestamppb.New(time.Now().Truncate(time.Hour).Add(time.Hour))
 	resp, err := relayAgentNetworkInfo(context.Background(), func(context.Context) (*mgmProto.GetAgentNetworkInfoResponse, error) {

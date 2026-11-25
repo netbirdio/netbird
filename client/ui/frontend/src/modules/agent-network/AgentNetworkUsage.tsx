@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import Skeleton from "react-loading-skeleton";
@@ -16,14 +16,29 @@ import { Tooltip } from "@/components/Tooltip";
 import { TruncatedText } from "@/components/TruncatedText";
 import { contentTop, EmptyState } from "@/components/empty-state/EmptyState";
 import { useDirection } from "@/hooks/useDirection";
-import { AGENT_NETWORK_POLL_MS, useAgentNetworkInfo } from "./useAgentNetworkInfo";
+import { useNavSection } from "@/contexts/NavSectionContext";
+import { useStatus } from "@/contexts/StatusContext";
+import {
+    AGENT_NETWORK_POLL_MS,
+    isAgentNetworkAvailable,
+    useAgentNetworkInfo,
+} from "./useAgentNetworkInfo";
 import { HarnessSection } from "./HarnessSection";
 
 export const AgentNetworkUsage = () => {
+    const { status } = useStatus();
+    const { setSection } = useNavSection();
     const { info, error, loading, fetchCount, refresh } = useAgentNetworkInfo({
-        enabled: true,
+        enabled: status?.status === "Connected",
         pollMs: AGENT_NETWORK_POLL_MS,
     });
+    // Feature turned off while the tab is open: leave instead of waiting for
+    // the navigation's own poll to hide the tab.
+    const hidden = info !== null && !isAgentNetworkAvailable(info);
+    useEffect(() => {
+        if (hidden) setSection("peers");
+    }, [hidden, setSection]);
+    if (hidden) return null;
     return (
         <AgentNetworkUsageView
             info={info}
@@ -216,7 +231,7 @@ const LoadError = ({ error, onRetry }: { error: string; onRetry?: () => void }) 
 
 const ProviderSection = ({ provider, now }: { provider: AgentNetworkProvider; now: Date }) => {
     const { t, i18n } = useTranslation();
-    const reset = soonestReset(provider.limits);
+    const reset = blockedUntil(provider.limits);
     return (
         <section aria-label={provider.name} className={"min-w-0 px-6 py-4"}>
             <div className={"flex min-w-0 items-center gap-2"}>
@@ -259,14 +274,15 @@ const ProviderSection = ({ provider, now }: { provider: AgentNetworkProvider; no
 const UNITS = ["tokens", "usd"] as const;
 type Unit = (typeof UNITS)[number];
 
-// Every cap of a unit binds, so the one closest to running out is the one that
-// stops the user first. Ties go to the smaller cap.
+// Every request counts against all caps of a unit, so the cap with the least
+// left stops the user first. Ties go to the fuller cap.
 const tightest = (limits: AgentNetworkLimit[], unit: Unit): AgentNetworkLimit | null => {
     const ratio = (l: AgentNetworkLimit) => (l.cap > 0 ? l.used / l.cap : 1);
+    const left = (l: AgentNetworkLimit) => Math.max(0, l.cap - l.used);
     return (
         limits
             .filter((l) => l.unit === unit)
-            .sort((a, b) => ratio(b) - ratio(a) || a.cap - a.used - (b.cap - b.used))[0] ?? null
+            .sort((a, b) => left(a) - left(b) || ratio(b) - ratio(a))[0] ?? null
     );
 };
 
@@ -349,12 +365,13 @@ const barColor = (ratio: number): string => {
     return "bg-nb-gray-500";
 };
 
-// The reset of the used-up limit that comes back first, which is when requests work again.
-const soonestReset = (limits: AgentNetworkLimit[]): Date | null => {
+// Every listed limit binds, so requests work again only once the last
+// used-up limit has reset.
+const blockedUntil = (limits: AgentNetworkLimit[]): Date | null => {
     const times = limits
         .filter((l) => l.resetsAt && l.used >= l.cap)
         .map((l) => new Date(l.resetsAt).getTime());
-    return times.length > 0 ? new Date(Math.min(...times)) : null;
+    return times.length > 0 ? new Date(Math.max(...times)) : null;
 };
 
 const formatAmount = (unit: string, value: number, lang: string, compact: boolean): string => {
@@ -386,8 +403,10 @@ const formatReset = (at: Date, now: Date, lang: string): string => {
 
 // Largest whole unit, localized by the platform ("in 42 minutes", "dans 3 jours").
 const formatUntil = (at: Date, now: Date, lang: string): string => {
-    const seconds = Math.max(0, (at.getTime() - now.getTime()) / 1000);
+    const seconds = (at.getTime() - now.getTime()) / 1000;
     const rtf = new Intl.RelativeTimeFormat(lang, { numeric: "auto" });
+    // A reset already past (stale data or clock skew) reads "now", not "in 1 minute".
+    if (seconds <= 0) return rtf.format(0, "second");
     if (seconds >= 86_400) return rtf.format(Math.floor(seconds / 86_400), "day");
     if (seconds >= 3_600) return rtf.format(Math.floor(seconds / 3_600), "hour");
     return rtf.format(Math.max(1, Math.floor(seconds / 60)), "minute");

@@ -10,13 +10,11 @@ import (
 	"text/tabwriter"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 
-	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
@@ -58,25 +56,7 @@ func agentNetworkUsage(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return agentNetworkInfoError(err)
 	}
-	return renderAgentNetworkUsage(cmd.OutOrStdout(), resp, activeProfileEmail(), time.Now(), agentNetworkUsageJSON)
-}
-
-// activeProfileEmail returns the email the last SSO login stored on the
-// active profile. It is empty when the profile never logged in with SSO or
-// its state is not readable by this user, e.g. after a login under sudo.
-func activeProfileEmail() string {
-	pm := profilemanager.NewProfileManager()
-	profile, err := pm.GetActiveProfile()
-	if err != nil {
-		log.Debugf("failed to get active profile: %v", err)
-		return ""
-	}
-	state, err := pm.GetProfileState(profile.ID)
-	if err != nil {
-		log.Debugf("failed to get profile state: %v", err)
-		return ""
-	}
-	return state.Email
+	return renderAgentNetworkUsage(cmd.OutOrStdout(), resp, time.Now(), agentNetworkUsageJSON)
 }
 
 // agentNetworkInfoError turns the daemon's "client is not running" refusal
@@ -88,11 +68,12 @@ func agentNetworkInfoError(err error) error {
 	return daemonCallError("get Agent Networks info", err)
 }
 
-// renderAgentNetworkUsage prints resp for the user identified by email, which
-// may be empty. Reset countdowns are relative to now.
-func renderAgentNetworkUsage(w io.Writer, resp *proto.GetAgentNetworkInfoResponse, email string, now time.Time, asJSON bool) error {
+// renderAgentNetworkUsage prints resp. Reset countdowns are relative to now.
+// JSON reports every state with exit code 0; text mode fails when management
+// cannot answer.
+func renderAgentNetworkUsage(w io.Writer, resp *proto.GetAgentNetworkInfoResponse, now time.Time, asJSON bool) error {
 	if asJSON {
-		return writeAgentNetworkJSON(w, resp, email)
+		return writeAgentNetworkJSON(w, resp)
 	}
 	if resp.GetState() == proto.GetAgentNetworkInfoResponse_MANAGEMENT_UNSUPPORTED {
 		return errors.New(agentNetworkUnsupportedText)
@@ -100,7 +81,7 @@ func renderAgentNetworkUsage(w io.Writer, resp *proto.GetAgentNetworkInfoRespons
 
 	switch resp.GetState() {
 	case proto.GetAgentNetworkInfoResponse_OK:
-		writeAgentNetworkProviders(w, resp, email, now)
+		return writeAgentNetworkProviders(w, resp, now)
 	case proto.GetAgentNetworkInfoResponse_NOT_ENABLED:
 		fmt.Fprintln(w, agentNetworkNotEnabledText)
 	case proto.GetAgentNetworkInfoResponse_USER_BLOCKED:
@@ -111,34 +92,15 @@ func renderAgentNetworkUsage(w io.Writer, resp *proto.GetAgentNetworkInfoRespons
 	return nil
 }
 
-// writeAgentNetworkJSON prints the daemon response with the profile email
-// added in front as user_email. Like every unset response field, an empty
-// email is left out.
-func writeAgentNetworkJSON(w io.Writer, resp *proto.GetAgentNetworkInfoResponse, email string) error {
+// writeAgentNetworkJSON prints the daemon response as JSON.
+func writeAgentNetworkJSON(w io.Writer, resp *proto.GetAgentNetworkInfoResponse) error {
 	raw, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(resp)
 	if err != nil {
 		return fmt.Errorf("marshal response: %w", err)
 	}
-	// protojson randomizes its whitespace; compact it so the object is
-	// either "{}" or starts with `{"`, then re-indent for stable output.
-	var compact bytes.Buffer
-	if err := json.Compact(&compact, raw); err != nil {
-		return fmt.Errorf("compact response: %w", err)
-	}
-	doc := compact.Bytes()
-	if email != "" {
-		quoted, err := json.Marshal(email)
-		if err != nil {
-			return fmt.Errorf("marshal email: %w", err)
-		}
-		head := append([]byte(`{"user_email":`), quoted...)
-		if len(doc) > len("{}") {
-			head = append(head, ',')
-		}
-		doc = append(head, doc[1:]...)
-	}
+	// protojson randomizes its whitespace; re-indent for stable output.
 	var out bytes.Buffer
-	if err := json.Indent(&out, doc, "", "  "); err != nil {
+	if err := json.Indent(&out, raw, "", "  "); err != nil {
 		return fmt.Errorf("indent response: %w", err)
 	}
 	out.WriteByte('\n')
@@ -146,17 +108,13 @@ func writeAgentNetworkJSON(w io.Writer, resp *proto.GetAgentNetworkInfoResponse,
 	return err
 }
 
-func writeAgentNetworkProviders(w io.Writer, resp *proto.GetAgentNetworkInfoResponse, email string, now time.Time) {
+func writeAgentNetworkProviders(w io.Writer, resp *proto.GetAgentNetworkInfoResponse, now time.Time) error {
 	if len(resp.GetProviders()) == 0 {
-		fmt.Fprintln(w, agentNetworkNoProvidersText)
-		return
+		_, err := fmt.Fprintln(w, agentNetworkNoProvidersText)
+		return err
 	}
 
-	header := "Agent Networks usage"
-	if email != "" {
-		header += " for " + email
-	}
-	fmt.Fprintln(w, header)
+	fmt.Fprintln(w, "Agent Networks usage")
 	for _, p := range resp.GetProviders() {
 		fmt.Fprintf(w, "\n%s (%s)", p.GetName(), p.GetCatalogId())
 		if p.GetExhausted() {
@@ -166,16 +124,19 @@ func writeAgentNetworkProviders(w io.Writer, resp *proto.GetAgentNetworkInfoResp
 
 		switch {
 		case len(p.GetLimits()) > 0:
-			writeAgentNetworkLimits(w, p.GetLimits(), now)
+			if err := writeAgentNetworkLimits(w, p.GetLimits(), now); err != nil {
+				return err
+			}
 		case p.GetUnlimited():
 			fmt.Fprintln(w, "  Unlimited")
 		default:
 			fmt.Fprintln(w, "  No limits apply")
 		}
 	}
+	return nil
 }
 
-func writeAgentNetworkLimits(w io.Writer, limits []*proto.AgentNetworkLimit, now time.Time) {
+func writeAgentNetworkLimits(w io.Writer, limits []*proto.AgentNetworkLimit, now time.Time) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "  USED / CAP\tREMAINING\tRESETS")
 	for _, l := range limits {
@@ -190,16 +151,22 @@ func writeAgentNetworkLimits(w io.Writer, limits []*proto.AgentNetworkLimit, now
 			formatLimitReset(l, now),
 		)
 	}
-	_ = tw.Flush()
+	return tw.Flush()
 }
 
 func formatLimitAmount(unit proto.AgentNetworkLimit_Unit, v float64, withUnit bool) string {
-	if unit == proto.AgentNetworkLimit_USD {
+	var s, suffix string
+	switch unit {
+	case proto.AgentNetworkLimit_USD:
 		return fmt.Sprintf("$%.2f", v)
+	case proto.AgentNetworkLimit_TOKENS:
+		s, suffix = groupThousands(int64(v)), " tokens"
+	default:
+		// A unit newer than this client: show the number, not a guessed unit.
+		s, suffix = strconv.FormatFloat(v, 'f', -1, 64), " (unknown unit)"
 	}
-	s := groupThousands(int64(v))
 	if withUnit {
-		s += " tokens"
+		s += suffix
 	}
 	return s
 }
@@ -217,7 +184,12 @@ func formatLimitReset(l *proto.AgentNetworkLimit, now time.Time) string {
 		return "-"
 	}
 	at := l.GetResetsAt().AsTime()
-	return fmt.Sprintf("in %s (%s)", formatUntil(at.Sub(now)), at.Local().Format("2006-01-02 15:04 MST"))
+	stamp := at.Local().Format("2006-01-02 15:04 MST")
+	// A reset already past means the client clock is ahead of management's.
+	if !at.After(now) {
+		return fmt.Sprintf("now (%s)", stamp)
+	}
+	return fmt.Sprintf("in %s (%s)", formatUntil(at.Sub(now)), stamp)
 }
 
 func formatUntil(d time.Duration) string {

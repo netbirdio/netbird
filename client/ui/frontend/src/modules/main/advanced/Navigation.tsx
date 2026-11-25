@@ -7,6 +7,7 @@ import { useStatus } from "@/contexts/StatusContext";
 import { useRestrictions } from "@/contexts/RestrictionsContext";
 import { useDirection } from "@/hooks/useDirection";
 import {
+    AGENT_NETWORK_POLL_MS,
     isAgentNetworkAvailable,
     useAgentNetworkInfo,
 } from "@/modules/agent-network/useAgentNetworkInfo";
@@ -31,8 +32,12 @@ export const Navigation = () => {
         }
     }, [features.disableNetworks, section, setSection]);
 
-    // One fetch decides whether the tab exists; the tab itself polls while open.
-    const { info: agentNetworkInfo } = useAgentNetworkInfo({ enabled: isConnected });
+    // Polled so a failed first fetch, or an admin enabling or disabling the
+    // feature, shows or hides the tab without a reconnect.
+    const { info: agentNetworkInfo } = useAgentNetworkInfo({
+        enabled: isConnected,
+        pollMs: AGENT_NETWORK_POLL_MS,
+    });
     const showAgentNetwork = isAgentNetworkAvailable(agentNetworkInfo);
     useEffect(() => {
         if (agentNetworkInfo && !showAgentNetwork && section === "agentNetwork") {

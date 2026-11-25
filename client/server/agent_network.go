@@ -20,12 +20,14 @@ func (s *Server) GetAgentNetworkInfo(ctx context.Context, _ *proto.GetAgentNetwo
 	connectClient := s.connectClient
 	s.mutex.Unlock()
 
+	// Running but not connected yet is transient, so it is Unavailable rather
+	// than the FailedPrecondition that tells the user to run `netbird up`.
 	if connectClient == nil {
-		return nil, gstatus.Errorf(codes.FailedPrecondition, "client not initialized")
+		return nil, gstatus.Errorf(codes.Unavailable, "client is still starting, try again shortly")
 	}
 	engine := connectClient.Engine()
 	if engine == nil {
-		return nil, gstatus.Errorf(codes.FailedPrecondition, "engine not initialized")
+		return nil, gstatus.Errorf(codes.Unavailable, "client is still connecting, try again shortly")
 	}
 
 	return relayAgentNetworkInfo(ctx, engine.GetAgentNetworkInfo)

@@ -87,7 +87,7 @@ func selectionInput() PolicySelectionInput {
 }
 
 // spend books usage the way the proxy does: select, then record against the
-// selection.
+// selection. A denied request books nothing.
 func spend(t *testing.T, mgr *managerImpl, tokens int64, usd float64) {
 	t.Helper()
 	spendAs(t, mgr, selectionInput(), tokens, usd)
@@ -98,6 +98,9 @@ func spendAs(t *testing.T, mgr *managerImpl, in PolicySelectionInput, tokens int
 	ctx := context.Background()
 	res, err := mgr.SelectPolicyForRequest(ctx, in)
 	require.NoError(t, err)
+	if !res.Allow {
+		return
+	}
 	require.NoError(t, mgr.RecordUsage(ctx, RecordUsageInput{
 		AccountID: in.AccountID, UserID: in.UserID, GroupIDs: in.GroupIDs,
 		AttributionGroupID: res.AttributionGroupID, WindowSeconds: res.WindowSeconds,
@@ -123,9 +126,14 @@ func allowanceFor(t *testing.T, mgr *managerImpl, peerID string) *types.Provider
 
 func TestAllowance_RealStore_PolicyUserCap(t *testing.T) {
 	mgr, _ := allowanceFixture(t, []*types.Policy{allowPolicy("pol-user", []string{"grp-eng"}, tokenLimits(1000, 0, 3600))})
+	before := time.Now()
 	spend(t, mgr, 300, 0)
 
 	a := peerAllowance(t, mgr)
+	window := types.WindowStart(before, 3600)
+	if !types.WindowStart(time.Now(), 3600).Equal(window) {
+		t.Skip("the hourly window rolled over mid-test")
+	}
 	assert.False(t, a.Unlimited, "a capped policy is not unlimited")
 	assert.False(t, a.Exhausted, "300 of 1000 used")
 	require.Len(t, a.Limits, 1)
@@ -133,7 +141,7 @@ func TestAllowance_RealStore_PolicyUserCap(t *testing.T) {
 	assert.Equal(t, types.AllowanceUnitTokens, l.Unit)
 	assert.Equal(t, 1000.0, l.Cap)
 	assert.Equal(t, 300.0, l.Used)
-	assert.Equal(t, types.WindowStart(time.Now(), 3600).Add(time.Hour), l.ResetsAt, "resets at the end of the epoch-aligned window")
+	assert.Equal(t, window.Add(time.Hour), l.ResetsAt, "resets at the end of the epoch-aligned window")
 }
 
 func TestAllowance_RealStore_PolicyGroupCap(t *testing.T) {
