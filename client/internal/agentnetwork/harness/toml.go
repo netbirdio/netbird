@@ -43,6 +43,8 @@ type tomlFile struct {
 	// dotted holds the pathKey of every table a dotted key defines. TOML
 	// does not let a later [header] define such a table again.
 	dotted map[string]bool
+	// arrays holds the pathKey of every array of tables.
+	arrays map[string]bool
 	// topEnd is the last line of the top-level key/values, -1 when none.
 	topEnd int
 }
@@ -68,6 +70,7 @@ func parseTOML(data []byte) (*tomlFile, error) {
 		doc:    map[string]any{},
 		spans:  map[string]tomlSpan{},
 		dotted: map[string]bool{},
+		arrays: map[string]bool{},
 		topEnd: -1,
 	}
 	if text != "" {
@@ -89,8 +92,7 @@ func parseTOML(data []byte) (*tomlFile, error) {
 			table, err = f.arrayHeader(i, trimmed)
 			inArray = true
 		case trimmed[0] == '[':
-			table, err = f.tableHeader(i, trimmed)
-			inArray = false
+			table, inArray, err = f.tableHeader(i, trimmed)
 		default:
 			i, err = f.keyValue(i, table, inArray)
 		}
@@ -102,7 +104,7 @@ func parseTOML(data []byte) (*tomlFile, error) {
 }
 
 // arrayHeader records an array of tables as one raw value; NetBird never
-// writes inside one.
+// writes inside one, or inside the tables nested under it.
 func (f *tomlFile) arrayHeader(i int, line string) ([]string, error) {
 	path, rest, err := parseTOMLKey(line[2:])
 	if err != nil {
@@ -111,28 +113,49 @@ func (f *tomlFile) arrayHeader(i int, line string) ([]string, error) {
 	if !strings.HasPrefix(rest, "]]") || !tomlBlank(rest[2:]) {
 		return nil, errors.New("malformed array of tables header")
 	}
+	f.sections = append(f.sections, tomlSection{path: path, array: true, header: i, lastKey: i})
+	if f.underArray(path) {
+		return path, nil
+	}
+	f.arrays[pathKey(path)] = true
 	if _, present, _ := getPath(f.doc, path); !present {
 		if err := setPath(f.doc, path, tomlRaw("[[array of tables]]")); err != nil {
 			return nil, err
 		}
 	}
-	f.sections = append(f.sections, tomlSection{path: path, array: true, header: i, lastKey: i})
 	return path, nil
 }
 
-func (f *tomlFile) tableHeader(i int, line string) ([]string, error) {
+// tableHeader returns the table's path and whether it is nested under an
+// array of tables, whose contents are skipped like the array's own.
+func (f *tomlFile) tableHeader(i int, line string) ([]string, bool, error) {
 	path, rest, err := parseTOMLKey(line[1:])
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if !strings.HasPrefix(rest, "]") || !tomlBlank(rest[1:]) {
-		return nil, errors.New("malformed table header")
+		return nil, false, errors.New("malformed table header")
+	}
+	if f.underArray(path) {
+		f.sections = append(f.sections, tomlSection{path: path, array: true, header: i, lastKey: i})
+		return path, true, nil
 	}
 	if err := ensureTable(f.doc, path); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	f.sections = append(f.sections, tomlSection{path: path, header: i, lastKey: i})
-	return path, nil
+	return path, false, nil
+}
+
+// underArray reports whether path is nested under an array of tables, so it
+// belongs to the array's last element.
+func (f *tomlFile) underArray(path []string) bool {
+	for n := 1; n < len(path); n++ {
+		if f.arrays[pathKey(path[:n])] {
+			return true
+		}
+	}
+	return false
 }
 
 // keyValue parses the key/value starting on line i and returns the line it

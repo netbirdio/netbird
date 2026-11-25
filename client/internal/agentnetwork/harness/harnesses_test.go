@@ -625,6 +625,44 @@ func TestCodexTOMLDottedKeys(t *testing.T) {
 	}
 }
 
+// TestCodexTOMLArrayOfTables covers tables nested under an array of tables,
+// which belong to its last element. NetBird never writes inside them, so they
+// are kept as they are.
+func TestCodexTOMLArrayOfTables(t *testing.T) {
+	h := newDefHost(t, codex)
+	file := h.files()[0]
+	orig := `[[profiles]]
+name = "a"
+
+[profiles.env]
+X = "1"
+
+[[profiles.hooks]]
+cmd = "x"
+
+[[profiles]]
+name = "b"
+
+[tui]
+theme = "dark"
+
+[profiles.limits]
+max = 2
+`
+	require.NoError(t, toml.Unmarshal([]byte(orig), &map[string]any{}), "the input is valid TOML")
+	writeFile(t, file, orig, 0o600)
+
+	h.apply(t, h.render(t, "openai", "gpt-5.5"), false)
+	out := readFile(t, file)
+	var doc map[string]any
+	require.NoError(t, toml.Unmarshal([]byte(out), &doc), "the written file is valid TOML:\n%s", out)
+	assert.Equal(t, "netbird", doc["model_provider"], "setup applied:\n%s", out)
+	assert.Len(t, doc["profiles"], 2, "the array of tables is kept:\n%s", out)
+
+	h.apply(t, nil, false)
+	assert.Equal(t, orig, readFile(t, file), "undo restores the file byte for byte")
+}
+
 func TestTOMLDecodeValues(t *testing.T) {
 	doc := decodeDoc(t, FormatTOML, `a = "x\ty"
 b = 'C:\path'
