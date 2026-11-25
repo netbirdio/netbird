@@ -5,8 +5,13 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPrepareURL(t *testing.T) {
@@ -170,4 +175,55 @@ func TestDialByIPSendsServerNameAsHost(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWriteTimesOutWhenPeerStopsReading(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		// The server never reads, so the client's writes back up in the TCP
+		// buffers until one of them blocks.
+		<-release
+		_ = c.CloseNow()
+	}))
+	t.Cleanup(func() {
+		close(release)
+		srv.Close()
+	})
+
+	dialCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, err := (Dialer{}).Dial(dialCtx, "rel://"+srv.Listener.Addr().String(), "")
+	require.NoError(t, err, "dial the server that never reads")
+	t.Cleanup(func() {
+		_ = conn.Close()
+	})
+
+	wsConn, ok := conn.(*Conn)
+	require.True(t, ok, "the dialer must return a ws connection")
+	wsConn.writeTimeout = 200 * time.Millisecond
+
+	writeErr := make(chan error, 1)
+	go func() {
+		payload := make([]byte, 64*1024)
+		for {
+			if _, err := conn.Write(payload); err != nil {
+				writeErr <- err
+				return
+			}
+		}
+	}()
+
+	select {
+	case err := <-writeErr:
+		assert.ErrorIs(t, err, os.ErrDeadlineExceeded, "a blocked write must end with the write timeout")
+	case <-time.After(10 * time.Second):
+		t.Fatal("write did not return although the peer stopped reading")
+	}
+
+	_, err = conn.Write([]byte("x"))
+	assert.ErrorIs(t, err, net.ErrClosed, "the connection must be closed once a write has timed out")
 }

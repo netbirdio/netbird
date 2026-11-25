@@ -103,6 +103,42 @@ func (m *influxDBMetrics) RecordSyncDuration(_ context.Context, agentInfo AgentI
 	m.trimLocked()
 }
 
+func (m *influxDBMetrics) RecordVNCSessionTick(_ context.Context, agentInfo AgentInfo, tick VNCSessionTick) {
+	tags := fmt.Sprintf("deployment_type=%s,version=%s,os=%s,arch=%s,peer_id=%s",
+		agentInfo.DeploymentType.String(),
+		agentInfo.Version,
+		agentInfo.OS,
+		agentInfo.Arch,
+		agentInfo.peerID,
+	)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	fields := map[string]float64{
+		"period_seconds":     tick.Period.Seconds(),
+		"bytes_out":          float64(tick.BytesOut),
+		"writes":             float64(tick.Writes),
+		"max_write_bytes":    float64(tick.MaxWriteBytes),
+		"write_time_seconds": float64(tick.WriteNanos) / 1e9,
+	}
+	// Left out rather than written as zero when they were not observed, so a
+	// service-mode session does not read as one that sent no updates.
+	if tick.FBUsTracked {
+		fields["fbus"] = float64(tick.FBUs)
+		fields["max_fbu_bytes"] = float64(tick.MaxFBUBytes)
+		fields["max_fbu_rects"] = float64(tick.MaxFBURects)
+	}
+
+	m.samples = append(m.samples, influxSample{
+		measurement: "netbird_vnc_traffic",
+		tags:        tags,
+		fields:      fields,
+		timestamp:   time.Now(),
+	})
+	m.trimLocked()
+}
+
 func (m *influxDBMetrics) RecordSyncPhase(_ context.Context, agentInfo AgentInfo, phase string, duration time.Duration) {
 	tags := fmt.Sprintf("deployment_type=%s,version=%s,os=%s,arch=%s,peer_id=%s,phase=%s",
 		agentInfo.DeploymentType.String(),

@@ -4,7 +4,10 @@ package agentnetwork
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -21,9 +24,9 @@ import (
 //     Harness peers join with a setup key, so they have no owning user;
 //     management answers them from their peer groups, so setup writes
 //     settings.json into CLAUDE_CONFIG_DIR with the endpoint and model.
-//   - The values setup renders for an Anthropic provider work through the
-//     endpoint: base URL as-is, the apiKeyHelper's "-" as the only credential,
-//     and the provider's model. This is the request Claude Code makes.
+//   - The values in that settings.json work through the endpoint: its base
+//     URL, the output of its apiKeyHelper as the only credential, and its
+//     model. This is the request Claude Code makes.
 //   - The values setup renders for an OpenAI provider work too: the /v1 base
 //     with OpenCode's and pi's placeholder key on Chat Completions, and Codex's
 //     Responses request with no credential at all.
@@ -81,27 +84,45 @@ func TestHarnessSetupClaudeCode(t *testing.T) {
 
 	endpoint, proxyIP, cl, _ := connectClient(t, ctx, "harness-setup", sk.Key)
 
+	// What setup wrote, as Claude Code reads it.
+	var written struct {
+		APIKeyHelper string            `json:"apiKeyHelper"`
+		Model        string            `json:"model"`
+		Env          map[string]string `json:"env"`
+	}
 	t.Run("setup-key peer is set up", func(t *testing.T) {
-		code, out, err := cl.Exec(ctx, "sh", "-c",
-			"CLAUDE_CONFIG_DIR=/tmp/claude netbird agent-network setup claude-code; echo exit=$?; cat /tmp/claude/settings.json 2>&1; true")
+		code, out, err := cl.Exec(ctx, "sh", "-c", "CLAUDE_CONFIG_DIR=/tmp/claude netbird agent-network setup claude-code")
 		require.NoError(t, err, "exec setup in the client")
-		require.Equal(t, 0, code, out)
-		assert.Contains(t, out, "exit=0", "setup succeeds for a setup-key peer")
-		assert.Contains(t, out, `"ANTHROPIC_BASE_URL"`, "settings.json points Claude Code at the endpoint")
-		assert.Contains(t, out, `"`+matrixAnthropicModel+`"`, "settings.json carries the provider's model")
-		assert.Contains(t, out, `"apiKeyHelper"`, "settings.json carries the placeholder key helper")
+		require.Equal(t, 0, code, "setup succeeds for a setup-key peer: %s", out)
+
+		code, out, err = cl.Exec(ctx, "cat", "/tmp/claude/settings.json")
+		require.NoError(t, err, "exec cat in the client")
+		require.Equal(t, 0, code, "settings.json is written: %s", out)
+		require.NoError(t, json.Unmarshal([]byte(out), &written), "settings.json is JSON: %s", out)
+		assert.Equal(t, matrixAnthropicModel, written.Model, "settings.json carries the provider's model")
+		assert.NotEmpty(t, written.APIKeyHelper, "settings.json carries the placeholder key helper")
 	})
 
 	t.Run("rendered values reach the provider", func(t *testing.T) {
-		body := `{"model":"` + matrixAnthropicModel + `","max_tokens":32,"messages":[{"role":"user","content":"Say hello in one word."}]}`
+		require.NotNil(t, written.Env, "setup must have written settings.json")
+		base, err := url.Parse(written.Env["ANTHROPIC_BASE_URL"])
+		require.NoError(t, err, "parse the rendered base URL")
+		assert.Equal(t, "https", base.Scheme, "the base URL is HTTPS")
+		assert.Equal(t, endpoint, base.Host, "the base URL points at the endpoint")
+
+		// Claude Code runs the apiKeyHelper and sends its output as the key.
+		code, key, err := cl.Exec(ctx, "sh", "-c", written.APIKeyHelper)
+		require.NoError(t, err, "exec the key helper in the client")
+		require.Equal(t, 0, code, "the key helper runs: %s", key)
+
+		body := `{"model":"` + written.Model + `","max_tokens":32,"messages":[{"role":"user","content":"Say hello in one word."}]}`
 		code, resp := callUntil(t, func() (int, string, error) {
-			return cl.PostJSON(ctx, endpoint, proxyIP, "/v1/messages", body, []string{
+			return cl.PostJSON(ctx, base.Host, proxyIP, strings.TrimRight(base.Path, "/")+"/v1/messages", body, []string{
 				"anthropic-version: 2023-06-01",
-				// Claude Code sends the apiKeyHelper output as the API key.
-				"x-api-key: -",
+				"x-api-key: " + strings.TrimSpace(key),
 			})
 		}, http.StatusOK)
-		assert.Equal(t, http.StatusOK, code, "the placeholder key and base URL work through the endpoint: %s", resp)
+		assert.Equal(t, http.StatusOK, code, "the rendered base URL, key and model work through the endpoint: %s", resp)
 	})
 
 	t.Run("rendered OpenAI values reach the provider", func(t *testing.T) {

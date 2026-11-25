@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"unicode/utf8"
 )
 
 // codec reads and writes one config format as a tree of maps. encode gets
@@ -33,10 +34,14 @@ func codecFor(f Format) codec {
 }
 
 // decodeJSONDoc parses strict JSON, keeping numbers as written. An empty
-// file is an empty object.
+// file is an empty object. Invalid UTF-8 is refused: the decoder would turn
+// it into U+FFFD and the rewrite would save that.
 func decodeJSONDoc(data []byte) (map[string]any, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return map[string]any{}, nil
+	}
+	if !utf8.Valid(data) {
+		return nil, errors.New("not valid UTF-8")
 	}
 	var doc map[string]any
 	if err := decodeValue(data, &doc); err != nil {
@@ -48,9 +53,9 @@ func decodeJSONDoc(data []byte) (map[string]any, error) {
 	return doc, nil
 }
 
-// encodeJSONDoc writes 2-space indented JSON.
-// ponytail: object keys come out sorted, not in the file's order; an
-// order-preserving decoder is the upgrade if users mind the reshuffle.
+// encodeJSONDoc writes 2-space indented JSON. Object keys come out sorted,
+// not in the file's order: the decoder keeps no order, and the backup holds
+// the original layout.
 func encodeJSONDoc(doc map[string]any) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)

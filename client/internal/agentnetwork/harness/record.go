@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 )
@@ -49,6 +50,16 @@ func LoadRecord(path string) (*Record, error) {
 	if rec.Harnesses == nil {
 		rec.Harnesses = map[string]*Entry{}
 	}
+	for id, e := range rec.Harnesses {
+		if e == nil {
+			continue
+		}
+		for file, fr := range e.Files {
+			if fr == nil {
+				return nil, fmt.Errorf("%s: the %s entry for %s is null, fix or delete the record", path, id, file)
+			}
+		}
+	}
 	return rec, rec.compact()
 }
 
@@ -56,6 +67,9 @@ func LoadRecord(path string) (*Record, error) {
 // byte for byte with their canonical form.
 func (r *Record) compact() error {
 	for _, e := range r.Harnesses {
+		if e == nil {
+			continue
+		}
 		for _, fr := range e.Files {
 			for i := range fr.Keys {
 				if err := compactKey(&fr.Keys[i]); err != nil {
