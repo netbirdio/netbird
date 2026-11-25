@@ -29,7 +29,11 @@ const ROW_BUTTON_CLASS = "h-8 py-0";
 export const HarnessSection = ({ refreshKey }: SectionProps) => {
     const { t } = useTranslation();
     const [harnesses, setHarnesses] = useState<AgentNetworkHarness[] | null>(null);
-    const [error, setError] = useState<string | null>(null);
+    // A load error clears on the next good load; an operation error stays
+    // until the user starts another operation, so the reload after a failed
+    // disconnect does not hide it.
+    const [loadError, setLoadError] = useState<string | null>(null);
+    const [opError, setOpError] = useState<string | null>(null);
     const [editing, setEditing] = useState<AgentNetworkHarness | null>(null);
     const [undoing, setUndoing] = useState<string | null>(null);
     const [kept, setKept] = useState<Kept | null>(null);
@@ -37,9 +41,9 @@ export const HarnessSection = ({ refreshKey }: SectionProps) => {
     const load = useCallback(async () => {
         try {
             setHarnesses(await AgentNetworkSvc.Harnesses());
-            setError(null);
+            setLoadError(null);
         } catch (e: unknown) {
-            setError(formatErrorMessage(e));
+            setLoadError(formatErrorMessage(e));
         }
     }, []);
 
@@ -50,12 +54,13 @@ export const HarnessSection = ({ refreshKey }: SectionProps) => {
     const undo = async (h: AgentNetworkHarness) => {
         setUndoing(h.id);
         setKept(null);
+        setOpError(null);
         try {
             const plan = await AgentNetworkSvc.UndoHarness(h.id);
             const keys = plan.changes.filter((c) => c.action === "keep").map((c) => c.key);
             if (keys.length > 0) setKept({ harness: h.id, keys });
         } catch (e: unknown) {
-            setError(formatErrorMessage(e));
+            setOpError(formatErrorMessage(e));
         } finally {
             setUndoing(null);
             void load();
@@ -74,7 +79,7 @@ export const HarnessSection = ({ refreshKey }: SectionProps) => {
                 {t("agentNetwork.harness.title")}
             </h2>
             <HelpText className={"mb-3"}>{t("agentNetwork.harness.description")}</HelpText>
-            {error && (
+            {(loadError || opError) && (
                 <div
                     role={"alert"}
                     className={
@@ -83,7 +88,8 @@ export const HarnessSection = ({ refreshKey }: SectionProps) => {
                 >
                     <div className={"min-w-0 flex-1"}>
                         {!harnesses && <p>{t("agentNetwork.harness.loadError")}</p>}
-                        <p className={"break-words select-text"}>{error}</p>
+                        {opError && <p className={"break-words select-text"}>{opError}</p>}
+                        {loadError && <p className={"break-words select-text"}>{loadError}</p>}
                     </div>
                     {!harnesses && (
                         <Button
@@ -97,7 +103,7 @@ export const HarnessSection = ({ refreshKey }: SectionProps) => {
                     )}
                 </div>
             )}
-            {!harnesses && !error && <ListSkeleton />}
+            {!harnesses && !loadError && <ListSkeleton />}
             {harnesses && (
                 <ul className={LIST_CLASS}>
                     {harnesses.map((h) => (
@@ -108,6 +114,7 @@ export const HarnessSection = ({ refreshKey }: SectionProps) => {
                             kept={kept?.harness === h.id ? kept.keys : null}
                             onConfigure={() => {
                                 setKept(null);
+                                setOpError(null);
                                 setEditing(h);
                             }}
                             onUndo={() => void undo(h)}
