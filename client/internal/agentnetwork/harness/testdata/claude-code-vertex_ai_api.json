@@ -1,0 +1,10 @@
+{
+  "env": {
+    "ANTHROPIC_MODEL": "claude-sonnet-4-5",
+    "ANTHROPIC_VERTEX_BASE_URL": "https://an.example.netbird.test/v1",
+    "ANTHROPIC_VERTEX_PROJECT_ID": "my-gcp-project",
+    "CLAUDE_CODE_SKIP_VERTEX_AUTH": "1",
+    "CLAUDE_CODE_USE_VERTEX": "1",
+    "CLOUD_ML_REGION": "global"
+  }
+}

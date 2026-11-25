@@ -1,0 +1,7 @@
+{
+  "apiKeyHelper": "echo '-'",
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://an.example.netbird.test"
+  },
+  "model": "claude-opus-5"
+}
