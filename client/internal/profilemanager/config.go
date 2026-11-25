@@ -94,6 +94,7 @@ type ConfigInput struct {
 	DisableClientRoutes *bool
 	DisableServerRoutes *bool
 	DisableDNS          *bool
+	DNSPrimaryMode      *string
 	DisableFirewall     *bool
 	BlockLANAccess      *bool
 	BlockInbound        *bool
@@ -814,6 +815,11 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			log.Infof("enabling DNS configuration")
 		}
 		config.DisableDNS = *input.DisableDNS
+		updated = true
+	}
+	if input.DNSPrimaryMode != nil && *input.DNSPrimaryMode != config.DNSPrimaryMode {
+		log.Infof("updating DNS primary mode to %q (old value %q)", *input.DNSPrimaryMode, config.DNSPrimaryMode)
+		config.DNSPrimaryMode = *input.DNSPrimaryMode
 		updated = true
 	}
 

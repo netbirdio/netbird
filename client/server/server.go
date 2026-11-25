@@ -667,6 +667,9 @@ func (s *Server) setConfigInputFromRequest(msg *proto.SetConfigRequest, resolved
 	config.DisableClientRoutes = msg.DisableClientRoutes
 	config.DisableServerRoutes = msg.DisableServerRoutes
 	config.DisableDNS = msg.DisableDns
+	if msg.DnsPrimaryMode != nil {
+		config.DNSPrimaryMode = msg.DnsPrimaryMode
+	}
 	config.DisableFirewall = msg.DisableFirewall
 	config.BlockLANAccess = msg.BlockLanAccess
 	config.DisableNotifications = msg.DisableNotifications
@@ -2604,6 +2607,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		DisableNotifications:          disableNotifications,
 		NetworkMonitor:                networkMonitor,
 		DisableDns:                    disableDNS,
+		DnsPrimaryMode:                cfg.DNSPrimaryMode,
 		DisableClientRoutes:           disableClientRoutes,
 		DisableServerRoutes:           disableServerRoutes,
 		DisableIpv6:                   disableIPv6,

@@ -77,6 +77,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	disableClientRoutes := true
 	disableServerRoutes := true
 	disableDNS := true
+	dnsPrimaryMode := "never"
 	disableFirewall := true
 	blockLANAccess := true
 	disableNotifications := true
@@ -106,6 +107,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 		DisableClientRoutes:  &disableClientRoutes,
 		DisableServerRoutes:  &disableServerRoutes,
 		DisableDns:           &disableDNS,
+		DnsPrimaryMode:       &dnsPrimaryMode,
 		DisableFirewall:      &disableFirewall,
 		BlockLanAccess:       &blockLANAccess,
 		DisableNotifications: &disableNotifications,
@@ -161,6 +163,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	require.Equal(t, disableClientRoutes, cfg.DisableClientRoutes)
 	require.Equal(t, disableServerRoutes, cfg.DisableServerRoutes)
 	require.Equal(t, disableDNS, cfg.DisableDNS)
+	require.Equal(t, dnsPrimaryMode, cfg.DNSPrimaryMode)
 	require.Equal(t, disableFirewall, cfg.DisableFirewall)
 	require.Equal(t, blockLANAccess, cfg.BlockLANAccess)
 	require.NotNil(t, cfg.DisableNotifications)
@@ -217,6 +220,7 @@ func verifyAllFieldsCovered(t *testing.T, req *proto.SetConfigRequest) {
 		"DisableClientRoutes":           true,
 		"DisableServerRoutes":           true,
 		"DisableDns":                    true,
+		"DnsPrimaryMode":                true,
 		"DisableFirewall":               true,
 		"BlockLanAccess":                true,
 		"DisableNotifications":          true,
@@ -304,6 +308,7 @@ func TestCLIFlags_MappedToSetConfig(t *testing.T) {
 	// SetConfigRequest fields that don't have CLI flags (settable only via UI or other means).
 	fieldsWithoutCLIFlags := map[string]bool{
 		"DisableNotifications":  true, // Only settable via UI
+		"DnsPrimaryMode":        true, // Only settable via the UI
 		"LazyConnectionEnabled": true, // deprecated: no longer settable (managed by server + NB_LAZY_CONN)
 		"AdminURL":              true, // deprecated: the admin-url flag is no longer functional
 	}

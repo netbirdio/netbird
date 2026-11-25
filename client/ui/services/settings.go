@@ -71,6 +71,7 @@ type Config struct {
 	DisableClientRoutes           bool   `json:"disableClientRoutes"`
 	DisableServerRoutes           bool   `json:"disableServerRoutes"`
 	DisableDNS                    bool   `json:"disableDns"`
+	DNSPrimaryMode                string `json:"dnsPrimaryMode"`
 	DisableIPv6                   bool   `json:"disableIpv6"`
 	BlockLANAccess                bool   `json:"blockLanAccess"`
 	EnableSSHRoot                 bool   `json:"enableSshRoot"`
@@ -103,6 +104,7 @@ type SetConfigParams struct {
 	DisableClientRoutes           *bool   `json:"disableClientRoutes,omitempty"`
 	DisableServerRoutes           *bool   `json:"disableServerRoutes,omitempty"`
 	DisableDNS                    *bool   `json:"disableDns,omitempty"`
+	DNSPrimaryMode                *string `json:"dnsPrimaryMode,omitempty"`
 	DisableIPv6                   *bool   `json:"disableIpv6,omitempty"`
 	DisableFirewall               *bool   `json:"disableFirewall,omitempty"`
 	BlockLANAccess                *bool   `json:"blockLanAccess,omitempty"`
@@ -168,6 +170,7 @@ func (s *Settings) GetConfig(ctx context.Context, p ConfigParams) (Config, error
 		DisableClientRoutes:           resp.GetDisableClientRoutes(),
 		DisableServerRoutes:           resp.GetDisableServerRoutes(),
 		DisableDNS:                    resp.GetDisableDns(),
+		DNSPrimaryMode:                resp.GetDnsPrimaryMode(),
 		DisableIPv6:                   resp.GetDisableIpv6(),
 		BlockLANAccess:                resp.GetBlockLanAccess(),
 		EnableSSHRoot:                 resp.GetEnableSSHRoot(),
@@ -204,6 +207,7 @@ func (s *Settings) SetConfig(ctx context.Context, p SetConfigParams) (SaveOutcom
 		DisableClientRoutes:           p.DisableClientRoutes,
 		DisableServerRoutes:           p.DisableServerRoutes,
 		DisableDns:                    p.DisableDNS,
+		DnsPrimaryMode:                p.DNSPrimaryMode,
 		DisableIpv6:                   p.DisableIPv6,
 		DisableFirewall:               p.DisableFirewall,
 		BlockLanAccess:                p.BlockLANAccess,
