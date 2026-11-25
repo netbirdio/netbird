@@ -89,3 +89,47 @@ func TestReconcilePeerAllowedIPsNoCounter(t *testing.T) {
 	require.NoError(t, m.ReconcilePeerAllowedIPs("peerA"))
 	assert.Empty(t, wg.added("peerA"))
 }
+
+// TestAllowedIPsIgnoresIPv6WithoutIPv6Overlay verifies routed v6 prefixes never reach WireGuard
+// while the interface has no v6 overlay address: the native firewall has no v6 rules then.
+func TestAllowedIPsIgnoresIPv6WithoutIPv6Overlay(t *testing.T) {
+	v4 := netip.MustParsePrefix("192.0.2.1/32")
+	v6 := netip.MustParsePrefix("2001:db8::1/128")
+
+	addr := wgaddr.MustParseWGAddress("100.64.0.1/16")
+	addrV6 := addr
+	addrV6.IPv6 = netip.MustParseAddr("fd00:6e62::1")
+	addrV6.IPv6Net = netip.MustParsePrefix("fd00:6e62::/64")
+
+	tests := []struct {
+		name string
+		addr wgaddr.Address
+		want []netip.Prefix
+	}{
+		{name: "no v6 overlay", addr: addr, want: []netip.Prefix{v4}},
+		{name: "v6 overlay", addr: addrV6, want: []netip.Prefix{v4, v6}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wg := &reconcileWGMock{addr: tt.addr}
+			m := &DefaultManager{wgInterface: wg}
+			m.setupRefCounters(true)
+
+			for _, prefix := range []netip.Prefix{v4, v6} {
+				_, err := m.allowedIPsRefCounter.Increment(prefix, "peerA")
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tt.want, wg.added("peerA"))
+
+			wg.adds = nil
+			require.NoError(t, m.ReconcilePeerAllowedIPs("peerA"))
+			assert.ElementsMatch(t, tt.want, wg.added("peerA"), "reconcile must not re-add ignored prefixes")
+
+			for _, prefix := range []netip.Prefix{v4, v6} {
+				_, err := m.allowedIPsRefCounter.Decrement(prefix, "peerA")
+				require.NoError(t, err)
+			}
+		})
+	}
+}

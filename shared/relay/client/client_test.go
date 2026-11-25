@@ -932,10 +932,17 @@ func TestClient_AuthenticatedClientTalksToLegacyClient(t *testing.T) {
 	require.NoError(t, clientAlice.Connect(ctx))
 	t.Cleanup(func() { _ = clientAlice.Close() })
 	assert.Equal(t, messages.ProtocolV2, clientAlice.CurrentSession().encoder.Version(), "the relay must select v2 for the authenticated client")
+	instanceURL := srv.InstanceURL()
+	aliceInstanceURL, err := clientAlice.ServerInstanceURL()
+	require.NoError(t, err)
+	assert.Equal(t, instanceURL.String(), aliceInstanceURL, "the v2 client must read the instance URL from the response envelope")
 
 	clientBob := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "bob", iface.DefaultMTU)
 	require.NoError(t, clientBob.Connect(ctx))
 	t.Cleanup(func() { _ = clientBob.Close() })
+	bobInstanceURL, err := clientBob.ServerInstanceURL()
+	require.NoError(t, err)
+	assert.Equal(t, instanceURL.String(), bobInstanceURL, "the v1 client must read the instance URL from the v1 response")
 
 	connAliceToBob, err := clientAlice.OpenConn(ctx, "bob")
 	require.NoError(t, err)

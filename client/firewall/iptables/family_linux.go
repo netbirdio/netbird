@@ -102,6 +102,10 @@ type family struct {
 	wgIface        iFaceMapper
 	v6             bool
 
+	// filterOnly limits the family to the filter table: it carries the default deny only, so
+	// there is nothing to route or NAT and no need for the nat and mangle tables.
+	filterOnly bool
+
 	// Peer ACL chain bookkeeping.
 	entries         aclEntries
 	optionalEntries map[chainKey][]entry
@@ -167,8 +171,10 @@ func (r *family) init(stateManager *statemanager.Manager) error {
 		return fmt.Errorf("create containers: %w", err)
 	}
 
-	if err := r.setupDataPlaneMark(); err != nil {
-		log.Errorf("failed to set up data plane mark: %v", err)
+	if !r.filterOnly {
+		if err := r.setupDataPlaneMark(); err != nil {
+			log.Errorf("failed to set up data plane mark: %v", err)
+		}
 	}
 
 	r.seedInitialEntries()
