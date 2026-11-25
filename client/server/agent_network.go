@@ -20,12 +20,14 @@ func (s *Server) GetAgentNetworkInfo(ctx context.Context, _ *proto.GetAgentNetwo
 	connectClient := s.connectClient
 	s.mutex.Unlock()
 
+	// Running but not connected yet is transient, so it is Unavailable rather
+	// than the FailedPrecondition that tells the user to run `netbird up`.
 	if connectClient == nil {
-		return nil, gstatus.Errorf(codes.FailedPrecondition, "client not initialized")
+		return nil, gstatus.Errorf(codes.Unavailable, "client is still starting, try again shortly")
 	}
 	engine := connectClient.Engine()
 	if engine == nil {
-		return nil, gstatus.Errorf(codes.FailedPrecondition, "engine not initialized")
+		return nil, gstatus.Errorf(codes.Unavailable, "client is still connecting, try again shortly")
 	}
 
 	return relayAgentNetworkInfo(ctx, engine.GetAgentNetworkInfo)
@@ -50,16 +52,32 @@ func relayAgentNetworkInfo(ctx context.Context, fetch agentNetworkInfoFetcher) (
 		Endpoint: info.GetEndpoint(),
 	}
 	for _, p := range info.GetProviders() {
-		resp.Providers = append(resp.Providers, &proto.AgentNetworkProvider{
-			Id:               p.GetId(),
-			Name:             p.GetName(),
-			CatalogId:        p.GetCatalogId(),
-			ApiFlavor:        p.GetApiFlavor(),
-			AllModelsAllowed: p.GetAllModelsAllowed(),
-			Models:           p.GetModels(),
-		})
+		resp.Providers = append(resp.Providers, agentNetworkProviderFromMgm(p))
 	}
 	return resp, nil
+}
+
+func agentNetworkProviderFromMgm(p *mgmProto.AgentNetworkProvider) *proto.AgentNetworkProvider {
+	out := &proto.AgentNetworkProvider{
+		Id:               p.GetId(),
+		Name:             p.GetName(),
+		CatalogId:        p.GetCatalogId(),
+		ApiFlavor:        p.GetApiFlavor(),
+		AllModelsAllowed: p.GetAllModelsAllowed(),
+		Models:           p.GetModels(),
+		Unlimited:        p.GetUnlimited(),
+		Exhausted:        p.GetExhausted(),
+	}
+	// The unit enum mirrors the management one value for value.
+	for _, l := range p.GetLimits() {
+		out.Limits = append(out.Limits, &proto.AgentNetworkLimit{
+			Unit:     proto.AgentNetworkLimit_Unit(l.GetUnit()),
+			Cap:      l.GetCap(),
+			Used:     l.GetUsed(),
+			ResetsAt: l.GetResetsAt(),
+		})
+	}
+	return out
 }
 
 func agentNetworkStateFromMgm(state mgmProto.GetAgentNetworkInfoResponse_State) proto.GetAgentNetworkInfoResponse_State {

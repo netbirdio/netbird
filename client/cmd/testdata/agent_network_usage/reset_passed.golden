@@ -1,0 +1,5 @@
+Agent Networks usage
+
+OpenAI (openai_api) - exhausted, requests are refused until a limit resets
+  USED / CAP            REMAINING  RESETS
+  1,000 / 1,000 tokens  0 tokens   now (2026-11-06 14:16 UTC)
