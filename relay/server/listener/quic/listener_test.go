@@ -25,7 +25,7 @@ import (
 func TestListener_ShutdownBeforeServe(t *testing.T) {
 	l := &Listener{Address: "127.0.0.1:0", TLSConfig: testTLSConfig(t)}
 	require.NoError(t, l.Bind())
-	addr := l.listener.Addr().String()
+	addr := l.sockets[0].LocalAddr.String()
 	require.NoError(t, l.Shutdown(context.Background()))
 
 	errChan := make(chan error, 1)
@@ -40,7 +40,7 @@ func TestListener_ShutdownBeforeServe(t *testing.T) {
 func TestListener_ShutdownStopsServe(t *testing.T) {
 	l := &Listener{Address: "127.0.0.1:0", TLSConfig: testTLSConfig(t)}
 	require.NoError(t, l.Bind())
-	addr := l.listener.Addr().String()
+	addr := l.sockets[0].LocalAddr.String()
 
 	accepted := make(chan relaylistener.Conn, 1)
 	errChan := make(chan error, 1)
@@ -84,7 +84,7 @@ func TestConn_WritesChunkedPeerStateMessages(t *testing.T) {
 		_ = l.Serve(func(conn relaylistener.Conn) { accepted <- conn })
 	}()
 
-	session := dialTestSession(t, l.listener.Addr().String())
+	session := dialTestSession(t, l.sockets[0].LocalAddr.String())
 	var conn relaylistener.Conn
 	select {
 	case conn = <-accepted:
