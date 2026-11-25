@@ -200,3 +200,36 @@ func TestPeerStatus_ApplyConnection(t *testing.T) {
 		})
 	}
 }
+
+func TestPeer_EventMeta(t *testing.T) {
+	p := &Peer{
+		Name:     "laptop",
+		DNSLabel: "laptop",
+		UserID:   "user-1",
+		Meta: PeerSystemMeta{
+			Hostname:           "laptop.local",
+			OS:                 "Fedora Linux",
+			OSVersion:          "41",
+			SystemSerialNumber: "SN-1234",
+		},
+	}
+
+	meta := p.EventMeta("netbird.cloud")
+
+	assert.Equal(t, "SN-1234", meta["serial_number"], "serial number should come from the system meta")
+	assert.Equal(t, "Fedora Linux", meta["os"], "os should come from the system meta")
+	assert.Equal(t, "41", meta["os_version"], "os version should come from the system meta")
+	assert.Equal(t, "laptop.local", meta["hostname"], "hostname should come from the system meta")
+	assert.Equal(t, "user-1", meta["user_id"], "user id should be the peer owner")
+	assert.Equal(t, "laptop.netbird.cloud", meta["fqdn"], "existing keys should be kept")
+}
+
+func TestPeer_EventMeta_NoUser(t *testing.T) {
+	// Peers added with a setup key have no owner, so the key is left out rather than empty.
+	p := &Peer{Name: "server", DNSLabel: "server"}
+
+	meta := p.EventMeta("netbird.cloud")
+
+	_, ok := meta["user_id"]
+	assert.False(t, ok, "user_id should be omitted for peers without a user")
+}

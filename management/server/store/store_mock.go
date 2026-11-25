@@ -983,6 +983,20 @@ func (mr *MockStoreMockRecorder) ExecuteInTransaction(ctx, f any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecuteInTransaction", reflect.TypeOf((*MockStore)(nil).ExecuteInTransaction), ctx, f)
 }
 
+// FillUserEmailAndName mocks base method.
+func (m *MockStore) FillUserEmailAndName(ctx context.Context, accountID, userID, email, name string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FillUserEmailAndName", ctx, accountID, userID, email, name)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// FillUserEmailAndName indicates an expected call of FillUserEmailAndName.
+func (mr *MockStoreMockRecorder) FillUserEmailAndName(ctx, accountID, userID, email, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FillUserEmailAndName", reflect.TypeOf((*MockStore)(nil).FillUserEmailAndName), ctx, accountID, userID, email, name)
+}
+
 // GetAccount mocks base method.
 func (m *MockStore) GetAccount(ctx context.Context, accountID string) (*types3.Account, error) {
 	m.ctrl.T.Helper()
@@ -3108,6 +3122,21 @@ func (m *MockStore) GetUserPeers(ctx context.Context, lockStrength LockingStreng
 func (mr *MockStoreMockRecorder) GetUserPeers(ctx, lockStrength, accountID, userID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserPeers", reflect.TypeOf((*MockStore)(nil).GetUserPeers), ctx, lockStrength, accountID, userID)
+}
+
+// GetUsersMissingEmailOrName mocks base method.
+func (m *MockStore) GetUsersMissingEmailOrName(ctx context.Context) ([]*types3.User, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUsersMissingEmailOrName", ctx)
+	ret0, _ := ret[0].([]*types3.User)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetUsersMissingEmailOrName indicates an expected call of GetUsersMissingEmailOrName.
+func (mr *MockStoreMockRecorder) GetUsersMissingEmailOrName(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUsersMissingEmailOrName", reflect.TypeOf((*MockStore)(nil).GetUsersMissingEmailOrName), ctx)
 }
 
 // GetZoneByDomain mocks base method.

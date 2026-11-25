@@ -193,13 +193,15 @@ message PeerKeys {
   bytes sshPubKey = 1;
   // wgPubKey represents a public WireGuard key of the peer. Can be absent.
   bytes wgPubKey = 2;
+  // authPubKey is the Ed25519 key the peer signs its Signal and Relay authentication with. Can be absent.
+  bytes authPubKey = 3;
 }
 
-// Environment is part of the PeerSystemMeta and describes the environment the agent is running in.
+// Environment is part of the PeerSystemMeta and describes the environment the client is running in.
 message Environment {
-  // cloud is the cloud provider the agent is running in if applicable.
+  // cloud is the cloud provider the client is running in if applicable.
   string cloud = 1;
-  // platform is the platform the agent is running on if applicable.
+  // platform is the platform the client is running on if applicable.
   string platform = 2;
 }
 
@@ -239,6 +241,8 @@ message Flags {
   // remote jobs (e.g. debug bundles). Reported so the dashboard can surface
   // peers that have opted out.
   bool remoteJobsAllowed = 17;
+
+  bool serverVNCAllowed = 18;
 }
 
 // PeerCapability represents a feature the client binary supports.
@@ -276,6 +280,7 @@ message PeerSystemMeta {
   repeated PeerCapability capabilities = 18;
   int32 syncMessageVersion = 19;
   repeated CertificateProof certificateProofs = 20;
+  string sysHardwareUUID = 21;
 }
 
 message LoginResponse {
@@ -338,6 +343,10 @@ message NetbirdConfig {
   FlowConfig flow = 5;
 
   MetricsConfig metrics = 6;
+
+  // authToken, when set, replaces the Relay token fields and makes the peer authenticate to
+  // Signal and Relay with it. Opaque to the peer.
+  bytes authToken = 7;
 }
 
 // HostConfig describes connection properties of some server (e.g. STUN, Signal, Management)
@@ -477,6 +486,9 @@ message NetworkMap {
 
   // SSHAuth represents SSH authorization configuration
   SSHAuth sshAuth = 13;
+
+  // VNCAuth represents VNC authorization configuration
+  VNCAuth vncAuth = 14;
 }
 
 message SSHAuth {
@@ -492,6 +504,42 @@ message SSHAuth {
 
 message MachineUserIndexes {
   repeated uint32 indexes = 1;
+}
+
+// VNCAuth represents VNC authorization configuration for a peer.
+message VNCAuth {
+  // AuthorizedUsers is a list of hashed user IDs authorized to access this peer via VNC
+  repeated bytes AuthorizedUsers = 2;
+
+  // MachineUsers maps OS user names to their corresponding indexes in the AuthorizedUsers list.
+  // Used in session mode to determine which OS user to create the virtual session as.
+  // The wildcard "*" allows any OS user.
+  map<string, MachineUserIndexes> machine_users = 3;
+
+  // SessionPubKeys are short-lived X25519 static keypairs the dashboard
+  // (or other temporary-access clients) registers per session. The
+  // daemon runs a Noise_IK handshake against the matching pubkey to
+  // authenticate the connection and resolve the pubkey back to a user.
+  repeated SessionPubKey session_pub_keys = 4;
+}
+
+// SessionPubKey binds an ephemeral X25519 static public key to a hashed
+// user identity so the daemon can authorize VNC connections that
+// complete a Noise_IK handshake with the matching private key.
+message SessionPubKey {
+  // PubKey is the 32-byte X25519 static public key.
+  bytes pub_key = 1;
+
+  // UserIDHash is the BLAKE2b-128 hash of the user ID this session
+  // belongs to, matching the entries in VNCAuth.AuthorizedUsers.
+  bytes user_id_hash = 2;
+
+  // DisplayName is a human-readable label for the user this session was
+  // issued to (typically the IDP display name, falling back to email).
+  // Used by the host peer's UI in the per-connection approval prompt so
+  // the user being asked can recognise the requester. May be empty when
+  // the management server has no user record for the session.
+  string display_name = 3;
 }
 
 // RemotePeerConfig represents a configuration of a remote peer.
@@ -675,6 +723,12 @@ enum RuleProtocol {
   // ships RAW policies — the client must see this protocol to derive
   // AuthorizedUsers locally.
   NETBIRD_SSH = 6;
+  // NETBIRD_VNC (types.PolicyRuleProtocolType "netbird-vnc") is the marker
+  // policy rule that authorizes the embedded VNC server, for the same reason
+  // NETBIRD_SSH is shipped: the components path ships RAW policies, so the
+  // client must see this protocol to derive VNCAuthorizedUsers and the VNC
+  // port scoping locally.
+  NETBIRD_VNC = 7;
 }
 
 enum RuleDirection {
@@ -879,7 +933,7 @@ message NetworkMapComponentsFull {
   // the peer has no custom zone records.
   string custom_zone_domain = 7;
 
-  // Deduplicated agent versions; PeerCompact.agent_version_idx indexes here.
+  // Deduplicated client versions; PeerCompact.agent_version_idx indexes here.
   // Empty string at index 0 if any peer has no version.
   repeated string agent_versions = 8;
 
@@ -1057,7 +1111,7 @@ message PeerCompact {
 
   // Mirror of types.Peer.Meta.Flags.ServerSSHAllowed. Read by Calculate()
   // when expanding TCP port-22 firewall rules — the native SSH companion
-  // (port 22022) is only added when this flag is set and the peer agent
+  // (port 22022) is only added when this flag is set and the peer client
   // version supports it.
   bool server_ssh_allowed = 13;
 
@@ -1065,6 +1119,11 @@ message PeerCompact {
   // ephemeral proxy peer on either endpoint default to lazy, so this bit
   // feeds the per-peer lazyState emitted in RemotePeerConfig.
   bool proxy_embedded = 14;
+
+  // Mirror of types.Peer.Status.LoginExpired. A flagged peer is expired
+  // regardless of last_login_unix_nano and the account's expiration settings,
+  // so the local peer's Calculate() lists it among the offline peers.
+  bool login_expired = 15;
 }
 
 // PolicyCompact is the compact form of a policy rule. Group references use
@@ -1117,6 +1176,14 @@ message PolicyCompact {
   // are dropped from sourcePeers). Match keys in
   // NetworkMapComponentsFull.posture_failed_peers.
   repeated string source_posture_check_ids = 13;
+
+  // Ephemeral X25519 static public key (base64) the dashboard registered for
+  // a temporary VNC session, plus the label shown in the host's approval
+  // prompt. Only set on NETBIRD_VNC rules; Calculate() turns them into the
+  // NetworkMap's VNCSessionPubKeys, which is what the daemon's Noise_IK
+  // authorizer accepts a client on.
+  string session_pub_key = 14;
+  string session_display_name = 15;
 }
 
 // ResourceCompact mirrors types.Resource. Used by PolicyCompact to carry
@@ -1226,6 +1293,10 @@ message NetworkResourceRaw {
   string domain_value = 7;  // resource.Domain
   string prefix_cidr = 8;
   bool enabled = 9;
+  // Only takes effect on exit node resources (0.0.0.0/0 or ::/0): clients that know this
+  // field leave them unselected until the user selects them. Other resources are always
+  // applied, and older clients ignore the field.
+  bool skip_auto_apply = 10;
 }
 
 // NetworkRouterList carries the routers backing one network.

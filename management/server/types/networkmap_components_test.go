@@ -121,6 +121,49 @@ func TestNetworkMapComponents_LoginExpiration(t *testing.T) {
 	assert.NotContains(t, peerIDs(nm.Peers), "peer-dst-1", "expired peer should NOT be in active Peers")
 }
 
+func TestNetworkMapComponents_LoginExpiredFlag(t *testing.T) {
+	account := createComponentTestAccount()
+	account.Settings.PeerLoginExpirationEnabled = false
+	account.Peers["peer-dst-1"].Status.LoginExpired = true
+
+	nm := networkMapFromComponents(t, account, "peer-src-1", allPeersValidated(account))
+
+	assert.Contains(t, peerIDs(nm.OfflinePeers), "peer-dst-1", "peer flagged login-expired should be in OfflinePeers")
+	assert.NotContains(t, peerIDs(nm.Peers), "peer-dst-1", "peer flagged login-expired should NOT be in active Peers")
+}
+
+func TestNetworkMapComponents_LoginExpiredResourceSourcePeer(t *testing.T) {
+	account := createComponentTestAccount()
+	account.Peers["peer-src-2"].Status.LoginExpired = true
+
+	nm := networkMapFromComponents(t, account, "peer-router-1", allPeersValidated(account))
+
+	assert.NotContains(t, peerIDs(nm.Peers), "peer-src-2", "expired resource source peer should NOT be in the router's Peers")
+	assert.Contains(t, peerIDs(nm.OfflinePeers), "peer-src-2", "expired resource source peer should be in OfflinePeers")
+	assert.Contains(t, peerIDs(nm.Peers), "peer-src-1", "valid resource source peer should stay in the router's Peers")
+
+	expiredRange := account.Peers["peer-src-2"].IP.String() + "/32"
+	validRange := account.Peers["peer-src-1"].IP.String() + "/32"
+	var sources []string
+	for _, rule := range nm.RoutesFirewallRules {
+		sources = append(sources, rule.SourceRanges...)
+	}
+	assert.NotContains(t, sources, expiredRange, "expired peer should not be a route firewall rule source")
+	assert.Contains(t, sources, validRange, "valid peer should remain a route firewall rule source")
+}
+
+func TestNetworkMapComponents_LoginExpiredRoutingPeerIsOffline(t *testing.T) {
+	account := createComponentTestAccount()
+	account.Settings.PeerLoginExpirationEnabled = false
+	account.Peers["peer-router-1"].Status.LoginExpired = true
+	account.Groups["group-src"].Peers = append(account.Groups["group-src"].Peers, "peer-router-1")
+
+	nm := networkMapFromComponents(t, account, "peer-src-1", allPeersValidated(account))
+
+	assert.Contains(t, peerIDs(nm.OfflinePeers), "peer-router-1", "expired routing peer should be in OfflinePeers")
+	assert.NotContains(t, peerIDs(nm.Peers), "peer-router-1", "expired routing peer should NOT be in active Peers")
+}
+
 func TestNetworkMapComponents_InvalidatedPeerExcluded(t *testing.T) {
 	account := createComponentTestAccount()
 	validated := allPeersValidated(account, "peer-dst-1")
@@ -517,6 +560,104 @@ func TestNetworkMapComponents_SSHAuthorizedUsers(t *testing.T) {
 
 	nm := networkMapFromComponents(t, account, "peer-dst-1", validated)
 	assert.True(t, nm.EnableSSH, "SSH-enabled peer with matching policy should have EnableSSH")
+}
+
+func TestNetworkMapComponents_SSHAuthorizedUserBlocked(t *testing.T) {
+	account := createComponentTestAccount()
+	account.Peers["peer-dst-1"].SSHEnabled = true
+	account.Users["user-2"].Blocked = true
+
+	account.Policies = append(account.Policies, &types.Policy{
+		ID: "policy-ssh-temp", Name: "Temporary SSH", Enabled: true, AccountID: account.Id,
+		Rules: []*types.PolicyRule{
+			{
+				ID: "rule-ssh-blocked", Name: "SSH blocked user", Enabled: true,
+				Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolNetbirdSSH,
+				Sources: []string{"group-src"}, Destinations: []string{"group-dst"},
+				AuthorizedUser: "user-2",
+			},
+			{
+				ID: "rule-ssh-active", Name: "SSH active user", Enabled: true,
+				Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolNetbirdSSH,
+				Sources: []string{"group-src"}, Destinations: []string{"group-dst"},
+				AuthorizedUser: "user-1",
+			},
+		},
+	})
+
+	nm := networkMapFromComponents(t, account, "peer-dst-1", allPeersValidated(account))
+
+	assert.Contains(t, nm.AuthorizedUsers["*"], "user-1", "active authorized user should be allowed")
+	assert.NotContains(t, nm.AuthorizedUsers["*"], "user-2", "blocked authorized user must not be allowed")
+	assert.True(t, nm.EnableSSH, "the active user's rule enables SSH")
+
+	t.Run("blocked user rule alone does not enable SSH", func(t *testing.T) {
+		account.Policies = []*types.Policy{sshPolicy(account.Id, &types.PolicyRule{
+			ID: "rule-ssh-only-blocked", Action: types.PolicyTrafficActionAccept, AuthorizedUser: "user-2",
+		})}
+
+		nm := networkMapFromComponents(t, account, "peer-dst-1", allPeersValidated(account))
+
+		assert.False(t, nm.EnableSSH, "a blocked-user rule must not enable SSH")
+		assert.Empty(t, nm.AuthorizedUsers)
+	})
+}
+
+func sshPolicy(accountID string, rule *types.PolicyRule) *types.Policy {
+	rule.Enabled = true
+	rule.Protocol = types.PolicyRuleProtocolNetbirdSSH
+	rule.Sources = []string{"group-src"}
+	rule.Destinations = []string{"group-dst"}
+	return &types.Policy{ID: "policy-" + rule.ID, Name: rule.ID, Enabled: true, AccountID: accountID, Rules: []*types.PolicyRule{rule}}
+}
+
+func TestNetworkMapComponents_DropSSHRuleDoesNotEnableSSH(t *testing.T) {
+	cases := map[string]*types.PolicyRule{
+		"no authorized groups":    {ID: "rule-drop-all", Action: types.PolicyTrafficActionDrop},
+		"authorized groups":       {ID: "rule-drop-groups", Action: types.PolicyTrafficActionDrop, AuthorizedGroups: map[string][]string{"group-all": {"root"}}},
+		"authorized user":         {ID: "rule-drop-user", Action: types.PolicyTrafficActionDrop, AuthorizedUser: "user-1"},
+		"legacy drop tcp port 22": {ID: "rule-drop-legacy", Action: types.PolicyTrafficActionDrop},
+	}
+	for name, rule := range cases {
+		t.Run(name, func(t *testing.T) {
+			account := createComponentTestAccount()
+			account.Peers["peer-dst-1"].SSHEnabled = true
+			p := sshPolicy(account.Id, rule)
+			if name == "legacy drop tcp port 22" {
+				rule.Protocol = types.PolicyRuleProtocolTCP
+				rule.Ports = []string{"22"}
+			}
+			account.Policies = []*types.Policy{p}
+
+			nm := networkMapFromComponents(t, account, "peer-dst-1", allPeersValidated(account))
+
+			assert.False(t, nm.EnableSSH, "drop rule must not enable SSH")
+			assert.Empty(t, nm.AuthorizedUsers, "drop rule must not authorize users")
+			assert.False(t, types.PeerSSHEnabledFromPolicies([]*types.Policy{p}, "peer-dst-1", map[string]struct{}{"group-dst": {}}, true),
+				"PeerSSHEnabledFromPolicies must ignore drop rules")
+		})
+	}
+}
+
+func TestNetworkMapComponents_SSHRuleWithoutPortsIsPort22(t *testing.T) {
+	account := createComponentTestAccount()
+	account.Peers["peer-dst-1"].SSHEnabled = true
+	account.Policies = append(account.Policies, sshPolicy(account.Id, &types.PolicyRule{
+		ID: "rule-ssh-noports", Action: types.PolicyTrafficActionAccept,
+	}))
+
+	nm := networkMapFromComponents(t, account, "peer-dst-1", allPeersValidated(account))
+
+	srcIP := account.Peers["peer-src-1"].IP.String()
+	var ports []string
+	for _, fr := range nm.FirewallRules {
+		if fr.PolicyID == "rule-ssh-noports" && fr.PeerIP == srcIP && fr.Direction == types.FirewallRuleDirectionIN {
+			assert.Equal(t, "tcp", fr.Protocol)
+			assert.NotEmpty(t, fr.Port, "port-less netbird-ssh rule must not open all TCP ports")
+			ports = append(ports, fr.Port)
+		}
+	}
+	assert.Contains(t, ports, "22")
 }
 
 func TestNetworkMapComponents_DisabledPolicyIgnored(t *testing.T) {

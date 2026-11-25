@@ -396,6 +396,70 @@ func TestConn_onWGDisconnected_NoEscalationWithoutRosenpass(t *testing.T) {
 	assert.Empty(t, disconnected, "escalation must be limited to rosenpass connections")
 }
 
+// TestConn_onWGDisconnected_DropsWatcherOnICETimeout: the watcher goroutine
+// exits after reporting the timeout, so the connection must drop its reference.
+// Otherwise the relay fallback sees a watcher that "exists" and never starts a
+// new one, leaving the relay connection unsupervised.
+func TestConn_onWGDisconnected_DropsWatcherOnICETimeout(t *testing.T) {
+	var disconnected []string
+	conn := newWGTimeoutTestConn(false, &disconnected)
+	conn.currentConnPriority = conntype.ICEP2P
+	conn.workerICE = &WorkerICE{}
+
+	cancelled := false
+	conn.wgWatcher = &WGWatcher{}
+	conn.wgWatcherCancel = func() { cancelled = true }
+
+	conn.onWGDisconnected(conn.ctx)
+
+	assert.Nil(t, conn.wgWatcher, "watcher reference must be dropped after a timeout")
+	assert.True(t, cancelled, "watcher context must be cancelled")
+}
+
+// TestConn_onICEStateDisconnected_RestartsWatcherOnRelayFallback: after a
+// handshake timeout closed the ICE connection, the fallback to relay must start
+// a fresh watcher. Without the fix the stale reference from the ICE run makes
+// the relay connection run without any handshake supervision.
+func TestConn_onICEStateDisconnected_RestartsWatcherOnRelayFallback(t *testing.T) {
+	// Keep the new watcher from firing its first check while the test runs; the
+	// stub interface reports no peer, which the watcher would treat as a timeout.
+	oldOvertime := wgHandshakeOvertime
+	wgHandshakeOvertime = time.Hour
+	t.Cleanup(func() { wgHandshakeOvertime = oldOvertime })
+
+	var disconnected []string
+	conn := newWGTimeoutTestConn(false, &disconnected)
+	ctx, cancel := context.WithCancel(context.Background())
+	conn.ctx = ctx
+	conn.ctxCancel = cancel
+	conn.config.WgConfig.WgInterface = &stubWGIface{}
+	conn.endpointUpdater = NewEndpointUpdater(conn.Log, conn.config.WgConfig, true)
+	conn.statusRecorder = NewRecorder("https://mgm")
+	conn.dumpState = newStateDump(conn.config.Key, conn.Log, conn.statusRecorder)
+	// statusICE stays disconnected so the guard, which is not wired here, is not touched.
+	conn.statusICE = worker.NewAtomicStatus()
+	conn.statusRelay = worker.NewAtomicStatus()
+	conn.workerICE = &WorkerICE{}
+	proxy := &stubWGProxy{}
+	conn.wgProxyRelay = proxy
+	conn.currentConnPriority = conntype.ICEP2P
+
+	staleWatcher := &WGWatcher{}
+	conn.wgWatcher = staleWatcher
+	conn.wgWatcherCancel = func() {}
+
+	conn.onWGDisconnected(conn.ctx)
+	conn.onICEStateDisconnected(false)
+
+	assert.Equal(t, conntype.Relay, conn.currentConnPriority, "connection must fall back to relay")
+	assert.True(t, proxy.working, "relay proxy must be resumed on fallback")
+	assert.NotNil(t, conn.wgWatcher, "relay fallback must start a watcher")
+	assert.NotSame(t, staleWatcher, conn.wgWatcher, "relay fallback must not reuse the stale watcher")
+
+	cancel()
+	conn.wgWatcherWg.Wait()
+}
+
 func TestMetricsConnType(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -438,6 +502,23 @@ func (s *stubWGIface) GetStats() (map[string]configurer.WGStats, error) {
 func (s *stubWGIface) GetProxy() wgproxy.Proxy                { return nil }
 func (s *stubWGIface) Address() wgaddr.Address                { return wgaddr.Address{} }
 func (s *stubWGIface) RemoveEndpointAddress(key string) error { return nil }
+
+type stubWGProxy struct {
+	working bool
+}
+
+func (p *stubWGProxy) AddRelayedConn(ctx context.Context, endpoint *net.UDPAddr, remoteConn net.Conn) error {
+	return nil
+}
+func (p *stubWGProxy) EndpointAddr() *net.UDPAddr {
+	return &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 51820}
+}
+func (p *stubWGProxy) Work()                                     { p.working = true }
+func (p *stubWGProxy) Pause()                                    { p.working = false }
+func (p *stubWGProxy) RedirectAs(endpoint *net.UDPAddr)          {}
+func (p *stubWGProxy) CloseConn() error                          { return nil }
+func (p *stubWGProxy) SetDisconnectListener(disconnected func()) {}
+func (p *stubWGProxy) InjectPacket(b []byte) error               { return nil }
 
 func TestConn_Close_CallsOnDisconnected(t *testing.T) {
 	var disconnected []string

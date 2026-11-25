@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -58,6 +59,7 @@ const (
 	peerSchedulerRetryInterval = 3 * time.Second
 	emptyUserID                = "empty user ID in claims"
 	errorGettingDomainAccIDFmt = "error getting account ID by private domain: %v"
+	envDisableIdPUserBackfill  = "NB_DISABLE_IDP_USER_BACKFILL"
 )
 
 type userLoggedInOnce bool
@@ -321,6 +323,28 @@ func (am *DefaultAccountManager) GetIdpManager() idp.Manager {
 	return am.idpManager
 }
 
+// fillIntegrationExtraSettings sets the integration-owned extra fields on the returned
+// settings of an update that omitted extra, since the stored row never holds them. The
+// update is already persisted, so a failed read leaves the settings as they are.
+func (am *DefaultAccountManager) fillIntegrationExtraSettings(ctx context.Context, accountID string, settings *types.Settings) {
+	if settings.Extra == nil {
+		return
+	}
+
+	current, err := am.settingsManager.GetSettings(ctx, accountID, activity.SystemInitiator)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed to read integration extra settings for account %s: %v", accountID, err)
+		return
+	}
+	if current.Extra == nil {
+		return
+	}
+
+	// Copy so the struct shared with the previously loaded settings is not mutated.
+	settings.Extra = settings.Extra.Copy()
+	settings.Extra.CopyIntegrationFieldsFrom(current.Extra)
+}
+
 // UpdateAccountSettings updates Account settings.
 // Only users with role UserRoleAdmin can update the account.
 // User that performs the update has to belong to the account.
@@ -338,6 +362,10 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	// Canonicalize the incoming range so a caller-supplied prefix with host bits
 	// (e.g. 100.64.1.1/16) compares equal to the masked form stored on network.Net.
 	newSettings.NetworkRange = newSettings.NetworkRange.Masked()
+
+	// The integration-owned extra fields are not stored in the account settings row, so an
+	// update that omits extra must leave them to the integration instead of zeroing them.
+	extraSupplied := newSettings.Extra != nil
 
 	var oldSettings *types.Settings
 	var updateAccountPeers bool
@@ -452,9 +480,14 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, err
 	}
 
-	extraSettingsChanged, err := am.settingsManager.UpdateExtraSettings(ctx, accountID, userID, newSettings.Extra)
-	if err != nil {
-		return nil, err
+	var extraSettingsChanged bool
+	if extraSupplied {
+		extraSettingsChanged, err = am.settingsManager.UpdateExtraSettings(ctx, accountID, userID, newSettings.Extra)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		am.fillIntegrationExtraSettings(ctx, accountID, newSettings)
 	}
 
 	am.handleRoutingPeerDNSResolutionSettings(ctx, oldSettings, newSettings, userID, accountID)
@@ -503,7 +536,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountNetworkRangeUpdated, eventMeta)
 	}
 	if reloadReverseProxy {
-		if err = am.serviceManager.ReloadAllServicesForAccount(ctx, accountID); err != nil {
+		if err = am.serviceManager.ReloadAllServicesForAccount(context.WithoutCancel(ctx), accountID); err != nil {
 			log.WithContext(ctx).Warnf("failed to reload all services for account %s: %v", accountID, err)
 		}
 	}
@@ -512,7 +545,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	case updateAccountPeers || extraSettingsChanged || groupChangesAffectPeers:
 		go am.UpdateAccountPeers(context.WithoutCancel(ctx), accountID, types.UpdateReason{Resource: types.UpdateResourceAccountSettings, Operation: types.UpdateOperationUpdate})
 	case ipv6Snap != nil:
-		am.ExpandAndUpdateAffected(ctx, accountID, ipv6Snap, ipv6Change)
+		am.ExpandAndUpdateAffected(ctx, accountID, ipv6Snap, ipv6Change, types.UpdateReason{Resource: types.UpdateResourceAccountSettings, Operation: types.UpdateOperationUpdate})
 	}
 
 	return newSettings, nil
@@ -953,7 +986,81 @@ func (am *DefaultAccountManager) warmupIDPCache(ctx context.Context, store cache
 		}
 	}
 	log.WithContext(ctx).Infof("warmed up IDP cache with %d entries for %d accounts", rcvdUsers, len(userData))
+
+	if err := am.fillMissingEmailAndName(ctx, userData); err != nil {
+		log.WithContext(ctx).Warnf("failed to fill missing user email and name: %v", err)
+	}
 	return nil
+}
+
+// fillMissingEmailAndName stores the IdP email and name of users that don't have them yet.
+func (am *DefaultAccountManager) fillMissingEmailAndName(ctx context.Context, idpUsers map[string][]*idp.UserData) error {
+	if val := os.Getenv(envDisableIdPUserBackfill); val != "" {
+		if disabled, err := strconv.ParseBool(val); err != nil {
+			log.WithContext(ctx).Warnf("ignoring invalid %s=%q: %v", envDisableIdPUserBackfill, val, err)
+		} else if disabled {
+			log.WithContext(ctx).Infof("skipping the user email and name backfill, disabled by %s", envDisableIdPUserBackfill)
+			return nil
+		}
+	}
+
+	users, err := am.Store.GetUsersMissingEmailOrName(ctx)
+	if err != nil {
+		return err
+	}
+
+	usersByID := make(map[string]*types.User, len(users))
+	for _, user := range users {
+		usersByID[user.Id] = user
+	}
+
+	var errs error
+	for _, accountUsers := range idpUsers {
+		for _, idpUser := range accountUsers {
+			user, ok := usersByID[idpUser.ID]
+			if !ok || !canFillEmailOrName(user, idpUser) {
+				continue
+			}
+
+			if err := am.Store.FillUserEmailAndName(ctx, user.AccountID, user.Id, idpUser.Email, idpUser.Name); err != nil {
+				errs = errors.Join(errs, fmt.Errorf("fill user %s: %w", user.Id, err))
+			}
+		}
+	}
+
+	return errs
+}
+
+func canFillEmailOrName(user *types.User, idpUser *idp.UserData) bool {
+	return (user.Email == "" && idpUser.Email != "") || (user.Name == "" && idpUser.Name != "")
+}
+
+// fillEmailAndNameFromIdP looks up the email and name missing from the token in the external
+// IdP. Token values win, and an IdP error leaves userAuth unchanged so the login goes ahead.
+func (am *DefaultAccountManager) fillEmailAndNameFromIdP(ctx context.Context, userAuth auth.UserAuth) auth.UserAuth {
+	if userAuth.Email != "" && userAuth.Name != "" {
+		return userAuth
+	}
+	if isNil(am.idpManager) || IsEmbeddedIdp(am.idpManager) {
+		return userAuth
+	}
+
+	userData, err := am.idpManager.GetUserDataByID(ctx, userAuth.UserId, idp.AppMetadata{})
+	if err != nil {
+		log.WithContext(ctx).Debugf("failed to get user %s from the IdP: %v", userAuth.UserId, err)
+		return userAuth
+	}
+	if userData == nil {
+		return userAuth
+	}
+
+	if userAuth.Email == "" {
+		userAuth.Email = userData.Email
+	}
+	if userAuth.Name == "" {
+		userAuth.Name = userData.Name
+	}
+	return userAuth
 }
 
 // isCacheCold checks if the cache needs warming up.
@@ -1079,7 +1186,7 @@ func (am *DefaultAccountManager) GetAccountIDByUserID(ctx context.Context, userA
 	accountID, err := am.Store.GetAccountIDByUserID(ctx, store.LockingStrengthNone, userAuth.UserId)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
-			acc, err := am.GetOrCreateAccountByUser(ctx, userAuth)
+			acc, err := am.GetOrCreateAccountByUser(ctx, am.fillEmailAndNameFromIdP(ctx, userAuth))
 			if err != nil {
 				return "", status.Errorf(status.NotFound, "account not found or created for user id: %s", userAuth.UserId)
 			}
@@ -1948,6 +2055,7 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 		return userAccountID, nil
 	}
 
+	userAuth = am.fillEmailAndNameFromIdP(ctx, userAuth)
 	if domainAccountID != "" {
 		return am.addNewUserToDomainAccount(ctx, domainAccountID, userAuth)
 	}
@@ -2765,7 +2873,7 @@ func (am *DefaultAccountManager) UpdatePeerIP(ctx context.Context, accountID, us
 	}
 
 	if updateNetworkMap {
-		am.reloadServicesTargetingPeer(ctx, accountID, peerID)
+		am.reloadServicesTargetingPeer(context.WithoutCancel(ctx), accountID, peerID)
 
 		peer, err := am.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 		if err != nil {

@@ -5,11 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/coder/websocket"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/shared/relay/messages"
 )
 
 const (
@@ -22,13 +25,19 @@ type Conn struct {
 
 	closed   bool
 	closedMu sync.Mutex
+
+	writeMu    sync.Mutex
+	writeTimer *time.Timer
 }
 
 func NewConn(wsConn *websocket.Conn, rAddr *net.TCPAddr) *Conn {
-	return &Conn{
+	c := &Conn{
 		Conn:  wsConn,
 		rAddr: rAddr,
 	}
+	c.writeTimer = time.AfterFunc(writeTimeout, c.closeOnWriteTimeout)
+	c.writeTimer.Stop()
+	return c
 }
 
 func (c *Conn) Read(ctx context.Context, b []byte) (n int, err error) {
@@ -53,10 +62,14 @@ func (c *Conn) Read(ctx context.Context, b []byte) (n int, err error) {
 // It does not block until fill the internal buffer.
 // If the buffer filled up, wait until the buffer is drained or timeout.
 func (c *Conn) Write(ctx context.Context, b []byte) (int, error) {
-	ctx, ctxCancel := context.WithTimeout(ctx, writeTimeout)
-	defer ctxCancel()
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
 
+	c.writeTimer.Reset(writeTimeout)
 	err := c.Conn.Write(ctx, websocket.MessageBinary, b)
+	if !c.writeTimer.Stop() && err != nil {
+		err = fmt.Errorf("write timed out after %s: %w", writeTimeout, os.ErrDeadlineExceeded)
+	}
 	return len(b), err
 }
 
@@ -67,6 +80,11 @@ func (c *Conn) RemoteAddr() net.Addr {
 // Protocol returns the transport name for this connection.
 func (c *Conn) Protocol() string {
 	return "ws"
+}
+
+// MaxMessageSize returns the largest message a single Write carries.
+func (c *Conn) MaxMessageSize() int {
+	return messages.MaxMessageSize
 }
 
 func (c *Conn) Close() error {
@@ -95,4 +113,10 @@ func (c *Conn) ioErrHandling(err error) error {
 		return net.ErrClosed
 	}
 	return err
+}
+
+func (c *Conn) closeOnWriteTimeout() {
+	if err := c.Close(); err != nil {
+		log.Debugf("failed to close websocket after a write timeout: %v", err)
+	}
 }

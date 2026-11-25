@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/mdm"
 	nbnet "github.com/netbirdio/netbird/client/net"
+	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
 	"github.com/netbirdio/netbird/client/system"
@@ -52,7 +53,6 @@ var (
 	noBrowser          bool
 	showQR             bool
 	profileName        string
-	configPath         string
 
 	upCmd = &cobra.Command{
 		Use:   "up",
@@ -63,7 +63,11 @@ var (
 )
 
 func init() {
-	upCmd.PersistentFlags().BoolVarP(&foregroundMode, "foreground-mode", "F", false, "start service in foreground")
+	addLoginFlags(upCmd)
+	upCmd.PersistentFlags().BoolVarP(&foregroundMode, "foreground-mode", "F", false, "start service in foreground. Use --config to override the default profile file location")
+	// Only applies to foreground mode, the daemon takes it from the service commands.
+	upCmd.PersistentFlags().StringVarP(&configPath, configFlag, "c", "", "Overrides the default profile file location in foreground mode")
+	_ = upCmd.PersistentFlags().MarkHidden(configFlag)
 	upCmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, iface.WgInterfaceDefault, "WireGuard interface name")
 	upCmd.PersistentFlags().Uint16Var(&wireguardPort, wireguardPortFlag, iface.DefaultWgPort, "WireGuard interface listening port")
 	upCmd.PersistentFlags().Uint16Var(&mtu, mtuFlag, iface.DefaultMTU, "Set MTU (Maximum Transmission Unit) for the WireGuard interface")
@@ -85,14 +89,10 @@ func init() {
 	upCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
 	upCmd.PersistentFlags().BoolVar(&showQR, showQRFlag, false, showQRDesc)
 	upCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
-	upCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) NetBird config file location. ")
 
 }
 
 func upFunc(cmd *cobra.Command, args []string) error {
-	SetFlagsFromEnvVars(rootCmd)
-	SetFlagsFromEnvVars(cmd)
-
 	cmd.SetOut(cmd.OutOrStdout())
 
 	err := util.InitLog(logLevel, util.LogConsole)
@@ -192,7 +192,6 @@ func createProfile(ctx context.Context, profileName, username string) (profilema
 }
 
 func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) error {
-	// override the default profile filepath if provided
 	if configPath != "" {
 		_ = profilemanager.NewServiceManager(configPath)
 	}
@@ -263,16 +262,15 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 	r := peer.NewRecorder(config.ManagementURL.String())
 	r.GetFullStatus()
 
-	connectClient := internal.NewConnectClient(ctx, config, r)
+	connectClient := internal.NewConnectClient(ctx, config, r, internal.WithNetEventsWhenUsed(netevents.NewManager(r)))
 	SetupDebugHandler(ctx, config, r, connectClient, "")
 
 	return connectClient.Run(nil, util.FindFirstLogPath(logFiles))
 }
 
 func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile, profileSwitched bool) error {
-	// Check if deprecated config flag is set and show warning
-	if cmd.Flag("config").Changed && configPath != "" {
-		cmd.PrintErrf("Warning: Config flag is deprecated on up command, it should be set as a service argument with $NB_CONFIG environment or with \"-config\" flag; netbird service reconfigure --service-env=\"NB_CONFIG=<file_path>\" or netbird service run --config=<file_path>\n")
+	if cmd.Flags().Changed(configFlag) && configPath != "" {
+		cmd.PrintErrf("Warning: --config only applies with --foreground-mode and is ignored. Set the daemon profile location with: netbird service reconfigure --config <file_path>\n")
 	}
 
 	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
@@ -467,6 +465,16 @@ func setSSHSetConfigFields(req *proto.SetConfigRequest, cmd *cobra.Command) {
 	}
 }
 
+// setVNCSetConfigFields is setSSHSetConfigFields for the VNC server flags.
+func setVNCSetConfigFields(req *proto.SetConfigRequest, cmd *cobra.Command) {
+	if cmd.Flag(serverVNCAllowedFlag).Changed {
+		req.ServerVNCAllowed = &serverVNCAllowed
+	}
+	if cmd.Flag(disableVNCApprovalFlag).Changed {
+		req.DisableVNCApproval = &disableVNCApproval
+	}
+}
+
 // refusedSettingsUpdate reports whether err is the daemon refusing the settings
 // a request carried — the update-settings kill switch, or a field an MDM policy
 // manages — and returns the reason it gave.
@@ -504,6 +512,7 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 	}
 	setSSHSetConfigFields(&req, cmd)
 	setBoolPtrIfChanged(cmd, remoteJobsAllowedFlag, &req.RemoteJobsAllowed, remoteJobsAllowed)
+	setVNCSetConfigFields(&req, cmd)
 
 	if cmd.Flag(interfaceNameFlag).Changed {
 		if err := parseInterfaceName(interfaceName); err != nil {
@@ -525,53 +534,57 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 	if cmd.Flag(networkMonitorFlag).Changed {
 		req.NetworkMonitor = &networkMonitor
 	}
-	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
+	if cmd.Flags().Changed(preSharedKeyFlag) {
 		req.OptionalPreSharedKey = &preSharedKey
 	}
 	if cmd.Flag(disableAutoConnectFlag).Changed {
 		req.DisableAutoConnect = &autoConnectDisabled
 	}
 
+	setNetworkSetConfigFields(&req, cmd)
+	setLocalMetricsSetConfigFields(&req, cmd)
+
+	return &req
+}
+
+// setNetworkSetConfigFields copies the routing, DNS and firewall toggles the
+// user actually passed into req.
+func setNetworkSetConfigFields(req *proto.SetConfigRequest, cmd *cobra.Command) {
 	if cmd.Flag(dnsRouteIntervalFlag).Changed {
 		req.DnsRouteInterval = durationpb.New(dnsRouteInterval)
 	}
-
 	if cmd.Flag(disableClientRoutesFlag).Changed {
 		req.DisableClientRoutes = &disableClientRoutes
 	}
-
 	if cmd.Flag(disableServerRoutesFlag).Changed {
 		req.DisableServerRoutes = &disableServerRoutes
 	}
-
 	if cmd.Flag(disableDNSFlag).Changed {
 		req.DisableDns = &disableDNS
 	}
-
 	if cmd.Flag(disableFirewallFlag).Changed {
 		req.DisableFirewall = &disableFirewall
 	}
-
 	if cmd.Flag(blockLANAccessFlag).Changed {
 		req.BlockLanAccess = &blockLANAccess
 	}
-
 	if cmd.Flag(blockInboundFlag).Changed {
 		req.BlockInbound = &blockInbound
 	}
-
 	if cmd.Flag(disableIPv6Flag).Changed {
 		req.DisableIpv6 = &disableIPv6
 	}
+}
 
+// setLocalMetricsSetConfigFields copies the local metrics endpoint flags the
+// user actually passed into req.
+func setLocalMetricsSetConfigFields(req *proto.SetConfigRequest, cmd *cobra.Command) {
 	if cmd.Flag(enableLocalMetricsFlag).Changed {
 		req.EnableLocalMetrics = &localMetricsEnabled
 	}
 	if cmd.Flag(localMetricsAddressFlag).Changed {
 		req.LocalMetricsAddress = &localMetricsAddr
 	}
-
-	return &req
 }
 
 func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFilePath string) (*profilemanager.ConfigInput, error) {
@@ -597,29 +610,14 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 	}
 	setBoolPtrIfChanged(cmd, remoteJobsAllowedFlag, &ic.RemoteJobsAllowed, remoteJobsAllowed)
 
-	if cmd.Flag(enableSSHRootFlag).Changed {
-		ic.EnableSSHRoot = &enableSSHRoot
+	if cmd.Flag(serverVNCAllowedFlag).Changed {
+		ic.ServerVNCAllowed = &serverVNCAllowed
+	}
+	if cmd.Flag(disableVNCApprovalFlag).Changed {
+		ic.DisableVNCApproval = &disableVNCApproval
 	}
 
-	if cmd.Flag(enableSSHSFTPFlag).Changed {
-		ic.EnableSSHSFTP = &enableSSHSFTP
-	}
-
-	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
-		ic.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
-	}
-
-	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
-		ic.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
-	}
-
-	if cmd.Flag(disableSSHAuthFlag).Changed {
-		ic.DisableSSHAuth = &disableSSHAuth
-	}
-
-	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
-		ic.SSHJWTCacheTTL = &sshJWTCacheTTL
-	}
+	applySSHFlagsToConfig(cmd, &ic)
 
 	if cmd.Flag(interfaceNameFlag).Changed {
 		if err := parseInterfaceName(interfaceName); err != nil {
@@ -644,7 +642,7 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 		ic.NetworkMonitor = &networkMonitor
 	}
 
-	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
+	if cmd.Flags().Changed(preSharedKeyFlag) {
 		ic.PreSharedKey = &preSharedKey
 	}
 
@@ -700,6 +698,27 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 	return &ic, nil
 }
 
+func applySSHFlagsToConfig(cmd *cobra.Command, ic *profilemanager.ConfigInput) {
+	if cmd.Flag(enableSSHRootFlag).Changed {
+		ic.EnableSSHRoot = &enableSSHRoot
+	}
+	if cmd.Flag(enableSSHSFTPFlag).Changed {
+		ic.EnableSSHSFTP = &enableSSHSFTP
+	}
+	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
+		ic.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
+	}
+	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
+		ic.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
+	}
+	if cmd.Flag(disableSSHAuthFlag).Changed {
+		ic.DisableSSHAuth = &disableSSHAuth
+	}
+	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
+		ic.SSHJWTCacheTTL = &sshJWTCacheTTL
+	}
+}
+
 // setSSHLoginFields copies the SSH server flags the user actually passed
 // into req, leaving the rest unset so the daemon keeps the persisted
 // values.
@@ -728,6 +747,16 @@ func setSSHLoginFields(req *proto.LoginRequest, cmd *cobra.Command) {
 	}
 }
 
+// setVNCLoginFields is setSSHLoginFields for the VNC server flags.
+func setVNCLoginFields(req *proto.LoginRequest, cmd *cobra.Command) {
+	if cmd.Flag(serverVNCAllowedFlag).Changed {
+		req.ServerVNCAllowed = &serverVNCAllowed
+	}
+	if cmd.Flag(disableVNCApprovalFlag).Changed {
+		req.DisableVNCApproval = &disableVNCApproval
+	}
+}
+
 func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte, cmd *cobra.Command) (*proto.LoginRequest, error) {
 	loginRequest := proto.LoginRequest{
 		SetupKey:            providedSetupKey,
@@ -742,7 +771,7 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 		CleanDNSLabels:      dnsLabels != nil && len(dnsLabels) == 0,
 	}
 
-	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
+	if cmd.Flags().Changed(preSharedKeyFlag) {
 		loginRequest.OptionalPreSharedKey = &preSharedKey
 	}
 
@@ -756,6 +785,7 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 
 	setSSHLoginFields(&loginRequest, cmd)
 	setBoolPtrIfChanged(cmd, remoteJobsAllowedFlag, &loginRequest.RemoteJobsAllowed, remoteJobsAllowed)
+	setVNCLoginFields(&loginRequest, cmd)
 
 	if cmd.Flag(disableAutoConnectFlag).Changed {
 		loginRequest.DisableAutoConnect = &autoConnectDisabled

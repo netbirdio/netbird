@@ -69,7 +69,7 @@ func TestWithServerEnvOverrides(t *testing.T) {
 	assert.Equal(t, "false", env["NB_SETUP_PAT_ENABLED"], "a suite must be able to override a default")
 }
 
-// Two agents on one network cannot share an alias, so the name has to reach both
+// Two clients on one network cannot share an alias, so the name has to reach both
 // the alias and the hostname. The hostname is the one management records, so it is
 // also what the peer is addressable by through the API.
 func TestWithClientName(t *testing.T) {

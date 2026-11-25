@@ -38,6 +38,10 @@ const (
 	// DefaultSelfHostedDomain is the default domain used for self-hosted fresh installs.
 	DefaultSelfHostedDomain = "netbird.selfhosted"
 
+	// h2cMaxReadFrameSize lowers the advertised HTTP/2 max frame size from Go's
+	// 1 MiB default to 16 KiB. Go-based proxies size their per-stream buffer from it.
+	h2cMaxReadFrameSize = 16 << 10
+
 	ContainerKeyBaseServer = "baseServer"
 
 	applicationName = "management"
@@ -223,7 +227,7 @@ func (s *BaseServer) start(ctx context.Context) (err error) {
 
 	var compatListener net.Listener
 	if s.mgmtPort != ManagementLegacyPort && !s.disableLegacyManagementPort {
-		// The Management gRPC server was running on port 33073 previously. Old agents that are already connected to it
+		// The Management gRPC server was running on port 33073 previously. Old clients that are already connected to it
 		// are using port 33073. For compatibility purposes we keep running a 2nd gRPC server on port 33073.
 		compatListener, err = s.serveGRPC(srvCtx, s.GRPCServer(), ManagementLegacyPort)
 		if err != nil {
@@ -531,7 +535,7 @@ func (s *BaseServer) serveGRPCWithHTTP(ctx context.Context, listener net.Listene
 			// and still share a single port between gRPC and HTTP APIs
 			h1s := &http.Server{
 				//nolint:staticcheck // h2c also handles the HTTP/1 Upgrade mechanism, which http.Server's UnencryptedHTTP2 does not
-				Handler: h2c.NewHandler(handler, &http2.Server{}),
+				Handler: h2c.NewHandler(handler, &http2.Server{MaxReadFrameSize: h2cMaxReadFrameSize}),
 			}
 			err = h1s.Serve(listener)
 		}

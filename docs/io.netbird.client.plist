@@ -63,6 +63,12 @@
     <true/>
 
     <!--
+    <key>allowServerVNC</key>
+    <true/>
+
+    <key>disableVNCApproval</key>
+    <false/>
+
     <key>disableAutoConnect</key>
     <false/>
 
@@ -105,6 +111,18 @@
     <!--
     <key>wireguardPort</key>
     <integer>51820</integer>
+    -->
+
+    <!-- ===== Extra interface blacklist =====
+         Interface name prefixes whose local addresses are never offered as
+         peer connection candidates. Array or comma-separated string; added
+         to the built-in list, never replaces it. -->
+    <!--
+    <key>extraIFaceBlackList</key>
+    <array>
+        <string>bridge</string>
+        <string>vmenet</string>
+    </array>
     -->
 
     <!-- ===== UI / lockdown kill switches =====

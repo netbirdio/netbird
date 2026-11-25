@@ -230,7 +230,7 @@ func accountPeer(id string, p *nmdata.Peer) *nbpeer.Peer {
 		// Connected is what SynthesizePrivateServiceZones gates its records on,
 		// and a fixture peer stands for a peer the store returned, so it is one
 		// the account would have reported connected.
-		Status: &nbpeer.PeerStatus{RequiresApproval: p.RequiresApproval, Connected: true},
+		Status: &nbpeer.PeerStatus{RequiresApproval: p.RequiresApproval, Connected: true, LoginExpired: p.StatusLoginExpired},
 		Meta: nbpeer.PeerSystemMeta{
 			WtVersion:          p.Meta.WtVersion,
 			GoOS:               p.Meta.GoOS,

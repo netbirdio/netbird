@@ -20,6 +20,7 @@ import (
 	"golang.org/x/net/http2/h2c" //nolint:staticcheck
 
 	"github.com/netbirdio/netbird/shared/metrics"
+	"github.com/netbirdio/netbird/shared/peerauth"
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/signal/proto"
@@ -41,6 +42,9 @@ const (
 	// defaultLetsencryptListenAddress is where Let's Encrypt connects for
 	// TLS-ALPN-01 challenges unless public port 443 is forwarded elsewhere.
 	defaultLetsencryptListenAddress = ":443"
+	// h2cMaxReadFrameSize lowers the advertised HTTP/2 max frame size from Go's
+	// 1 MiB default to 16 KiB. Go-based proxies size their per-stream buffer from it.
+	h2cMaxReadFrameSize = 16 << 10
 )
 
 var (
@@ -52,6 +56,12 @@ var (
 	signalLetsencryptListen  string
 	signalCertFile           string
 	signalCertKey            string
+
+	// Peer auth: tokens bound to the peer keys, signed with Management's Ed25519 key
+	peerAuthPublicKeys []string
+	peerAuthHostnames  []string
+	peerAuthRequired   bool
+	peerAuthCheckTime  bool
 
 	signalKaep = grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
 		MinTime:             5 * time.Second,
@@ -121,7 +131,11 @@ var (
 				}
 			}()
 
-			srv, err := server.NewServer(cmd.Context(), metricsServer.Meter)
+			peerAuthCfg, err := peerAuthConfig()
+			if err != nil {
+				return err
+			}
+			srv, err := server.NewServerWithPeerAuth(cmd.Context(), metricsServer.Meter, peerAuthCfg)
 			if err != nil {
 				return fmt.Errorf("creating signal server: %v", err)
 			}
@@ -170,7 +184,7 @@ var (
 			}
 
 			if signalPort != legacyGRPCPort {
-				// The Signal gRPC server was running on port 10000 previously. Old agents that are already connected to Signal
+				// The Signal gRPC server was running on port 10000 previously. Old clients that are already connected to Signal
 				// are using port 10000. For compatibility purposes we keep running a 2nd gRPC server on port 10000.
 				compatListener, err = serveGRPC(grpcServer, legacyGRPCPort)
 				if err != nil {
@@ -218,6 +232,20 @@ var (
 		},
 	}
 )
+
+func peerAuthConfig() (server.PeerAuthConfig, error) {
+	cfg := server.PeerAuthConfig{Hostnames: peerAuthHostnames, Required: peerAuthRequired, CheckTime: peerAuthCheckTime}
+	if len(peerAuthPublicKeys) == 0 {
+		return cfg, nil
+	}
+	keys, err := peerauth.ParsePublicKeys(peerAuthPublicKeys)
+	if err != nil {
+		return cfg, fmt.Errorf("--peer-auth-public-keys: %w", err)
+	}
+	log.Infof("peer auth tokens verified with Management Ed25519 key ids %v", keys.KeyIDs())
+	cfg.Keys = keys
+	return cfg, nil
+}
 
 func startPprof() {
 	if pprofAddr := os.Getenv("NB_PPROF_ADDR"); pprofAddr != "" {
@@ -315,7 +343,7 @@ func serveHTTP(httpListener net.Listener, handler http.Handler) {
 		// Use h2c to support HTTP/2 without TLS (needed for gRPC)
 		h1s := &http.Server{
 			//nolint:staticcheck // h2c also handles the HTTP/1 Upgrade mechanism, which http.Server's UnencryptedHTTP2 does not
-			Handler: h2c.NewHandler(handler, &http2.Server{}),
+			Handler: h2c.NewHandler(handler, &http2.Server{MaxReadFrameSize: h2cMaxReadFrameSize}),
 		}
 		err := h1s.Serve(httpListener)
 		// Closing the listener on shutdown is not a failure.
@@ -367,6 +395,10 @@ func init() {
 	runCmd.PersistentFlags().StringVar(&signalLetsencryptListen, "letsencrypt-listen-address", defaultLetsencryptListenAddress, "address of the separate Let's Encrypt challenge listener, used when --port is not 443. Set it empty when public port 443 is forwarded to --port, which answers the challenges itself")
 	runCmd.PersistentFlags().StringVar(&signalLetsencryptEmail, "letsencrypt-email", "", "email address to use for Let's Encrypt certificate registration")
 	runCmd.PersistentFlags().StringVar(&signalCertFile, "cert-file", "", "Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
+	runCmd.PersistentFlags().StringSliceVar(&peerAuthPublicKeys, "peer-auth-public-keys", nil, "base64 Ed25519 public keys of Management, as it logs them, that peer auth tokens are verified with; unset, peer auth credentials are ignored. List two keys during a rotation")
+	runCmd.PersistentFlags().StringSliceVar(&peerAuthHostnames, "peer-auth-hostnames", nil, "if set, the only hostnames accepted in peer auth proofs: list every name peers dial this Signal with")
+	runCmd.PersistentFlags().BoolVar(&peerAuthRequired, "peer-auth-required", false, "refuse peers that present no token bound to their keys")
+	runCmd.PersistentFlags().BoolVar(&peerAuthCheckTime, "peer-auth-check-time", false, "refuse peer auth proofs signed more than 10 minutes away from this Signal's clock; enable only when every peer clock is in sync. Off, a proof is valid as long as its token")
 	runCmd.PersistentFlags().StringVar(&signalCertKey, "cert-key", "", "Location of your SSL certificate private key. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
 	setFlagsFromEnvVars(runCmd)
 }

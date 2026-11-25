@@ -60,6 +60,8 @@ preSharedKey="$NULL"                       # secret; redacted in log
 allowServerSSH='true'
 allowRemoteJobs="$NULL"
 debugBundleUploadURL="$NULL"                # HTTPS URL with a host; overrides management
+allowServerVNC="$NULL"
+disableVNCApproval="$NULL"
 blockInbound="$NULL"
 disableAutoConnect="$NULL"
 disableAutostart="$NULL"
@@ -73,6 +75,7 @@ disableAdvancedView="$NULL"           # tristate at the daemon
 rosenpassEnabled="$NULL"
 rosenpassPermissive="$NULL"
 wireguardPort='51820'
+extraIFaceBlackList="$NULL"                # comma-separated interface name prefixes, added to the built-in list
 splitTunnelMode="$NULL"                    # "allow" or "disallow", Android-only at the daemon level
 splitTunnelApps="$NULL"                    # comma-separated app IDs, Android-only
 ##############################################################################
@@ -192,6 +195,8 @@ main() {
     fi
   fi
   is_set "$debugBundleUploadURL"      && emit_string  debugBundleUploadURL      "$debugBundleUploadURL"
+  is_set "$allowServerVNC"            && emit_bool    allowServerVNC            "$allowServerVNC"
+  is_set "$disableVNCApproval"        && emit_bool    disableVNCApproval        "$disableVNCApproval"
   is_set "$blockInbound"              && emit_bool    blockInbound              "$blockInbound"
   is_set "$disableAutoConnect"        && emit_bool    disableAutoConnect        "$disableAutoConnect"
   is_set "$disableAutostart"          && emit_bool    disableAutostart          "$disableAutostart"
@@ -205,6 +210,7 @@ main() {
   is_set "$rosenpassEnabled"          && emit_bool    rosenpassEnabled          "$rosenpassEnabled"
   is_set "$rosenpassPermissive"       && emit_bool    rosenpassPermissive       "$rosenpassPermissive"
   is_set "$wireguardPort"             && emit_int     wireguardPort             "$wireguardPort"
+  is_set "$extraIFaceBlackList"       && emit_string  extraIFaceBlackList       "$extraIFaceBlackList"
   is_set "$splitTunnelMode"           && emit_string  splitTunnelMode           "$splitTunnelMode"
   is_set "$splitTunnelApps"           && emit_string  splitTunnelApps           "$splitTunnelApps"
 

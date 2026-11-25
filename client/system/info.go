@@ -60,6 +60,7 @@ type Info struct {
 	SystemSerialNumber string
 	SystemProductName  string
 	SystemManufacturer string
+	SystemHardwareUUID string
 	Environment        Environment
 	Files              []File // for posture checks
 	CertificateProofs  []certposture.Proof
@@ -68,6 +69,7 @@ type Info struct {
 	RosenpassPermissive bool
 	ServerSSHAllowed    bool
 	RemoteJobsAllowed   bool
+	ServerVNCAllowed    bool
 
 	DisableClientRoutes bool
 	DisableServerRoutes bool
@@ -89,6 +91,7 @@ type Info struct {
 func (i *Info) SetFlags(
 	rosenpassEnabled, rosenpassPermissive bool,
 	serverSSHAllowed *bool,
+	serverVNCAllowed *bool,
 	disableClientRoutes, disableServerRoutes,
 	disableDNS, disableFirewall, blockLANAccess, blockInbound, disableIPv6 bool, syncMessageVersion *int,
 	enableSSHRoot, enableSSHSFTP, enableSSHLocalPortForwarding, enableSSHRemotePortForwarding *bool,
@@ -102,6 +105,9 @@ func (i *Info) SetFlags(
 	}
 	if remoteJobsAllowed != nil {
 		i.RemoteJobsAllowed = *remoteJobsAllowed
+	}
+	if serverVNCAllowed != nil {
+		i.ServerVNCAllowed = *serverVNCAllowed
 	}
 
 	i.DisableClientRoutes = disableClientRoutes
@@ -167,7 +173,7 @@ func extractUserAgent(ctx context.Context) string {
 // extractDeviceName extracts device name from context or returns the default system name
 func extractDeviceName(ctx context.Context, defaultName string) string {
 	v, ok := ctx.Value(DeviceNameCtxKey).(string)
-	if !ok {
+	if !ok || v == "" {
 		return defaultName
 	}
 	return v

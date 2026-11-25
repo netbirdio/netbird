@@ -8,6 +8,9 @@
     "tray.status.daemonUnavailable": {
         "message": "Non démarré"
     },
+    "tray.status.daemonAccessDenied": {
+        "message": "Aucun accès"
+    },
     "tray.status.error": {
         "message": "Erreur"
     },
@@ -512,6 +515,9 @@
     "settings.tabs.ssh": {
         "message": "SSH"
     },
+    "settings.tabs.vnc": {
+        "message": "VNC"
+    },
     "settings.tabs.advanced": {
         "message": "Avancé"
     },
@@ -674,6 +680,9 @@
     "settings.security.rosenpass.help": {
         "message": "Ajouter un échange de clés post-quantique via Rosenpass au-dessus de WireGuard®."
     },
+    "settings.security.rosenpass.deprecated": {
+        "message": "Obsolète : le support de Rosenpass peut être supprimé dans une prochaine version."
+    },
     "settings.security.rosenpassPermissive.label": {
         "message": "Activer le mode permissif"
     },
@@ -733,6 +742,24 @@
     },
     "settings.ssh.jwtTtl.suffix": {
         "message": "s"
+    },
+    "settings.vnc.section.server": {
+        "message": "Serveur"
+    },
+    "settings.vnc.section.approval": {
+        "message": "Approbation"
+    },
+    "settings.vnc.server.label": {
+        "message": "Activer le serveur VNC"
+    },
+    "settings.vnc.server.help": {
+        "message": "Exécuter le serveur VNC de NetBird sur cet hôte afin que les pairs autorisés puissent voir ou contrôler son écran."
+    },
+    "settings.vnc.approval.label": {
+        "message": "Exiger l'approbation des connexions"
+    },
+    "settings.vnc.approval.help": {
+        "message": "Afficher sur cet hôte une invite qui doit être acceptée avant d'autoriser une connexion VNC entrante."
     },
     "settings.advanced.section.interface": {
         "message": "Interface"
@@ -914,8 +941,8 @@
     "settings.about.community.github": {
         "message": "GitHub"
     },
-    "settings.about.community.slack": {
-        "message": "Slack"
+    "settings.about.community.discord": {
+        "message": "Discord"
     },
     "settings.about.community.forum": {
         "message": "Forum"
@@ -1054,6 +1081,45 @@
     },
     "window.title.sessionExpiration": {
         "message": "Expiration de session"
+    },
+    "window.title.approval": {
+        "message": "Demande de connexion"
+    },
+    "approval.title.vnc": {
+        "message": "Autoriser la connexion VNC ?"
+    },
+    "approval.title.ssh": {
+        "message": "Autoriser la connexion SSH ?"
+    },
+    "approval.title.default": {
+        "message": "Autoriser la connexion entrante ?"
+    },
+    "approval.field.user": {
+        "message": "De l'utilisateur"
+    },
+    "approval.field.keyFingerprint": {
+        "message": "Empreinte de clé"
+    },
+    "approval.field.peer": {
+        "message": "Via le pair"
+    },
+    "approval.field.sourceIp": {
+        "message": "IP source"
+    },
+    "approval.field.osUser": {
+        "message": "Utilisateur du système"
+    },
+    "approval.countdown": {
+        "message": "Refus automatique dans {seconds}s"
+    },
+    "approval.action.allow": {
+        "message": "Autoriser"
+    },
+    "approval.action.allowViewOnly": {
+        "message": "Autoriser (lecture seule)"
+    },
+    "approval.action.deny": {
+        "message": "Refuser"
     },
     "window.title.updating": {
         "message": "Mise à jour"
@@ -1331,6 +1397,12 @@
     "daemon.unavailable.docsLink": {
         "message": "Documentation"
     },
+    "daemon.accessDenied.title": {
+        "message": "Aucun accès au service NetBird"
+    },
+    "daemon.accessDenied.description": {
+        "message": "Votre administrateur a limité le service NetBird sur cet appareil à certains utilisateurs ou groupes, et votre compte n’en fait pas partie. Contactez votre administrateur pour obtenir l’accès."
+    },
     "daemon.outdated.title": {
         "message": "Le Client NetBird est obsolète"
     },
@@ -1361,6 +1433,9 @@
     "error.daemon_unreachable": {
         "message": "Le daemon NetBird ne répond pas. Veuillez vérifier que le service est en cours d’exécution."
     },
+    "error.daemon_access_denied": {
+        "message": "Votre compte n’est pas autorisé à utiliser le service NetBird sur cet appareil. Contactez votre administrateur pour obtenir l’accès."
+    },
     "error.settings_locked": {
         "message": "Les paramètres ne peuvent pas être modifiés sur cet appareil : un administrateur les a verrouillés."
     },
@@ -1376,23 +1451,35 @@
     "error.elevation_failed": {
         "message": "La modification n’a pas pu être appliquée avec des privilèges élevés. Exécutez plutôt ceci :"
     },
-    "settings.ssh.privilege.actorRoot": {
+    "settings.privilege.actorRoot": {
         "message": "les privilèges root"
     },
-    "settings.ssh.privilege.actorAdministrator": {
+    "settings.privilege.actorAdministrator": {
         "message": "les privilèges administrateur"
     },
-    "settings.ssh.privilege.hint": {
+    "settings.privilege.authorizePending": {
+        "message": "En attente de l’autorisation…"
+    },
+    "connect.activeSession.badge": {
+        "message": "Écran partagé",
+        "description": "Short label on the badge shown on the main screen while somebody is attached to this machine over VNC."
+    },
+    "connect.activeSession.tooltip": {
+        "message": "Cet écran est consulté via VNC ({sessionCount} session(s)). La déconnexion y met fin, et si vous êtes connecté via VNC vous perdrez l’accès.",
+        "description": "Tooltip on the screen-shared badge. {sessionCount} is how many VNC sessions are attached; wording covers any number since the bundle has no plural forms."
+    },
+    "connect.activeSession.tooltipNamed": {
+        "message": "Cet écran est consulté via VNC par {who} ({sessionCount} session(s)). La déconnexion y met fin, et si vous êtes connecté via VNC vous perdrez l’accès.",
+        "description": "As connect.activeSession.tooltip, with {who} naming the dashboard users who started the sessions."
+    },
+    "settings.privilege.hint": {
         "message": "Nécessite {actor}. Exécutez plutôt ceci :"
     },
-    "settings.ssh.privilege.oneWay": {
+    "settings.privilege.oneWay": {
         "message": "Vous pouvez le désactiver, mais le réactiver nécessite {actor}."
     },
-    "settings.ssh.privilege.oneWayInverted": {
+    "settings.privilege.oneWayInverted": {
         "message": "Vous pouvez l’activer, mais le désactiver de nouveau nécessite {actor}."
-    },
-    "settings.ssh.privilege.authorizePending": {
-        "message": "En attente de l’autorisation…"
     },
     "profile.ownedByAnother.name": {
         "message": "Autre utilisateur"
@@ -1411,17 +1498,5 @@
     },
     "error.profile_unowned": {
         "message": "Ce profil n'a pas encore de propriétaire."
-    },
-    "tray.status.daemonAccessDenied": {
-        "message": "Aucun accès"
-    },
-    "daemon.accessDenied.title": {
-        "message": "Aucun accès au service NetBird"
-    },
-    "daemon.accessDenied.description": {
-        "message": "Votre administrateur a limité le service NetBird sur cet appareil à certains utilisateurs ou groupes, et votre compte n’en fait pas partie. Contactez votre administrateur pour obtenir l’accès."
-    },
-    "error.daemon_access_denied": {
-        "message": "Votre compte n’est pas autorisé à utiliser le service NetBird sur cet appareil. Contactez votre administrateur pour obtenir l’accès."
     }
 }
