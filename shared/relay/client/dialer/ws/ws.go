@@ -123,6 +123,9 @@ func httpClientNbDialer(serverName string, underlyingOut *net.Conn) *http.Client
 			RootCAs:    certPool,
 			ServerName: serverName,
 		},
+		// The transport serves a single handshake. Without this, a failed
+		// handshake leaves its connection in an idle pool nobody closes.
+		DisableKeepAlives: true,
 	}
 
 	return &http.Client{
