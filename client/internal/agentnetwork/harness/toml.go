@@ -597,10 +597,9 @@ func sameJSON(a, b any) bool {
 }
 
 // encodeTOMLValue writes a scalar. A value restored from the record arrives
-// as a JSON-decoded string, number or boolean.
-// ponytail: a raw value (array, date) NetBird overwrote comes back from undo
-// as a quoted string; keeping its TOML type in the record is the upgrade if
-// --force over such values matters.
+// as a JSON-decoded string, number or boolean, so a raw value (array, date)
+// that NetBird overwrote comes back from undo as a quoted string. The record
+// would have to keep the TOML type to restore it.
 func encodeTOMLValue(v any) (string, error) {
 	switch v := v.(type) {
 	case string:
