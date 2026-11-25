@@ -2,6 +2,7 @@ package roundtrip
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/netip"
 	"sync"
@@ -333,6 +334,71 @@ func TestNetBird_AddPeer_ExistingStartedClient_NotifiesStatus(t *testing.T) {
 	require.NotNil(t, calls[0].ctx, "NotifyStatus must receive a context")
 	require.NoError(t, calls[0].ctx.Err(),
 		"already-started NotifyStatus must use a background ctx, not the cancelled caller ctx")
+}
+
+// countingMgmtClient counts CreateProxyPeer calls, so tests can tell a reused client from
+// a newly created peer.
+type countingMgmtClient struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (m *countingMgmtClient) CreateProxyPeer(_ context.Context, _ *proto.CreateProxyPeerRequest, _ ...grpc.CallOption) (*proto.CreateProxyPeerResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.calls++
+	return &proto.CreateProxyPeerResponse{Success: true}, nil
+}
+
+func (m *countingMgmtClient) count() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.calls
+}
+
+// TestNetBird_AddPeer_ReplacesExitedClient covers a proxy peer deleted by Management (an
+// ephemeral peer offline past its lifetime). Its embedded client stops for good, and the
+// next mapping must create a new peer from its fresh token instead of reusing the dead
+// client, keeping every service registered on the old one.
+func TestNetBird_AddPeer_ReplacesExitedClient(t *testing.T) {
+	mgmt := &countingMgmtClient{}
+	nb := NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
+		MgmtAddr: "http://invalid.test:9999",
+	}, nil, nil, mgmt)
+	nb.startClient = func(types.AccountID, *embed.Client) {}
+
+	var deadMu sync.Mutex
+	var dead *embed.Client
+	nb.clientRunErr = func(c *embed.Client) error {
+		deadMu.Lock()
+		defer deadMu.Unlock()
+		if c == dead {
+			return errors.New("peer is not registered")
+		}
+		return nil
+	}
+
+	accountID := types.AccountID("account-1")
+	require.NoError(t, nb.AddPeer(context.Background(), accountID, "domain1.test", "token-1", types.ServiceID("svc-1")))
+	require.NoError(t, nb.AddPeer(context.Background(), accountID, "domain2.test", "token-2", types.ServiceID("svc-2")))
+	require.Equal(t, 1, mgmt.count(), "a running client is reused")
+
+	nb.clientsMux.RLock()
+	old := nb.clients[accountID].client
+	nb.clientsMux.RUnlock()
+	deadMu.Lock()
+	dead = old
+	deadMu.Unlock()
+
+	require.NoError(t, nb.AddPeer(context.Background(), accountID, "domain1.test", "token-3", types.ServiceID("svc-1")))
+
+	assert.Equal(t, 2, mgmt.count(), "an exited client must be replaced by a new peer")
+	nb.clientsMux.RLock()
+	current := nb.clients[accountID]
+	nb.clientsMux.RUnlock()
+	require.NotNil(t, current, "the account must still have a client")
+	assert.NotSame(t, old, current.client, "the dead client must not stay in place")
+	assert.Equal(t, 2, nb.ServiceCount(accountID), "services of the dead client must move to the new one")
 }
 
 // TestNetBird_IdentityForIP_UnknownAccountReturnsFalse confirms that the

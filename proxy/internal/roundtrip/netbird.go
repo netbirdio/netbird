@@ -196,6 +196,10 @@ type NetBird struct {
 	// startClient runs the post-create client startup. Nil uses runClientStartup;
 	// tests override it to avoid a real embed client.Start.
 	startClient func(accountID types.AccountID, client *embed.Client)
+
+	// clientRunErr reports why a started client stopped on its own. Nil uses
+	// embed.Client.RunErr; tests override it to simulate a dead client.
+	clientRunErr func(client *embed.Client) error
 }
 
 // ClientDebugInfo contains debug information about a client.
@@ -235,6 +239,7 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key Se
 	if n.registerExistingClient(accountID, key, si) {
 		return nil
 	}
+	exited := n.exitedClientEntry(accountID)
 
 	createStart := time.Now()
 	entry, err := n.createClientEntry(ctx, accountID, key, authToken, si)
@@ -246,6 +251,13 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key Se
 	}
 
 	n.clientsMux.Lock()
+	if exited != nil {
+		for k, v := range exited.services {
+			if _, ok := entry.services[k]; !ok {
+				entry.services[k] = v
+			}
+		}
+	}
 	n.clients[accountID] = entry
 	n.clientsMux.Unlock()
 
@@ -257,6 +269,9 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key Se
 	transferred = true
 	go func() {
 		defer lifecycle.Unlock()
+		if exited != nil {
+			n.stopClientEntry(accountID, exited)
+		}
 		n.startClientStartup(accountID, entry.client)
 	}()
 
@@ -277,7 +292,7 @@ func (n *NetBird) startClientStartup(accountID types.AccountID, client *embed.Cl
 func (n *NetBird) registerExistingClient(accountID types.AccountID, key ServiceKey, si serviceInfo) bool {
 	n.clientsMux.Lock()
 	entry, exists := n.clients[accountID]
-	if !exists {
+	if !exists || n.runErr(entry) != nil {
 		n.clientsMux.Unlock()
 		return false
 	}
@@ -299,6 +314,36 @@ func (n *NetBird) registerExistingClient(accountID types.AccountID, key ServiceK
 		}
 	}
 	return true
+}
+
+// exitedClientEntry returns the account's entry when its client stopped on its own, for
+// example after Management deleted the peer. Its key cannot log in again, so the caller
+// replaces it with a new peer created from a fresh mapping token. Must be called with the
+// account's lifecycle mutex held.
+func (n *NetBird) exitedClientEntry(accountID types.AccountID) *clientEntry {
+	n.clientsMux.RLock()
+	defer n.clientsMux.RUnlock()
+	entry, exists := n.clients[accountID]
+	if !exists {
+		return nil
+	}
+	err := n.runErr(entry)
+	if err == nil {
+		return nil
+	}
+	n.logger.WithField("account_id", accountID).WithError(err).Warn("netbird client stopped, replacing it with a new peer")
+	return entry
+}
+
+// runErr returns why the entry's client stopped on its own, or nil while it runs.
+func (n *NetBird) runErr(entry *clientEntry) error {
+	if entry.client == nil {
+		return nil
+	}
+	if n.clientRunErr != nil {
+		return n.clientRunErr(entry.client)
+	}
+	return entry.client.RunErr()
 }
 
 // accountLifecycle returns the per-account lifecycle mutex, serialising client
