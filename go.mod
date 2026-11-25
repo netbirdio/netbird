@@ -319,7 +319,7 @@ require (
 	github.com/pb33f/libopenapi v0.41.2
 	github.com/pb33f/libopenapi-validator v0.15.0
 	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
-	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
+	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/pion/dtls/v2 v2.2.10 // indirect
 	github.com/pion/dtls/v3 v3.0.9 // indirect

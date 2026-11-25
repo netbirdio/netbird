@@ -1,0 +1,14 @@
+{
+  "providers": {
+    "netbird": {
+      "api": "openai-completions",
+      "apiKey": "not-needed",
+      "baseUrl": "https://an.example.netbird.test/v1",
+      "models": [
+        {
+          "id": "gpt-5.5"
+        }
+      ]
+    }
+  }
+}
