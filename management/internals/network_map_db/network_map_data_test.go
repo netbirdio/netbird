@@ -188,6 +188,8 @@ func (f *fakeNmdataStore) BeginTx(ctx context.Context) (NetworkMapDBStoreConn, e
 
 func (f *fakeNmdataStore) Exec(context.Context, string, ...any) error { return nil }
 
+func (f *fakeNmdataStore) Close() error { return nil }
+
 type fakeNmdataConn struct {
 	store *fakeNmdataStore
 }
