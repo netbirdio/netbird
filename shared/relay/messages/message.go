@@ -22,8 +22,8 @@ const (
 	// CurrentProtocolVersion is the version a client advertises when it presents no auth token.
 	CurrentProtocolVersion = ProtocolV1
 
-	// authEnvelopeMinVersion is the first advertised version whose Auth message carries a
-	// length-prefixed token followed by an extension area.
+	// authEnvelopeMinVersion is the first version whose Auth and AuthResponse messages carry a
+	// length-prefixed field followed by an extension area.
 	authEnvelopeMinVersion ProtocolVersion = 2
 
 	MsgTypeUnknown MsgType = 0
@@ -59,6 +59,11 @@ const (
 	offsetAuthTokenLen  = headerTotalSizeAuth
 	offsetAuthToken     = offsetAuthTokenLen + sizeOfTokenLen
 
+	// auth response
+	sizeOfAuthRespAddrLen = 2
+	offsetAuthRespAddrLen = sizeOfProtoHeader
+	offsetAuthRespAddr    = offsetAuthRespAddrLen + sizeOfAuthRespAddrLen
+
 	// transport
 	headerSizeTransport      = peerIDSize
 	offsetTransportID        = sizeOfProtoHeader
@@ -69,6 +74,7 @@ var (
 	ErrInvalidMessageLength = errors.New("invalid message length")
 	ErrUnsupportedVersion   = errors.New("unsupported version")
 	ErrInvalidTokenLength   = errors.New("invalid token length")
+	ErrInvalidAddressLength = errors.New("invalid address length")
 	ErrReservedMsgType      = errors.New("reserved message type")
 	ErrMsgTypeDirection     = errors.New("message type not valid from client")
 	ErrUnknownMsgType       = errors.New("unknown message type")
@@ -132,6 +138,10 @@ func (e Encoder) Version() ProtocolVersion {
 // AuthResponse creates the response to a successful Auth message. The payload is the instance URL
 // of the server, which the clients use to choose a common Relay server.
 func (e Encoder) AuthResponse(address string) ([]byte, error) {
+	if e.version >= authEnvelopeMinVersion {
+		return e.AuthResponseEnvelope(address, nil)
+	}
+
 	ab := []byte(address)
 	msg := make([]byte, sizeOfProtoHeader, sizeOfProtoHeader+len(ab))
 
@@ -141,9 +151,32 @@ func (e Encoder) AuthResponse(address string) ([]byte, error) {
 	msg = append(msg, ab...)
 
 	if len(msg) > MaxHandshakeRespSize {
-		return nil, fmt.Errorf("invalid message length: %d", len(msg))
+		return nil, fmt.Errorf("%d: %w", len(msg), ErrInvalidMessageLength)
 	}
 
+	return msg, nil
+}
+
+// AuthResponseEnvelope creates the AuthResponse layout of protocol version 2 or higher.
+func (e Encoder) AuthResponseEnvelope(address string, ext []byte) ([]byte, error) {
+	if e.version < authEnvelopeMinVersion {
+		return nil, fmt.Errorf("protocol version %d does not use the auth response envelope", e.version)
+	}
+	if len(address) == 0 || len(address) > math.MaxUint16 {
+		return nil, fmt.Errorf("%d: %w", len(address), ErrInvalidAddressLength)
+	}
+
+	size := offsetAuthRespAddr + len(address) + len(ext)
+	if size > MaxHandshakeRespSize {
+		return nil, fmt.Errorf("%d: %w", size, ErrInvalidMessageLength)
+	}
+
+	msg := make([]byte, size)
+	msg[0] = byte(e.version)
+	msg[1] = byte(MsgTypeAuthResponse)
+	binary.BigEndian.PutUint16(msg[offsetAuthRespAddrLen:], uint16(len(address)))
+	copy(msg[offsetAuthRespAddr:], address)
+	copy(msg[offsetAuthRespAddr+len(address):], ext)
 	return msg, nil
 }
 
@@ -369,12 +402,40 @@ func MarshalAuthResponse(address string) ([]byte, error) {
 	return NewEncoder(CurrentProtocolVersion, MaxMessageSize).AuthResponse(address)
 }
 
-// UnmarshalAuthResponse it is a confirmation message to auth success
+// UnmarshalAuthResponse returns the instance URL from an AuthResponse of any protocol version.
 func UnmarshalAuthResponse(msg []byte) (string, error) {
-	if len(msg) < sizeOfProtoHeader+1 {
-		return "", ErrInvalidMessageLength
+	version, err := ReadVersion(msg)
+	if err != nil {
+		return "", err
 	}
-	return string(msg[sizeOfProtoHeader:]), nil
+	if version < authEnvelopeMinVersion {
+		if len(msg) < sizeOfProtoHeader+1 {
+			return "", ErrInvalidMessageLength
+		}
+		return string(msg[sizeOfProtoHeader:]), nil
+	}
+
+	addr, err := unmarshalAuthResponseEnvelopeAddr(msg)
+	if err != nil {
+		return "", err
+	}
+	return string(addr), nil
+}
+
+// UnmarshalAuthResponseExtension returns the extension area of an AuthResponse, nil below version 2.
+func UnmarshalAuthResponseExtension(msg []byte) ([]byte, error) {
+	version, err := ReadVersion(msg)
+	if err != nil {
+		return nil, err
+	}
+	if version < authEnvelopeMinVersion {
+		return nil, nil
+	}
+	addr, err := unmarshalAuthResponseEnvelopeAddr(msg)
+	if err != nil {
+		return nil, err
+	}
+	return msg[offsetAuthRespAddr+len(addr):], nil
 }
 
 // MarshalCloseMsg creates a close message.
@@ -472,4 +533,21 @@ func unmarshalAuthEnvelopeToken(msg []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%d exceeds the message: %w", tokenLen, ErrInvalidTokenLength)
 	}
 	return msg[offsetAuthToken:end], nil
+}
+
+func unmarshalAuthResponseEnvelopeAddr(msg []byte) ([]byte, error) {
+	if len(msg) < offsetAuthRespAddr {
+		return nil, ErrInvalidMessageLength
+	}
+
+	addrLen := int(binary.BigEndian.Uint16(msg[offsetAuthRespAddrLen:offsetAuthRespAddr]))
+	if addrLen == 0 {
+		return nil, fmt.Errorf("%d: %w", addrLen, ErrInvalidAddressLength)
+	}
+
+	end := offsetAuthRespAddr + addrLen
+	if end > len(msg) {
+		return nil, fmt.Errorf("%d exceeds the message: %w", addrLen, ErrInvalidAddressLength)
+	}
+	return msg[offsetAuthRespAddr:end], nil
 }
