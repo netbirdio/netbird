@@ -587,7 +587,12 @@ func (n *NetBird) RemovePeer(ctx context.Context, accountID types.AccountID, key
 // same account waits for this teardown.
 func (n *NetBird) stopClientLocked(accountID types.AccountID, lifecycle *sync.Mutex, entry *clientEntry) {
 	defer lifecycle.Unlock()
+	n.stopClientEntry(accountID, entry)
+}
 
+// stopClientEntry releases a client's resources. The caller holds the account's
+// lifecycle mutex.
+func (n *NetBird) stopClientEntry(accountID types.AccountID, entry *clientEntry) {
 	if entry.inbound != nil && n.stopHandler != nil {
 		n.stopHandler(accountID, entry.inbound)
 	}
