@@ -356,24 +356,43 @@ func (n *NetBird) exitedClientEntry(accountID types.AccountID) *clientEntry {
 }
 
 // replaceExitedClient creates a new peer for an account whose client stopped on its
-// own, using the spare token kept from the last mapping. The token is single-use, so
-// it is taken once; an expired token fails CreateProxyPeer and the next mapping retries.
-func (n *NetBird) replaceExitedClient(accountID types.AccountID) {
+// own, using the spare token kept from the last mapping. exited is the entry the caller
+// saw stop; a newer entry, or one no longer serving the spare's service, is left alone.
+// The token is single-use, so it is taken once; an expired token fails CreateProxyPeer
+// and the next mapping retries.
+func (n *NetBird) replaceExitedClient(accountID types.AccountID, exited *clientEntry) {
 	n.clientsMux.Lock()
-	entry, exists := n.clients[accountID]
-	if !exists || entry.spare == nil {
+	if n.clients[accountID] != exited || exited.spare == nil {
 		n.clientsMux.Unlock()
 		return
 	}
-	spare := entry.spare
-	entry.spare = nil
+	spare := exited.spare
+	exited.spare = nil
 	n.clientsMux.Unlock()
 
 	go func() {
-		if err := n.AddPeer(n.ctx, accountID, spare.key, spare.token, spare.serviceID); err != nil {
+		lifecycle := n.accountLifecycle(accountID)
+		lifecycle.Lock()
+		if !n.servesKey(accountID, exited, spare.key) {
+			lifecycle.Unlock()
+			return
+		}
+		si := serviceInfo{serviceID: spare.serviceID}
+		if err := n.addPeerLocked(n.ctx, lifecycle, accountID, spare.key, spare.token, si); err != nil {
 			n.logger.WithField("account_id", accountID).WithError(err).Warn("failed to replace stopped netbird client")
 		}
 	}()
+}
+
+// servesKey reports whether entry is still the account's client and still serves key.
+func (n *NetBird) servesKey(accountID types.AccountID, entry *clientEntry, key ServiceKey) bool {
+	n.clientsMux.RLock()
+	defer n.clientsMux.RUnlock()
+	if n.clients[accountID] != entry {
+		return false
+	}
+	_, ok := entry.services[key]
+	return ok
 }
 
 // runErr returns why the entry's client stopped on its own, or nil while it runs.
@@ -754,7 +773,7 @@ func (n *NetBird) RoundTrip(req *http.Request) (*http.Response, error) {
 	defer cancel()
 	if err := client.Start(startCtx); err != nil {
 		if errors.Is(err, embed.ErrClientRunExited) {
-			n.replaceExitedClient(accountID)
+			n.replaceExitedClient(accountID, entry)
 		}
 		if !errors.Is(err, embed.ErrClientAlreadyStarted) {
 			return nil, fmt.Errorf("%w: %w", ErrClientStartFailed, err)
