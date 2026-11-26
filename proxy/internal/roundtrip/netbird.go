@@ -240,6 +240,12 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key Se
 
 	lifecycle := n.accountLifecycle(accountID)
 	lifecycle.Lock()
+	return n.addPeerLocked(ctx, lifecycle, accountID, key, authToken, si)
+}
+
+// addPeerLocked is AddPeer once the account's lifecycle mutex is held. It takes
+// ownership of the mutex and releases it, possibly from the client startup goroutine.
+func (n *NetBird) addPeerLocked(ctx context.Context, lifecycle *sync.Mutex, accountID types.AccountID, key ServiceKey, authToken string, si serviceInfo) error {
 	transferred := false
 	defer func() {
 		if !transferred {
