@@ -69,7 +69,7 @@ func TestMarshalAuthResponse(t *testing.T) {
 func TestMarshalTransportMsg(t *testing.T) {
 	peerID := HashID("abdFAaBcawquEiCMzAabYosuUaGLtSNhKxz+")
 	payload := []byte("payload")
-	msg, err := MarshalTransportMsg(peerID, payload)
+	msg, err := MarshalTransportMsg(CurrentProtocolVersion, peerID, payload)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -299,6 +299,104 @@ func TestUnmarshalAuthMsgRejectsMalformedFrames(t *testing.T) {
 	})
 }
 
+func TestAuthResponseV1LayoutUnchanged(t *testing.T) {
+	msg, err := NewEncoder(ProtocolV1, MaxMessageSize).AuthResponse("rels://relay.example.com")
+	require.NoError(t, err)
+	want := append([]byte{byte(ProtocolV1), byte(MsgTypeAuthResponse)}, "rels://relay.example.com"...)
+	assert.Equal(t, want, msg, "a v1 response must stay the header followed by the address")
+
+	ext, err := UnmarshalAuthResponseExtension(msg)
+	require.NoError(t, err)
+	assert.Nil(t, ext, "a v1 response has no extension area")
+}
+
+func TestAuthResponseEnvelopeRoundTrip(t *testing.T) {
+	const address = "rels://relay.example.com:443"
+	cases := []struct {
+		name    string
+		version ProtocolVersion
+		ext     []byte
+	}{
+		{"v2 without extension", 2, nil},
+		{"v2 with extension entries", 2, []byte{2, 0, 2, 0, 60, 200, 0, 1, 'x'}},
+		{"v7 with extension entries", 7, []byte{2, 0, 2, 0, 60}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			msg, err := NewEncoder(tc.version, MaxMessageSize).AuthResponseEnvelope(address, tc.ext)
+			require.NoError(t, err)
+			assert.Equal(t, byte(tc.version), msg[0], "the response must carry the version")
+			assert.Equal(t, byte(MsgTypeAuthResponse), msg[1])
+			assert.Equal(t, uint16(len(address)), binary.BigEndian.Uint16(msg[offsetAuthRespAddrLen:]), "the address must be length-prefixed")
+
+			// A client that knows no extension entry must still read the address.
+			addr, err := UnmarshalAuthResponse(msg)
+			require.NoError(t, err)
+			assert.Equal(t, address, addr, "the address must not include the extension area")
+
+			ext, err := UnmarshalAuthResponseExtension(msg)
+			require.NoError(t, err)
+			assert.Equal(t, len(tc.ext), len(ext), "the extension area must keep its length")
+			assert.Equal(t, append([]byte{}, tc.ext...), append([]byte{}, ext...), "the extension area must be returned unchanged")
+		})
+	}
+}
+
+func TestAuthResponseUsesEnvelopeFromV2(t *testing.T) {
+	enc := NewEncoder(ProtocolV2, MaxMessageSize)
+	got, err := enc.AuthResponse("rels://relay.example.com")
+	require.NoError(t, err)
+	want, err := enc.AuthResponseEnvelope("rels://relay.example.com", nil)
+	require.NoError(t, err)
+	assert.Equal(t, want, got, "a v2 response without entries must be the envelope with an empty extension area")
+}
+
+func TestAuthResponseEnvelopeRejectsInvalidInput(t *testing.T) {
+	_, err := NewEncoder(ProtocolV1, MaxMessageSize).AuthResponseEnvelope("rels://relay.example.com", nil)
+	assert.Error(t, err, "v1 has no response envelope")
+
+	enc := NewEncoder(ProtocolV2, MaxMessageSize)
+	_, err = enc.AuthResponseEnvelope("", nil)
+	assert.ErrorIs(t, err, ErrInvalidAddressLength, "an empty address must be refused")
+
+	_, err = enc.AuthResponseEnvelope("rels://relay.example.com", make([]byte, MaxHandshakeRespSize))
+	assert.ErrorIs(t, err, ErrInvalidMessageLength, "a response above the handshake response limit must be refused")
+}
+
+func TestAuthResponseRejectsOversizedMessage(t *testing.T) {
+	address := string(make([]byte, MaxHandshakeRespSize))
+	for _, version := range []ProtocolVersion{ProtocolV1, ProtocolV2} {
+		_, err := NewEncoder(version, MaxMessageSize).AuthResponse(address)
+		assert.ErrorIs(t, err, ErrInvalidMessageLength, "version %d must refuse a response above the handshake response limit", version)
+	}
+}
+
+func TestUnmarshalAuthResponseRejectsMalformedEnvelope(t *testing.T) {
+	valid, err := NewEncoder(ProtocolV2, MaxMessageSize).AuthResponseEnvelope("rels://relay.example.com", []byte("ext"))
+	require.NoError(t, err)
+
+	cases := []struct {
+		name    string
+		msg     []byte
+		wantErr error
+	}{
+		{"shorter than the length field", valid[:offsetAuthRespAddr-1], ErrInvalidMessageLength},
+		{"zero address length", []byte{2, byte(MsgTypeAuthResponse), 0, 0}, ErrInvalidAddressLength},
+		{"address length beyond the message", []byte{2, byte(MsgTypeAuthResponse), 0, 9, 'r'}, ErrInvalidAddressLength},
+		// A relay that stamps v2 on the v1 layout: the first address bytes read as a length.
+		{"v1 layout under a v2 header", append([]byte{2, byte(MsgTypeAuthResponse)}, "rels://relay.example.com"...), ErrInvalidAddressLength},
+		{"version zero", []byte{0, byte(MsgTypeAuthResponse), 0, 1, 'r'}, ErrUnsupportedVersion},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := UnmarshalAuthResponse(tc.msg)
+			assert.ErrorIs(t, err, tc.wantErr)
+			_, err = UnmarshalAuthResponseExtension(tc.msg)
+			assert.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+}
+
 func TestEncoderStampsVersion(t *testing.T) {
 	for _, version := range []ProtocolVersion{1, 2, 7} {
 		enc := NewEncoder(version, MaxMessageSize)
@@ -351,7 +449,7 @@ func TestUpdateTransportMsgRewritesVersionAndSender(t *testing.T) {
 	dst := HashID("dst")
 	sender := HashID("sender")
 	payload := []byte("payload")
-	msg, err := MarshalTransportMsg(dst, payload)
+	msg, err := MarshalTransportMsg(CurrentProtocolVersion, dst, payload)
 	require.NoError(t, err)
 
 	require.NoError(t, UpdateTransportMsg(msg, ProtocolVersion(2), sender))
@@ -364,4 +462,46 @@ func TestUpdateTransportMsgRewritesVersionAndSender(t *testing.T) {
 	assert.Equal(t, payload, gotPayload, "the payload must be preserved")
 
 	assert.ErrorIs(t, UpdateTransportMsg(msg[:headerTotalSizeTransport-1], ProtocolV1, sender), ErrInvalidMessageLength)
+}
+
+// A client that advertised a version must speak whatever the relay selected up to it, and
+// refuse a relay that claims a version the client never offered.
+func TestValidateSelectedVersion(t *testing.T) {
+	resp, err := NewEncoder(1, MaxMessageSize).AuthResponse("rels://relay.example.com")
+	require.NoError(t, err)
+	v, err := ValidateSelectedVersion(resp, 2)
+	require.NoError(t, err)
+	assert.Equal(t, ProtocolVersion(1), v, "a v1 relay answering a v2 client selects v1")
+
+	resp, err = NewEncoder(2, MaxMessageSize).AuthResponse("rels://relay.example.com")
+	require.NoError(t, err)
+	_, err = ValidateSelectedVersion(resp, 1)
+	assert.ErrorIs(t, err, ErrUnsupportedVersion, "a version above the advertised one must be refused")
+}
+
+func TestEncoder_ClientFramesCarrySelectedVersion(t *testing.T) {
+	enc := NewEncoder(2, MaxMessageSize)
+	id := HashID("peer")
+
+	transport, err := MarshalTransportMsg(enc.Version(), id, []byte("payload"))
+	require.NoError(t, err)
+	gotID, payload, err := UnmarshalTransportMsg(transport)
+	require.NoError(t, err)
+	assert.Equal(t, id, *gotID, "transport must carry the destination")
+	assert.Equal(t, []byte("payload"), payload, "transport must carry the payload")
+
+	sub, err := enc.SubPeerState([]PeerID{id})
+	require.NoError(t, err)
+	unsub, err := enc.UnsubPeerState([]PeerID{id})
+	require.NoError(t, err)
+
+	for name, msg := range map[string][]byte{
+		"transport":   transport,
+		"subscribe":   sub[0],
+		"unsubscribe": unsub[0],
+		"close":       enc.CloseMsg(),
+		"healthcheck": enc.Healthcheck(),
+	} {
+		assert.NoErrorf(t, ValidateConnectionVersion(msg, 2), "%s must carry the selected version", name)
+	}
 }

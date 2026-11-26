@@ -52,6 +52,9 @@ type Peer struct {
 	UserID string
 	// SSHKey is a public SSH key of the peer
 	SSHKey string
+	// AuthPubKey is the base64 Ed25519 key the Signal and Relay tokens of the peer are bound to.
+	// Replaced on every login; empty means the peer gets legacy tokens.
+	AuthPubKey string
 	// SSHEnabled indicates whether SSH server is enabled on the peer
 	SSHEnabled bool
 	// LoginExpirationEnabled indicates whether peer's login expiration is enabled and once expired the peer has to re-login.
@@ -157,6 +160,7 @@ type Flags struct {
 	RosenpassPermissive bool
 	ServerSSHAllowed    bool
 	RemoteJobsAllowed   bool
+	ServerVNCAllowed    bool
 
 	DisableClientRoutes bool
 	DisableServerRoutes bool
@@ -282,6 +286,7 @@ func (p *Peer) Copy() *Peer {
 		Status:                      peerStatus,
 		UserID:                      p.UserID,
 		SSHKey:                      p.SSHKey,
+		AuthPubKey:                  p.AuthPubKey,
 		SSHEnabled:                  p.SSHEnabled,
 		LoginExpirationEnabled:      p.LoginExpirationEnabled,
 		LastLogin:                   p.LastLogin,
@@ -601,6 +606,7 @@ func (f Flags) isEqual(other Flags) bool {
 		f.RosenpassPermissive == other.RosenpassPermissive &&
 		f.ServerSSHAllowed == other.ServerSSHAllowed &&
 		f.RemoteJobsAllowed == other.RemoteJobsAllowed &&
+		f.ServerVNCAllowed == other.ServerVNCAllowed &&
 		f.DisableClientRoutes == other.DisableClientRoutes &&
 		f.DisableServerRoutes == other.DisableServerRoutes &&
 		f.DisableDNS == other.DisableDNS &&

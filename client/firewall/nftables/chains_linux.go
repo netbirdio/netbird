@@ -24,64 +24,78 @@ import (
 	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
-func (r *family) createContainers() error {
-	r.chains[chainNameRoutingFw] = r.conn.AddChain(&nftables.Chain{
+// containerChains lists the chains the family creates up front. A deny-only family routes and
+// translates nothing, so it gets only the plain routing chain the forward filter jumps to and
+// needs no NAT or mangle chain, which a kernel can lack while still filtering IPv6.
+func (r *family) containerChains() []*nftables.Chain {
+	chains := []*nftables.Chain{{
 		Name:  chainNameRoutingFw,
 		Table: r.workTable,
-	})
+	}}
+	if r.denyOnly {
+		return chains
+	}
 
 	prio := *nftables.ChainPriorityNATSource - 1
-	r.chains[chainNameRoutingNat] = r.conn.AddChain(&nftables.Chain{
-		Name:     chainNameRoutingNat,
-		Table:    r.workTable,
-		Hooknum:  nftables.ChainHookPostrouting,
-		Priority: &prio,
-		Type:     nftables.ChainTypeNAT,
-	})
+	return append(chains,
+		&nftables.Chain{
+			Name:     chainNameRoutingNat,
+			Table:    r.workTable,
+			Hooknum:  nftables.ChainHookPostrouting,
+			Priority: &prio,
+			Type:     nftables.ChainTypeNAT,
+		},
+		&nftables.Chain{
+			Name:     chainNameRoutingRdr,
+			Table:    r.workTable,
+			Hooknum:  nftables.ChainHookPrerouting,
+			Priority: nftables.ChainPriorityNATDest,
+			Type:     nftables.ChainTypeNAT,
+		},
+		&nftables.Chain{
+			Name:     chainNameManglePostrouting,
+			Table:    r.workTable,
+			Hooknum:  nftables.ChainHookPostrouting,
+			Priority: nftables.ChainPriorityMangle,
+			Type:     nftables.ChainTypeFilter,
+		},
+		&nftables.Chain{
+			Name:     chainNameManglePrerouting,
+			Table:    r.workTable,
+			Hooknum:  nftables.ChainHookPrerouting,
+			Priority: nftables.ChainPriorityMangle,
+			Type:     nftables.ChainTypeFilter,
+		},
+		&nftables.Chain{
+			Name:     chainNameMangleForward,
+			Table:    r.workTable,
+			Hooknum:  nftables.ChainHookForward,
+			Priority: nftables.ChainPriorityMangle,
+			Type:     nftables.ChainTypeFilter,
+		},
+	)
+}
 
-	r.chains[chainNameRoutingRdr] = r.conn.AddChain(&nftables.Chain{
-		Name:     chainNameRoutingRdr,
-		Table:    r.workTable,
-		Hooknum:  nftables.ChainHookPrerouting,
-		Priority: nftables.ChainPriorityNATDest,
-		Type:     nftables.ChainTypeNAT,
-	})
-
-	r.chains[chainNameManglePostrouting] = r.conn.AddChain(&nftables.Chain{
-		Name:     chainNameManglePostrouting,
-		Table:    r.workTable,
-		Hooknum:  nftables.ChainHookPostrouting,
-		Priority: nftables.ChainPriorityMangle,
-		Type:     nftables.ChainTypeFilter,
-	})
-
-	r.chains[chainNameManglePrerouting] = r.conn.AddChain(&nftables.Chain{
-		Name:     chainNameManglePrerouting,
-		Table:    r.workTable,
-		Hooknum:  nftables.ChainHookPrerouting,
-		Priority: nftables.ChainPriorityMangle,
-		Type:     nftables.ChainTypeFilter,
-	})
-
-	r.chains[chainNameMangleForward] = r.conn.AddChain(&nftables.Chain{
-		Name:     chainNameMangleForward,
-		Table:    r.workTable,
-		Hooknum:  nftables.ChainHookForward,
-		Priority: nftables.ChainPriorityMangle,
-		Type:     nftables.ChainTypeFilter,
-	})
+func (r *family) createContainers() error {
+	for _, chain := range r.containerChains() {
+		r.chains[chain.Name] = r.conn.AddChain(chain)
+	}
 
 	insertReturnTrafficRule(r.conn, r.workTable, r.chains[chainNameRoutingFw])
 	r.addHairpinDropRule(r.chains[chainNameRoutingFw])
 
-	r.addPostroutingRules()
+	if !r.denyOnly {
+		r.addPostroutingRules()
+	}
 
 	if err := r.conn.Flush(); err != nil {
 		return fmt.Errorf("initialize tables: %v", err)
 	}
 
-	if err := r.addMSSClampingRules(); err != nil {
-		log.Errorf("failed to add MSS clamping rules: %s", err)
+	if !r.denyOnly {
+		if err := r.addMSSClampingRules(); err != nil {
+			log.Errorf("failed to add MSS clamping rules: %s", err)
+		}
 	}
 
 	// Kernel routing opens both INPUT and FORWARD.
@@ -102,6 +116,9 @@ func (r *family) createContainers() error {
 
 // setupDataPlaneMark configures the fwmark for the data plane
 func (r *family) setupDataPlaneMark() error {
+	if r.denyOnly {
+		return nil
+	}
 	if r.chains[chainNameManglePrerouting] == nil || r.chains[chainNameManglePostrouting] == nil {
 		return errors.New("no mangle chains found")
 	}
@@ -607,15 +624,12 @@ func (r *family) Flush() error {
 	return nil
 }
 
-// queuePreroutingRule builds the prerouting mangle counterpart of a peer
-// ACL rule and queues it on the connection without flushing, so the
-// caller can commit it in the same transaction as the rule it pairs
-// with. The redirect mark tells the forward filter that the input ACL
-// accepts a packet DNAT diverted from input to forward, so only an
-// accept counterpart sets it. A drop counterpart drops new traffic
-// before DNAT and is inserted at the head, mirroring the
-// drop-before-accept order of the input chain. Returns nil when the
-// prerouting chain is absent, in which case nothing is queued.
+// queuePreroutingRule builds the prerouting counterpart of a peer ACL rule
+// and queues it on the connection. A drop rule drops new traffic before
+// DNAT and goes to the head of the chain. An accept rule sets the redirect
+// mark so the forward filter accepts a packet that DNAT diverts from input
+// to forward. The caller flushes the rule separately from the filter rule
+// it pairs with. Returns nil when the prerouting chain is absent.
 func (r *family) queuePreroutingRule(expressions []expr.Any, userData []byte, action firewall.Action) *nftables.Rule {
 	if r.chainPrerouting == nil {
 		log.Warn("prerouting chain is not created")
@@ -728,6 +742,12 @@ func (r *family) createDefaultChains() (err error) {
 // netbird peer IP.
 func (r *family) allowRedirectedTraffic(chainFwFilter *nftables.Chain) error {
 	r.chainPrerouting = r.chains[chainNameManglePrerouting]
+
+	// The mark accept sits above the interface drop, so a deny-only family must not have it:
+	// a packet carrying the mark would get past the deny.
+	if r.denyOnly {
+		return nil
+	}
 
 	r.addFwmarkToForward(chainFwFilter)
 

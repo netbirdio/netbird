@@ -191,6 +191,13 @@ func (m *DefaultManager) setupRefCounters(useNoop bool) {
 
 	m.allowedIPsRefCounter = refcounter.NewAllowedIPs(
 		func(prefix netip.Prefix, peerKey string) (string, error) {
+			// Same invariant as Engine.filterAllowedIPs: without a v6 overlay address the native
+			// firewall has no v6 rules, so WireGuard must not accept v6 traffic. Routed prefixes
+			// can be chosen by the routing peer (resolved AAAA records of a DNS route).
+			if prefix.Addr().Is6() && !m.wgInterface.Address().HasIPv6() {
+				log.Debugf("Ignoring v6 allowed IP %s for %s: no v6 overlay address", prefix, peerKey)
+				return "", refcounter.ErrIgnore
+			}
 			// save peerKey to use it in the remove function
 			return peerKey, m.wgInterface.AddAllowedIP(peerKey, prefix)
 		},
@@ -383,6 +390,12 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 			}
 		}()
 	}
+
+	// Each AddVPNRoute/RemoveVPNRoute below announces the whole prefix set to the
+	// mobile listener, and on iOS every announcement reconfigures the tunnel. This
+	// batch also ends on error: routes added before a failure are in the system.
+	m.notifier.BeginBatch()
+	defer m.notifier.EndBatch()
 
 	for id, handler := range toRemove {
 		if err := handler.RemoveRoute(); err != nil {

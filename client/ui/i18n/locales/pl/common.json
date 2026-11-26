@@ -920,8 +920,8 @@
     "settings.about.community.github": {
         "message": "GitHub"
     },
-    "settings.about.community.slack": {
-        "message": "Slack"
+    "settings.about.community.discord": {
+        "message": "Discord"
     },
     "settings.about.community.forum": {
         "message": "Forum"
@@ -1391,22 +1391,22 @@
     "error.elevation_failed": {
         "message": "Nie udało się zastosować zmiany z podwyższonymi uprawnieniami. Zamiast tego uruchom:"
     },
-    "settings.ssh.privilege.actorRoot": {
+    "settings.privilege.actorRoot": {
         "message": "Uprawnienia użytkownika root"
     },
-    "settings.ssh.privilege.actorAdministrator": {
+    "settings.privilege.actorAdministrator": {
         "message": "Uprawnienia administratora"
     },
-    "settings.ssh.privilege.hint": {
+    "settings.privilege.hint": {
         "message": "Wymagane są {actor}. Zamiast tego uruchom:"
     },
-    "settings.ssh.privilege.oneWay": {
+    "settings.privilege.oneWay": {
         "message": "Możesz to wyłączyć, ale do ponownego włączenia potrzebne są {actor}."
     },
-    "settings.ssh.privilege.oneWayInverted": {
+    "settings.privilege.oneWayInverted": {
         "message": "Możesz to włączyć, ale do ponownego wyłączenia potrzebne są {actor}."
     },
-    "settings.ssh.privilege.authorizePending": {
+    "settings.privilege.authorizePending": {
         "message": "Oczekiwanie na autoryzację…"
     },
     "profile.ownedByAnother.name": {

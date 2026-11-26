@@ -85,6 +85,12 @@ var guardedFields = []guardedField{
 	boolField(FlagDisableSSHAuth, "Accept SSH sessions without authentication.",
 		func(p GuardedSettings) *bool { return p.DisableSSHAuth },
 		func(req *proto.SetConfigRequest, v *bool) { req.DisableSSHAuth = v }),
+	boolField(FlagAllowServerVNC, "Run the NetBird VNC server.",
+		func(p GuardedSettings) *bool { return p.ServerVNCAllowed },
+		func(req *proto.SetConfigRequest, v *bool) { req.ServerVNCAllowed = v }),
+	boolField(FlagDisableVNCApproval, "Accept VNC sessions without asking the console user.",
+		func(p GuardedSettings) *bool { return p.DisableVNCApproval },
+		func(req *proto.SetConfigRequest, v *bool) { req.DisableVNCApproval = v }),
 }
 
 // fieldValue is a flag that remembers whether it was given, and requires a value:
