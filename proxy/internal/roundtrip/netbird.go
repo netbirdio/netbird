@@ -562,7 +562,8 @@ func (n *NetBird) runClientStartup(accountID types.AccountID, client *embed.Clie
 	startCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := client.Start(startCtx); err != nil {
+	// A request may have started the client first; it is up, so readiness still runs here.
+	if err := client.Start(startCtx); err != nil && !errors.Is(err, embed.ErrClientAlreadyStarted) {
 		if errors.Is(err, context.DeadlineExceeded) {
 			n.logger.WithField("account_id", accountID).Warn("netbird client start timed out, will retry on first request")
 		} else {
