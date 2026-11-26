@@ -635,7 +635,9 @@ func validateVNCSessionPubKey(raw *string) (string, error) {
 func toAccessiblePeers(accountPeers map[string]*nbpeer.Peer, netMap *types.NetworkMap, dnsDomain string) []api.AccessiblePeer {
 	accessiblePeers := make([]api.AccessiblePeer, 0, len(netMap.Peers)+len(netMap.OfflinePeers))
 	appendByID := func(id string) {
-		if p, ok := accountPeers[id]; ok && p != nil {
+		// Embedded proxy peers are hidden from the peer list and peer reads,
+		// so listing them here would show peers users can neither find nor open.
+		if p, ok := accountPeers[id]; ok && p != nil && !p.ProxyMeta.Embedded {
 			accessiblePeers = append(accessiblePeers, peerToAccessiblePeer(p, dnsDomain))
 		}
 	}

@@ -26,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -644,4 +645,36 @@ func TestPeersHandlerUpdatePeerIP(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestToAccessiblePeersHidesEmbeddedProxyPeers(t *testing.T) {
+	accountPeers := map[string]*nbpeer.Peer{
+		"peer1": {ID: "peer1", Name: "peer1", IP: netip.MustParseAddr("100.64.0.1"), Status: &nbpeer.PeerStatus{}},
+		"proxy-online": {
+			ID:        "proxy-online",
+			Name:      "proxy-online",
+			IP:        netip.MustParseAddr("100.64.0.2"),
+			Status:    &nbpeer.PeerStatus{},
+			ProxyMeta: nbpeer.ProxyMeta{Embedded: true, Cluster: "eu.proxy.netbird.io"},
+		},
+		"proxy-offline": {
+			ID:        "proxy-offline",
+			Name:      "proxy-offline",
+			IP:        netip.MustParseAddr("100.64.0.3"),
+			Status:    &nbpeer.PeerStatus{},
+			ProxyMeta: nbpeer.ProxyMeta{Embedded: true, Cluster: "eu.proxy.netbird.io"},
+		},
+	}
+	netMap := &types.NetworkMap{
+		Peers:        []*nmdata.Peer{{ID: "peer1"}, {ID: "proxy-online"}},
+		OfflinePeers: []*nmdata.Peer{{ID: "proxy-offline"}},
+	}
+
+	got := toAccessiblePeers(accountPeers, netMap, "netbird.cloud")
+
+	ids := make([]string, 0, len(got))
+	for _, p := range got {
+		ids = append(ids, p.Id)
+	}
+	assert.Equal(t, []string{"peer1"}, ids, "embedded proxy peers must not be listed, online or offline")
 }
