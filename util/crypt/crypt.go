@@ -3,7 +3,10 @@ package crypt
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hkdf"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -11,7 +14,8 @@ import (
 
 // FieldEncrypt provides AES-GCM encryption for sensitive fields.
 type FieldEncrypt struct {
-	block cipher.Block
+	block   cipher.Block
+	hashKey []byte
 }
 
 // NewFieldEncrypt creates a new FieldEncrypt with the given base64-encoded key.
@@ -31,7 +35,19 @@ func NewFieldEncrypt(base64Key string) (*FieldEncrypt, error) {
 		return nil, fmt.Errorf("create cipher: %w", err)
 	}
 
-	return &FieldEncrypt{block: block}, nil
+	hashKey, err := hkdf.Key(sha256.New, key, nil, "netbird field hash", sha256.Size)
+	if err != nil {
+		return nil, fmt.Errorf("derive hash key: %w", err)
+	}
+
+	return &FieldEncrypt{block: block, hashKey: hashKey}, nil
+}
+
+// Hash returns a keyed hash of data, for matching encrypted fields by value.
+func (f *FieldEncrypt) Hash(data []byte) []byte {
+	mac := hmac.New(sha256.New, f.hashKey)
+	mac.Write(data)
+	return mac.Sum(nil)
 }
 
 // Encrypt encrypts the given plaintext and returns base64-encoded ciphertext.

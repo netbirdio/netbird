@@ -137,3 +137,20 @@ func TestDecrypt_WrongKey(t *testing.T) {
 	assert.Error(t, err)
 	assert.Empty(t, payload)
 }
+
+func TestHash(t *testing.T) {
+	key, err := GenerateKey()
+	require.NoError(t, err)
+	enc, err := NewFieldEncrypt(key)
+	require.NoError(t, err)
+
+	otherKey, err := GenerateKey()
+	require.NoError(t, err)
+	other, err := NewFieldEncrypt(otherKey)
+	require.NoError(t, err)
+
+	hash := enc.Hash([]byte("user@example.com"))
+	assert.Equal(t, hash, enc.Hash([]byte("user@example.com")), "the same value should hash the same")
+	assert.NotEqual(t, hash, enc.Hash([]byte("other@example.com")), "different values should hash differently")
+	assert.NotEqual(t, hash, other.Hash([]byte("user@example.com")), "the hash should depend on the key")
+}
