@@ -737,7 +737,7 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 
 // NewTestStoreFromSQL is only used in tests. It will create a test database base of the store engine set in env.
 // Optionally it can load a SQL file to the database. If the filename is empty it will return an empty database
-func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (Store, func(), error) {
+func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (*SqlStore, func(), error) {
 	kind := GetStoreEngineFromEnv()
 
 	conn, err := db.OpenSqliteFile(ctx, dataDir, db.SqliteFileName)
@@ -765,7 +765,7 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		return nil, nil, fmt.Errorf("failed to add all group to account: %v", err)
 	}
 
-	var sqlStore Store
+	var sqlStore *SqlStore
 	var cleanup func()
 
 	maxRetries := 2

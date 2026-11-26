@@ -30,6 +30,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness/peerlivenesstest"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	networkmapdbfactory "github.com/netbirdio/netbird/management/internals/network_map_db/factory"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
@@ -382,10 +383,16 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 		return nil, nil, "", cleanup, err
 	}
 
+	nmapStoreConfig, err := networkmapdb.NewNetworkMapDBStoreConfig().
+		WithKind(nbstore.GetStoreEngineFromEnv()).
+		WithSqliteDataDir(config.Datadir).
+		WithPostgresDSNFromSQLStore(store).
+		Finish()
+	require.NoError(t, err)
+
 	nmapDbStore, err := networkmapdbfactory.NewNetworkMapDBStore(
 		context.Background(),
-		nbstore.GetStoreEngineFromEnv(),
-		dataDir,
+		nmapStoreConfig,
 		MockIntegratedValidator{},
 		settingsMockManager,
 		nil,

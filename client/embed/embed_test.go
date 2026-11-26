@@ -15,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness/peerlivenesstest"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	networkmapdbfactory "github.com/netbirdio/netbird/management/internals/network_map_db/factory"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
@@ -148,10 +149,17 @@ func startManagement(t *testing.T, signalAddr string) string {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := mgmt.NewAccountRequestBuffer(context.Background(), testStore)
+
+	nmapStoreConfig, err := networkmapdb.NewNetworkMapDBStoreConfig().
+		WithKind(store.GetStoreEngineFromEnv()).
+		WithSqliteDataDir(cfg.Datadir).
+		WithPostgresDSNFromSQLStore(testStore).
+		Finish()
+	require.NoError(t, err)
+
 	nmapDbStore, err := networkmapdbfactory.NewNetworkMapDBStore(
 		context.Background(),
-		store.GetStoreEngineFromEnv(),
-		cfg.Datadir,
+		nmapStoreConfig,
 		iv,
 		settingsMockManager,
 		nil,

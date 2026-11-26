@@ -19,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
 	reverseproxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service/manager"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	networkmapdbfactory "github.com/netbirdio/netbird/management/internals/network_map_db/factory"
 	"github.com/netbirdio/netbird/management/internals/shared/db"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
@@ -96,10 +97,19 @@ func buildTestAPI(t testing_tools.TB, sqlFile string, peersUpdateManager network
 	}
 
 	requestBuffer := server.NewAccountRequestBuffer(ctx, store)
+
+	nmapStoreConfig, err := networkmapdb.NewNetworkMapDBStoreConfig().
+		WithKind(nbstore.GetStoreEngineFromEnv()).
+		WithSqliteDataDir(dbDir).
+		WithPostgresDSNFromSQLStore(store).
+		Finish()
+	if err != nil {
+		t.Fatalf("Failed to create networkmap db store config: %v", err)
+	}
+
 	nmapDbStore, err := networkmapdbfactory.NewNetworkMapDBStore(
 		context.Background(),
-		nbstore.GetStoreEngineFromEnv(),
-		dbDir,
+		nmapStoreConfig,
 		validatorMock,
 		settingsManager,
 		nil,

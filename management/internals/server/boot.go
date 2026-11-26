@@ -127,16 +127,24 @@ func (s *BaseServer) Store() store.Store {
 // this way we don't need to spread defensive checks throughout the codebase
 func (s *BaseServer) NetworkMapStore() *networkmapdb.NetworkMapDBStoreImpl {
 	return Create(s, func() *networkmapdb.NetworkMapDBStoreImpl {
+		nmapStoreConfig, err := networkmapdb.NewNetworkMapDBStoreConfig().
+			WithKind(s.Config.StoreConfig.Engine).
+			WithSqliteDataDir(s.Config.Datadir).
+			WithPostgresDSNFromEnv().
+			Finish()
+		if err != nil {
+			log.Fatalf("failed to create network map store config: %v", err)
+		}
+
 		store, err := networkmapdbfactory.NewNetworkMapDBStore(
 			context.Background(),
-			s.Config.StoreConfig.Engine,
-			s.Config.Datadir,
+			nmapStoreConfig,
 			s.IntegratedValidator(),
 			s.SettingsManager(),
 			s.NetworkMapReplicaPool(),
 			s.Metrics().GetMeter(),
 		)
-		// networkmap db store supports postgres and sqlite backends only
+
 		if err != nil {
 			log.Fatalf("failed to create network map store: %v", err)
 		}

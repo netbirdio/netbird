@@ -20,6 +20,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness/peerlivenesstest"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	networkmapdbfactory "github.com/netbirdio/netbird/management/internals/network_map_db/factory"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -116,10 +117,16 @@ func createManagerWithEmbeddedIdPModeAndSetup(
 	requestBuffer := NewAccountRequestBuffer(ctx, testStore)
 	validatorMock := MockIntegratedValidator{}
 
+	nmapStoreConfig, err := networkmapdb.NewNetworkMapDBStoreConfig().
+		WithKind(nbstore.GetStoreEngineFromEnv()).
+		WithSqliteDataDir(dataDir).
+		WithPostgresDSNFromSQLStore(testStore).
+		Finish()
+	require.NoError(t, err)
+
 	nmapDbStore, err := networkmapdbfactory.NewNetworkMapDBStore(
 		context.Background(),
-		nbstore.GetStoreEngineFromEnv(),
-		dataDir,
+		nmapStoreConfig,
 		validatorMock,
 		settingsMockManager,
 		nil,

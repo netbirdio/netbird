@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness/peerlivenesstest"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	networkmapdbfactory "github.com/netbirdio/netbird/management/internals/network_map_db/factory"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -807,10 +808,17 @@ func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, store)
+
+	nmapStoreConfig, err := networkmapdb.NewNetworkMapDBStoreConfig().
+		WithKind(nbstore.GetStoreEngineFromEnv()).
+		WithSqliteDataDir(dataDir).
+		WithPostgresDSNFromSQLStore(store).
+		Finish()
+	require.NoError(t, err)
+
 	nmapDbStore, err := networkmapdbfactory.NewNetworkMapDBStore(
 		context.Background(),
-		nbstore.GetStoreEngineFromEnv(),
-		dataDir,
+		nmapStoreConfig,
 		&integrated_validator.MockIntegratedValidator{},
 		settingsMockManager,
 		nil,
@@ -825,7 +833,7 @@ func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 	return BuildManager(context.Background(), nil, store, networkMapController, job.NewJobManager(nil, store, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 }
 
-func createNSStore(t *testing.T, dataDir string) (nbstore.Store, error) {
+func createNSStore(t *testing.T, dataDir string) (*nbstore.SqlStore, error) {
 	t.Helper()
 	store, cleanUp, err := nbstore.NewTestStoreFromSQL(context.Background(), "", dataDir)
 	if err != nil {
