@@ -637,6 +637,9 @@ func (n *NetBird) RemovePeer(ctx context.Context, accountID types.AccountID, key
 	}
 
 	delete(entry.services, key)
+	if entry.spare != nil && entry.spare.key == key {
+		entry.spare = nil
+	}
 
 	stopClient := len(entry.services) == 0
 	if stopClient {

@@ -671,3 +671,26 @@ func TestNetBird_ReplaceExitedClient_UsesSpareToken(t *testing.T) {
 	assert.Equal(t, "token-2", mgmt.token(), "the kept token must create the new peer")
 	assert.Equal(t, 2, mgmt.count(), "the spare token is spent once, even when asked twice")
 }
+
+// TestNetBird_RemovePeer_DropsSpareTokenOfRemovedService covers a service removed while
+// its client keeps serving another one. The token kept from that service's mapping must
+// be dropped, or a later client death would register the removed service again.
+func TestNetBird_RemovePeer_DropsSpareTokenOfRemovedService(t *testing.T) {
+	mgmt := &countingMgmtClient{}
+	nb := NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
+		MgmtAddr: "http://invalid.test:9999",
+	}, nil, nil, mgmt)
+	nb.startClient = func(types.AccountID, *embed.Client) {}
+
+	accountID := types.AccountID("account-1")
+	require.NoError(t, nb.AddPeer(context.Background(), accountID, "domain1.test", "token-1", types.ServiceID("svc-1")))
+	// svc-2 reuses the running client, so its token-2 is kept as the spare.
+	require.NoError(t, nb.AddPeer(context.Background(), accountID, "domain2.test", "token-2", types.ServiceID("svc-2")))
+	require.NoError(t, nb.RemovePeer(context.Background(), accountID, "domain2.test"))
+	require.Equal(t, 1, nb.ServiceCount(accountID), "svc-1 must still be served")
+
+	nb.clientsMux.RLock()
+	spare := nb.clients[accountID].spare
+	nb.clientsMux.RUnlock()
+	assert.Nil(t, spare, "the removed service's token must not stay as the spare")
+}
