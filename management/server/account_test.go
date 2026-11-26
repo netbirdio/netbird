@@ -3967,11 +3967,6 @@ func buildTestManager(t testing.TB, store store.Store, nmdataStore *networkmapdb
 	return manager, updateManager, nil
 }
 
-func createStore(t testing.TB) (store.Store, error) {
-	t.Helper()
-	return createStoreAt(t, t.TempDir())
-}
-
 func createStoreAt(t testing.TB, dataDir string) (store.Store, error) {
 	t.Helper()
 	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "", dataDir)
