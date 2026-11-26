@@ -364,6 +364,18 @@ func TestSqlStore_GetAccountUsersPaginated(t *testing.T) {
 			u.AccountID = accountID
 		}
 
+		// Names and emails are encrypted at rest.
+		key, err := crypt.GenerateKey()
+		require.NoError(t, err)
+		fieldEncrypt, err := crypt.NewFieldEncrypt(key)
+		require.NoError(t, err)
+		store.SetFieldEncrypt(fieldEncrypt)
+		users[0].Name, users[0].Email = "Alice Smith", "alice@example.com"
+		users[1].Name, users[1].Email = "Bob Smithson", "bob@corp.example"
+		users[2].Name, users[2].Email = "Carol", "carol.smith@example.com"
+		users[7].ServiceUserName = "Smith Bot"
+		nonDeletable.ServiceUserName = "smith-integration"
+
 		// Vary the fields the filters and sorts use. The seed's admin user has the auto group
 		// cfefqs706sqkneg59g3g, and neither seed user has logged in or has pending_approval set.
 		loginTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -467,6 +479,41 @@ func TestSqlStore_GetAccountUsersPaginated(t *testing.T) {
 				assert.Equal(t, tc.want, ids, "users with any of the groups %v", tc.groups)
 				assert.Equal(t, len(tc.want), count, "total count with the groups %v", tc.groups)
 			}
+		})
+
+		t.Run("name and email search", func(t *testing.T) {
+			for _, tc := range []struct {
+				name    string
+				filters UserFilters
+				want    []string
+			}{
+				{name: "name, ignoring case and matching service user names", filters: UserFilters{Name: "SMITH"}, want: []string{"paged-service-00", "paged-user-00", "paged-user-01"}},
+				{name: "name across words", filters: UserFilters{Name: "ice sm"}, want: []string{"paged-user-00"}},
+				{name: "name nobody has", filters: UserFilters{Name: "jones"}, want: []string{}},
+				{name: "whole email, ignoring case", filters: UserFilters{Email: "Alice@Example.COM"}, want: []string{"paged-user-00"}},
+				{name: "part of an email", filters: UserFilters{Email: "example.com"}, want: []string{}},
+				{name: "name and email", filters: UserFilters{Name: "smith", Email: "bob@corp.example"}, want: []string{"paged-user-01"}},
+				{name: "name and service_user", filters: UserFilters{Name: "smith", ServiceUser: new(false)}, want: []string{"paged-user-00", "paged-user-01"}},
+			} {
+				ids, count := listIDs(t, allUsers, tc.filters, UserSorting{})
+				assert.Equal(t, tc.want, ids, "users matching %s", tc.name)
+				assert.Equal(t, len(tc.want), count, "total count matching %s", tc.name)
+			}
+		})
+
+		t.Run("search pages and sorts the matches", func(t *testing.T) {
+			var ids []string
+			for page, wantLen := range []int{2, 1, 0} {
+				got, count := listIDs(t, PaginationState{Page: page + 1, PageSize: 2}, UserFilters{Name: "smith"}, UserSorting{})
+				assert.Equal(t, 3, count, "total count on page %d", page+1)
+				assert.Len(t, got, wantLen, "matches on page %d", page+1)
+				ids = append(ids, got...)
+			}
+			assert.Equal(t, []string{"paged-service-00", "paged-user-00", "paged-user-01"}, ids, "matches across pages")
+
+			sorting := UserSorting{Fields: []UserSortingKey{{Field: UserSortByLastLogin, Order: DescOrderBy}}}
+			ids, _ = listIDs(t, allUsers, UserFilters{Name: "smith"}, sorting)
+			assert.Equal(t, []string{"paged-user-00", "paged-service-00", "paged-user-01"}, ids, "the user who logged in, then the rest by id")
 		})
 
 		t.Run("is_current sorts the current user first", func(t *testing.T) {
@@ -584,6 +631,15 @@ func TestSqlStore_FillUserEmailAndName(t *testing.T) {
 	require.NoError(t, store.(*SqlStore).db.Table("users").Select("email, name").Where("id = ?", userID).First(&raw).Error)
 	assert.NotEqual(t, "alice@example.com", raw.Email, "email must be stored encrypted")
 	assert.NotEqual(t, "Alice", raw.Name, "name must be stored encrypted")
+
+	search := func(filters UserFilters) int {
+		_, count, err := store.GetAccountUsersPaginated(ctx, LockingStrengthNone, accountID, PaginationState{Page: 1, PageSize: 10}, filters, UserSorting{})
+		require.NoError(t, err)
+		return count
+	}
+	assert.Equal(t, 1, search(UserFilters{Email: "alice@example.com"}), "the filled email should be searchable")
+	assert.Equal(t, 1, search(UserFilters{Name: "alice"}), "the filled name should be searchable")
+	assert.Zero(t, search(UserFilters{Name: "bob"}), "a name that wasn't filled should not be searchable")
 }
 
 func TestSqlStore_GetUsersMissingEmailOrName(t *testing.T) {

@@ -6,8 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash/fnv"
-	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -18,6 +17,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
+	"github.com/netbirdio/netbird/util/crypt"
 )
 
 // SaveUsers saves the given list of users to the database.
@@ -169,7 +169,7 @@ func (s *SqlStore) GetAccountUsersPaginated(ctx context.Context,
 			tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 		}
 		tx = whereBool(tx.Where(accountIDCondition, accountID), "users.non_deletable", false)
-		return filters.AsConditions(tx, engine)
+		return filters.AsConditions(tx, engine, s.fieldEncrypt)
 	}
 
 	var users []*types.User
@@ -192,25 +192,25 @@ func (s *SqlStore) GetAccountUsersPaginated(ctx context.Context,
 		}
 	}
 
-	toret := make([]*types.User, 0, len(users))
 	for _, user := range users {
 		if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
 			return nil, 0, fmt.Errorf("decrypt user: %w", err)
 		}
-		if !strings.Contains(user.Name, filters.Name) {
-			continue
-		}
-		toret = append(toret, user)
 	}
 
-	// the actual total count might be lower than reported by the query above due to false matches returned by the bloom filter
-	// provided sufficiently long pattern is used (>= 5 chars), the number of false matches should be low, so we'll just report this number anyway
-	return toret, int(count), nil
+	if filters.Name != "" {
+		// the name filter also matches some users by chance; they are still counted
+		users = slices.DeleteFunc(users, func(user *types.User) bool { return !user.MatchesName(filters.Name) })
+	}
+
+	return users, int(count), nil
 }
 
 // UserFilters narrows the users GetAccountUsersPaginated lists. Empty fields don't filter.
 type UserFilters struct {
+	// Name matches part of the name and Email the whole email, ignoring case.
 	Name            string
+	Email           string
 	ServiceUser     *bool
 	PendingApproval *bool
 	Roles           []types.UserRole
@@ -220,11 +220,16 @@ type UserFilters struct {
 }
 
 // AsConditions adds the filters to a users query.
-func (f *UserFilters) AsConditions(db *gorm.DB, engine types.Engine) *gorm.DB {
-	if engine == types.PostgresStoreEngine {
-		db = fuzzyNameSearchConditionPostgres(db, f.Name)
-	} else {
-		db = fuzzyNameSearchConditionSqlite(db, f.Name)
+func (f *UserFilters) AsConditions(db *gorm.DB, engine types.Engine, enc *crypt.FieldEncrypt) *gorm.DB {
+	if f.Name != "" {
+		for i, bits := range types.NameFilter(enc, f.Name) {
+			if bits != 0 {
+				db = db.Where(fmt.Sprintf("(users.name_hash_%d & ?) = ?", i+1), bits, bits)
+			}
+		}
+	}
+	if f.Email != "" {
+		db = db.Where("users.email_hash = ?", types.EmailSearchHash(enc, f.Email))
 	}
 	if f.ServiceUser != nil {
 		db = whereBool(db, "users.is_service_user", *f.ServiceUser)
@@ -259,47 +264,6 @@ func autoGroupsMatchAnyCondition(engine types.Engine) string {
 		return `EXISTS (SELECT 1 FROM jsonb_array_elements_text(CASE WHEN users.auto_groups LIKE '[%' THEN users.auto_groups::jsonb ELSE '[]'::jsonb END) AS auto_group(id) WHERE auto_group.id IN ?)`
 	}
 	return `EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(users.auto_groups) THEN users.auto_groups ELSE '[]' END) AS auto_group WHERE auto_group.value IN ?)`
-}
-
-func fuzzyNameSearchConditionPostgres(db *gorm.DB, pattern string) *gorm.DB {
-	if pattern == "" {
-		return db
-	}
-
-	b := newBloomFilter(160)
-	for _, trigram := range toTrigrams(pattern) {
-		b.add([]byte(trigram))
-	}
-
-	tx := db.Where("bitmap_to_bitarray(name_hash_1) @> bitmap_to_bitarray(?)", b.buckets[0])
-	tx = tx.Where("bitmap_to_bitarray(name_hash_2) @> bitmap_to_bitarray(?)", b.buckets[1])
-	tx = tx.Where("bitmap_to_bitarray(name_hash_3) @> bitmap_to_bitarray(?)", b.buckets[2])
-	tx = tx.Where("bitmap_to_bitarray(name_hash_4) @> bitmap_to_bitarray(?)", b.buckets[3])
-	tx = tx.Where("bitmap_to_bitarray(name_hash_5) @> bitmap_to_bitarray(?)", b.buckets[4])
-	tx = tx.Where("bitmap_to_bitarray(name_hash_6) @> bitmap_to_bitarray(?)", b.buckets[5])
-
-	return tx
-}
-
-func fuzzyNameSearchConditionSqlite(db *gorm.DB, pattern string) *gorm.DB {
-	if pattern == "" {
-		return db
-	}
-
-	tx := db
-	b := newBloomFilter(160)
-	for _, trigram := range toTrigrams(pattern) {
-		b.add([]byte(trigram))
-	}
-
-	for i, bucket := range b.buckets {
-		if bucket == 0 {
-			continue
-		}
-		tx = tx.Where(fmt.Sprintf("name_hash_%d & ? = ?", i+1), bucket, bucket)
-	}
-
-	return tx
 }
 
 // UserSortByField is a field the users listing can be sorted by.
@@ -349,81 +313,6 @@ func (s *UserSorting) AsOrderBy(db *gorm.DB) *gorm.DB {
 	columns = append(columns, "users.id")
 
 	return db.Order(clause.OrderBy{Expression: clause.Expr{SQL: strings.Join(columns, ", "), Vars: vars}})
-}
-
-// use https://hur.st/bloomfilter/ to calculate filter params
-type bloom struct {
-	buckets  []int32
-	k        uint64 // num of hash passes
-	m        uint64 // num of bits
-	nbuckets uint64 // bits split into 32bit words
-}
-
-func newBloomFilter(m int) *bloom {
-	n := int(math.Ceil(float64(m) / 31))
-	return &bloom{
-		buckets:  make([]int32, n),
-		m:        uint64(m),
-		k:        4,
-		nbuckets: uint64(n),
-	}
-}
-
-func (b *bloom) add(d []byte) {
-	h1, h2 := b.hash([]byte(d))
-	for i := uint64(0); i < b.k; i++ {
-		idx := (h1 + i*h2) % b.m
-		bidx := idx % b.nbuckets
-		bit := int32(1 << (idx % 31))
-		b.buckets[bidx] |= bit
-	}
-}
-
-func (b *bloom) test(d []string) bool {
-	for _, trigram := range d {
-		h1, h2 := b.hash([]byte(trigram))
-		for i := uint64(0); i < b.k; i++ {
-			idx := (h1 + i*h2) % b.m
-			bidx := idx % b.nbuckets
-			bit := int32(1 << (idx % 31))
-			if b.buckets[bidx]&bit == 0 {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-func (b *bloom) hash(d []byte) (uint64, uint64) {
-	h := fnv.New64a()
-	h.Write(d)
-	hash := h.Sum64()
-	return uint64(hash & ((1 << 32) - 1)), uint64(hash >> 32)
-}
-
-func toTrigrams(s string) []string {
-	in := strings.TrimSpace(s)
-	if len(in) < 3 {
-		return nil
-	}
-
-	parts := make([]string, 0)
-	for _, part := range strings.Split(in, " ") {
-		if len(part) < 3 {
-			parts = append(parts, part+strings.Repeat(" ", 3-len(part)))
-		} else {
-			parts = append(parts, part)
-		}
-	}
-
-	toret := make([]string, 0)
-	for _, part := range parts {
-		toret = append(toret, part[:3])
-		for i := 3; i < len(part); i++ {
-			toret = append(toret, part[i-2:i+1])
-		}
-	}
-	return toret
 }
 
 func (s *SqlStore) GetAccountOwner(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.User, error) {
@@ -588,11 +477,19 @@ func (s *SqlStore) FillUserEmailAndName(ctx context.Context, accountID, userID, 
 		return fmt.Errorf("encrypt user email and name: %w", err)
 	}
 
+	// SET expressions read the row as it was before the update.
+	ifEmpty := func(field, column string, value any) clause.Expr {
+		return gorm.Expr("CASE WHEN COALESCE("+field+", '') = '' THEN ? ELSE "+column+" END", value)
+	}
 	result := s.db.Model(&types.User{}).
 		Where(accountAndIDQueryCondition, accountID, userID).
 		Updates(map[string]any{
-			"email": gorm.Expr("COALESCE(NULLIF(email, ''), ?)", encrypted.Email),
-			"name":  gorm.Expr("COALESCE(NULLIF(name, ''), ?)", encrypted.Name),
+			"email":       gorm.Expr("COALESCE(NULLIF(email, ''), ?)", encrypted.Email),
+			"name":        gorm.Expr("COALESCE(NULLIF(name, ''), ?)", encrypted.Name),
+			"email_hash":  ifEmpty("email", "email_hash", encrypted.EmailHash),
+			"name_hash_1": ifEmpty("name", "name_hash_1", encrypted.NameHash1),
+			"name_hash_2": ifEmpty("name", "name_hash_2", encrypted.NameHash2),
+			"name_hash_3": ifEmpty("name", "name_hash_3", encrypted.NameHash3),
 		})
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to fill user email and name: %s", result.Error)
