@@ -85,7 +85,7 @@ func TestMigrate(t *testing.T) {
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
-	err = migratePreAuto(context.Background(), store.(*SqlStore).db)
+	err = migratePreAuto(context.Background(), store.db)
 	require.NoError(t, err, "Migration should not fail on empty db")
 
 	_, ipnet, err := net.ParseCIDR("10.0.0.0/24")
@@ -121,7 +121,7 @@ func TestMigrate(t *testing.T) {
 		},
 	}
 
-	err = store.(*SqlStore).db.Save(act).Error
+	err = store.db.Save(act).Error
 	require.NoError(t, err, "Failed to insert Gob data")
 
 	type route struct {
@@ -137,16 +137,16 @@ func TestMigrate(t *testing.T) {
 		Route:      nbroute.Route{ID: "route1"},
 	}
 
-	err = store.(*SqlStore).db.Save(rt).Error
+	err = store.db.Save(rt).Error
 	require.NoError(t, err, "Failed to insert Gob data")
 
-	err = migratePreAuto(context.Background(), store.(*SqlStore).db)
+	err = migratePreAuto(context.Background(), store.db)
 	require.NoError(t, err, "Migration should not fail on gob populated db")
 
-	err = migratePreAuto(context.Background(), store.(*SqlStore).db)
+	err = migratePreAuto(context.Background(), store.db)
 	require.NoError(t, err, "Migration should not fail on migrated db")
 
-	err = store.(*SqlStore).db.Delete(rt).Where("id = ?", "route1").Error
+	err = store.db.Delete(rt).Where("id = ?", "route1").Error
 	require.NoError(t, err, "Failed to delete Gob data")
 
 	prefix = netip.MustParsePrefix("12.0.0.0/24")
@@ -156,13 +156,13 @@ func TestMigrate(t *testing.T) {
 		Peer:    "peer-id",
 	}
 
-	err = store.(*SqlStore).db.Save(nRT).Error
+	err = store.db.Save(nRT).Error
 	require.NoError(t, err, "Failed to insert json nil slice data")
 
-	err = migratePreAuto(context.Background(), store.(*SqlStore).db)
+	err = migratePreAuto(context.Background(), store.db)
 	require.NoError(t, err, "Migration should not fail on json nil slice populated db")
 
-	err = migratePreAuto(context.Background(), store.(*SqlStore).db)
+	err = migratePreAuto(context.Background(), store.db)
 	require.NoError(t, err, "Migration should not fail on migrated db")
 }
 
@@ -353,12 +353,9 @@ func TestSqlStore_DatabaseBlocking(t *testing.T) {
 func TestSqlStore_ExecuteInTransaction_Timeout(t *testing.T) {
 	t.Setenv("NB_STORE_TRANSACTION_TIMEOUT", "1s")
 
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	sqlStore, cleanup, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(cleanup)
-
-	sqlStore, ok := store.(*SqlStore)
-	require.True(t, ok)
 
 	ctx := context.Background()
 	err = sqlStore.ExecuteInTransaction(ctx, func(transaction Store) error {

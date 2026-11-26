@@ -416,10 +416,10 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 		&agentNetworkTypes.AccountBudgetRule{ID: "an_budget_rule", AccountID: account.Id},
 	}
 	for _, row := range agentNetworkConfig {
-		require.NoError(t, store.(*SqlStore).db.Create(row).Error, "creating %T", row)
+		require.NoError(t, store.db.Create(row).Error, "creating %T", row)
 	}
 	otherProvider := &agentNetworkTypes.Provider{ID: "other_provider", AccountID: "other_account"}
-	require.NoError(t, store.(*SqlStore).db.Create(otherProvider).Error)
+	require.NoError(t, store.db.Create(otherProvider).Error)
 
 	err = store.DeleteAccount(context.Background(), account)
 	require.NoError(t, err)
@@ -448,7 +448,7 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 
 	for _, policy := range account.Policies {
 		var rules []*types.PolicyRule
-		err = store.(*SqlStore).db.Model(&types.PolicyRule{}).Find(&rules, "policy_id = ?", policy.ID).Error
+		err = store.db.Model(&types.PolicyRule{}).Find(&rules, "policy_id = ?", policy.ID).Error
 		require.NoError(t, err, "expecting no error after removing DeleteAccount when searching for policy rules")
 		require.Len(t, rules, 0, "expecting no policy rules to be found after removing DeleteAccount")
 
@@ -456,7 +456,7 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 
 	for _, accountUser := range account.Users {
 		var pats []*types.PersonalAccessToken
-		err = store.(*SqlStore).db.Model(&types.PersonalAccessToken{}).Find(&pats, "user_id = ?", accountUser.Id).Error
+		err = store.db.Model(&types.PersonalAccessToken{}).Find(&pats, "user_id = ?", accountUser.Id).Error
 		require.NoError(t, err, "expecting no error after removing DeleteAccount when searching for personal access token")
 		require.Len(t, pats, 0, "expecting no personal access token to be found after removing DeleteAccount")
 
@@ -477,12 +477,12 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 	require.Len(t, domains, 0, "expecting no custom domains to be found after DeleteAccount")
 
 	var services []*rpservice.Service
-	err = store.(*SqlStore).db.Model(&rpservice.Service{}).Find(&services, "account_id = ?", account.Id).Error
+	err = store.db.Model(&rpservice.Service{}).Find(&services, "account_id = ?", account.Id).Error
 	require.NoError(t, err, "expecting no error after DeleteAccount when searching for services")
 	require.Len(t, services, 0, "expecting no services to be found after DeleteAccount")
 
 	var targets []*rpservice.Target
-	err = store.(*SqlStore).db.Model(&rpservice.Target{}).Find(&targets, "account_id = ?", account.Id).Error
+	err = store.db.Model(&rpservice.Target{}).Find(&targets, "account_id = ?", account.Id).Error
 	require.NoError(t, err, "expecting no error after DeleteAccount when searching for service targets")
 	require.Len(t, targets, 0, "expecting no service targets to be found after DeleteAccount")
 
@@ -502,13 +502,13 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 
 	for _, row := range agentNetworkConfig {
 		var count int64
-		err = store.(*SqlStore).db.Model(row).Where("account_id = ?", account.Id).Count(&count).Error
+		err = store.db.Model(row).Where("account_id = ?", account.Id).Count(&count).Error
 		require.NoError(t, err, "counting %T rows after DeleteAccount", row)
 		assert.Zero(t, count, "expecting no %T rows to be found after DeleteAccount", row)
 	}
 
 	var otherProviders int64
-	err = store.(*SqlStore).db.Model(&agentNetworkTypes.Provider{}).Where("account_id = ?", "other_account").Count(&otherProviders).Error
+	err = store.db.Model(&agentNetworkTypes.Provider{}).Where("account_id = ?", "other_account").Count(&otherProviders).Error
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), otherProviders, "expecting another account's agent network provider to survive DeleteAccount")
 }
@@ -698,7 +698,7 @@ func TestPostgresql_DeleteAccount(t *testing.T) {
 
 	for _, policy := range account.Policies {
 		var rules []*types.PolicyRule
-		err = store.(*SqlStore).db.Model(&types.PolicyRule{}).Find(&rules, "policy_id = ?", policy.ID).Error
+		err = store.db.Model(&types.PolicyRule{}).Find(&rules, "policy_id = ?", policy.ID).Error
 		require.NoError(t, err, "expecting no error after removing DeleteAccount when searching for policy rules")
 		require.Len(t, rules, 0, "expecting no policy rules to be found after removing DeleteAccount")
 
@@ -706,7 +706,7 @@ func TestPostgresql_DeleteAccount(t *testing.T) {
 
 	for _, accountUser := range account.Users {
 		var pats []*types.PersonalAccessToken
-		err = store.(*SqlStore).db.Model(&types.PersonalAccessToken{}).Find(&pats, "user_id = ?", accountUser.Id).Error
+		err = store.db.Model(&types.PersonalAccessToken{}).Find(&pats, "user_id = ?", accountUser.Id).Error
 		require.NoError(t, err, "expecting no error after removing DeleteAccount when searching for personal access token")
 		require.Len(t, pats, 0, "expecting no personal access token to be found after removing DeleteAccount")
 
