@@ -99,6 +99,12 @@ func TestGetUsers(t *testing.T) {
 			},
 		},
 		{
+			name:               "name and email search, trimmed",
+			requestPath:        "/users?name=%20Smith%20&email=%20alice@example.com%20",
+			expectedPagination: store.PaginationState{Page: 1, PageSize: 100},
+			expectedFilters:    store.UserFilters{Name: "Smith", Email: "alice@example.com"},
+		},
+		{
 			name:               "sorting keeps the field order",
 			requestPath:        "/users?sort_by=is_current,desc&sort_by=role&sort_by=last_login,asc",
 			expectedPagination: store.PaginationState{Page: 1, PageSize: 100},
@@ -178,6 +184,8 @@ func TestGetUsersRejectsInvalidQuery(t *testing.T) {
 		"/users?page_size=500",
 		"/users?pending_approval=maybe",
 		"/users?role=nosuchrole",
+		// shorter names match too many users by chance
+		"/users?name=Lee",
 		// name is not sortable, as names are encrypted at rest
 		"/users?sort_by=name",
 		"/users?sort_by=role,sideways",

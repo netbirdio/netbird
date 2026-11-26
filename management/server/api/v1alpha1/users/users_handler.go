@@ -205,7 +205,8 @@ func filtersFromQuery(v url.Values) (store.UserFilters, error) {
 	}
 
 	return store.UserFilters{
-		Name:            v.Get("name"),
+		Name:            strings.TrimSpace(v.Get("name")),
+		Email:           strings.TrimSpace(v.Get("email")),
 		ServiceUser:     serviceUser,
 		PendingApproval: pendingApproval,
 		Roles:           roles,

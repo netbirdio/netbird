@@ -25,11 +25,16 @@ UsersPath:
           maximum: 250
           default: 100
       - in: query
-        description: filter users by name
         name: name
-        minLength: 5
-        maxLength: 32
         required: false
+        description: Filters users whose name contains the text, ignoring case
+        schema:
+          type: string
+          minLength: 4
+      - in: query
+        name: email
+        required: false
+        description: Filters users by their whole email, ignoring case
         schema:
           type: string
       - in: query
