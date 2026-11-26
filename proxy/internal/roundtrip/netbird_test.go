@@ -401,6 +401,7 @@ func TestNetBird_AddPeer_ReplacesExitedClient(t *testing.T) {
 	require.NoError(t, nb.AddPeer(context.Background(), accountID, "domain1.test", "token-3", types.ServiceID("svc-1")))
 
 	assert.Equal(t, 2, mgmt.count(), "an exited client must be replaced by a new peer")
+	assert.Equal(t, "token-3", mgmt.token(), "the fresh mapping token must create the new peer")
 	nb.clientsMux.RLock()
 	current := nb.clients[accountID]
 	nb.clientsMux.RUnlock()
