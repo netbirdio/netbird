@@ -201,3 +201,21 @@ func TestExitNodeSelectionHelpers(t *testing.T) {
 	others := otherExitNodeIDs(routesMap, []route.NetID{"exitB"})
 	assert.ElementsMatch(t, []route.NetID{"exitA"}, others, "only the other exit node is a sibling; the lan route is ignored")
 }
+
+// With client routes disabled none is installed, so none may count as selected or
+// active, even an exit node the user selected: callers such as the iOS DNS upstream
+// would otherwise send traffic into the tunnel where no route for it exists.
+func TestSelectedClientRoutes_ClientRoutesDisabled(t *testing.T) {
+	m := newSelectionTestManager()
+	require.NoError(t, m.selectRoutes([]route.NetID{"exitA"}, true))
+
+	selected := m.GetSelectedClientRoutes()
+	assert.Contains(t, selected, route.HAUniqueID("exitA|0.0.0.0/0"), "the selected exit node counts while client routes are enabled")
+	assert.Contains(t, selected, route.HAUniqueID("lan|192.168.1.0/24"), "the lan route counts while client routes are enabled")
+
+	m.disableClientRoutes = true
+	assert.Empty(t, m.GetSelectedClientRoutes(), "no route counts as selected while client routes are disabled")
+	assert.Empty(t, m.GetActiveClientRoutes(), "no route counts as active while client routes are disabled")
+	assert.Len(t, m.GetClientRoutes(), 4, "the routes themselves are kept, so the network list can still show them")
+	assert.True(t, m.routeSelector.IsSelected("exitA"), "the saved selection is untouched")
+}
