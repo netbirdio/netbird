@@ -129,11 +129,11 @@ func (nmc *networkMapDBStoreConfigGeneratorState) WithPostgresDSNFromSQLStore(st
 }
 
 func (nmc *networkMapDBStoreConfigGeneratorState) WithPostgresDSNFromEnv() *networkMapDBStoreConfigGeneratorState {
-	if v, ok := os.LookupEnv(store.PostgresDsnEnv); ok {
+	if v, ok := os.LookupEnv(store.PostgresDsnEnv); ok && v != "" {
 		nmc.PostgresDSN = v
 		return nmc
 	}
-	if v, ok := os.LookupEnv(store.PostgresDsnEnvLegacy); ok {
+	if v, ok := os.LookupEnv(store.PostgresDsnEnvLegacy); ok && v != "" {
 		nmc.PostgresDSN = v
 		return nmc
 	}
