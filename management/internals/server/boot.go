@@ -338,6 +338,7 @@ func (s *BaseServer) ManagementGRPCServer() *nbgrpc.Server {
 		}
 		serviceMgr := s.ServiceManager()
 		srv.SetReverseProxyManager(serviceMgr)
+		srv.SetAgentNetworkInfoService(s.AgentNetworkManager())
 		if serviceMgr != nil {
 			serviceMgr.StartExposeReaper(context.Background())
 		}
