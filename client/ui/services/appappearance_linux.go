@@ -19,6 +19,9 @@ import (
 // changes only our own decorations; GTK re-reads the desktop value on a change,
 // which is why Theme.apply re-asserts. Must run on the main thread.
 //
+// On GTK 4.20+ writing the dark flag drops gresource-based themes such as
+// Yaru; see nbSetGtkTheme for the workaround.
+//
 // GTK styling is app-wide, which is why this is separate from
 // setWindowAppearance: it must be applied even when no window exists yet, since
 // windows created later inherit it rather than carrying it in their options.
