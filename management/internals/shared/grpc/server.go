@@ -213,7 +213,7 @@ func (s *Server) Job(srv proto.ManagementService_JobServer) error {
 
 	accountID, err := s.accountManager.GetAccountIDForPeerKey(ctx, peerKey.String())
 	if err != nil {
-		// nolint:staticcheck
+		//nolint:staticcheck
 		ctx = context.WithValue(ctx, nbContext.AccountIDKey, "UNKNOWN")
 		log.WithContext(ctx).Tracef("peer %s is not registered", peerKey.String())
 		if errStatus, ok := internalStatus.FromError(err); ok && errStatus.Type() == internalStatus.NotFound {
@@ -221,7 +221,7 @@ func (s *Server) Job(srv proto.ManagementService_JobServer) error {
 		}
 		return err
 	}
-	// nolint:staticcheck
+	//nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
 	peer, err := s.accountManager.GetStore().GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peerKey.String())
 	if err != nil {
@@ -278,12 +278,12 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		s.appMetrics.GRPCMetrics().CountSyncRequest()
 	}
 
-	// nolint:staticcheck
+	//nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
 
 	accountID, err := s.accountManager.GetAccountIDForPeerKey(ctx, peerKey.String())
 	if err != nil {
-		// nolint:staticcheck
+		//nolint:staticcheck
 		ctx = context.WithValue(ctx, nbContext.AccountIDKey, "UNKNOWN")
 		log.WithContext(ctx).Tracef("peer %s is not registered", peerKey.String())
 		if errStatus, ok := internalStatus.FromError(err); ok && errStatus.Type() == internalStatus.NotFound {
@@ -294,7 +294,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		return err
 	}
 
-	// nolint:staticcheck
+	//nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
 
 	start := time.Now()
@@ -1291,9 +1291,9 @@ func (s *Server) Logout(ctx context.Context, req *proto.EncryptedMessage) (*prot
 		return nil, mapError(ctx, err)
 	}
 
-	// nolint:staticcheck
+	//nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peer.ID)
-	// nolint:staticcheck
+	//nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, peer.AccountID)
 
 	userID := peer.UserID

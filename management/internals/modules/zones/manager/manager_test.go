@@ -36,7 +36,7 @@ func setupTest(t *testing.T) (*managerImpl, store.Store, *mock_server.MockAccoun
 	testStore, cleanup, err := store.NewTestStoreFromSQL(ctx, "", t.TempDir())
 	require.NoError(t, err)
 
-	// nolint:staticcheck
+	//nolint:staticcheck
 	err = testStore.SaveAccount(ctx, &types.Account{
 		Id: testAccountID,
 		Groups: map[string]*types.Group{

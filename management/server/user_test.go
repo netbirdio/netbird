@@ -63,7 +63,7 @@ func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 
 	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 
-	// nolint:staticcheck
+	//nolint:staticcheck
 	err = s.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -114,7 +114,7 @@ func TestUser_CreatePAT_ForDifferentUser(t *testing.T) {
 		Id:            mockTargetUserId,
 		IsServiceUser: false,
 	}
-	// nolint:staticcheck
+	//nolint:staticcheck
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
