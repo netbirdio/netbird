@@ -141,25 +141,28 @@ func TestRegistrationProbeEchoReadsOneMessage(t *testing.T) {
 	assert.Equal(t, []byte("probe"), stream.sent[0].Body, "the first probe is the one echoed")
 }
 
-// TestConnectStreamDoesNotForwardTheFirstMessage makes sure a first message that
-// is not the client's own probe is dropped: forwarding it would skip Send's
-// per-message authentication.
-func TestConnectStreamDoesNotForwardTheFirstMessage(t *testing.T) {
-	client := startProbeTestSignal(t)
-	target := connectPeer(t, client, "peer-b", false)
-
-	for _, msg := range []*proto.EncryptedMessage{
-		{Key: "peer-a", RemoteKey: "peer-b", Body: []byte("forwarded")},
-		{Key: "peer-b", RemoteKey: "peer-b", Body: []byte("spoofed probe")},
+// TestRegistrationProbeEchoDropsOtherMessages makes sure a first message that is
+// not the client's own probe is neither echoed nor forwarded: forwarding it would
+// skip Send's per-message authentication.
+func TestRegistrationProbeEchoDropsOtherMessages(t *testing.T) {
+	for name, msg := range map[string]*proto.EncryptedMessage{
+		"addressed to another peer": {Key: "peer-a", RemoteKey: "peer-b", Body: []byte("forwarded")},
+		"spoofed sender":            {Key: "peer-b", RemoteKey: "peer-b", Body: []byte("spoofed probe")},
 	} {
-		sender := connectPeer(t, client, "peer-a", true)
-		require.NoError(t, sender.Send(msg))
-		sendMarker(t, client, "peer-a")
-		assert.Equal(t, []byte("marker"), recvWithin(t, sender).Body, "a first message that is not a probe must not be echoed")
-	}
+		t.Run(name, func(t *testing.T) {
+			srv, err := NewServer(context.Background(), otel.Meter(""))
+			require.NoError(t, err)
+			target := &scriptedStream{}
+			require.NoError(t, srv.registry.Register(peer.NewPeer("peer-b", target, func() {})))
+			sender := &scriptedStream{queued: []*proto.EncryptedMessage{msg}}
 
-	sendMarker(t, client, "peer-b")
-	assert.Equal(t, []byte("marker"), recvWithin(t, target).Body, "stream writes must never reach another peer")
+			srv.echoRegistrationProbe(peer.NewPeer("peer-a", sender, func() {}))
+
+			assert.Equal(t, 1, sender.reads, "the reader must stop after the first message")
+			assert.Empty(t, sender.sent, "a message that is not the sender's own probe must not be echoed")
+			assert.Empty(t, target.sent, "stream writes must never reach another peer")
+		})
+	}
 }
 
 // TestConnectStreamWithoutProbeIgnoresStreamWrites keeps today's behavior for a
