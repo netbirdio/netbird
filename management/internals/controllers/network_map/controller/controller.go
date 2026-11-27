@@ -501,87 +501,18 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 		return fmt.Errorf("peer %s doesn't have a channel, skipping network map update", peerId)
 	}
 
-	account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountId)
+	nmData, err := c.getNetworkMapData(ctx, accountId)
 	if err != nil {
-		return fmt.Errorf("failed to send out updates to peer %s: %v", peerId, err)
-	}
-
-	peer := account.GetPeer(peerId)
-	if peer == nil {
-		return fmt.Errorf("peer %s doesn't exists in account %s", peerId, accountId)
-	}
-
-	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, types.TwinGroups(maps.Values(account.Groups)), types.TwinPeers(maps.Values(account.Peers)), account.Settings.Extra)
-	if err != nil {
-		return fmt.Errorf("failed to get validated peers: %v", err)
-	}
-
-	c.injectAllProxyPolicies(ctx, account)
-	dnsCache := &cache.DNSConfigCache{}
-	dnsDomain := c.GetDNSDomain(account.Settings)
-	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
-	resourcePolicies := account.GetResourcePoliciesMap()
-	routers := account.GetResourceRoutersMap()
-	groupIDToUserIDs := account.GetActiveGroupUsers()
-
-	postureChecks, err := c.getPeerPostureChecks(account, peerId)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to send update to peer %s, failed to get posture checks: %v", peerId, err)
-		return fmt.Errorf("failed to get posture checks for peer %s: %v", peerId, err)
-	}
-
-	accountZones, err := c.repo.GetAccountZones(ctx, account.Id)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get account zones: %v", err)
 		return err
 	}
 
-	extraSettings, err := c.settingsManager.GetExtraSettings(ctx, peer.AccountID)
-	if err != nil {
-		return fmt.Errorf("failed to get extra settings: %v", err)
+	peer, ok := nmData.Peers[peerId]
+	if !ok {
+		return fmt.Errorf("peer %s doesn't exists in account %s", peerId, accountId)
 	}
 
-	peerGroups := account.GetPeerGroups(peerId)
-	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
-
-	var update *proto.SyncResponse
-
-	commonSyncMessageVersion := sharedgrpc.HighestCommonSyncMessageVersion(
-		c.perAccountOrGlobalSupportedSyncMessageVersions(accountId),
-		sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion))
-
-	log.WithContext(ctx).
-		WithFields(log.Fields{
-			"sync_message_version":        commonSyncMessageVersion,
-			"server_sync_message_version": c.perAccountOrGlobalSupportedSyncMessageVersions(peer.AccountID),
-			"peer_sync_message_version":   sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion),
-		}).Debug("common highest sync message version")
-
-	if commonSyncMessageVersion == sharedgrpc.ComponentNetworkMap {
-		components := account.GetPeerNetworkMapComponents(
-			ctx, peer.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, groupIDToUserIDs)
-
-		update = grpc.ToComponentSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, types.TwinPeer(peer), nil, nil, components, dnsDomain, postureChecks, types.TwinAccountSettings(account.Settings), extraSettings, maps.Keys(peerGroups), dnsFwdPort)
-
-		c.peersUpdateManager.SendUpdate(ctx, peer.ID, &network_map.UpdateMessage{
-			Update:      update,
-			MessageType: network_map.MessageTypeNetworkMap,
-		})
-
-		return nil
-	}
-
-	nmap := account.GetPeerNetworkMapFromComponents(
-		ctx, peer.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
-
-	update = grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, types.TwinPeer(peer), nil, nil, nmap, dnsDomain, postureChecks, dnsCache, types.TwinAccountSettings(account.Settings), extraSettings, maps.Keys(peerGroups), dnsFwdPort)
-
-	c.peersUpdateManager.SendUpdate(ctx, peer.ID, &network_map.UpdateMessage{
-		Update:      update,
-		MessageType: network_map.MessageTypeNetworkMap,
-	})
-
-	return nil
+	return c.sendUpdatesFromData(ctx, accountId, nmData, []*nmdata.Peer{peer},
+		types.UpdateReason{Resource: types.UpdateResourcePeer, Operation: types.UpdateOperationUpdate})
 }
 
 func (c *Controller) BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) error {
