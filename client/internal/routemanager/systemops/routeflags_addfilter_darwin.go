@@ -19,3 +19,9 @@ func IgnoreAddedDefaultRoute(flags int) bool {
 	}
 	return false
 }
+
+// IgnoreDeletedDefaultRoute reports whether a scoped default deletion should
+// be ignored because it does not remove the unscoped default.
+func IgnoreDeletedDefaultRoute(flags int) bool {
+	return flags&unix.RTF_IFSCOPE != 0
+}
