@@ -28,9 +28,7 @@ const withPendingOverrides = (routes: Network[], pending: Map<string, boolean>):
     if (pending.size === 0) return routes;
     return routes.map((r) => {
         const override = pending.get(r.id);
-        return override === undefined || override === r.selected
-            ? r
-            : { ...r, selected: override };
+        return override === undefined || override === r.selected ? r : { ...r, selected: override };
     });
 };
 
