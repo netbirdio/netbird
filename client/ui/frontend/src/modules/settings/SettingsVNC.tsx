@@ -3,11 +3,16 @@ import FancyToggleSwitch from "@/components/switches/FancyToggleSwitch";
 import { SectionGroup } from "@/modules/settings/SettingsSection.tsx";
 import { useGuardedControl } from "@/modules/settings/PrivilegeGuard.tsx";
 import { useSettings } from "@/contexts/SettingsContext.tsx";
+import {
+    PendingReconnectNote,
+    usePendingReconnect,
+} from "@/modules/settings/PendingReconnectNote.tsx";
 import { useRestrictions } from "@/contexts/RestrictionsContext.tsx";
 
 export function SettingsVNC() {
     const { t } = useTranslation();
     const { config } = useSettings();
+    const pending = usePendingReconnect();
     const { mdm } = useRestrictions();
     const guarded = useGuardedControl();
     const isVNCServerEnabled = config.serverVncAllowed;
@@ -23,6 +28,7 @@ export function SettingsVNC() {
             <SectionGroup title={t("settings.vnc.section.server")}>
                 <FancyToggleSwitch
                     value={config.serverVncAllowed}
+                    note={<PendingReconnectNote pending={pending("serverVncAllowed")} />}
                     onChange={vncServer.apply}
                     label={t("settings.vnc.server.label")}
                     helpText={t("settings.vnc.server.help")}
@@ -38,6 +44,7 @@ export function SettingsVNC() {
                 >
                     <FancyToggleSwitch
                         value={!config.disableVncApproval}
+                        note={<PendingReconnectNote pending={pending("disableVncApproval")} />}
                         onChange={(v) => vncApproval.apply(!v)}
                         label={t("settings.vnc.approval.label")}
                         helpText={t("settings.vnc.approval.help")}

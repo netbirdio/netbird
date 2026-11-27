@@ -7,6 +7,10 @@ import { Input } from "@/components/inputs/Input";
 import { Label } from "@/components/typography/Label";
 import { SectionGroup, SettingsBottomBar } from "@/modules/settings/SettingsSection.tsx";
 import { useSettings } from "@/contexts/SettingsContext.tsx";
+import {
+    PendingReconnectNote,
+    usePendingReconnect,
+} from "@/modules/settings/PendingReconnectNote.tsx";
 import { useRestrictions } from "@/contexts/RestrictionsContext.tsx";
 
 // macOS daemon/CLI only accept utun<N> (Darwin parses digits as the utun unit); Linux caps at IFNAMSIZ-1 = 15 chars.
@@ -29,6 +33,7 @@ const PSK_MASK = "**********";
 export function SettingsAdvanced() {
     const { t } = useTranslation();
     const { config, saveFields } = useSettings();
+    const pending = usePendingReconnect();
     const { mdm } = useRestrictions();
 
     const initialPsk = config.preSharedKeySet ? PSK_MASK : "";
@@ -143,6 +148,7 @@ export function SettingsAdvanced() {
                         onChange={(e) => setValues((v) => ({ ...v, mtu: Number(e.target.value) }))}
                     />
                 </div>
+                <PendingReconnectNote pending={pending("interfaceName", "wireguardPort", "mtu")} />
             </SectionGroup>
 
             {!mdm.preSharedKey && (

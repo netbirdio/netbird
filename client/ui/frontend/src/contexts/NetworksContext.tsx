@@ -28,9 +28,7 @@ const withPendingOverrides = (routes: Network[], pending: Map<string, boolean>):
     if (pending.size === 0) return routes;
     return routes.map((r) => {
         const override = pending.get(r.id);
-        return override === undefined || override === r.selected
-            ? r
-            : { ...r, selected: override };
+        return override === undefined || override === r.selected ? r : { ...r, selected: override };
     });
 };
 
@@ -43,6 +41,7 @@ type NetworksContextValue = {
     exitNodes: Network[];
     activeExitNode: Network | null;
     clientRoutesDisabled: boolean;
+    clientRoutesPendingReconnect: boolean;
     refresh: () => Promise<void>;
     toggleNetwork: (id: string, selected: boolean) => Promise<void>;
     toggleExitNode: (id: string, selected: boolean) => Promise<void>;
@@ -63,7 +62,11 @@ export const NetworksProvider = ({ children }: { children: ReactNode }) => {
     const { status } = useStatus();
     const [routes, setRoutes] = useState<Network[]>([]);
     const [storedClientRoutesDisabled, setStoredClientRoutesDisabled] = useState(false);
-    const clientRoutesDisabled = status?.clientRoutesDisabled ?? storedClientRoutesDisabled;
+    const runningClientRoutesDisabled = status?.clientRoutesDisabled ?? null;
+    const clientRoutesDisabled = runningClientRoutesDisabled ?? storedClientRoutesDisabled;
+    const clientRoutesPendingReconnect =
+        runningClientRoutesDisabled !== null &&
+        runningClientRoutesDisabled !== storedClientRoutesDisabled;
     const clientRoutesDisabledRef = useRef(clientRoutesDisabled);
     useEffect(() => {
         clientRoutesDisabledRef.current = clientRoutesDisabled;
@@ -261,6 +264,7 @@ export const NetworksProvider = ({ children }: { children: ReactNode }) => {
             exitNodes,
             activeExitNode,
             clientRoutesDisabled,
+            clientRoutesPendingReconnect,
             refresh,
             toggleNetwork,
             toggleExitNode,
@@ -270,6 +274,7 @@ export const NetworksProvider = ({ children }: { children: ReactNode }) => {
         routes,
         pending,
         clientRoutesDisabled,
+        clientRoutesPendingReconnect,
         refresh,
         toggleNetwork,
         toggleExitNode,

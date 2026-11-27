@@ -76,8 +76,13 @@ export const Networks = () => {
     const { t } = useTranslation();
     const { status } = useStatus();
     const isConnected = status?.status === "Connected";
-    const { networkRoutes, toggleNetwork, setNetworksSelected, clientRoutesDisabled } =
-        useNetworks();
+    const {
+        networkRoutes,
+        toggleNetwork,
+        setNetworksSelected,
+        clientRoutesDisabled,
+        clientRoutesPendingReconnect,
+    } = useNetworks();
     const { mdm } = useRestrictions();
     const [search, setSearch] = useState("");
     const [filter, setFilter] = useState<NetworkFilter>("all");
@@ -149,6 +154,17 @@ export const Networks = () => {
     const allSelected = filtered.length > 0 && selectedInView === filtered.length;
     const bulkLabel = allSelected ? t("networks.bulk.disableAll") : t("networks.bulk.enableAll");
 
+    const clientRoutesNotice = () => {
+        if (clientRoutesPendingReconnect) {
+            return clientRoutesDisabled
+                ? t("networks.clientRoutesDisabled.enablePending")
+                : t("networks.clientRoutesDisabled.disablePending");
+        }
+        return mdm.disableClientRoutes
+            ? t("networks.clientRoutesDisabled.managed")
+            : t("networks.clientRoutesDisabled.message");
+    };
+
     const onBulkClick = () => {
         if (filtered.length === 0 || clientRoutesDisabled) return;
         if (allSelected) {
@@ -177,7 +193,7 @@ export const Networks = () => {
                 </div>
                 <NetworkFilters value={filter} onChange={setFilter} counts={counts} />
             </div>
-            {clientRoutesDisabled && (
+            {(clientRoutesDisabled || clientRoutesPendingReconnect) && (
                 <div
                     role={"status"}
                     className={cn(
@@ -185,9 +201,7 @@ export const Networks = () => {
                         "text-xs font-medium text-nb-gray-300",
                     )}
                 >
-                    {mdm.disableClientRoutes
-                        ? t("networks.clientRoutesDisabled.managed")
-                        : t("networks.clientRoutesDisabled.message")}
+                    {clientRoutesNotice()}
                 </div>
             )}
             {filtered.length === 0 ? (

@@ -8,6 +8,7 @@ interface Props {
     value: boolean;
     onChange: (value: boolean) => void;
     helpText?: React.ReactNode;
+    note?: React.ReactNode;
     label?: React.ReactNode;
     children?: React.ReactNode;
     disabled?: boolean;
@@ -22,6 +23,7 @@ export default function FancyToggleSwitch({
     value,
     onChange,
     helpText,
+    note,
     label,
     children,
     disabled = false,
@@ -86,6 +88,7 @@ export default function FancyToggleSwitch({
                     <HelpText margin={false}>
                         <span id={descriptionId}>{helpText}</span>
                     </HelpText>
+                    {note}
                 </div>
                 <div className={"mt-2 pe-1"}>
                     <ToggleSwitch

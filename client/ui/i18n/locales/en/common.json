@@ -835,6 +835,10 @@
         "message": "Routing & DNS",
         "description": "Section heading for routing and DNS options. 'DNS' is an acronym — keep it."
     },
+    "settings.pendingReconnect": {
+        "message": "Applies after you reconnect.",
+        "description": "Note under a setting whose saved value differs from the one the running connection uses. The change takes effect after the user disconnects and connects again."
+    },
     "settings.network.monitor.label": {
         "message": "Reconnect on Network Change",
         "description": "Toggle label: reconnect automatically on network change."
@@ -1814,6 +1818,14 @@
     "networks.clientRoutesDisabled.managed": {
         "message": "Client routes are disabled by your administrator, so resources cannot be used.",
         "description": "Notice above the resources list when an administrator's device-management policy switched off client routes. The user cannot change it."
+    },
+    "networks.clientRoutesDisabled.enablePending": {
+        "message": "Client routes were enabled in Settings. Reconnect to use resources.",
+        "description": "Notice above the resources list when the user turned on Enable Client Routes but the running connection still has them off. Resource toggles stay locked until the user disconnects and connects again. Use the same wording for Client Routes as the settings toggle."
+    },
+    "networks.clientRoutesDisabled.disablePending": {
+        "message": "Client routes were disabled in Settings. Resources stay active until you reconnect.",
+        "description": "Notice above the resources list when the user turned off Enable Client Routes but the running connection still routes resources. The change applies after the user disconnects and connects again. Use the same wording for Client Routes as the settings toggle."
     },
     "exitNodes.search.placeholder": {
         "message": "Search exit nodes",

@@ -2368,6 +2368,10 @@ func (e *Engine) ClientRoutesDisabled() bool {
 	return e.config.DisableClientRoutes
 }
 
+func (e *Engine) ProfileConfig() *profilemanager.Config {
+	return e.config.ProfileConfig
+}
+
 // GetClientMetrics returns the client metrics
 func (e *Engine) GetClientMetrics() *metrics.ClientMetrics {
 	return e.clientMetrics

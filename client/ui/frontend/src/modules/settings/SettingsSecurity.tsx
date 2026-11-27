@@ -2,11 +2,16 @@ import { useTranslation } from "react-i18next";
 import FancyToggleSwitch from "@/components/switches/FancyToggleSwitch";
 import { SectionGroup } from "@/modules/settings/SettingsSection.tsx";
 import { useSettings } from "@/contexts/SettingsContext.tsx";
+import {
+    PendingReconnectNote,
+    usePendingReconnect,
+} from "@/modules/settings/PendingReconnectNote.tsx";
 import { useRestrictions } from "@/contexts/RestrictionsContext.tsx";
 
 export function SettingsSecurity() {
     const { t } = useTranslation();
     const { config, setField } = useSettings();
+    const pending = usePendingReconnect();
     const { mdm } = useRestrictions();
     const hideRosenpassEnabled = mdm.rosenpassEnabled;
     const hideRosenpassPermissive =
@@ -19,6 +24,7 @@ export function SettingsSecurity() {
                 {!mdm.blockInbound && (
                     <FancyToggleSwitch
                         value={config.blockInbound}
+                        note={<PendingReconnectNote pending={pending("blockInbound")} />}
                         onChange={(v) => setField("blockInbound", v)}
                         label={t("settings.security.blockInbound.label")}
                         helpText={t("settings.security.blockInbound.help")}
@@ -26,6 +32,7 @@ export function SettingsSecurity() {
                 )}
                 <FancyToggleSwitch
                     value={config.blockLanAccess}
+                    note={<PendingReconnectNote pending={pending("blockLanAccess")} />}
                     onChange={(v) => setField("blockLanAccess", v)}
                     label={t("settings.security.blockLan.label")}
                     helpText={t("settings.security.blockLan.help")}
@@ -37,6 +44,7 @@ export function SettingsSecurity() {
                     {!hideRosenpassEnabled && (
                         <FancyToggleSwitch
                             value={config.rosenpassEnabled}
+                            note={<PendingReconnectNote pending={pending("rosenpassEnabled")} />}
                             onChange={(v) => {
                                 setField("rosenpassEnabled", v);
                                 if (!v) setField("rosenpassPermissive", false);
@@ -55,6 +63,7 @@ export function SettingsSecurity() {
                     {!hideRosenpassPermissive && (
                         <FancyToggleSwitch
                             value={config.rosenpassPermissive}
+                            note={<PendingReconnectNote pending={pending("rosenpassPermissive")} />}
                             onChange={(v) => setField("rosenpassPermissive", v)}
                             label={t("settings.security.rosenpassPermissive.label")}
                             helpText={t("settings.security.rosenpassPermissive.help")}
