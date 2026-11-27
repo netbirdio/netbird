@@ -70,6 +70,7 @@ func setupInviteTestManagerWithEmbeddedIdP(t *testing.T) (*DefaultAccountManager
 		Name:      "Regular User",
 	}
 
+	// nolint:staticcheck
 	err = s.SaveAccount(ctx, account)
 	require.NoError(t, err, "Error when saving account")
 

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"testing"
 
-	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
@@ -36,6 +36,7 @@ func setupTest(t *testing.T) (*managerImpl, store.Store, *mock_server.MockAccoun
 	testStore, cleanup, err := store.NewTestStoreFromSQL(ctx, "", t.TempDir())
 	require.NoError(t, err)
 
+	// nolint:staticcheck
 	err = testStore.SaveAccount(ctx, &types.Account{
 		Id: testAccountID,
 		Groups: map[string]*types.Group{

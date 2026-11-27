@@ -7,12 +7,14 @@ import (
 	"net"
 	"os"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -277,9 +279,9 @@ func Test_SyncProtocol(t *testing.T) {
 	}
 
 	expiredPeerPubKey := "RlSy2vzoG2HyMBTUImXOiVhCBiiBa5qD5xzMxkiFDW4="
-	if networkMap.GetOfflinePeers()[0].WgPubKey != expiredPeerPubKey {
-		t.Fatalf("expecting SyncResponse to have NetworkMap with 1 offline peer with a key %s", expiredPeerPubKey)
-	}
+	assert.True(t, slices.ContainsFunc(networkMap.GetOfflinePeers(), func(p *mgmtProto.RemotePeerConfig) bool {
+		return p.WgPubKey == expiredPeerPubKey
+	}))
 
 	if networkMap.GetPeerConfig() == nil {
 		t.Fatal("expecting SyncResponse to have NetworkMap with a non-nil PeerConfig")
