@@ -315,6 +315,30 @@ message StatusResponse{
   // The UI derives "warning active" from this value and its own clock.
   google.protobuf.Timestamp sessionExpiresAt = 4;
   optional bool clientRoutesDisabled = 5;
+  RunningConfig runningConfig = 6;
+}
+
+message RunningConfig {
+  string interfaceName = 1;
+  int64 wireguardPort = 2;
+  int64 mtu = 3;
+  bool networkMonitor = 4;
+  bool disableDns = 5;
+  bool disableClientRoutes = 6;
+  bool disableServerRoutes = 7;
+  bool disableIpv6 = 8;
+  bool blockInbound = 9;
+  bool blockLanAccess = 10;
+  bool rosenpassEnabled = 11;
+  bool rosenpassPermissive = 12;
+  bool serverSSHAllowed = 13;
+  bool enableSSHRoot = 14;
+  bool enableSSHSFTP = 15;
+  bool enableSSHLocalPortForwarding = 16;
+  bool enableSSHRemotePortForwarding = 17;
+  bool disableSSHAuth = 18;
+  bool serverVNCAllowed = 19;
+  bool disableVNCApproval = 20;
 }
 
 message DownRequest {}

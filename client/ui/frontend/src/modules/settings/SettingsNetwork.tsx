@@ -2,11 +2,16 @@ import { useTranslation } from "react-i18next";
 import FancyToggleSwitch from "@/components/switches/FancyToggleSwitch";
 import { SectionGroup } from "@/modules/settings/SettingsSection.tsx";
 import { useSettings } from "@/contexts/SettingsContext.tsx";
+import {
+    PendingReconnectNote,
+    usePendingReconnect,
+} from "@/modules/settings/PendingReconnectNote.tsx";
 import { useRestrictions } from "@/contexts/RestrictionsContext.tsx";
 
 export function SettingsNetwork() {
     const { t } = useTranslation();
     const { config, setField } = useSettings();
+    const pending = usePendingReconnect();
     const { mdm } = useRestrictions();
 
     return (
@@ -14,6 +19,7 @@ export function SettingsNetwork() {
             <SectionGroup title={t("settings.network.section.connectivity")}>
                 <FancyToggleSwitch
                     value={config.networkMonitor}
+                    note={<PendingReconnectNote pending={pending("networkMonitor")} />}
                     onChange={(v) => setField("networkMonitor", v)}
                     label={t("settings.network.monitor.label")}
                     helpText={t("settings.network.monitor.help")}
@@ -23,6 +29,7 @@ export function SettingsNetwork() {
             <SectionGroup title={t("settings.network.section.routingDns")}>
                 <FancyToggleSwitch
                     value={!config.disableDns}
+                    note={<PendingReconnectNote pending={pending("disableDns")} />}
                     onChange={(v) => setField("disableDns", !v)}
                     label={t("settings.network.dns.label")}
                     helpText={t("settings.network.dns.help")}
@@ -30,6 +37,7 @@ export function SettingsNetwork() {
                 {!mdm.disableClientRoutes && (
                     <FancyToggleSwitch
                         value={!config.disableClientRoutes}
+                        note={<PendingReconnectNote pending={pending("disableClientRoutes")} />}
                         onChange={(v) => setField("disableClientRoutes", !v)}
                         label={t("settings.network.clientRoutes.label")}
                         helpText={t("settings.network.clientRoutes.help")}
@@ -38,6 +46,7 @@ export function SettingsNetwork() {
                 {!mdm.disableServerRoutes && (
                     <FancyToggleSwitch
                         value={!config.disableServerRoutes}
+                        note={<PendingReconnectNote pending={pending("disableServerRoutes")} />}
                         onChange={(v) => setField("disableServerRoutes", !v)}
                         label={t("settings.network.serverRoutes.label")}
                         helpText={t("settings.network.serverRoutes.help")}
@@ -45,6 +54,7 @@ export function SettingsNetwork() {
                 )}
                 <FancyToggleSwitch
                     value={!config.disableIpv6}
+                    note={<PendingReconnectNote pending={pending("disableIpv6")} />}
                     onChange={(v) => setField("disableIpv6", !v)}
                     label={t("settings.network.ipv6.label")}
                     helpText={t("settings.network.ipv6.help")}

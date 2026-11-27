@@ -8,6 +8,7 @@ interface Props {
     value: boolean;
     onChange: (value: boolean) => void;
     helpText?: React.ReactNode;
+    note?: React.ReactNode;
     label?: React.ReactNode;
     children?: React.ReactNode;
     disabled?: boolean;
@@ -22,6 +23,7 @@ export default function FancyToggleSwitch({
     value,
     onChange,
     helpText,
+    note,
     label,
     children,
     disabled = false,
@@ -33,6 +35,10 @@ export default function FancyToggleSwitch({
 }: Readonly<Props>) {
     const switchId = React.useId();
     const descriptionId = React.useId();
+    const noteId = React.useId();
+    const describedBy =
+        [helpText ? descriptionId : null, note ? noteId : null].filter(Boolean).join(" ") ||
+        undefined;
 
     if (loading) {
         const shimmer =
@@ -86,6 +92,7 @@ export default function FancyToggleSwitch({
                     <HelpText margin={false}>
                         <span id={descriptionId}>{helpText}</span>
                     </HelpText>
+                    {note ? <div id={noteId}>{note}</div> : null}
                 </div>
                 <div className={"mt-2 pe-1"}>
                     <ToggleSwitch
@@ -94,7 +101,7 @@ export default function FancyToggleSwitch({
                         onCheckedChange={onChange}
                         disabled={disabled}
                         dataCy={dataCy}
-                        aria-describedby={helpText ? descriptionId : undefined}
+                        aria-describedby={describedBy}
                     />
                 </div>
             </div>

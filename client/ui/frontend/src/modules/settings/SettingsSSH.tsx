@@ -7,11 +7,16 @@ import { cn } from "@/lib/cn";
 import { SectionGroup } from "@/modules/settings/SettingsSection.tsx";
 import { useGuardedControl } from "@/modules/settings/PrivilegeGuard.tsx";
 import { useSettings } from "@/contexts/SettingsContext.tsx";
+import {
+    PendingReconnectNote,
+    usePendingReconnect,
+} from "@/modules/settings/PendingReconnectNote.tsx";
 import { type ChangeEvent, useEffect, useId, useState } from "react";
 
 export function SettingsSSH() {
     const { t } = useTranslation();
     const { config, setField } = useSettings();
+    const pending = usePendingReconnect();
     const guarded = useGuardedControl();
     const isSSHServerEnabled = config.serverSshAllowed;
 
@@ -53,6 +58,7 @@ export function SettingsSSH() {
             <SectionGroup title={t("settings.ssh.section.server")}>
                 <FancyToggleSwitch
                     value={config.serverSshAllowed}
+                    note={<PendingReconnectNote pending={pending("serverSshAllowed")} />}
                     onChange={sshServer.apply}
                     disabled={sshServer.disabled}
                     label={t("settings.ssh.server.label")}
@@ -67,6 +73,7 @@ export function SettingsSSH() {
             >
                 <FancyToggleSwitch
                     value={config.enableSshRoot}
+                    note={<PendingReconnectNote pending={pending("enableSshRoot")} />}
                     onChange={sshRoot.apply}
                     disabled={sshRoot.disabled}
                     label={t("settings.ssh.root.label")}
@@ -75,18 +82,25 @@ export function SettingsSSH() {
                 {sshRoot.hint}
                 <FancyToggleSwitch
                     value={config.enableSshSftp}
+                    note={<PendingReconnectNote pending={pending("enableSshSftp")} />}
                     onChange={(v) => setField("enableSshSftp", v)}
                     label={t("settings.ssh.sftp.label")}
                     helpText={t("settings.ssh.sftp.help")}
                 />
                 <FancyToggleSwitch
                     value={config.enableSshLocalPortForwarding}
+                    note={
+                        <PendingReconnectNote pending={pending("enableSshLocalPortForwarding")} />
+                    }
                     onChange={(v) => setField("enableSshLocalPortForwarding", v)}
                     label={t("settings.ssh.localForward.label")}
                     helpText={t("settings.ssh.localForward.help")}
                 />
                 <FancyToggleSwitch
                     value={config.enableSshRemotePortForwarding}
+                    note={
+                        <PendingReconnectNote pending={pending("enableSshRemotePortForwarding")} />
+                    }
                     onChange={(v) => setField("enableSshRemotePortForwarding", v)}
                     label={t("settings.ssh.remoteForward.label")}
                     helpText={t("settings.ssh.remoteForward.help")}
@@ -99,6 +113,7 @@ export function SettingsSSH() {
             >
                 <FancyToggleSwitch
                     value={!config.disableSshAuth}
+                    note={<PendingReconnectNote pending={pending("disableSshAuth")} />}
                     onChange={(v) => sshAuth.apply(!v)}
                     disabled={sshAuth.disabled}
                     label={t("settings.ssh.jwt.label")}

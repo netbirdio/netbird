@@ -138,8 +138,32 @@ type Status struct {
 	// when the peer is not SSO-tracked or login expiration is disabled.
 	SessionExpiresAt *time.Time `json:"sessionExpiresAt,omitempty"`
 	// VNCSessions lists the VNC connections currently attached to this machine.
-	VNCSessions          []VNCSession `json:"vncSessions,omitempty"`
-	ClientRoutesDisabled *bool        `json:"clientRoutesDisabled,omitempty"`
+	VNCSessions          []VNCSession   `json:"vncSessions,omitempty"`
+	ClientRoutesDisabled *bool          `json:"clientRoutesDisabled,omitempty"`
+	RunningConfig        *RunningConfig `json:"runningConfig,omitempty"`
+}
+
+type RunningConfig struct {
+	InterfaceName                 string `json:"interfaceName"`
+	WireguardPort                 int64  `json:"wireguardPort"`
+	MTU                           int64  `json:"mtu"`
+	NetworkMonitor                bool   `json:"networkMonitor"`
+	DisableDNS                    bool   `json:"disableDns"`
+	DisableClientRoutes           bool   `json:"disableClientRoutes"`
+	DisableServerRoutes           bool   `json:"disableServerRoutes"`
+	DisableIPv6                   bool   `json:"disableIpv6"`
+	BlockInbound                  bool   `json:"blockInbound"`
+	BlockLANAccess                bool   `json:"blockLanAccess"`
+	RosenpassEnabled              bool   `json:"rosenpassEnabled"`
+	RosenpassPermissive           bool   `json:"rosenpassPermissive"`
+	ServerSSHAllowed              bool   `json:"serverSshAllowed"`
+	EnableSSHRoot                 bool   `json:"enableSshRoot"`
+	EnableSSHSFTP                 bool   `json:"enableSshSftp"`
+	EnableSSHLocalPortForwarding  bool   `json:"enableSshLocalPortForwarding"`
+	EnableSSHRemotePortForwarding bool   `json:"enableSshRemotePortForwarding"`
+	DisableSSHAuth                bool   `json:"disableSshAuth"`
+	ServerVNCAllowed              bool   `json:"serverVncAllowed"`
+	DisableVNCApproval            bool   `json:"disableVncApproval"`
 }
 
 // DaemonFeed fans the daemon's two long-running gRPC streams (SubscribeStatus,
@@ -585,7 +609,36 @@ func statusFromProto(resp *proto.StatusResponse) Status {
 		disabled := resp.GetClientRoutesDisabled()
 		st.ClientRoutesDisabled = &disabled
 	}
+	st.RunningConfig = runningConfigFromProto(resp.GetRunningConfig())
 	return st
+}
+
+func runningConfigFromProto(rc *proto.RunningConfig) *RunningConfig {
+	if rc == nil {
+		return nil
+	}
+	return &RunningConfig{
+		InterfaceName:                 rc.GetInterfaceName(),
+		WireguardPort:                 rc.GetWireguardPort(),
+		MTU:                           rc.GetMtu(),
+		NetworkMonitor:                rc.GetNetworkMonitor(),
+		DisableDNS:                    rc.GetDisableDns(),
+		DisableClientRoutes:           rc.GetDisableClientRoutes(),
+		DisableServerRoutes:           rc.GetDisableServerRoutes(),
+		DisableIPv6:                   rc.GetDisableIpv6(),
+		BlockInbound:                  rc.GetBlockInbound(),
+		BlockLANAccess:                rc.GetBlockLanAccess(),
+		RosenpassEnabled:              rc.GetRosenpassEnabled(),
+		RosenpassPermissive:           rc.GetRosenpassPermissive(),
+		ServerSSHAllowed:              rc.GetServerSSHAllowed(),
+		EnableSSHRoot:                 rc.GetEnableSSHRoot(),
+		EnableSSHSFTP:                 rc.GetEnableSSHSFTP(),
+		EnableSSHLocalPortForwarding:  rc.GetEnableSSHLocalPortForwarding(),
+		EnableSSHRemotePortForwarding: rc.GetEnableSSHRemotePortForwarding(),
+		DisableSSHAuth:                rc.GetDisableSSHAuth(),
+		ServerVNCAllowed:              rc.GetServerVNCAllowed(),
+		DisableVNCApproval:            rc.GetDisableVNCApproval(),
+	}
 }
 
 func systemEventFromProto(e *proto.SystemEvent) SystemEvent {

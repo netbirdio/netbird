@@ -1948,7 +1948,7 @@ func (s *Server) buildStatusResponse(ctx context.Context, msg *proto.StatusReque
 		statusResponse.SessionExpiresAt = timestamppb.New(deadline)
 	}
 	if status == internal.StatusConnected && msg.GetFullPeerStatus {
-		statusResponse.ClientRoutesDisabled = s.runningClientRoutesDisabled()
+		statusResponse.ClientRoutesDisabled, statusResponse.RunningConfig = s.runningEngineConfig()
 	}
 
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
@@ -1968,20 +1968,24 @@ func (s *Server) buildStatusResponse(ctx context.Context, msg *proto.StatusReque
 	return &statusResponse, nil
 }
 
-func (s *Server) runningClientRoutesDisabled() *bool {
+func (s *Server) runningEngineConfig() (*bool, *proto.RunningConfig) {
 	s.mutex.Lock()
 	connectClient := s.connectClient
 	s.mutex.Unlock()
 
 	if connectClient == nil {
-		return nil
+		return nil, nil
 	}
 	engine := connectClient.Engine()
 	if engine == nil {
-		return nil
+		return nil, nil
 	}
 	disabled := engine.ClientRoutesDisabled()
-	return &disabled
+	var running *proto.RunningConfig
+	if cfg := engine.ProfileConfig(); cfg != nil {
+		running = runningConfigFromProfile(cfg)
+	}
+	return &disabled, running
 }
 
 // getSSHServerState retrieves the current SSH server state including enabled status and active sessions
@@ -2553,7 +2557,15 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 	// profilemanager.GetConfig itself returns a Config without the
 	// overlay (Loader lives outside profilemanager).
 	cfg.ApplyMDMPolicy(s.mdmLoader.Load())
-	managementURL := cfg.ManagementURL
+
+	return configResponseFromProfile(cfg), nil
+}
+
+func configResponseFromProfile(cfg *profilemanager.Config) *proto.GetConfigResponse {
+	var managementURL string
+	if cfg.ManagementURL != nil {
+		managementURL = cfg.ManagementURL.String()
+	}
 
 	var preSharedKey = cfg.PreSharedKey
 	if preSharedKey != "" {
@@ -2607,13 +2619,13 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 	}
 
 	return &proto.GetConfigResponse{
-		ManagementUrl:                 managementURL.String(),
+		ManagementUrl:                 managementURL,
 		PreSharedKey:                  preSharedKey,
 		InterfaceName:                 cfg.WgIface,
 		WireguardPort:                 int64(cfg.WgPort),
 		Mtu:                           int64(cfg.MTU),
 		DisableAutoConnect:            cfg.DisableAutoConnect,
-		ServerSSHAllowed:              *cfg.ServerSSHAllowed,
+		ServerSSHAllowed:              util.ReturnBoolWithDefaultTrue(cfg.ServerSSHAllowed),
 		RemoteJobsAllowed:             util.ReturnBoolWithDefaultFalse(cfg.RemoteJobsAllowed),
 		ServerVNCAllowed:              cfg.ServerVNCAllowed != nil && *cfg.ServerVNCAllowed,
 		DisableVNCApproval:            cfg.DisableVNCApproval != nil && *cfg.DisableVNCApproval,
@@ -2634,7 +2646,33 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		DisableSSHAuth:                disableSSHAuth,
 		SshJWTCacheTTL:                sshJWTCacheTTL,
 		MDMManagedFields:              cfg.Policy().ManagedKeys(),
-	}, nil
+	}
+}
+
+func runningConfigFromProfile(cfg *profilemanager.Config) *proto.RunningConfig {
+	c := configResponseFromProfile(cfg)
+	return &proto.RunningConfig{
+		InterfaceName:                 c.GetInterfaceName(),
+		WireguardPort:                 c.GetWireguardPort(),
+		Mtu:                           c.GetMtu(),
+		NetworkMonitor:                c.GetNetworkMonitor(),
+		DisableDns:                    c.GetDisableDns(),
+		DisableClientRoutes:           c.GetDisableClientRoutes(),
+		DisableServerRoutes:           c.GetDisableServerRoutes(),
+		DisableIpv6:                   c.GetDisableIpv6(),
+		BlockInbound:                  c.GetBlockInbound(),
+		BlockLanAccess:                c.GetBlockLanAccess(),
+		RosenpassEnabled:              c.GetRosenpassEnabled(),
+		RosenpassPermissive:           c.GetRosenpassPermissive(),
+		ServerSSHAllowed:              c.GetServerSSHAllowed(),
+		EnableSSHRoot:                 c.GetEnableSSHRoot(),
+		EnableSSHSFTP:                 c.GetEnableSSHSFTP(),
+		EnableSSHLocalPortForwarding:  c.GetEnableSSHLocalPortForwarding(),
+		EnableSSHRemotePortForwarding: c.GetEnableSSHRemotePortForwarding(),
+		DisableSSHAuth:                c.GetDisableSSHAuth(),
+		ServerVNCAllowed:              c.GetServerVNCAllowed(),
+		DisableVNCApproval:            c.GetDisableVNCApproval(),
+	}
 }
 
 // AddProfile adds a new profile to the daemon.

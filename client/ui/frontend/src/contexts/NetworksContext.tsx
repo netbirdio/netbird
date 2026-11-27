@@ -42,6 +42,7 @@ type NetworksContextValue = {
     exitNodes: Network[];
     activeExitNode: Network | null;
     clientRoutesDisabled: boolean;
+    clientRoutesPendingReconnect: boolean;
     refresh: () => Promise<void>;
     toggleNetwork: (id: string, selected: boolean) => Promise<void>;
     toggleExitNode: (id: string, selected: boolean) => Promise<void>;
@@ -65,9 +66,14 @@ export const NetworksProvider = ({ children }: { children: ReactNode }) => {
         null,
     );
     const [storedClientRoutesRead, setStoredClientRoutesRead] = useState(false);
+    const runningClientRoutesDisabled = status?.clientRoutesDisabled ?? null;
     const clientRoutesDisabled =
-        status?.clientRoutesDisabled ??
+        runningClientRoutesDisabled ??
         (storedClientRoutesRead ? (storedClientRoutesDisabled ?? false) : true);
+    const clientRoutesPendingReconnect =
+        runningClientRoutesDisabled !== null &&
+        storedClientRoutesDisabled !== null &&
+        runningClientRoutesDisabled !== storedClientRoutesDisabled;
     const clientRoutesDisabledRef = useRef(clientRoutesDisabled);
     useEffect(() => {
         clientRoutesDisabledRef.current = clientRoutesDisabled;
@@ -272,6 +278,7 @@ export const NetworksProvider = ({ children }: { children: ReactNode }) => {
             exitNodes,
             activeExitNode,
             clientRoutesDisabled,
+            clientRoutesPendingReconnect,
             refresh,
             toggleNetwork,
             toggleExitNode,
@@ -281,6 +288,7 @@ export const NetworksProvider = ({ children }: { children: ReactNode }) => {
         routes,
         pending,
         clientRoutesDisabled,
+        clientRoutesPendingReconnect,
         refresh,
         toggleNetwork,
         toggleExitNode,
