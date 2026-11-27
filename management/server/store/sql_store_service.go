@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -129,7 +130,7 @@ func scanService(row pgx.CollectableRow) (*rpservice.Service, error) {
 
 	s.Meta = serviceMetaFromRow(createdAt, certIssuedAt, lastRenewedAt, status)
 	if proxyCluster.Valid {
-		s.ProxyCluster = proxyCluster.String
+		s.ProxyCluster = strings.ToLower(proxyCluster.String)
 	}
 	if sessionPrivateKey.Valid {
 		s.SessionPrivateKey = sessionPrivateKey.String
@@ -159,6 +160,9 @@ func scanService(row pgx.CollectableRow) (*rpservice.Service, error) {
 		s.ListenPort = uint16(listenPort.Int64)
 	}
 	s.Targets = []*rpservice.Target{}
+
+	s.Domain = strings.ToLower(s.Domain)
+
 	return &s, nil
 }
 
@@ -182,7 +186,10 @@ func serviceMetaFromRow(createdAt, certIssuedAt, lastRenewedAt sql.NullTime, sta
 }
 
 func (s *SqlStore) CreateService(ctx context.Context, service *rpservice.Service) error {
+	service.Domain = strings.ToLower(service.Domain)
+	service.ProxyCluster = strings.ToLower(service.ProxyCluster)
 	serviceCopy := service.Copy()
+
 	if err := serviceCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
 		return fmt.Errorf("encrypt service data: %w", err)
 	}
@@ -196,7 +203,10 @@ func (s *SqlStore) CreateService(ctx context.Context, service *rpservice.Service
 }
 
 func (s *SqlStore) UpdateService(ctx context.Context, service *rpservice.Service) error {
+	service.Domain = strings.ToLower(service.Domain)
+	service.ProxyCluster = strings.ToLower(service.ProxyCluster)
 	serviceCopy := service.Copy()
+
 	if err := serviceCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
 		return fmt.Errorf("encrypt service data: %w", err)
 	}
@@ -266,7 +276,7 @@ func (s *SqlStore) GetServiceByID(ctx context.Context, lockStrength LockingStren
 
 func (s *SqlStore) GetServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error) {
 	var service *rpservice.Service
-	result := s.db.Preload("Targets").Where("domain = ?", domain).First(&service)
+	result := s.db.Preload("Targets").Where("lower(domain) = lower(?)", domain).First(&service)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "service with domain %s not found", domain)
@@ -397,7 +407,7 @@ func (s *SqlStore) EphemeralServiceExists(ctx context.Context, lockStrength Lock
 	if lockStrength == LockingStrengthNone {
 		var count int64
 		result := s.db.Model(&rpservice.Service{}).
-			Where("account_id = ? AND source_peer = ? AND domain = ? AND source = ?", accountID, peerID, domain, rpservice.SourceEphemeral).
+			Where("account_id = ? AND source_peer = ? AND lower(domain) = lower(?) AND source = ?", accountID, peerID, domain, rpservice.SourceEphemeral).
 			Count(&count)
 		if result.Error != nil {
 			log.WithContext(ctx).Errorf("failed to check ephemeral service existence: %v", result.Error)
@@ -410,7 +420,7 @@ func (s *SqlStore) EphemeralServiceExists(ctx context.Context, lockStrength Lock
 	result := s.db.Model(&rpservice.Service{}).
 		Clauses(clause.Locking{Strength: string(lockStrength)}).
 		Select("id").
-		Where("account_id = ? AND source_peer = ? AND domain = ? AND source = ?", accountID, peerID, domain, rpservice.SourceEphemeral).
+		Where("account_id = ? AND source_peer = ? AND lower(domain) = lower(?) AND source = ?", accountID, peerID, domain, rpservice.SourceEphemeral).
 		Limit(1).
 		Pluck("id", &id)
 	if result.Error != nil {
@@ -428,7 +438,7 @@ func (s *SqlStore) GetServicesByClusterAndPort(ctx context.Context, lockStrength
 	}
 
 	var services []*rpservice.Service
-	result := tx.Where("proxy_cluster = ? AND mode = ? AND listen_port = ?", proxyCluster, mode, listenPort).Find(&services)
+	result := tx.Where("lower(proxy_cluster) = lower(?) AND mode = ? AND listen_port = ?", proxyCluster, mode, listenPort).Find(&services)
 	if result.Error != nil {
 		return nil, status.Errorf(status.Internal, "query services by cluster and port")
 	}
@@ -444,7 +454,7 @@ func (s *SqlStore) GetServicesByCluster(ctx context.Context, lockStrength Lockin
 	}
 
 	var services []*rpservice.Service
-	result := tx.Where("proxy_cluster = ?", proxyCluster).Find(&services)
+	result := tx.Where("lower(proxy_cluster) = lower(?)", proxyCluster).Find(&services)
 	if result.Error != nil {
 		return nil, status.Errorf(status.Internal, "query services by cluster")
 	}
