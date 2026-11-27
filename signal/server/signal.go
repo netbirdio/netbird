@@ -52,6 +52,7 @@ const (
 	labelRoute       = "route"
 	labelRouteLocal  = "local"
 	labelRouteRemote = "remote"
+	labelRouteStream = "stream"
 
 	sendTimeout = 10 * time.Second
 
@@ -71,6 +72,7 @@ type Server struct {
 	metrics    *metrics.AppMetrics
 
 	successHeader metadata.MD
+	echoHeader    metadata.MD
 
 	sendTimeout time.Duration
 
@@ -111,6 +113,7 @@ func NewServerWithPeerAuth(ctx context.Context, meter metric.Meter, peerAuthCfg 
 		registry:      peer.NewRegistry(appMetrics),
 		metrics:       appMetrics,
 		successHeader: metadata.Pairs(proto.HeaderRegistered, "1"),
+		echoHeader:    metadata.Pairs(proto.HeaderRegistered, "1", proto.HeaderStreamEcho, "1"),
 		sendTimeout:   sTimeout,
 		peerAuth:      pa,
 	}
@@ -192,8 +195,13 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 
 	defer s.DeregisterPeer(p)
 
+	echo := wantsStreamEcho(stream.Context())
+	header := s.successHeader
+	if echo {
+		header = s.echoHeader
+	}
 	// needed to confirm that the peer has been registered so that the client can proceed
-	err = stream.SendHeader(s.successHeader)
+	err = stream.SendHeader(header)
 	if err != nil {
 		s.metrics.RegistrationFailures.Add(stream.Context(), 1, metric.WithAttributes(attribute.String(labelError, labelErrorFailedHeader)))
 		return err
@@ -201,12 +209,48 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 
 	log.Debugf("peer connected [%s] [streamID %d] [authenticated: %t]", p.Id, p.StreamID, p.Authenticated)
 
+	// The reader cannot run here: Recv does not return on a re-registration
+	// takeover, which only cancels ctx. It ends with the stream instead.
+	if echo {
+		go s.echoProbes(p)
+	}
+
 	select {
 	case <-stream.Context().Done():
 		log.Debugf("peer stream closing [%s] [streamID %d] ", p.Id, p.StreamID)
 		return nil
 	case <-ctx.Done():
 		return ErrPeerRegisteredAgain
+	}
+}
+
+// wantsStreamEcho reports whether the client asked for its stream probes to be echoed.
+func wantsStreamEcho(ctx context.Context) bool {
+	values := metadata.ValueFromIncomingContext(ctx, proto.HeaderStreamEcho)
+	return len(values) > 0 && values[0] == "1"
+}
+
+// echoProbes writes back, on the same stream, the probes a client sends on its own
+// stream, so the client tests the exact path it receives on. Only a message from
+// and to the stream's peer is echoed. Anything else is dropped: forwarding it would
+// skip the per-message authentication of Send. It returns when the stream ends.
+func (s *Server) echoProbes(p *peer.Peer) {
+	ctx := p.Stream.Context()
+	attrs := metric.WithAttributes(attribute.String(labelRoute, labelRouteStream))
+	for {
+		msg, err := p.Stream.Recv()
+		if err != nil {
+			return
+		}
+		if msg.GetKey() != p.Id || msg.GetRemoteKey() != p.Id {
+			log.Tracef("dropping a stream message from peer [%s] that is not a probe", p.Id)
+			continue
+		}
+		s.metrics.ProbeMessages.Add(ctx, 1, attrs)
+		if err := p.Send(msg); err != nil {
+			log.Tracef("failed to echo a probe to peer [%s]: %v", p.Id, err)
+			return
+		}
 	}
 }
 
