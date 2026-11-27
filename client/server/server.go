@@ -1947,7 +1947,9 @@ func (s *Server) buildStatusResponse(ctx context.Context, msg *proto.StatusReque
 	if deadline := s.statusRecorder.GetSessionExpiresAt(); !deadline.IsZero() {
 		statusResponse.SessionExpiresAt = timestamppb.New(deadline)
 	}
-	statusResponse.ClientRoutesDisabled, statusResponse.RunningConfig = s.runningEngineConfig()
+	if status == internal.StatusConnected {
+		statusResponse.ClientRoutesDisabled, statusResponse.RunningConfig = s.runningEngineConfig()
+	}
 
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)

@@ -23,7 +23,9 @@ export const MainExitNodeSwitcher = () => {
     const hasAny = exitNodes.length > 0;
     const disabled = !isConnected || !hasAny || clientRoutesDisabled;
 
-    const [open, setOpen] = useState(false);
+    const [openRequested, setOpen] = useState(false);
+    if (disabled && openRequested) setOpen(false);
+    const open = openRequested && !disabled;
     const listRef = useRef<HTMLDivElement>(null);
 
     const handleTriggerKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {

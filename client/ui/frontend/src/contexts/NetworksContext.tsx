@@ -34,6 +34,7 @@ const withPendingOverrides = (routes: Network[], pending: Map<string, boolean>):
 
 const EVENT_SYSTEM = "netbird:event";
 const EVENT_SETTINGS_SAVED = "netbird:settings:saved";
+const EVENT_PROFILE_CHANGED = "netbird:profile:changed";
 
 type NetworksContextValue = {
     routes: Network[];
@@ -61,11 +62,17 @@ export const useNetworks = () => {
 export const NetworksProvider = ({ children }: { children: ReactNode }) => {
     const { status } = useStatus();
     const [routes, setRoutes] = useState<Network[]>([]);
-    const [storedClientRoutesDisabled, setStoredClientRoutesDisabled] = useState(false);
+    const [storedClientRoutesDisabled, setStoredClientRoutesDisabled] = useState<boolean | null>(
+        null,
+    );
+    const [storedClientRoutesRead, setStoredClientRoutesRead] = useState(false);
     const runningClientRoutesDisabled = status?.clientRoutesDisabled ?? null;
-    const clientRoutesDisabled = runningClientRoutesDisabled ?? storedClientRoutesDisabled;
+    const clientRoutesDisabled =
+        runningClientRoutesDisabled ??
+        (storedClientRoutesRead ? (storedClientRoutesDisabled ?? false) : true);
     const clientRoutesPendingReconnect =
         runningClientRoutesDisabled !== null &&
+        storedClientRoutesDisabled !== null &&
         runningClientRoutesDisabled !== storedClientRoutesDisabled;
     const clientRoutesDisabledRef = useRef(clientRoutesDisabled);
     useEffect(() => {
@@ -141,7 +148,10 @@ export const NetworksProvider = ({ children }: { children: ReactNode }) => {
         try {
             setStoredClientRoutesDisabled(await SettingsSvc.ClientRoutesDisabled());
         } catch (e) {
+            setStoredClientRoutesDisabled(null);
             console.error("[NetworksContext] client routes state refresh failed", e);
+        } finally {
+            setStoredClientRoutesRead(true);
         }
     }, []);
 
@@ -154,6 +164,9 @@ export const NetworksProvider = ({ children }: { children: ReactNode }) => {
         const offSaved = Events.On(EVENT_SETTINGS_SAVED, () => {
             refreshClientRoutes();
         });
+        const offProfile = Events.On(EVENT_PROFILE_CHANGED, () => {
+            refreshClientRoutes();
+        });
         const offSystem = Events.On(
             EVENT_SYSTEM,
             (e: { data?: { metadata?: { [k: string]: string | undefined } } }) => {
@@ -162,6 +175,7 @@ export const NetworksProvider = ({ children }: { children: ReactNode }) => {
         );
         return () => {
             offSaved();
+            offProfile();
             offSystem();
         };
     }, [refreshClientRoutes]);
