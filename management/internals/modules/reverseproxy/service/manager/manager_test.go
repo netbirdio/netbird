@@ -695,7 +695,7 @@ func setupIntegrationTest(t *testing.T) (*Manager, store.Store) {
 	require.NoError(t, err)
 	t.Cleanup(cleanup)
 
-	err = testStore.SaveAccount(ctx, &types.Account{
+	err = testStore.SaveAccount(ctx, &types.Account{ //nolint:staticcheck
 		Id:        testAccountID,
 		CreatedBy: testUserID,
 		Network:   types.NewNetwork(),

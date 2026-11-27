@@ -61,7 +61,7 @@ type NetworkMapDBStoreConn interface { //nolint:revive // established name acros
 
 var ErrNetworkMapDBStoreConfig = errors.New("NetworkMapDBConfig error")
 
-type NetworkMapDBStoreConfig struct {
+type NetworkMapDBStoreConfig struct { //nolint:revive
 	Kind             types.Engine
 	SqliteDBFileName string
 	SqliteDataDir    string
