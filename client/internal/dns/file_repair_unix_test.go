@@ -213,11 +213,15 @@ func Test_repairCatchesWriteRacingRepair(t *testing.T) {
 
 	require.NoError(t, writeFileAtomic(operationFile, upstream))
 
-	assert.Eventually(t, func() bool {
+	require.Eventually(t, func() bool {
+		// The first repair briefly writes good content before the racing write.
+		// Wait for the second repair before accepting the file's contents.
+		if calls.Load() < 2 {
+			return false
+		}
 		content, err := os.ReadFile(operationFile)
 		return err == nil && string(content) == good
 	}, 2*time.Second, 10*time.Millisecond, "resolv.conf should be repaired after the racing write")
-	assert.GreaterOrEqual(t, calls.Load(), int32(2), "the racing write should trigger a second repair")
 }
 
 // A change made between NetBird's write and the arming of the watch produces no event, so the
