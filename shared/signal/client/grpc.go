@@ -324,7 +324,7 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 		defer cancelStream()
 		c.setCancelStream(cancelStream)
 		defer c.setCancelStream(nil)
-		stream, err := c.connect(streamCtx, cancelStream, c.key.PublicKey().String())
+		stream, echo, err := c.connect(streamCtx, cancelStream, c.key.PublicKey().String())
 		if err != nil {
 			log.Warnf("disconnected from the Signal Exchange due to an error: %v", err)
 			return err
@@ -340,11 +340,17 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 
 		// Guard the receive direction: the transport can stay healthy while the
 		// server stops delivering messages. The watchdog reconnects via cancelStream.
+		// It probes on the stream itself when Signal echoes there, otherwise through
+		// Send, which older Signals route back onto the stream.
+		probe := c.sendReceiveProbe
+		if echo {
+			probe = c.streamReceiveProbe(stream)
+		}
 		c.markReceived()
 		c.watchdogWg.Add(1)
 		go func() {
 			defer c.watchdogWg.Done()
-			c.watchReceiveStream(streamCtx, cancelStream, c.sendReceiveProbe)
+			c.watchReceiveStream(streamCtx, cancelStream, probe)
 		}()
 
 		// start receiving messages from the Signal stream (from other peers through signal)
@@ -408,14 +414,16 @@ func (c *GrpcClient) notifyStreamConnected() {
 	}
 }
 
-func (c *GrpcClient) connect(ctx context.Context, cancel context.CancelFunc, key string) (proto.SignalExchange_ConnectStreamClient, error) {
+// connect opens and registers a stream. It also reports whether Signal echoes
+// the probes written on that stream.
+func (c *GrpcClient) connect(ctx context.Context, cancel context.CancelFunc, key string) (proto.SignalExchange_ConnectStreamClient, bool, error) {
 	c.stream = nil
 
 	// add key fingerprint to the request header to be identified on the server side
-	md := metadata.New(map[string]string{proto.HeaderId: key})
+	md := metadata.New(map[string]string{proto.HeaderId: key, proto.HeaderStreamEcho: "1"})
 	authPairs, err := c.auth.metadataPairs(time.Now())
 	if err != nil {
-		return nil, fmt.Errorf("auth credentials: %w", err)
+		return nil, false, fmt.Errorf("auth credentials: %w", err)
 	}
 	for i := 0; i < len(authPairs); i += 2 {
 		md.Append(authPairs[i], authPairs[i+1])
@@ -424,15 +432,17 @@ func (c *GrpcClient) connect(ctx context.Context, cancel context.CancelFunc, key
 	stream, err := c.realClient.ConnectStream(metaCtx, grpc.WaitForReady(true))
 	c.stream = stream
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	stopProbes := c.probeUntilRegistered(ctx)
 	defer stopProbes()
-	if err := awaitRegistration(stream, c.registrationTimeout, cancel); err != nil {
-		return nil, err
+	header, err := awaitRegistration(stream, c.registrationTimeout, cancel)
+	if err != nil {
+		return nil, false, err
 	}
 
-	return stream, nil
+	echo := header.Get(proto.HeaderStreamEcho)
+	return stream, len(echo) > 0 && echo[0] == "1", nil
 }
 
 // probeUntilRegistered sends a self-addressed heartbeat every
@@ -463,21 +473,21 @@ func (c *GrpcClient) probeUntilRegistered(ctx context.Context) func() {
 	}
 }
 
-func awaitRegistration(stream proto.SignalExchange_ConnectStreamClient, timeout time.Duration, cancel context.CancelFunc) error {
+func awaitRegistration(stream proto.SignalExchange_ConnectStreamClient, timeout time.Duration, cancel context.CancelFunc) (metadata.MD, error) {
 	// A timer rather than a context deadline: the stream context must outlive registration.
 	timer := time.AfterFunc(timeout, cancel)
 	header, err := stream.Header()
 	if !timer.Stop() {
-		return fmt.Errorf("no registration header from the Signal server within %s", timeout)
+		return nil, fmt.Errorf("no registration header from the Signal server within %s", timeout)
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	registered := header.Get(proto.HeaderRegistered)
 	if len(registered) == 0 {
-		return fmt.Errorf("didn't receive a registration header from the Signal server whille connecting to the streams")
+		return nil, fmt.Errorf("didn't receive a registration header from the Signal server whille connecting to the streams")
 	}
-	return nil
+	return header, nil
 }
 
 // Ready indicates whether the client is okay and Ready to be used
@@ -705,10 +715,22 @@ func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream contex
 	defer tick.Stop()
 
 	var probeSentAt time.Time
+	// inFlight carries the result of the running probe. The probe runs on its own
+	// goroutine: a write held by flow control must not stop the watchdog, which is
+	// the only one that would cancel the stream to release it.
+	var inFlight chan error
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case err := <-inFlight:
+			inFlight = nil
+			if err != nil {
+				// A probe that never left says nothing about the receive direction:
+				// retry on the next tick instead of keeping the teardown timer.
+				log.Debugf("failed to send signal receive probe: %v", err)
+				probeSentAt = time.Time{}
+			}
 		case <-tick.C:
 			tick.Reset(timings.interval)
 			if c.receiveAlive() {
@@ -725,16 +747,22 @@ func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream contex
 			}
 
 			if probeSentAt.IsZero() {
-				// A probe that never left says nothing about the receive direction:
-				// retry on the next tick instead of starting the teardown timer.
-				if err := probe(ctx); err != nil {
-					log.Debugf("failed to send signal receive probe: %v", err)
-					continue
-				}
 				probeSentAt = time.Now()
+				if inFlight == nil {
+					inFlight = startProbe(ctx, probe)
+				}
 			}
 		}
 	}
+}
+
+// startProbe runs probe on its own goroutine and returns where its result lands.
+func startProbe(ctx context.Context, probe receiveProbe) chan error {
+	result := make(chan error, 1)
+	go func() {
+		result <- probe(ctx)
+	}()
+	return result
 }
 
 // sendReceiveProbe sends a self-addressed heartbeat bound to ctx, so cancelStream
@@ -748,6 +776,24 @@ func (c *GrpcClient) sendReceiveProbe(ctx context.Context) error {
 		RemoteKey: self,
 		Body:      &proto.Body{Type: proto.Body_HEARTBEAT},
 	})
+}
+
+// streamReceiveProbe returns a probe that writes a self-addressed heartbeat on
+// stream, which Signal echoes back on it. The watchdog is the only writer on the
+// stream, and cancelling the stream unblocks a write held by flow control.
+func (c *GrpcClient) streamReceiveProbe(stream proto.SignalExchange_ConnectStreamClient) receiveProbe {
+	self := c.key.PublicKey().String()
+	return func(context.Context) error {
+		msg, err := c.encryptMessage(&proto.Message{
+			Key:       self,
+			RemoteKey: self,
+			Body:      &proto.Body{Type: proto.Body_HEARTBEAT},
+		})
+		if err != nil {
+			return err
+		}
+		return stream.Send(msg)
+	}
 }
 
 // receive receives messages from other peers coming through the Signal Exchange

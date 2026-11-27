@@ -246,6 +246,33 @@ func TestWatchdogTearsDownWhenSentProbeIsLost(t *testing.T) {
 	assert.True(t, c.receiveStalled.Load(), "the stall must be reported to IsHealthy")
 }
 
+// TestWatchdogTearsDownWhenProbeWriteBlocks covers a probe write held by flow
+// control because Signal stopped reading the connection. Only cancelling the
+// stream releases that write, and only the watchdog cancels it: a watchdog that
+// waits for the write never tears the silent stream down.
+func TestWatchdogTearsDownWhenProbeWriteBlocks(t *testing.T) {
+	c := fastWatchdogClient()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	released := make(chan struct{})
+	tornDown := make(chan struct{})
+	go c.watchReceiveStream(ctx, func() {
+		close(tornDown)
+		close(released)
+	}, func(context.Context) error {
+		<-released
+		return errors.New("stream cancelled")
+	})
+
+	select {
+	case <-tornDown:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a probe write that never completes must still tear down the stream")
+	}
+	assert.True(t, c.receiveStalled.Load(), "the stall must be reported to IsHealthy")
+}
+
 // TestWatchdogsStartedTogetherProbeApart reproduces a fleet that reconnected in
 // the same instant: without jitter every watchdog checks on the same tick and
 // probes in step. The first probes must spread across the interval.
