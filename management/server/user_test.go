@@ -364,6 +364,7 @@ func TestUser_PAT_CrossAccountProtection(t *testing.T) {
 		require.NoError(t, err, "creating store")
 
 		accountA := newAccountWithId(context.Background(), accountAID, userAID, "", "", "", false)
+		//nolint:staticcheck
 		require.NoError(t, s.SaveAccount(context.Background(), accountA))
 
 		accountB := newAccountWithId(context.Background(), accountBID, adminBID, "", "", "", false)
@@ -1051,6 +1052,7 @@ func TestUser_deleteRegularUser_InitiatorOwnerDeletesThemself(t *testing.T) {
 	t.Cleanup(cleanup)
 
 	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
+	//nolint:staticcheck
 	require.NoError(t, s.SaveAccount(context.Background(), account))
 
 	networkMapControllerMock := network_map.NewMockController(gomock.NewController(t))
@@ -1989,6 +1991,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 		Blocked:         true,
 		PendingApproval: true,
 	}
+	//nolint:staticcheck
 	require.NoError(t, store.SaveAccount(context.Background(), account4))
 
 	// No user holds the owner role, so the owner lookup itself fails.
@@ -2001,9 +2004,11 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 		Blocked:         true,
 		PendingApproval: true,
 	}
+	//nolint:staticcheck
 	require.NoError(t, store.SaveAccount(context.Background(), account5))
 
 	account6 := newAccountWithId(context.Background(), "account6", "account6Owner", "", "stranger@example.com", "", false)
+	//nolint:staticcheck
 	require.NoError(t, store.SaveAccount(context.Background(), account6))
 
 	permissionsManager := permissions.NewManager(store)
@@ -2357,6 +2362,7 @@ func TestUser_Operations_WithEmbeddedIDP(t *testing.T) {
 
 	// Create account with owner user
 	account := newAccountWithId(ctx, mockAccountID, mockUserID, "", "owner@test.com", "Owner User", false)
+	//nolint:staticcheck
 	require.NoError(t, testStore.SaveAccount(ctx, account))
 
 	// Create mock network map controller
