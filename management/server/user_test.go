@@ -325,7 +325,7 @@ func TestUser_GetAllPATs(t *testing.T) {
 		Role: types.UserRoleAdmin,
 	}
 	//nolint:staticcheck
-	err = store.-SaveAccount(context.Background(), account)
+	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
