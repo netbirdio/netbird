@@ -282,6 +282,17 @@ func TestDeviceWrapperReadKeepsCallerBuffers(t *testing.T) {
 	}
 }
 
+// recordingCapture records every packet offered to it and its direction.
+type recordingCapture struct {
+	packets  [][]byte
+	outbound []bool
+}
+
+func (c *recordingCapture) Offer(data []byte, outbound bool) {
+	c.packets = append(c.packets, append([]byte(nil), data...))
+	c.outbound = append(c.outbound, outbound)
+}
+
 func TestDeviceWrapperReadLoopsBackToSelf(t *testing.T) {
 	self, err := wgaddr.ParseWGAddress("100.64.0.1/16")
 	require.NoError(t, err)
@@ -348,9 +359,22 @@ func TestDeviceWrapperReadLoopsBackToSelf(t *testing.T) {
 			if tc.self != nil {
 				wrapped.setSelfAddr(*tc.self)
 			}
+			capture := &recordingCapture{}
+			wrapped.SetCapture(capture)
 
 			n, err := wrapped.Read([][]byte{make([]byte, 1500)}, []int{0}, offset)
 			require.NoError(t, err)
+
+			// A looped-back packet crosses the interface twice, out and back in. Any
+			// other packet is captured once, as outbound, by Read's capture loop.
+			wantOutbound := []bool{true}
+			if tc.loopBack {
+				wantOutbound = []bool{true, false}
+			}
+			assert.Equal(t, wantOutbound, capture.outbound, "packet should be captured in the expected directions")
+			for _, captured := range capture.packets {
+				assert.Equal(t, pkt, captured, "captured packet should match the packet read")
+			}
 
 			if !tc.loopBack {
 				assert.Equal(t, 1, n, "packet should be passed on to the overlay")

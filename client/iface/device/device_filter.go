@@ -160,6 +160,13 @@ func (d *FilteredDevice) loopBackToSelf(self *wgaddr.Address, buf []byte, offset
 	if self == nil || !isToSelf(buf[offset:], *self) {
 		return false
 	}
+	if pc := d.capture.Load(); pc != nil {
+		// Capture the packet since it doesn't reach the main capture loop in
+		// [FilteredDevice.Read]. Captured as both in- and outbound because it's
+		// written back to the interface.
+		(*pc).Offer(buf[offset:], true)
+		(*pc).Offer(buf[offset:], false)
+	}
 	if _, err := d.deviceWrite([][]byte{buf}, offset); err != nil {
 		log.Debugf("failed to loop back packet to own address: %v", err)
 	}
