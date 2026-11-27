@@ -56,6 +56,10 @@ var _ = Describe("GrpcClient", func() {
 				clientA := createSignalClient(addr, keyA)
 				go func() {
 					err := clientA.Receive(context.Background(), func(msg *sigProto.Message) error {
+						// The client's own probes come back as heartbeats; the engine drops them too.
+						if msg.GetBody().GetType() == sigProto.Body_HEARTBEAT {
+							return nil
+						}
 						payloadReceivedOnA = msg.GetBody().GetPayload()
 						featuresSupportedReceivedOnA = msg.GetBody().GetFeaturesSupported()
 						msgReceived.Done()
@@ -76,6 +80,10 @@ var _ = Describe("GrpcClient", func() {
 
 				go func() {
 					err := clientB.Receive(context.Background(), func(msg *sigProto.Message) error {
+						// The client's own probes come back as heartbeats; the engine drops them too.
+						if msg.GetBody().GetType() == sigProto.Body_HEARTBEAT {
+							return nil
+						}
 						payloadReceivedOnB = msg.GetBody().GetPayload()
 						featuresSupportedReceivedOnB = msg.GetBody().GetFeaturesSupported()
 						err := clientB.Send(&sigProto.Message{

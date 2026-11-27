@@ -119,19 +119,12 @@ func (s *headerBufferingStream) Send(msg *sigProto.EncryptedMessage) error {
 
 type headerBufferingSignalServer struct {
 	*server.Server
-	dropFirstSend atomic.Bool
-}
-
-// Send can drop the first message while still acknowledging it, as the server
-// does for a heartbeat that arrives before the stream is registered.
-func (s *headerBufferingSignalServer) Send(ctx context.Context, msg *sigProto.EncryptedMessage) (*sigProto.EncryptedMessage, error) {
-	if s.dropFirstSend.CompareAndSwap(true, false) {
-		return &sigProto.EncryptedMessage{}, nil
-	}
-	return s.Server.Send(ctx, msg)
+	// registrationDelay stands for a Signal slow to register under load.
+	registrationDelay time.Duration
 }
 
 func (s *headerBufferingSignalServer) ConnectStream(stream sigProto.SignalExchange_ConnectStreamServer) error {
+	time.Sleep(s.registrationDelay)
 	return s.Server.ConnectStream(&headerBufferingStream{SignalExchange_ConnectStreamServer: stream})
 }
 
@@ -140,22 +133,22 @@ func (s *headerBufferingSignalServer) ConnectStream(stream sigProto.SignalExchan
 // sending anything, the client must produce that message itself instead of
 // timing out on every attempt.
 func TestReceiveRegistersWhenProxyBuffersHeaders(t *testing.T) {
-	t.Run("first heartbeat delivered", func(t *testing.T) {
-		testRegistersBehindHeaderBuffering(t, false)
+	t.Run("fast registration", func(t *testing.T) {
+		testRegistersBehindHeaderBuffering(t, 0)
 	})
-	// A heartbeat that loses the race with the registration is dropped; the
-	// next one must still release the header.
-	t.Run("first heartbeat dropped", func(t *testing.T) {
-		testRegistersBehindHeaderBuffering(t, true)
+	// The probe is written before Signal has registered the peer. It must wait
+	// on the stream rather than be dropped, as a Send heartbeat that loses the
+	// race with the registration is.
+	t.Run("slow registration", func(t *testing.T) {
+		testRegistersBehindHeaderBuffering(t, 500*time.Millisecond)
 	})
 }
 
-func testRegistersBehindHeaderBuffering(t *testing.T, dropFirstSend bool) {
+func testRegistersBehindHeaderBuffering(t *testing.T, registrationDelay time.Duration) {
 	t.Helper()
 	realServer, err := server.NewServer(context.Background(), otel.Meter(""))
 	require.NoError(t, err)
-	srv := &headerBufferingSignalServer{Server: realServer}
-	srv.dropFirstSend.Store(dropFirstSend)
+	srv := &headerBufferingSignalServer{Server: realServer, registrationDelay: registrationDelay}
 	addr := serveTestSignalExchange(t, srv)
 
 	key, err := wgtypes.GenerateKey()
@@ -168,7 +161,6 @@ func testRegistersBehindHeaderBuffering(t *testing.T, dropFirstSend bool) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Close() })
 	client.registrationTimeout = 2 * time.Second
-	client.registrationProbeInterval = 200 * time.Millisecond
 
 	// Stop Receive before Close runs (cleanups are LIFO), so the two never overlap.
 	receiveDone := make(chan struct{})
