@@ -31,6 +31,14 @@ func (n *Notifier) OnNewPrefixes(prefixes []netip.Prefix) {
 	// Not used on non-mobile platforms
 }
 
+func (n *Notifier) BeginBatch() {
+	// Not used on non-mobile platforms
+}
+
+func (n *Notifier) EndBatch() {
+	// Not used on non-mobile platforms
+}
+
 func (n *Notifier) Close() {
 	// unused
 }

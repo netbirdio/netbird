@@ -42,6 +42,7 @@ const CONFIG_TABS: ReadonlySet<Tab> = new Set([
     Tab.Network,
     Tab.Security,
     Tab.SSH,
+    Tab.VNC,
     Tab.Advanced,
 ]);
 

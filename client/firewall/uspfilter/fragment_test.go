@@ -345,9 +345,11 @@ func TestFragment_RoutingDisabledDropsFragment(t *testing.T) {
 		"routed first fragment must be dropped when routing is disabled")
 }
 
-// TestFragment_RouteACL verifies the route-ACL branch: fragments to a non-local
-// destination follow the route rules, allowed datagrams pass their trailing
-// fragments and denied ones don't.
+// TestFragment_RouteACL verifies the route-ACL branch of the userspace router:
+// fragments to a non-local destination never reach the native stack, whether
+// the route rules allow the datagram or not. The native stack would deliver
+// broadcast and multicast destinations to local sockets, bypassing the peer
+// ACLs.
 func TestFragment_RouteACL(t *testing.T) {
 	m := newFragmentTestManager(t)
 	m.routingEnabled.Store(true)
@@ -356,7 +358,7 @@ func TestFragment_RouteACL(t *testing.T) {
 	_, err := m.AddFilterRule(
 		[]byte("rt-1"),
 		[]netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-		fw.Network{Prefix: netip.MustParsePrefix("198.51.100.0/24")},
+		fw.Network{Prefix: netip.MustParsePrefix("0.0.0.0/0")},
 		fw.ProtocolUDP,
 		nil,
 		&fw.Port{Values: []uint16{8080}},
@@ -364,19 +366,21 @@ func TestFragment_RouteACL(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	first := firstFragmentUDPTo(t, "198.51.100.10", 0xAAAA, 8080, 32)
-	require.False(t, m.filterInbound(first, len(first)),
-		"route-ACL-allowed first fragment should pass")
-	trailing := trailingFragmentTo(t, "198.51.100.10", layers.IPProtocolUDP, 0xAAAA, 5, false, 24)
-	require.False(t, m.filterInbound(trailing, len(trailing)),
-		"trailing fragment of an allowed routed datagram should pass")
+	for _, dst := range []string{"198.51.100.10", "255.255.255.255", "224.0.0.1"} {
+		first := firstFragmentUDPTo(t, dst, 0xAAAA, 8080, 32)
+		require.True(t, m.filterInbound(first, len(first)),
+			"route-ACL-allowed first fragment to %s must not reach the native stack", dst)
+		trailing := trailingFragmentTo(t, dst, layers.IPProtocolUDP, 0xAAAA, 5, false, 24)
+		require.True(t, m.filterInbound(trailing, len(trailing)),
+			"trailing fragment of a routed datagram to %s must be dropped", dst)
 
-	denied := firstFragmentUDPTo(t, "198.51.100.10", 0xBBBB, 9999, 32)
-	require.True(t, m.filterInbound(denied, len(denied)),
-		"route-ACL-denied first fragment must be dropped")
-	deniedTrailing := trailingFragmentTo(t, "198.51.100.10", layers.IPProtocolUDP, 0xBBBB, 5, false, 24)
-	require.True(t, m.filterInbound(deniedTrailing, len(deniedTrailing)),
-		"trailing fragment of a denied routed datagram must be dropped")
+		denied := firstFragmentUDPTo(t, dst, 0xBBBB, 9999, 32)
+		require.True(t, m.filterInbound(denied, len(denied)),
+			"route-ACL-denied first fragment to %s must be dropped", dst)
+		deniedTrailing := trailingFragmentTo(t, dst, layers.IPProtocolUDP, 0xBBBB, 5, false, 24)
+		require.True(t, m.filterInbound(deniedTrailing, len(deniedTrailing)),
+			"trailing fragment of a denied routed datagram to %s must be dropped", dst)
+	}
 }
 
 // TestFragment_ExpiredVerdictDropsTrailing verifies a verdict older than the
