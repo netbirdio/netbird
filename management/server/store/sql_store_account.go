@@ -9,17 +9,24 @@ import (
 	"net"
 	"runtime/debug"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
+	"github.com/netbirdio/netbird/management/internals/modules/exitnodes"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -178,6 +185,10 @@ func (s *SqlStore) DeleteAccount(ctx context.Context, account *types.Account) er
 			return err
 		}
 
+		if err := deleteAccountExitNodes(tx, account.Id); err != nil {
+			return err
+		}
+
 		result = tx.Delete(&nbpeer.Connection{}, "account_id = ?", account.Id)
 		if result.Error != nil {
 			return result.Error
@@ -198,6 +209,14 @@ func (s *SqlStore) DeleteAccount(ctx context.Context, account *types.Account) er
 	log.WithContext(ctx).Tracef("took %d ms to delete an account to the store", took.Milliseconds())
 
 	return err
+}
+
+// deleteAccountExitNodes removes the account's exit nodes, which are not account associations.
+func deleteAccountExitNodes(tx *gorm.DB, accountID string) error {
+	if err := tx.Delete(&exitnodes.Peer{}, "account_id = ?", accountID).Error; err != nil {
+		return err
+	}
+	return tx.Delete(&exitnodes.ExitNode{}, "account_id = ?", accountID).Error
 }
 
 // deleteAgentNetworkAccountConfig removes the account's agent network configuration. These
@@ -481,241 +500,155 @@ func (s *SqlStore) getAccountPgx(ctx context.Context, accountID string) (*types.
 		return nil, err
 	}
 
-	var wg sync.WaitGroup
-	errChan := make(chan error, 16)
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		keys, err := s.getSetupKeys(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.SetupKeysG = keys
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		peers, err := s.getPeers(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.PeersG = peers
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		users, err := s.getUsers(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.UsersG = users
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		groups, err := s.getGroups(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.GroupsG = groups
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		policies, err := s.getPolicies(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.Policies = policies
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		routes, err := s.getRoutes(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.RoutesG = routes
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		nsgs, err := s.getNameServerGroups(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.NameServerGroupsG = nsgs
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		checks, err := s.getPostureChecks(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.PostureChecks = checks
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		services, err := s.getServices(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.Services = services
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		domains, err := s.ListCustomDomains(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.Domains = domains
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		networks, err := s.getNetworks(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.Networks = networks
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		routers, err := s.getNetworkRouters(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.NetworkRouters = routers
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		resources, err := s.getNetworkResources(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.NetworkResources = resources
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		err := s.getAccountOnboarding(ctx, accountID, account)
-		if err != nil {
-			errChan <- err
-			return
-		}
-	}()
-
-	wg.Wait()
-	close(errChan)
-	for e := range errChan {
-		if e != nil {
-			return nil, e
-		}
+	if err := s.loadAccountObjects(ctx, account); err != nil {
+		return nil, err
 	}
 
-	var userIDs []string
+	rel, err := s.loadAccountRelations(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.attachUsers(account, rel.pats); err != nil {
+		return nil, err
+	}
+	attachPolicyRules(account, rel.rules)
+	attachGroupPeers(account, rel.groupPeers)
+	indexAccountObjects(account)
+
+	return account, nil
+}
+
+// accountRelations holds the rows that reference account objects rather than the account.
+type accountRelations struct {
+	pats       []types.PersonalAccessToken
+	rules      []*types.PolicyRule
+	groupPeers []types.GroupPeer
+}
+
+// loadInto runs load in g and stores its result in dst when it succeeds.
+func loadInto[T any](g *errgroup.Group, dst *T, load func() (T, error)) {
+	g.Go(func() error {
+		v, err := load()
+		if err != nil {
+			return err
+		}
+		*dst = v
+		return nil
+	})
+}
+
+// loadAccountObjects loads the objects that belong to the account directly, concurrently.
+func (s *SqlStore) loadAccountObjects(ctx context.Context, account *types.Account) error {
+	id := account.Id
+	var g errgroup.Group
+
+	loadInto(&g, &account.SetupKeysG, func() ([]types.SetupKey, error) { return s.getSetupKeys(ctx, id) })
+	loadInto(&g, &account.PeersG, func() ([]nbpeer.Peer, error) { return s.getPeers(ctx, id) })
+	loadInto(&g, &account.UsersG, func() ([]types.User, error) { return s.getUsers(ctx, id) })
+	loadInto(&g, &account.GroupsG, func() ([]*types.Group, error) { return s.getGroups(ctx, id) })
+	loadInto(&g, &account.Policies, func() ([]*types.Policy, error) { return s.getPolicies(ctx, id) })
+	loadInto(&g, &account.RoutesG, func() ([]route.Route, error) { return s.getRoutes(ctx, id) })
+	loadInto(&g, &account.NameServerGroupsG, func() ([]nbdns.NameServerGroup, error) { return s.getNameServerGroups(ctx, id) })
+	loadInto(&g, &account.PostureChecks, func() ([]*posture.Checks, error) { return s.getPostureChecks(ctx, id) })
+	loadInto(&g, &account.Services, func() ([]*rpservice.Service, error) { return s.getServices(ctx, id) })
+	loadInto(&g, &account.Domains, func() ([]*domain.Domain, error) { return s.ListCustomDomains(ctx, id) })
+	loadInto(&g, &account.Networks, func() ([]*networkTypes.Network, error) { return s.getNetworks(ctx, id) })
+	loadInto(&g, &account.NetworkRouters, func() ([]*routerTypes.NetworkRouter, error) { return s.getNetworkRouters(ctx, id) })
+	loadInto(&g, &account.NetworkResources, func() ([]*resourceTypes.NetworkResource, error) { return s.getNetworkResources(ctx, id) })
+	g.Go(func() error { return s.getAccountOnboarding(ctx, id, account) })
+
+	return g.Wait()
+}
+
+// loadAccountRelations loads the PATs, policy rules and group peers of the loaded users,
+// policies and groups, concurrently.
+func (s *SqlStore) loadAccountRelations(ctx context.Context, account *types.Account) (*accountRelations, error) {
+	userIDs := make([]string, 0, len(account.UsersG))
 	for _, u := range account.UsersG {
 		userIDs = append(userIDs, u.Id)
 	}
-	var policyIDs []string
+	policyIDs := make([]string, 0, len(account.Policies))
 	for _, p := range account.Policies {
 		policyIDs = append(policyIDs, p.ID)
 	}
-	var groupIDs []string
+	groupIDs := make([]string, 0, len(account.GroupsG))
 	for _, g := range account.GroupsG {
 		groupIDs = append(groupIDs, g.ID)
 	}
 
-	wg.Add(3)
-	errChan = make(chan error, 3)
-
-	var pats []types.PersonalAccessToken
-	go func() {
-		defer wg.Done()
-		var err error
-		pats, err = s.getPersonalAccessTokens(ctx, userIDs)
-		if err != nil {
-			errChan <- err
-		}
-	}()
-
-	var rules []*types.PolicyRule
-	go func() {
-		defer wg.Done()
-		var err error
-		rules, err = s.getPolicyRules(ctx, policyIDs)
-		if err != nil {
-			errChan <- err
-		}
-	}()
-
-	var groupPeers []types.GroupPeer
-	go func() {
-		defer wg.Done()
-		var err error
-		groupPeers, err = s.getGroupPeers(ctx, groupIDs)
-		if err != nil {
-			errChan <- err
-		}
-	}()
-
-	wg.Wait()
-	close(errChan)
-	for e := range errChan {
-		if e != nil {
-			return nil, e
-		}
+	rel := &accountRelations{}
+	var g errgroup.Group
+	loadInto(&g, &rel.pats, func() ([]types.PersonalAccessToken, error) { return s.getPersonalAccessTokens(ctx, userIDs) })
+	loadInto(&g, &rel.rules, func() ([]*types.PolicyRule, error) { return s.getPolicyRules(ctx, policyIDs) })
+	loadInto(&g, &rel.groupPeers, func() ([]types.GroupPeer, error) { return s.getGroupPeers(ctx, groupIDs) })
+	if err := g.Wait(); err != nil {
+		return nil, err
 	}
+	return rel, nil
+}
 
-	patsByUserID := make(map[string][]*types.PersonalAccessToken)
+// attachUsers decrypts the loaded users, attaches their PATs and indexes them by ID.
+func (s *SqlStore) attachUsers(account *types.Account, pats []types.PersonalAccessToken) error {
+	patsByUserID := make(map[string]map[string]*types.PersonalAccessToken)
 	for i := range pats {
 		pat := &pats[i]
-		patsByUserID[pat.UserID] = append(patsByUserID[pat.UserID], pat)
+		if patsByUserID[pat.UserID] == nil {
+			patsByUserID[pat.UserID] = make(map[string]*types.PersonalAccessToken)
+		}
+		patsByUserID[pat.UserID][pat.ID] = pat
 		pat.UserID = ""
 	}
 
+	account.Users = make(map[string]*types.User, len(account.UsersG))
+	for i := range account.UsersG {
+		user := &account.UsersG[i]
+		if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return fmt.Errorf("decrypt user: %w", err)
+		}
+		user.PATs = patsByUserID[user.Id]
+		if user.PATs == nil {
+			user.PATs = make(map[string]*types.PersonalAccessToken)
+		}
+		account.Users[user.Id] = user
+	}
+	account.UsersG = nil
+	return nil
+}
+
+// attachPolicyRules sets the rules of each loaded policy.
+func attachPolicyRules(account *types.Account, rules []*types.PolicyRule) {
 	rulesByPolicyID := make(map[string][]*types.PolicyRule)
 	for _, rule := range rules {
 		rulesByPolicyID[rule.PolicyID] = append(rulesByPolicyID[rule.PolicyID], rule)
 	}
+	for _, policy := range account.Policies {
+		if policyRules, ok := rulesByPolicyID[policy.ID]; ok {
+			policy.Rules = policyRules
+		}
+	}
+}
 
+// attachGroupPeers sets the peers of each loaded group and indexes the groups by ID.
+func attachGroupPeers(account *types.Account, groupPeers []types.GroupPeer) {
 	peersByGroupID := make(map[string][]string)
 	for _, gp := range groupPeers {
 		peersByGroupID[gp.GroupID] = append(peersByGroupID[gp.GroupID], gp.PeerID)
 	}
 
+	account.Groups = make(map[string]*types.Group, len(account.GroupsG))
+	for _, group := range account.GroupsG {
+		if peerIDs, ok := peersByGroupID[group.ID]; ok {
+			group.Peers = peerIDs
+		}
+		account.Groups[group.ID] = group
+	}
+	account.GroupsG = nil
+}
+
+// indexAccountObjects moves the loaded setup keys, peers, routes and name server groups
+// from their slices into the account's maps.
+func indexAccountObjects(account *types.Account) {
 	account.SetupKeys = make(map[string]*types.SetupKey, len(account.SetupKeysG))
 	for i := range account.SetupKeysG {
 		key := &account.SetupKeysG[i]
@@ -728,42 +661,10 @@ func (s *SqlStore) getAccountPgx(ctx context.Context, accountID string) (*types.
 		account.Peers[peer.ID] = peer
 	}
 
-	account.Users = make(map[string]*types.User, len(account.UsersG))
-	for i := range account.UsersG {
-		user := &account.UsersG[i]
-		if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
-			return nil, fmt.Errorf("decrypt user: %w", err)
-		}
-		user.PATs = make(map[string]*types.PersonalAccessToken)
-		if userPats, ok := patsByUserID[user.Id]; ok {
-			for j := range userPats {
-				pat := userPats[j]
-				user.PATs[pat.ID] = pat
-			}
-		}
-		account.Users[user.Id] = user
-	}
-
-	for i := range account.Policies {
-		policy := account.Policies[i]
-		if policyRules, ok := rulesByPolicyID[policy.ID]; ok {
-			policy.Rules = policyRules
-		}
-	}
-
-	account.Groups = make(map[string]*types.Group, len(account.GroupsG))
-	for i := range account.GroupsG {
-		group := account.GroupsG[i]
-		if peerIDs, ok := peersByGroupID[group.ID]; ok {
-			group.Peers = peerIDs
-		}
-		account.Groups[group.ID] = group
-	}
-
 	account.Routes = make(map[route.ID]*route.Route, len(account.RoutesG))
 	for i := range account.RoutesG {
-		route := &account.RoutesG[i]
-		account.Routes[route.ID] = route
+		r := &account.RoutesG[i]
+		account.Routes[r.ID] = r
 	}
 
 	account.NameServerGroups = make(map[string]*nbdns.NameServerGroup, len(account.NameServerGroupsG))
@@ -775,12 +676,8 @@ func (s *SqlStore) getAccountPgx(ctx context.Context, accountID string) (*types.
 
 	account.SetupKeysG = nil
 	account.PeersG = nil
-	account.UsersG = nil
-	account.GroupsG = nil
 	account.RoutesG = nil
 	account.NameServerGroupsG = nil
-
-	return account, nil
 }
 
 func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Account, error) {
