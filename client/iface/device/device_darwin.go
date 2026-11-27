@@ -155,6 +155,7 @@ func (t *TunDevice) assignAddr() error {
 		}
 	}
 
+	t.filteredDevice.setSelfAddr(t.address)
 	return nil
 }
 
