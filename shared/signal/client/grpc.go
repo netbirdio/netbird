@@ -54,6 +54,30 @@ const (
 // but no longer delivering messages, so the stream is torn down to reconnect.
 var errReceiveStreamStalled = errors.New("signal receive stream stalled")
 
+// watchdogTimings holds the receive watchdog's thresholds. A zero field takes
+// its package default.
+type watchdogTimings struct {
+	idleThreshold time.Duration
+	probeTimeout  time.Duration
+	interval      time.Duration
+}
+
+func (t watchdogTimings) withDefaults() watchdogTimings {
+	if t.idleThreshold == 0 {
+		t.idleThreshold = receiveInactivityThreshold
+	}
+	if t.probeTimeout == 0 {
+		t.probeTimeout = receiveProbeTimeout
+	}
+	if t.interval == 0 {
+		t.interval = receiveWatchdogInterval
+	}
+	return t
+}
+
+// receiveProbe sends one watchdog probe that should come back on the receive stream.
+type receiveProbe func(ctx context.Context) error
+
 // ConnStateNotifier is a wrapper interface of the status recorder
 type ConnStateNotifier interface {
 	MarkSignalDisconnected(error)
@@ -102,6 +126,7 @@ type GrpcClient struct {
 	// new stream feeds the same worker, and only triggers a reconnect storm.
 	receiveHandoffBlocked atomic.Bool
 	watchdogWg            sync.WaitGroup
+	watchdog              watchdogTimings
 
 	registrationTimeout       time.Duration
 	registrationProbeInterval time.Duration
@@ -303,7 +328,7 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 		c.watchdogWg.Add(1)
 		go func() {
 			defer c.watchdogWg.Done()
-			c.watchReceiveStream(streamCtx, cancelStream)
+			c.watchReceiveStream(streamCtx, cancelStream, c.sendReceiveProbe)
 		}()
 
 		// start receiving messages from the Signal stream (from other peers through signal)
@@ -632,18 +657,18 @@ func (c *GrpcClient) idleSinceReceive() time.Duration {
 // stopped calling Recv, so the stream looks silent while being healthy, and
 // reconnecting would not help, so the watchdog must treat it as alive.
 func (c *GrpcClient) receiveAlive() bool {
-	return c.idleSinceReceive() < receiveInactivityThreshold ||
+	return c.idleSinceReceive() < c.watchdog.withDefaults().idleThreshold ||
 		c.receiveHandoffBlocked.Load()
 }
 
 // watchReceiveStream guards against a receive stream that is transport-alive but
-// no longer delivering messages. While the stream is idle past
-// receiveInactivityThreshold it sends a self-addressed probe that the Signal
-// server routes back to this client. If the probe does not round-trip within
-// receiveProbeTimeout the receive direction is considered dead and cancelStream
-// is called so the retry loop reconnects.
-func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream context.CancelFunc) {
-	ticker := time.NewTicker(receiveWatchdogInterval)
+// no longer delivering messages. While the stream is idle past the idle threshold
+// it sends a probe that should come back on the stream. If the probe does not
+// round-trip within the probe timeout the receive direction is considered dead
+// and cancelStream is called so the retry loop reconnects.
+func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream context.CancelFunc, probe receiveProbe) {
+	timings := c.watchdog.withDefaults()
+	ticker := time.NewTicker(timings.interval)
 	defer ticker.Stop()
 
 	var probeSentAt time.Time
@@ -657,7 +682,7 @@ func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream contex
 				continue
 			}
 
-			if !probeSentAt.IsZero() && time.Since(probeSentAt) >= receiveProbeTimeout {
+			if !probeSentAt.IsZero() && time.Since(probeSentAt) >= timings.probeTimeout {
 				log.Warnf("signal receive stream stalled: no messages for %s and probe did not return, reconnecting", c.idleSinceReceive().Round(time.Second))
 				c.receiveStalled.Store(true)
 				c.notifyDisconnected(errReceiveStreamStalled)
@@ -666,7 +691,7 @@ func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream contex
 			}
 
 			if probeSentAt.IsZero() {
-				if err := c.sendReceiveProbe(ctx); err != nil {
+				if err := probe(ctx); err != nil {
 					log.Debugf("failed to send signal receive probe: %v", err)
 				}
 				probeSentAt = time.Now()
