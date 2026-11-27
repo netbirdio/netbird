@@ -42,9 +42,10 @@ const (
 	receiveWatchdogInterval = 10 * time.Second
 	// defaultRegistrationTimeout bounds the wait for a new stream's registration header.
 	// It is generous on purpose: a Signal under load registers slowly, and giving up
-	// early only adds another registration to its queue. Base plus jitter stays below
-	// the engine's 30s control-plane recovery deadline, which restarts the client.
-	defaultRegistrationTimeout = 20 * time.Second
+	// early only adds another registration to its queue. After a network change the
+	// engine restarts the client if Signal is not back 30s after the redial, so base
+	// plus jitter leaves at least 5s of that window for dialing Signal.
+	defaultRegistrationTimeout = 15 * time.Second
 	// registrationTimeoutJitter widens the bound per client, so a fleet that
 	// connected together does not give up together.
 	registrationTimeoutJitter = 10 * time.Second
