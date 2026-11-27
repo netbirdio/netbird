@@ -5,7 +5,7 @@ import { AppRightPanel } from "@/layouts/AppRightPanel.tsx";
 import { Navigation } from "@/modules/main/advanced/Navigation.tsx";
 import { cn } from "@/lib/cn";
 import { NavSectionProvider, useNavSection } from "@/contexts/NavSectionContext";
-import { ViewModeProvider, useViewMode } from "@/contexts/ViewModeContext";
+import { ViewModeProvider, useViewMode, VIEW_WIDTH } from "@/contexts/ViewModeContext";
 import { useEffect } from "react";
 import { NotConnectedState } from "@/components/empty-state/NotConnectedState";
 import { useStatus } from "@/contexts/StatusContext";
@@ -16,8 +16,19 @@ import { PeerDetailProvider, usePeerDetail } from "@/contexts/PeerDetailContext"
 import { useRestrictions } from "@/contexts/RestrictionsContext";
 import { PeerDetailPanel } from "@/modules/main/advanced/peers/PeerDetailPanel";
 import { isWindows } from "@/lib/platform.ts";
+import { useLinuxHiDpiWindow } from "@/hooks/useLinuxHiDpiWindow";
+
+// The 320x400 minimum mirrors newMainWindow in main.go; keep them in sync.
+const MAIN_WINDOW_WIDTHS = [VIEW_WIDTH.default, VIEW_WIDTH.advanced] as const;
 
 export const MainPage = () => {
+    useLinuxHiDpiWindow({
+        tag: "MainPage",
+        defaultWidths: MAIN_WINDOW_WIDTHS,
+        minWidth: 320,
+        minHeight: 400,
+    });
+
     return (
         <ViewModeProvider>
             <MainHeader />

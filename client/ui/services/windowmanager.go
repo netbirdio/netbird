@@ -97,7 +97,7 @@ var storedAppearance atomic.Value // Appearance
 var resolveAppearance atomic.Value // func() Appearance
 
 func init() {
-	storedAppearance.Store(Appearance{Pref: preferences.DefaultTheme, Dark: true})
+	storedAppearance.Store(Appearance{Pref: preferences.DefaultTheme, Dark: false})
 }
 
 func setAppearance(pref preferences.Theme, dark bool) {
@@ -168,7 +168,7 @@ func MicrosoftWindowsAppearanceOptions(a Appearance) application.WindowsWindow {
 	}
 }
 
-// AppleMacOSAppearanceOptions is the shared macOS chrome; FullScreenNone keeps the fixed-size layout.
+// AppleMacOSAppearanceOptions is the shared macOS chrome; FullScreenNone keeps the compact layout out of fullscreen.
 func AppleMacOSAppearanceOptions(a Appearance) application.MacWindow {
 	appearance := application.DefaultAppearance
 	switch a.Pref {
@@ -271,6 +271,7 @@ type WindowManager struct {
 	recenterOnShow func() bool
 }
 
+// NewWindowManager creates a WindowManager that owns the main window and spawns dialog windows.
 func NewWindowManager(app *application.App, mainWindow *application.WebviewWindow, translator ErrorTranslator, prefs LanguagePreference, linuxIcon []byte) *WindowManager {
 	s := &WindowManager{
 		app:            app,
@@ -322,21 +323,22 @@ func settingsWindowURL(tab string) string {
 
 func (s *WindowManager) newSettingsWindow(tab string) *application.WebviewWindow {
 	a := CurrentAppearance()
+	// The 900 default width and the 600x400 minimum are mirrored by the DPR
+	// scaling in SettingsPage.tsx; keep them in sync.
 	w := s.app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:                windowSettings,
-		Title:               s.title("window.title.settings"),
-		Width:               900,
-		Height:              WindowHeight,
-		Hidden:              true,
-		DisableResize:       true,
-		MinimiseButtonState: application.ButtonHidden,
-		MaximiseButtonState: application.ButtonHidden,
-		CloseButtonState:    application.ButtonEnabled,
-		BackgroundColour:    WindowBackgroundColour(a),
-		URL:                 settingsWindowURL(tab),
-		Mac:                 AppleMacOSAppearanceOptions(a),
-		Windows:             MicrosoftWindowsAppearanceOptions(a),
-		Linux:               LinuxAppearanceOptions(s.linuxIcon),
+		Name:             windowSettings,
+		Title:            s.title("window.title.settings"),
+		Width:            900,
+		Height:           WindowHeight,
+		Hidden:           true,
+		CloseButtonState: application.ButtonEnabled,
+		BackgroundColour: WindowBackgroundColour(a),
+		MinWidth:         600,
+		MinHeight:        400,
+		URL:              settingsWindowURL(tab),
+		Mac:              AppleMacOSAppearanceOptions(a),
+		Windows:          MicrosoftWindowsAppearanceOptions(a),
+		Linux:            LinuxAppearanceOptions(s.linuxIcon),
 	})
 	w.RegisterHook(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 		s.mu.Lock()

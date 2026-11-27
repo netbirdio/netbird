@@ -10,6 +10,7 @@ package main
 import (
 	"bufio"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -221,13 +222,26 @@ func isDarkRGB(r, g, b uint8) bool {
 	return luma < 128
 }
 
-// gtkThemeIsDark inspects the GTK_THEME env var. Empty (no override) is treated
-// as dark to match the default-dark fallback used elsewhere.
 func gtkThemeIsDark() bool {
 	theme := os.Getenv("GTK_THEME")
-	if theme == "" {
-		return true
+	if theme != "" {
+		return strings.Contains(strings.ToLower(theme), ":dark")
 	}
-	// GTK_THEME is "Name[:variant]"; the dark variant is ":dark".
-	return strings.Contains(strings.ToLower(theme), ":dark")
+	out, err := exec.Command("gsettings", "get",
+		"org.gnome.desktop.interface", "color-scheme").Output()
+	if err == nil {
+		s := strings.ToLower(strings.TrimSpace(string(out)))
+		switch {
+		case strings.Contains(s, "prefer-light"):
+			return false
+		case strings.Contains(s, "prefer-dark"):
+			return true
+		}
+	}
+	out, err = exec.Command("gsettings", "get",
+		"org.gnome.desktop.interface", "gtk-theme").Output()
+	if err == nil {
+		return strings.Contains(strings.ToLower(string(out)), "dark")
+	}
+	return true
 }
