@@ -691,8 +691,11 @@ func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream contex
 			}
 
 			if probeSentAt.IsZero() {
+				// A probe that never left says nothing about the receive direction:
+				// retry on the next tick instead of starting the teardown timer.
 				if err := probe(ctx); err != nil {
 					log.Debugf("failed to send signal receive probe: %v", err)
+					continue
 				}
 				probeSentAt = time.Now()
 			}

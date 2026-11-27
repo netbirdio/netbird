@@ -2,11 +2,14 @@ package client
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -182,4 +185,63 @@ func TestReceiveLoopRefreshesLivenessAfterBlockedHandoff(t *testing.T) {
 		"handoff should drain once the worker is released")
 	require.True(t, c.receiveAlive(),
 		"the loop must refresh liveness when the handoff drains, before the next Recv")
+}
+
+// fastWatchdogClient returns a client whose receive stream has been silent past
+// the idle threshold, with watchdog timings short enough for a unit test.
+func fastWatchdogClient() *GrpcClient {
+	c := &GrpcClient{watchdog: watchdogTimings{
+		idleThreshold: 10 * time.Millisecond,
+		probeTimeout:  20 * time.Millisecond,
+		interval:      2 * time.Millisecond,
+	}}
+	c.lastReceived.Store(time.Now().Add(-time.Second).UnixNano())
+	return c
+}
+
+// TestWatchdogRetriesUnsentProbe covers a probe that fails to leave the client,
+// for example because the Send path is rejecting calls. That says nothing about
+// the receive direction, so the watchdog must retry the probe instead of tearing
+// down a stream it never tested.
+func TestWatchdogRetriesUnsentProbe(t *testing.T) {
+	c := fastWatchdogClient()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	var probes atomic.Int32
+	probe := func(context.Context) error {
+		probes.Add(1)
+		return errors.New("send path rejected the probe")
+	}
+	var tornDown atomic.Bool
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		c.watchReceiveStream(ctx, func() { tornDown.Store(true) }, probe)
+	}()
+
+	// Ten attempts span well over the probe timeout.
+	require.Eventually(t, func() bool { return probes.Load() >= 10 }, 5*time.Second, time.Millisecond,
+		"the watchdog must keep retrying a probe that could not be sent")
+	assert.False(t, tornDown.Load(), "a probe that never left must not tear down the stream")
+	cancel()
+	<-done
+}
+
+// TestWatchdogTearsDownWhenSentProbeIsLost keeps the existing guarantee: a probe
+// that left the client but never came back on the stream ends the stream.
+func TestWatchdogTearsDownWhenSentProbeIsLost(t *testing.T) {
+	c := fastWatchdogClient()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	tornDown := make(chan struct{})
+	go c.watchReceiveStream(ctx, func() { close(tornDown) }, func(context.Context) error { return nil })
+
+	select {
+	case <-tornDown:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a lost probe must tear down the stream")
+	}
+	assert.True(t, c.receiveStalled.Load(), "the stall must be reported to IsHealthy")
 }
