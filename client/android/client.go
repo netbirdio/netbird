@@ -82,6 +82,9 @@ type Client struct {
 	deviceName            string
 	uiVersion             string
 	networkChangeListener listener.NetworkChangeListener
+	// hostResolver serves the engine's own hostname lookups over protected
+	// sockets to the underlying network's DNS; see host_resolver.go.
+	hostResolver *hostResolver
 	// netMgr outlives engine restarts: it mirrors the OS connectivity, not
 	// the engine lifecycle. Run and RunWithoutLogin inject its state and
 	// sweeper into each new ConnectClient.
@@ -158,7 +161,10 @@ func NewClient(androidSDKVersion int, deviceName string, uiVersion string, tunAd
 	net.SetAndroidProtectSocketFn(tunAdapter.ProtectSocket)
 	system.SetIFaceDiscover(iFaceDiscover)
 	recorder := peer.NewRecorder("")
+	hostResolver := newHostResolver()
+	hostResolver.install()
 	return &Client{
+		hostResolver:          hostResolver,
 		deviceName:            deviceName,
 		uiVersion:             uiVersion,
 		tunAdapter:            tunAdapter,
@@ -173,6 +179,7 @@ func NewClient(androidSDKVersion int, deviceName string, uiVersion string, tunAd
 // Run start the internal client. It is a blocker function
 func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroidTV bool, dns *DNSList, dnsReadyListener DnsReadyListener, envList *EnvList) error {
 	exportEnvList(envList)
+	c.hostResolver.set(dns.items)
 
 	cfgFile := platformFiles.ConfigurationFilePath()
 	stateFile := platformFiles.StateFilePath()
@@ -226,6 +233,7 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 // In this case make no sense handle registration steps.
 func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsReadyListener DnsReadyListener, envList *EnvList) error {
 	exportEnvList(envList)
+	c.hostResolver.set(dns.items)
 
 	cfgFile := platformFiles.ConfigurationFilePath()
 	stateFile := platformFiles.StateFilePath()
@@ -572,6 +580,7 @@ func (c *Client) findBestRoutePeer(routes []*route.Route, activeRoutePeers map[r
 
 // OnUpdatedHostDNS update the DNS servers addresses for root zones
 func (c *Client) OnUpdatedHostDNS(list *DNSList) error {
+	c.hostResolver.set(list.items)
 	dnsServer, err := dns.GetServerDns()
 	if err != nil {
 		return err
