@@ -2364,6 +2364,10 @@ func (e *Engine) IsBlockInbound() bool {
 	return e.config.BlockInbound
 }
 
+func (e *Engine) ClientRoutesDisabled() bool {
+	return e.config.DisableClientRoutes
+}
+
 // GetClientMetrics returns the client metrics
 func (e *Engine) GetClientMetrics() *metrics.ClientMetrics {
 	return e.clientMetrics

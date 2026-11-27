@@ -163,10 +163,11 @@ type Tray struct {
 	// Fetched at startup and refreshed on every config_changed event (the
 	// daemon re-applies MDM policy per engine spawn), so featuresDisabled can
 	// grey out menus without polling GetFeatures.
-	featureMu            sync.Mutex
-	disableProfiles      bool
-	disableNetworks      bool
-	clientRoutesDisabled bool
+	featureMu                   sync.Mutex
+	disableProfiles             bool
+	disableNetworks             bool
+	clientRoutesDisabled        bool
+	runningClientRoutesDisabled *bool
 }
 
 func NewTray(app *application.App, window *application.WebviewWindow, svc TrayServices) *Tray {

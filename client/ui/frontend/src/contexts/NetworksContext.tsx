@@ -62,7 +62,8 @@ export const useNetworks = () => {
 export const NetworksProvider = ({ children }: { children: ReactNode }) => {
     const { status } = useStatus();
     const [routes, setRoutes] = useState<Network[]>([]);
-    const [clientRoutesDisabled, setClientRoutesDisabled] = useState(false);
+    const [storedClientRoutesDisabled, setStoredClientRoutesDisabled] = useState(false);
+    const clientRoutesDisabled = status?.clientRoutesDisabled ?? storedClientRoutesDisabled;
     const clientRoutesDisabledRef = useRef(clientRoutesDisabled);
     useEffect(() => {
         clientRoutesDisabledRef.current = clientRoutesDisabled;
@@ -135,7 +136,7 @@ export const NetworksProvider = ({ children }: { children: ReactNode }) => {
 
     const refreshClientRoutes = useCallback(async () => {
         try {
-            setClientRoutesDisabled(await SettingsSvc.ClientRoutesDisabled());
+            setStoredClientRoutesDisabled(await SettingsSvc.ClientRoutesDisabled());
         } catch (e) {
             console.error("[NetworksContext] client routes state refresh failed", e);
         }

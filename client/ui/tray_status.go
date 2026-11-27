@@ -49,6 +49,7 @@ func (t *Tray) applyStatus(st services.Status) {
 
 	// Cache-only; the row is painted by the relayout below.
 	sessionChanged := t.applySessionExpiry(st.SessionExpiresAt, connected)
+	clientRoutesChanged := t.applyRunningClientRoutes(st.ClientRoutesDisabled)
 
 	if iconChanged {
 		t.applyIcon()
@@ -56,7 +57,7 @@ func (t *Tray) applyStatus(st services.Status) {
 	// All repainting goes through relayoutMenu (menuMu-serialised): applyStatus
 	// runs concurrently with itself and with relayouts, so in-place item
 	// mutation would race the buildMenu pointer swap.
-	if iconChanged || daemonVersionChanged || sessionChanged {
+	if iconChanged || daemonVersionChanged || sessionChanged || clientRoutesChanged {
 		t.relayoutMenu()
 	}
 	// The revision is the only reliable signal: candidate routes never appear

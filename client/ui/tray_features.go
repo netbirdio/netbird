@@ -25,12 +25,13 @@ func (t *Tray) refreshRestrictions() {
 	if routesErr != nil {
 		clientRoutesDisabled = t.clientRoutesDisabled
 	}
+	prevEffective := t.effectiveClientRoutesDisabledLocked()
 	changed := t.disableProfiles != r.Features.DisableProfiles ||
-		t.disableNetworks != r.Features.DisableNetworks ||
-		t.clientRoutesDisabled != clientRoutesDisabled
+		t.disableNetworks != r.Features.DisableNetworks
 	t.disableProfiles = r.Features.DisableProfiles
 	t.disableNetworks = r.Features.DisableNetworks
 	t.clientRoutesDisabled = clientRoutesDisabled
+	changed = changed || prevEffective != t.effectiveClientRoutesDisabledLocked()
 	t.featureMu.Unlock()
 	// relayoutMenu rebuilds the whole tree, so skip the no-op refresh (common case).
 	if changed {
@@ -42,5 +43,20 @@ func (t *Tray) refreshRestrictions() {
 func (t *Tray) featuresDisabled() (profiles, networks, clientRoutes bool) {
 	t.featureMu.Lock()
 	defer t.featureMu.Unlock()
-	return t.disableProfiles, t.disableNetworks, t.clientRoutesDisabled
+	return t.disableProfiles, t.disableNetworks, t.effectiveClientRoutesDisabledLocked()
+}
+
+func (t *Tray) applyRunningClientRoutes(running *bool) bool {
+	t.featureMu.Lock()
+	defer t.featureMu.Unlock()
+	prev := t.effectiveClientRoutesDisabledLocked()
+	t.runningClientRoutesDisabled = running
+	return prev != t.effectiveClientRoutesDisabledLocked()
+}
+
+func (t *Tray) effectiveClientRoutesDisabledLocked() bool {
+	if t.runningClientRoutesDisabled != nil {
+		return *t.runningClientRoutesDisabled
+	}
+	return t.clientRoutesDisabled
 }

@@ -1039,9 +1039,10 @@ type StatusResponse struct {
 	// Absolute UTC instant at which the peer's SSO session expires.
 	// Unset when the peer is not SSO-registered or login expiration is disabled.
 	// The UI derives "warning active" from this value and its own clock.
-	SessionExpiresAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=sessionExpiresAt,proto3" json:"sessionExpiresAt,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	SessionExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=sessionExpiresAt,proto3" json:"sessionExpiresAt,omitempty"`
+	ClientRoutesDisabled *bool                  `protobuf:"varint,5,opt,name=clientRoutesDisabled,proto3,oneof" json:"clientRoutesDisabled,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *StatusResponse) Reset() {
@@ -1100,6 +1101,13 @@ func (x *StatusResponse) GetSessionExpiresAt() *timestamppb.Timestamp {
 		return x.SessionExpiresAt
 	}
 	return nil
+}
+
+func (x *StatusResponse) GetClientRoutesDisabled() bool {
+	if x != nil && x.ClientRoutesDisabled != nil {
+		return *x.ClientRoutesDisabled
+	}
+	return false
 }
 
 type DownRequest struct {
@@ -7635,14 +7643,16 @@ const file_daemon_proto_rawDesc = "" +
 	"\x11getFullPeerStatus\x18\x01 \x01(\bR\x11getFullPeerStatus\x12(\n" +
 	"\x0fshouldRunProbes\x18\x02 \x01(\bR\x0fshouldRunProbes\x12'\n" +
 	"\fwaitForReady\x18\x03 \x01(\bH\x00R\fwaitForReady\x88\x01\x01B\x0f\n" +
-	"\r_waitForReady\"\xca\x01\n" +
+	"\r_waitForReady\"\x9c\x02\n" +
 	"\x0eStatusResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\tR\x06status\x122\n" +
 	"\n" +
 	"fullStatus\x18\x02 \x01(\v2\x12.daemon.FullStatusR\n" +
 	"fullStatus\x12$\n" +
 	"\rdaemonVersion\x18\x03 \x01(\tR\rdaemonVersion\x12F\n" +
-	"\x10sessionExpiresAt\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x10sessionExpiresAt\"\r\n" +
+	"\x10sessionExpiresAt\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x10sessionExpiresAt\x127\n" +
+	"\x14clientRoutesDisabled\x18\x05 \x01(\bH\x00R\x14clientRoutesDisabled\x88\x01\x01B\x17\n" +
+	"\x15_clientRoutesDisabled\"\r\n" +
 	"\vDownRequest\"\x0e\n" +
 	"\fDownResponse\"P\n" +
 	"\x10GetConfigRequest\x12 \n" +
@@ -8523,6 +8533,7 @@ func file_daemon_proto_init() {
 	file_daemon_proto_msgTypes[1].OneofWrappers = []any{}
 	file_daemon_proto_msgTypes[5].OneofWrappers = []any{}
 	file_daemon_proto_msgTypes[7].OneofWrappers = []any{}
+	file_daemon_proto_msgTypes[8].OneofWrappers = []any{}
 	file_daemon_proto_msgTypes[30].OneofWrappers = []any{
 		(*PortInfo_Port)(nil),
 		(*PortInfo_Range_)(nil),
