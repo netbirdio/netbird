@@ -865,6 +865,7 @@ func TestCreateUserInvite_NonEmbeddedIdP(t *testing.T) {
 	defer cleanup()
 
 	account := newAccountWithId(context.Background(), testAccountID, testAdminUserID, "", "admin@test.com", "Admin User", false)
+	//nolint:staticcheck
 	err = s.SaveAccount(context.Background(), account) //nolint:staticcheck
 	require.NoError(t, err)
 

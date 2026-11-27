@@ -47,7 +47,7 @@ func TestAuthManager_GetAccountInfoFromPAT(t *testing.T) {
 			},
 		}},
 	}
-
+	//nolint:staticcheck
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -87,7 +87,7 @@ func TestAuthManager_MarkPATUsed(t *testing.T) {
 			},
 		}},
 	}
-
+	//nolint:staticcheck
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -125,7 +125,7 @@ func TestAuthManager_EnsureUserAccessByJWTGroups(t *testing.T) {
 		}},
 		Settings: &types.Settings{},
 	}
-
+	//nolint:staticcheck
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -165,6 +165,7 @@ func TestAuthManager_EnsureUserAccessByJWTGroups(t *testing.T) {
 
 	t.Run("JWT groups enabled without claim name", func(t *testing.T) {
 		account.Settings.JWTGroupsEnabled = true
+		//nolint:staticcheck
 		err := store.SaveAccount(context.Background(), account)
 		require.NoError(t, err, "save account failed")
 
@@ -176,6 +177,7 @@ func TestAuthManager_EnsureUserAccessByJWTGroups(t *testing.T) {
 	t.Run("JWT groups enabled without allowed groups", func(t *testing.T) {
 		account.Settings.JWTGroupsEnabled = true
 		account.Settings.JWTGroupsClaimName = "idp-groups"
+		//nolint:staticcheck
 		err := store.SaveAccount(context.Background(), account)
 		require.NoError(t, err, "save account failed")
 
@@ -188,6 +190,7 @@ func TestAuthManager_EnsureUserAccessByJWTGroups(t *testing.T) {
 		account.Settings.JWTGroupsEnabled = true
 		account.Settings.JWTGroupsClaimName = "idp-groups"
 		account.Settings.JWTAllowGroups = []string{"group1"}
+		//nolint:staticcheck
 		err := store.SaveAccount(context.Background(), account)
 		require.NoError(t, err, "save account failed")
 
@@ -201,6 +204,7 @@ func TestAuthManager_EnsureUserAccessByJWTGroups(t *testing.T) {
 		account.Settings.JWTGroupsEnabled = true
 		account.Settings.JWTGroupsClaimName = "idp-groups"
 		account.Settings.JWTAllowGroups = []string{"not-a-group"}
+		//nolint:staticcheck
 		err := store.SaveAccount(context.Background(), account)
 		require.NoError(t, err, "save account failed")
 
@@ -212,6 +216,7 @@ func TestAuthManager_EnsureUserAccessByJWTGroups(t *testing.T) {
 		account.Settings.JWTGroupsEnabled = true
 		account.Settings.JWTGroupsClaimName = "idp-groups"
 		account.Settings.JWTAllowGroups = []string{"not-a-group"}
+		//nolint:staticcheck
 		err := store.SaveAccount(context.Background(), account)
 		require.NoError(t, err, "save account failed")
 
@@ -231,6 +236,7 @@ func TestAuthManager_EnsureUserAccessByJWTGroups(t *testing.T) {
 		account.Settings.JWTGroupsEnabled = true
 		account.Settings.JWTGroupsClaimName = "idp-groups"
 		account.Settings.JWTAllowGroups = []string{"not-a-group"}
+		//nolint:staticcheck
 		err := store.SaveAccount(context.Background(), account)
 		require.NoError(t, err, "save account failed")
 

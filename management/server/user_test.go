@@ -143,6 +143,7 @@ func TestUser_CreatePAT_ForServiceUser(t *testing.T) {
 		Id:            mockTargetUserId,
 		IsServiceUser: true,
 	}
+	//nolint:staticcheck
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -172,6 +173,7 @@ func TestUser_CreatePAT_WithWrongExpiration(t *testing.T) {
 
 	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 
+	//nolint:staticcheck
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -197,6 +199,7 @@ func TestUser_CreatePAT_WithEmptyName(t *testing.T) {
 
 	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 
+	//nolint:staticcheck
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -231,6 +234,7 @@ func TestUser_DeletePAT(t *testing.T) {
 		},
 		Role: types.UserRoleAdmin,
 	}
+	//nolint:staticcheck
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -275,6 +279,7 @@ func TestUser_GetPAT(t *testing.T) {
 		},
 		Role: types.UserRoleAdmin,
 	}
+	//nolint:staticcheck
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -319,6 +324,7 @@ func TestUser_GetAllPATs(t *testing.T) {
 		},
 		Role: types.UserRoleAdmin,
 	}
+	//nolint:staticcheck
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -379,6 +385,7 @@ func TestUser_PAT_CrossAccountProtection(t *testing.T) {
 			AccountID: accountBID,
 			Role:      types.UserRoleUser,
 		}
+		//nolint:staticcheck
 		require.NoError(t, s.SaveAccount(context.Background(), accountB))
 
 		pm := permissions.NewManager(s)
@@ -515,6 +522,7 @@ func TestUser_CreateServiceUser(t *testing.T) {
 
 	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 
+	//nolint:staticcheck
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -562,6 +570,7 @@ func TestUser_CreateUser_ServiceUser(t *testing.T) {
 
 	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 
+	//nolint:staticcheck
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -610,6 +619,7 @@ func TestUser_CreateUser_RegularUser(t *testing.T) {
 
 	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 
+	//nolint:staticcheck
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -641,6 +651,7 @@ func TestUser_InviteNewUser(t *testing.T) {
 
 	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 
+	//nolint:staticcheck
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -734,6 +745,7 @@ func TestUser_InviteNewUser_ServiceUserAfterCreatorRemoved(t *testing.T) {
 		IsServiceUser:   true,
 		ServiceUserName: mockServiceUserName,
 	}
+	//nolint:staticcheck
 	require.NoError(t, s.SaveAccount(context.Background(), account))
 
 	am := DefaultAccountManager{
@@ -812,6 +824,7 @@ func TestUser_DeleteUser_ServiceUser(t *testing.T) {
 			account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 			account.Users[mockServiceUserID] = tt.serviceUser
 
+			//nolint:staticcheck
 			err = store.SaveAccount(context.Background(), account)
 			if err != nil {
 				t.Fatalf("Error when saving account: %s", err)
@@ -850,6 +863,7 @@ func TestUser_DeleteUser_SelfDelete(t *testing.T) {
 
 	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 
+	//nolint:staticcheck
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -876,6 +890,7 @@ func TestUser_DeleteUser_OtherAccount(t *testing.T) {
 	t.Cleanup(cleanup)
 
 	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
+	//nolint:staticcheck
 	if err = testStore.SaveAccount(context.Background(), account); err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -893,6 +908,7 @@ func TestUser_DeleteUser_OtherAccount(t *testing.T) {
 		IsServiceUser:   true,
 		ServiceUserName: "otherServiceUser",
 	}
+	//nolint:staticcheck
 	if err = testStore.SaveAccount(context.Background(), otherAccount); err != nil {
 		t.Fatalf("Error when saving other account: %s", err)
 	}
@@ -950,6 +966,7 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 		Role:          types.UserRoleOwner,
 	}
 
+	//nolint:staticcheck
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -1019,6 +1036,7 @@ func TestUser_deleteRegularUser_RejectsOwner(t *testing.T) {
 		Issued: types.UserIssuedAPI,
 		Role:   types.UserRoleOwner,
 	}
+	//nolint:staticcheck
 	require.NoError(t, s.SaveAccount(context.Background(), account))
 
 	am := DefaultAccountManager{Store: s}
@@ -1109,6 +1127,7 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 		Role:          types.UserRoleAdmin,
 	}
 
+	//nolint:staticcheck
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -1228,6 +1247,7 @@ func TestDefaultAccountManager_GetUser(t *testing.T) {
 
 	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 
+	//nolint:staticcheck
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -1266,6 +1286,7 @@ func TestDefaultAccountManager_ListUsers(t *testing.T) {
 	account.Users["normal_user1"] = types.NewRegularUser("normal_user1", "", "")
 	account.Users["normal_user2"] = types.NewRegularUser("normal_user2", "", "")
 
+	//nolint:staticcheck
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -1316,6 +1337,7 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 	}
 	account.Users[externalUser.Id] = externalUser
 
+	//nolint:staticcheck
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -1383,6 +1405,7 @@ func TestUser_GetUsersFromAccount_ForAdmin(t *testing.T) {
 		IsServiceUser: true,
 	}
 
+	//nolint:staticcheck
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -1417,6 +1440,7 @@ func TestUser_GetUsersFromAccount_ForUser(t *testing.T) {
 		IsServiceUser: true,
 	}
 
+	//nolint:staticcheck
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -1883,9 +1907,11 @@ func TestSaveOrAddUser_PreventAccountSwitch(t *testing.T) {
 		AccountID:       account1.Id,
 		ServiceUserName: "user2username",
 	}
+	//nolint:staticcheck
 	require.NoError(t, s.SaveAccount(context.Background(), account1))
 
 	account2 := newAccountWithId(context.Background(), "account2", "ownerAccount2", "", "", "", false)
+	//nolint:staticcheck
 	require.NoError(t, s.SaveAccount(context.Background(), account2))
 
 	permissionsManager := permissions.NewManager(s)
@@ -1932,6 +1958,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 		Id:   "admin-user",
 		Role: types.UserRoleAdmin,
 	}
+	//nolint:staticcheck
 	require.NoError(t, store.SaveAccount(context.Background(), account1))
 
 	account2 := newAccountWithId(context.Background(), "account2", "account2Owner", "", "", "", false)
@@ -1939,6 +1966,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 		Id:   "settings-blocked-user",
 		Role: types.UserRoleUser,
 	}
+	//nolint:staticcheck
 	require.NoError(t, store.SaveAccount(context.Background(), account2))
 
 	account3 := newAccountWithId(context.Background(), "account3", "account3Owner", "", "owner@example.com", "", false)
@@ -1949,6 +1977,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 		Blocked:         true,
 		PendingApproval: true,
 	}
+	//nolint:staticcheck
 	require.NoError(t, store.SaveAccount(context.Background(), account3))
 
 	// The owner has no address to name, so the refusal falls back to the generic one.
