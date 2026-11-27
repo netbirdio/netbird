@@ -29,20 +29,16 @@ import (
 )
 
 const (
-	// receiveInactivityThreshold is how long the receive stream may be silent
-	// before the watchdog actively probes it. The gRPC transport can stay
-	// healthy (keepalive satisfied) while the server stops delivering messages,
-	// which the transport layer cannot detect.
-	receiveInactivityThreshold = 30 * time.Second
-	// receiveInactivityJitter widens the threshold per client, so a fleet that
-	// reconnected together does not probe together.
-	receiveInactivityJitter = 10 * time.Second
-	// receiveProbeTimeout is how long the watchdog waits for its self-addressed
-	// probe to round-trip back on the stream before declaring the receive
-	// direction dead.
-	receiveProbeTimeout = 10 * time.Second
-	// receiveWatchdogInterval is how often the watchdog evaluates the stream.
+	// receiveWatchdogInterval is how often the watchdog checks whether the
+	// receive stream delivered anything. The gRPC transport can stay healthy
+	// (keepalive satisfied) while Signal stops delivering messages, which the
+	// transport layer cannot detect.
 	receiveWatchdogInterval = 10 * time.Second
+	// receiveProbeAfterSilentTicks silent checks in a row trigger a probe. Its echo
+	// is seen one check later, so an idle stream is probed every 4 intervals.
+	receiveProbeAfterSilentTicks = 3
+	// receiveTeardownAfterSilentTicks silent checks with the probe unanswered end the stream.
+	receiveTeardownAfterSilentTicks = 4
 	// defaultRegistrationTimeout bounds the wait for a new stream's registration header.
 	// Registration subscribes the peer on Signal, which slows down under load, and a
 	// stream given up too early only comes back as another registration.
@@ -59,30 +55,23 @@ const (
 // but no longer delivering messages, so the stream is torn down to reconnect.
 var errReceiveStreamStalled = errors.New("signal receive stream stalled")
 
-// watchdogTimings holds the receive watchdog's thresholds. A zero field takes
-// its package default.
+// watchdogTimings holds the receive watchdog's interval. A zero field takes its
+// package default.
 type watchdogTimings struct {
-	idleThreshold time.Duration
-	probeTimeout  time.Duration
-	interval      time.Duration
+	interval time.Duration
 }
 
 func (t watchdogTimings) withDefaults() watchdogTimings {
-	if t.idleThreshold == 0 {
-		t.idleThreshold = receiveInactivityThreshold
-	}
-	if t.probeTimeout == 0 {
-		t.probeTimeout = receiveProbeTimeout
-	}
 	if t.interval == 0 {
 		t.interval = receiveWatchdogInterval
 	}
 	return t
 }
 
-// jitteredWatchdogTimings draws this client's idle threshold.
-func jitteredWatchdogTimings() watchdogTimings {
-	return watchdogTimings{idleThreshold: receiveInactivityThreshold + rand.N(receiveInactivityJitter)}
+// next draws the wait until the following check, up to 30% longer than the
+// interval so watchdogs that started together drift apart.
+func (t watchdogTimings) next() time.Duration {
+	return t.interval + rand.N(t.interval*3/10)
 }
 
 // jitteredRegistrationTimeout draws this client's registration timeout.
@@ -177,7 +166,6 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 		status:                StreamDisconnected,
 		connStateCallbackLock: sync.RWMutex{},
 		registrationTimeout:   jitteredRegistrationTimeout(),
-		watchdog:              jitteredWatchdogTimings(),
 		auth:                  authCredentials{hostname: signalHostname(addr)},
 	}
 	for _, opt := range opts {
@@ -343,15 +331,16 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 		// server stops delivering messages. The watchdog reconnects via cancelStream.
 		// It probes on the stream itself when Signal echoes there, otherwise through
 		// Send, which older Signals route back onto the stream.
-		probe := c.sendReceiveProbe
+		// The registration probe written by connect is still awaiting its echo.
+		probe, probeWaiting := c.sendReceiveProbe, false
 		if streamProbe != nil {
-			probe = streamProbe
+			probe, probeWaiting = streamProbe, true
 		}
 		c.markReceived()
 		c.watchdogWg.Add(1)
 		go func() {
 			defer c.watchdogWg.Done()
-			c.watchReceiveStream(streamCtx, cancelStream, probe)
+			c.watchReceiveStream(streamCtx, cancelStream, probe, probeWaiting)
 		}()
 
 		// start receiving messages from the Signal stream (from other peers through signal)
@@ -675,22 +664,19 @@ func (c *GrpcClient) idleSinceReceive() time.Duration {
 	return time.Since(time.Unix(0, c.lastReceived.Load()))
 }
 
-// receiveAlive reports whether the receive stream shows liveness: it delivered a
-// frame within the inactivity threshold, or the receive loop is currently parked
-// handing a message to a busy decryption worker. In the latter case the loop has
-// stopped calling Recv, so the stream looks silent while being healthy, and
-// reconnecting would not help, so the watchdog must treat it as alive.
-func (c *GrpcClient) receiveAlive() bool {
-	return c.idleSinceReceive() < c.watchdog.withDefaults().idleThreshold ||
-		c.receiveHandoffBlocked.Load()
+// receivedSince reports whether the stream delivered a frame since the check that
+// saw last, or the receive loop is parked on a busy decryption worker: Recv has
+// stopped, but reconnecting would not help. It returns the timestamp to pass next.
+func (c *GrpcClient) receivedSince(last int64) (bool, int64) {
+	now := c.lastReceived.Load()
+	return now != last || c.receiveHandoffBlocked.Load(), now
 }
 
 // watchReceiveStream guards against a receive stream that is transport-alive but
-// no longer delivering messages. While the stream is idle past the idle threshold
-// it sends a probe that should come back on the stream. If the probe does not
-// round-trip within the probe timeout the receive direction is considered dead
-// and cancelStream is called so the retry loop reconnects.
-func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream context.CancelFunc, probe receiveProbe) {
+// no longer delivering messages: it counts silent checks, any message resets the
+// count, and an unanswered probe ends the stream. probeWaiting reports a probe
+// sent before the watchdog started.
+func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream context.CancelFunc, probe receiveProbe, probeWaiting bool) {
 	timings := c.watchdog.withDefaults()
 
 	// The first check lands at a random point of the interval, so streams that
@@ -698,7 +684,8 @@ func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream contex
 	tick := time.NewTimer(rand.N(timings.interval))
 	defer tick.Stop()
 
-	var probeSentAt time.Time
+	last := c.lastReceived.Load()
+	silentTicks := 0
 	// inFlight carries the result of the running probe. The probe runs on its own
 	// goroutine: a write held by flow control must not stop the watchdog, which is
 	// the only one that would cancel the stream to release it.
@@ -711,18 +698,20 @@ func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream contex
 			inFlight = nil
 			if err != nil {
 				// A probe that never left says nothing about the receive direction:
-				// retry on the next tick instead of keeping the teardown timer.
+				// send another one instead of counting down to a teardown.
 				log.Debugf("failed to send signal receive probe: %v", err)
-				probeSentAt = time.Time{}
+				probeWaiting = false
 			}
 		case <-tick.C:
-			tick.Reset(timings.interval)
-			if c.receiveAlive() {
-				probeSentAt = time.Time{}
+			tick.Reset(timings.next())
+			var alive bool
+			if alive, last = c.receivedSince(last); alive {
+				silentTicks, probeWaiting = 0, false
 				continue
 			}
+			silentTicks++
 
-			if !probeSentAt.IsZero() && time.Since(probeSentAt) >= timings.probeTimeout {
+			if probeWaiting && silentTicks >= receiveTeardownAfterSilentTicks {
 				log.Warnf("signal receive stream stalled: no messages for %s and probe did not return, reconnecting", c.idleSinceReceive().Round(time.Second))
 				c.receiveStalled.Store(true)
 				c.notifyDisconnected(errReceiveStreamStalled)
@@ -730,11 +719,9 @@ func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream contex
 				return
 			}
 
-			if probeSentAt.IsZero() {
-				probeSentAt = time.Now()
-				if inFlight == nil {
-					inFlight = startProbe(ctx, probe)
-				}
+			if !probeWaiting && silentTicks >= receiveProbeAfterSilentTicks && inFlight == nil {
+				probeWaiting = true
+				inFlight = startProbe(ctx, probe)
 			}
 		}
 	}

@@ -66,7 +66,7 @@ func countWatchdogProbes(t *testing.T, srv *probePathSignalServer) *atomic.Int32
 	client, err := NewClient(ctx, addr, key, false)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Close() })
-	client.watchdog = watchdogTimings{idleThreshold: 30 * time.Millisecond, probeTimeout: 2 * time.Second, interval: 10 * time.Millisecond}
+	client.watchdog = watchdogTimings{interval: 10 * time.Millisecond}
 
 	var probes atomic.Int32
 	self := key.PublicKey().String()

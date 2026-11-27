@@ -97,25 +97,30 @@ func TestReceiveProbeRoundTrips(t *testing.T) {
 // TestReceiveAliveTreatsHandoffBlockAsLiveness reproduces the false positive
 // where a busy decryption worker parks the receive loop on the worker handoff,
 // so Recv (and markReceived) stops firing even though the stream is healthy.
-// With the receive stream silent past the inactivity threshold but the loop
-// blocked on handoff, the watchdog must consider the stream alive rather than
-// tear it down (reconnecting feeds the same worker and would not help).
-func TestReceiveAliveTreatsHandoffBlockAsLiveness(t *testing.T) {
+// With no frame since the last check but the loop blocked on handoff, the
+// watchdog must consider the stream alive rather than tear it down (reconnecting
+// feeds the same worker and would not help).
+func TestReceivedSinceTreatsHandoffBlockAsLiveness(t *testing.T) {
 	c := &GrpcClient{}
-
-	// Receive stream silent and the loop not blocked on handoff: genuinely stalled.
-	c.lastReceived.Store(time.Now().Add(-2 * receiveInactivityThreshold).UnixNano())
-	require.False(t, c.receiveAlive(), "silent stream with the receive loop idle must be treated as stalled")
-
-	// Receive stream silent but the loop is parked handing a message to a busy
-	// worker: self-inflicted backpressure, not a dead stream, must not tear down.
-	c.receiveHandoffBlocked.Store(true)
-	require.True(t, c.receiveAlive(), "a receive loop blocked on worker handoff must keep the stream alive")
-
-	// Handoff drained, loop back to reading, a frame just arrived: alive via the receive path.
-	c.receiveHandoffBlocked.Store(false)
 	c.markReceived()
-	require.True(t, c.receiveAlive(), "a freshly received frame must keep the stream alive")
+	_, last := c.receivedSince(0)
+
+	// No frame since the last check and the loop not blocked on handoff: silent.
+	alive, _ := c.receivedSince(last)
+	require.False(t, alive, "silent stream with the receive loop idle must count as a silent check")
+
+	// No frame, but the loop is parked handing a message to a busy worker:
+	// self-inflicted backpressure, not a dead stream.
+	c.receiveHandoffBlocked.Store(true)
+	alive, _ = c.receivedSince(last)
+	require.True(t, alive, "a receive loop blocked on worker handoff must keep the stream alive")
+
+	// Handoff drained, a frame just arrived: alive via the receive path.
+	c.receiveHandoffBlocked.Store(false)
+	time.Sleep(time.Millisecond)
+	c.markReceived()
+	alive, _ = c.receivedSince(last)
+	require.True(t, alive, "a freshly received frame must keep the stream alive")
 }
 
 // fakeRecvStream feeds the receive loop frames from a channel and reports EOF
@@ -172,9 +177,9 @@ func TestReceiveLoopRefreshesLivenessAfterBlockedHandoff(t *testing.T) {
 	require.Eventually(t, c.receiveHandoffBlocked.Load, time.Second, time.Millisecond,
 		"receive loop should park on the worker handoff")
 
-	// Simulate the handoff having blocked past the inactivity threshold.
-	c.lastReceived.Store(time.Now().Add(-2 * receiveInactivityThreshold).UnixNano())
-	require.True(t, c.receiveAlive(), "a loop parked on the handoff must stay alive")
+	// A check taken while the loop is parked on the handoff.
+	alive, last := c.receivedSince(c.lastReceived.Load())
+	require.True(t, alive, "a loop parked on the handoff must stay alive")
 
 	// Drain the worker so the handoff returns and the loop resumes reading.
 	close(gate)
@@ -183,20 +188,14 @@ func TestReceiveLoopRefreshesLivenessAfterBlockedHandoff(t *testing.T) {
 	// pending. The stream must still read as alive in that window.
 	require.Eventually(t, func() bool { return !c.receiveHandoffBlocked.Load() }, time.Second, time.Millisecond,
 		"handoff should drain once the worker is released")
-	require.True(t, c.receiveAlive(),
+	alive, _ = c.receivedSince(last)
+	require.True(t, alive,
 		"the loop must refresh liveness when the handoff drains, before the next Recv")
 }
 
-// fastWatchdogClient returns a client whose receive stream has been silent past
-// the idle threshold, with watchdog timings short enough for a unit test.
+// fastWatchdogClient returns a client with watchdog ticks short enough for a unit test.
 func fastWatchdogClient() *GrpcClient {
-	c := &GrpcClient{watchdog: watchdogTimings{
-		idleThreshold: 10 * time.Millisecond,
-		probeTimeout:  20 * time.Millisecond,
-		interval:      2 * time.Millisecond,
-	}}
-	c.lastReceived.Store(time.Now().Add(-time.Second).UnixNano())
-	return c
+	return &GrpcClient{watchdog: watchdogTimings{interval: 2 * time.Millisecond}}
 }
 
 // TestWatchdogRetriesUnsentProbe covers a probe that fails to leave the client,
@@ -217,10 +216,10 @@ func TestWatchdogRetriesUnsentProbe(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		c.watchReceiveStream(ctx, func() { tornDown.Store(true) }, probe)
+		c.watchReceiveStream(ctx, func() { tornDown.Store(true) }, probe, false)
 	}()
 
-	// Ten attempts span well over the probe timeout.
+	// Ten attempts span many teardown windows.
 	require.Eventually(t, func() bool { return probes.Load() >= 10 }, 5*time.Second, time.Millisecond,
 		"the watchdog must keep retrying a probe that could not be sent")
 	assert.False(t, tornDown.Load(), "a probe that never left must not tear down the stream")
@@ -236,7 +235,7 @@ func TestWatchdogTearsDownWhenSentProbeIsLost(t *testing.T) {
 	t.Cleanup(cancel)
 
 	tornDown := make(chan struct{})
-	go c.watchReceiveStream(ctx, func() { close(tornDown) }, func(context.Context) error { return nil })
+	go c.watchReceiveStream(ctx, func() { close(tornDown) }, func(context.Context) error { return nil }, false)
 
 	select {
 	case <-tornDown:
@@ -263,7 +262,7 @@ func TestWatchdogTearsDownWhenProbeWriteBlocks(t *testing.T) {
 	}, func(context.Context) error {
 		<-released
 		return errors.New("stream cancelled")
-	})
+	}, false)
 
 	select {
 	case <-tornDown:
@@ -284,15 +283,14 @@ func TestWatchdogsStartedTogetherProbeApart(t *testing.T) {
 
 	firstProbe := make(chan time.Time, watchdogs)
 	for i := 0; i < watchdogs; i++ {
-		c := &GrpcClient{watchdog: watchdogTimings{idleThreshold: time.Millisecond, probeTimeout: time.Hour, interval: interval}}
-		c.lastReceived.Store(time.Now().Add(-time.Second).UnixNano())
+		c := &GrpcClient{watchdog: watchdogTimings{interval: interval}}
 		var once atomic.Bool
 		go c.watchReceiveStream(ctx, func() {}, func(context.Context) error {
 			if once.CompareAndSwap(false, true) {
 				firstProbe <- time.Now()
 			}
 			return nil
-		})
+		}, false)
 	}
 
 	var earliest, latest time.Time
@@ -313,17 +311,70 @@ func TestWatchdogsStartedTogetherProbeApart(t *testing.T) {
 		"watchdogs started together must not probe in step")
 }
 
-// TestWatchdogIdleThresholdIsJittered checks that clients draw different idle
-// thresholds within the jitter window.
-func TestWatchdogIdleThresholdIsJittered(t *testing.T) {
+// TestWatchdogTickIsJittered checks that every check after the first is drawn
+// within the jitter window, so watchdogs that started together drift apart.
+func TestWatchdogTickIsJittered(t *testing.T) {
+	timings := watchdogTimings{}.withDefaults()
 	seen := map[time.Duration]bool{}
 	for i := 0; i < 50; i++ {
-		threshold := jitteredWatchdogTimings().idleThreshold
-		require.GreaterOrEqual(t, threshold, receiveInactivityThreshold, "threshold below the base")
-		require.Less(t, threshold, receiveInactivityThreshold+receiveInactivityJitter, "threshold past the jitter window")
-		seen[threshold] = true
+		next := timings.next()
+		require.GreaterOrEqual(t, next, receiveWatchdogInterval, "tick below the interval")
+		require.Less(t, next, receiveWatchdogInterval*13/10, "tick past the jitter window")
+		seen[next] = true
 	}
-	assert.Greater(t, len(seen), 1, "clients must not share one threshold")
+	assert.Greater(t, len(seen), 1, "ticks must not share one length")
+}
+
+// TestWatchdogWaitsForTheRegistrationProbe starts the watchdog with the
+// registration probe still unanswered: a silent stream must be torn down without
+// another probe being written behind the first one.
+func TestWatchdogWaitsForTheRegistrationProbe(t *testing.T) {
+	c := fastWatchdogClient()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	var probes atomic.Int32
+	tornDown := make(chan struct{})
+	go c.watchReceiveStream(ctx, func() { close(tornDown) }, func(context.Context) error {
+		probes.Add(1)
+		return nil
+	}, true)
+
+	select {
+	case <-tornDown:
+	case <-time.After(5 * time.Second):
+		t.Fatal("an unanswered registration probe must tear down a silent stream")
+	}
+	assert.Zero(t, probes.Load(), "the watchdog must not probe while the registration probe is pending")
+}
+
+// TestWatchdogMessagesKeepTheStreamWithoutProbes feeds the stream a message on
+// every check: offers and answers prove it alive, so no probe is needed.
+func TestWatchdogMessagesKeepTheStreamWithoutProbes(t *testing.T) {
+	c := fastWatchdogClient()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	var probes atomic.Int32
+	var tornDown atomic.Bool
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		c.watchReceiveStream(ctx, func() { tornDown.Store(true) }, func(context.Context) error {
+			probes.Add(1)
+			return nil
+		}, true)
+	}()
+
+	deadline := time.Now().Add(200 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		c.markReceived()
+		time.Sleep(100 * time.Microsecond)
+	}
+	cancel()
+	<-done
+	assert.False(t, tornDown.Load(), "a stream delivering messages must not be torn down")
+	assert.Zero(t, probes.Load(), "a stream delivering messages must not be probed")
 }
 
 // TestRepeatedWatchdogTeardown decides when the reconnect backoff keeps growing:
