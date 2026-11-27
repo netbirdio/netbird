@@ -391,6 +391,9 @@ message GetConfigResponse {
 
   bool disableVNCApproval = 31;
 
+  // dnsPrimaryMode is the effective DNS primary mode: "auto", "never", or "always".
+  string dnsPrimaryMode = 32;
+
   // mDMManagedFields lists the names of configuration keys whose value is
   // currently enforced by an MDM policy. Names match mdm.Key* constants
   // (e.g. "managementURL", "disableClientRoutes"). UI/CLI clients should
@@ -833,6 +836,9 @@ message SetConfigRequest {
   optional bool serverVNCAllowed = 39;
 
   optional bool disableVNCApproval = 40;
+
+  // dnsPrimaryMode overrides whether this client is the default resolver; absent leaves it unchanged.
+  optional string dnsPrimaryMode = 41;
 }
 
 message SetConfigResponse{}

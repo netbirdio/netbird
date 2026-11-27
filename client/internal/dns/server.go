@@ -139,6 +139,7 @@ type DefaultServer struct {
 	// disableSys disables system DNS management (e.g., /etc/resolv.conf updates) while keeping the DNS service running.
 	// This is different from ServiceEnable=false from management which completely disables the DNS service.
 	disableSys         bool
+	dnsPrimaryMode     string
 	mux                sync.Mutex
 	service            service
 	dnsMuxHandlers     []handlerWrapper
@@ -205,6 +206,15 @@ type handlerWrapper struct {
 	priority int
 }
 
+const (
+	// DNSPrimaryModeAuto follows the management-configured primary nameserver group.
+	DNSPrimaryModeAuto = "auto"
+	// DNSPrimaryModeNever keeps NetBird as a split-DNS resolver only.
+	DNSPrimaryModeNever = "never"
+	// DNSPrimaryModeAlways forces NetBird to be the default resolver.
+	DNSPrimaryModeAlways = "always"
+)
+
 // DefaultServerConfig holds configuration parameters for NewDefaultServer
 type DefaultServerConfig struct {
 	WgInterface    WGIface
@@ -212,6 +222,7 @@ type DefaultServerConfig struct {
 	StatusRecorder *peer.Status
 	StateManager   *statemanager.Manager
 	DisableSys     bool
+	DNSPrimaryMode string
 }
 
 // NewDefaultServer returns a new dns server
@@ -233,6 +244,7 @@ func NewDefaultServer(ctx context.Context, config DefaultServerConfig) (*Default
 	}
 
 	server := newDefaultServer(ctx, config.WgInterface, dnsService, config.StatusRecorder, config.StateManager, config.DisableSys)
+	server.dnsPrimaryMode = config.DNSPrimaryMode
 	return server, nil
 }
 
@@ -673,6 +685,13 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	s.localResolver.Update(localZones)
 
 	s.currentConfig = dnsConfigToHostDNSConfig(update, s.service.RuntimeIP(), s.service.RuntimePort())
+
+	switch s.dnsPrimaryMode {
+	case DNSPrimaryModeNever:
+		s.currentConfig.RouteAll = false
+	case DNSPrimaryModeAlways:
+		s.currentConfig.RouteAll = true
+	}
 
 	if s.service.RuntimePort() != DefaultPort && !s.hostManager.supportCustomPort() {
 		log.Warnf("the DNS manager of this peer doesn't support custom port. Disabling primary DNS setup. " +

@@ -851,6 +851,26 @@
         "message": "Apply NetBird-managed DNS settings to the host resolver.",
         "description": "Helper text for the enable-DNS toggle."
     },
+    "settings.network.dnsPrimaryMode.label": {
+        "message": "Default DNS resolver",
+        "description": "Label for the DNS primary mode selector."
+    },
+    "settings.network.dnsPrimaryMode.help": {
+        "message": "Auto follows the management primary nameserver group. Never keeps NetBird to split DNS only. Always forces NetBird to resolve every name. Takes effect on the next connection.",
+        "description": "Helper text for the DNS primary mode selector."
+    },
+    "settings.network.dnsPrimaryMode.auto": {
+        "message": "Auto",
+        "description": "DNS primary mode: follow the management primary group."
+    },
+    "settings.network.dnsPrimaryMode.never": {
+        "message": "Never",
+        "description": "DNS primary mode: keep NetBird to split DNS only."
+    },
+    "settings.network.dnsPrimaryMode.always": {
+        "message": "Always",
+        "description": "DNS primary mode: always the default resolver."
+    },
     "settings.network.clientRoutes.label": {
         "message": "Enable Client Routes",
         "description": "Toggle label: enable client routes."

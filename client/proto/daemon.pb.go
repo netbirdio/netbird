@@ -1263,6 +1263,8 @@ type GetConfigResponse struct {
 	RemoteJobsAllowed             bool   `protobuf:"varint,29,opt,name=remoteJobsAllowed,proto3" json:"remoteJobsAllowed,omitempty"`
 	ServerVNCAllowed              bool   `protobuf:"varint,30,opt,name=serverVNCAllowed,proto3" json:"serverVNCAllowed,omitempty"`
 	DisableVNCApproval            bool   `protobuf:"varint,31,opt,name=disableVNCApproval,proto3" json:"disableVNCApproval,omitempty"`
+	// dnsPrimaryMode is the effective DNS primary mode: "auto", "never", or "always".
+	DnsPrimaryMode string `protobuf:"bytes,32,opt,name=dnsPrimaryMode,proto3" json:"dnsPrimaryMode,omitempty"`
 	// mDMManagedFields lists the names of configuration keys whose value is
 	// currently enforced by an MDM policy. Names match mdm.Key* constants
 	// (e.g. "managementURL", "disableClientRoutes"). UI/CLI clients should
@@ -1511,6 +1513,13 @@ func (x *GetConfigResponse) GetDisableVNCApproval() bool {
 		return x.DisableVNCApproval
 	}
 	return false
+}
+
+func (x *GetConfigResponse) GetDnsPrimaryMode() string {
+	if x != nil {
+		return x.DnsPrimaryMode
+	}
+	return ""
 }
 
 func (x *GetConfigResponse) GetMDMManagedFields() []string {
@@ -4460,8 +4469,10 @@ type SetConfigRequest struct {
 	RemoteJobsAllowed  *bool `protobuf:"varint,38,opt,name=remoteJobsAllowed,proto3,oneof" json:"remoteJobsAllowed,omitempty"`
 	ServerVNCAllowed   *bool `protobuf:"varint,39,opt,name=serverVNCAllowed,proto3,oneof" json:"serverVNCAllowed,omitempty"`
 	DisableVNCApproval *bool `protobuf:"varint,40,opt,name=disableVNCApproval,proto3,oneof" json:"disableVNCApproval,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// dnsPrimaryMode overrides whether this client is the default resolver; absent leaves it unchanged.
+	DnsPrimaryMode *string `protobuf:"bytes,41,opt,name=dnsPrimaryMode,proto3,oneof" json:"dnsPrimaryMode,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *SetConfigRequest) Reset() {
@@ -4772,6 +4783,13 @@ func (x *SetConfigRequest) GetDisableVNCApproval() bool {
 		return *x.DisableVNCApproval
 	}
 	return false
+}
+
+func (x *SetConfigRequest) GetDnsPrimaryMode() string {
+	if x != nil && x.DnsPrimaryMode != nil {
+		return *x.DnsPrimaryMode
+	}
+	return ""
 }
 
 type SetConfigResponse struct {
@@ -7647,7 +7665,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\fDownResponse\"P\n" +
 	"\x10GetConfigRequest\x12 \n" +
 	"\vprofileName\x18\x01 \x01(\tR\vprofileName\x12\x1a\n" +
-	"\busername\x18\x02 \x01(\tR\busername\"\xb4\n" +
+	"\busername\x18\x02 \x01(\tR\busername\"\xdc\n" +
 	"\n" +
 	"\x11GetConfigResponse\x12$\n" +
 	"\rmanagementUrl\x18\x01 \x01(\tR\rmanagementUrl\x12\x1e\n" +
@@ -7683,7 +7701,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\fdisable_ipv6\x18\x1b \x01(\bR\vdisableIpv6\x12,\n" +
 	"\x11remoteJobsAllowed\x18\x1d \x01(\bR\x11remoteJobsAllowed\x12*\n" +
 	"\x10serverVNCAllowed\x18\x1e \x01(\bR\x10serverVNCAllowed\x12.\n" +
-	"\x12disableVNCApproval\x18\x1f \x01(\bR\x12disableVNCApproval\x12*\n" +
+	"\x12disableVNCApproval\x18\x1f \x01(\bR\x12disableVNCApproval\x12&\n" +
+	"\x0ednsPrimaryMode\x18  \x01(\tR\x0ednsPrimaryMode\x12*\n" +
 	"\x10mDMManagedFields\x18\x1c \x03(\tR\x10mDMManagedFields\"\x92\x06\n" +
 	"\tPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
@@ -7922,7 +7941,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\f_profileNameB\v\n" +
 	"\t_username\"'\n" +
 	"\x15SwitchProfileResponse\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\x96\x14\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\xd6\x14\n" +
 	"\x10SetConfigRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12 \n" +
 	"\vprofileName\x18\x02 \x01(\tR\vprofileName\x12$\n" +
@@ -7967,7 +7986,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x15local_metrics_address\x18% \x01(\tH\x1aR\x13localMetricsAddress\x88\x01\x01\x121\n" +
 	"\x11remoteJobsAllowed\x18& \x01(\bH\x1bR\x11remoteJobsAllowed\x88\x01\x01\x12/\n" +
 	"\x10serverVNCAllowed\x18' \x01(\bH\x1cR\x10serverVNCAllowed\x88\x01\x01\x123\n" +
-	"\x12disableVNCApproval\x18( \x01(\bH\x1dR\x12disableVNCApproval\x88\x01\x01B\x13\n" +
+	"\x12disableVNCApproval\x18( \x01(\bH\x1dR\x12disableVNCApproval\x88\x01\x01\x12+\n" +
+	"\x0ednsPrimaryMode\x18) \x01(\tH\x1eR\x0ednsPrimaryMode\x88\x01\x01B\x13\n" +
 	"\x11_rosenpassEnabledB\x10\n" +
 	"\x0e_interfaceNameB\x10\n" +
 	"\x0e_wireguardPortB\x17\n" +
@@ -7997,7 +8017,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x16_local_metrics_addressB\x14\n" +
 	"\x12_remoteJobsAllowedB\x13\n" +
 	"\x11_serverVNCAllowedB\x15\n" +
-	"\x13_disableVNCApproval\"\x13\n" +
+	"\x13_disableVNCApprovalB\x11\n" +
+	"\x0f_dnsPrimaryMode\"\x13\n" +
 	"\x11SetConfigResponse\"Q\n" +
 	"\x11AddProfileRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12 \n" +
