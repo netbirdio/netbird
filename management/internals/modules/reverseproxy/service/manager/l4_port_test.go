@@ -18,6 +18,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 const testCluster = "test-cluster"
@@ -90,6 +92,9 @@ func setupL4Test(t *testing.T, customPortsSupported *bool) (*Manager, store.Stor
 		UpdateAccountPeersFunc: func(_ context.Context, _ string, _ types.UpdateReason) {},
 		GetGroupByNameFunc: func(ctx context.Context, groupName, accountID, userID string) (*types.Group, error) {
 			return testStore.GetGroupByName(ctx, store.LockingStrengthNone, accountID, groupName)
+		},
+		GetAccountFunc: func(ctx context.Context, accountID string) (*types.Account, error) {
+			return testStore.GetAccount(ctx, accountID)
 		},
 	}
 
@@ -676,6 +681,138 @@ func TestUpdate_AutoAssignsWhenNoPort(t *testing.T) {
 	assert.True(t, updated.ListenPort >= autoAssignPortMin && updated.ListenPort <= autoAssignPortMax,
 		"auto-assigned port %d should be in range [%d, %d]", updated.ListenPort, autoAssignPortMin, autoAssignPortMax)
 	assert.True(t, updated.PortAutoAssigned, "PortAutoAssigned should be set when update triggers auto-assignment")
+}
+
+func TestCreateServiceFromPeer_TCP_TargetHost(t *testing.T) {
+	mgr, testStore, _ := setupL4Test(t, boolPtr(true))
+	ctx := context.Background()
+
+	// The exposing peer routes its LAN, so a LAN address is a destination
+	// it may reach.
+	require.NoError(t, testStore.SaveRoute(ctx, &route.Route{
+		ID:          "test-route-lan",
+		AccountID:   testAccountID,
+		Network:     netip.MustParsePrefix("10.0.0.0/24"),
+		NetID:       "lan",
+		Peer:        testPeerID,
+		NetworkType: route.IPv4Network,
+		Enabled:     true,
+		Groups:      []string{testGroupID},
+		Metric:      9999,
+	}))
+
+	resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
+		Port:       5432,
+		Mode:       "tcp",
+		TargetHost: "10.0.0.29",
+	})
+	require.NoError(t, err)
+
+	svc, err := testStore.GetServiceByDomain(ctx, resp.Domain)
+	require.NoError(t, err)
+	require.Len(t, svc.Targets, 1)
+	assert.Equal(t, "10.0.0.29", svc.Targets[0].Host)
+	assert.True(t, svc.Targets[0].HostPinned, "supplied L4 target host is pinned")
+	assert.Equal(t, rpservice.TargetTypePeer, svc.Targets[0].TargetType)
+	assert.Equal(t, testPeerID, svc.Targets[0].TargetId)
+	assert.Equal(t, uint16(5432), svc.Targets[0].Port)
+	require.NoError(t, svc.Validate(), "L4 remote host target must pass service validation")
+}
+
+func TestCreateServiceFromPeer_TargetHost_RouteAccessControlGroups(t *testing.T) {
+	ctx := context.Background()
+
+	// Peer B routes 10.0.1.0/24 to the expose group and the exposer may reach
+	// B itself, so the route is in its network map. B's firewall only admits
+	// sources a policy sends to the route's access control group.
+	setup := func(t *testing.T, allow bool) *Manager {
+		t.Helper()
+		mgr, testStore, _ := setupL4Test(t, boolPtr(true))
+		addTargetHostPeer(t, testStore, true)
+		require.NoError(t, testStore.CreateGroup(ctx, &types.Group{
+			ID:        "test-acg",
+			AccountID: testAccountID,
+			Name:      "Route Access",
+		}))
+		require.NoError(t, testStore.SaveRoute(ctx, &route.Route{
+			ID:                  "test-route-acg",
+			AccountID:           testAccountID,
+			Network:             netip.MustParsePrefix("10.0.1.0/24"),
+			NetID:               "office",
+			Peer:                targetHostPeerID,
+			NetworkType:         route.IPv4Network,
+			Enabled:             true,
+			Groups:              []string{testGroupID},
+			AccessControlGroups: []string{"test-acg"},
+			Metric:              9999,
+		}))
+		if allow {
+			require.NoError(t, testStore.CreatePolicy(ctx, &types.Policy{
+				ID:        "test-policy-acg",
+				AccountID: testAccountID,
+				Name:      "expose group to office",
+				Enabled:   true,
+				Rules: []*types.PolicyRule{{
+					ID:           "test-rule-acg",
+					PolicyID:     "test-policy-acg",
+					Enabled:      true,
+					Action:       types.PolicyTrafficActionAccept,
+					Protocol:     types.PolicyRuleProtocolALL,
+					Sources:      []string{testGroupID},
+					Destinations: []string{"test-acg"},
+				}},
+			}))
+		}
+		return mgr
+	}
+
+	t.Run("denied without an access policy", func(t *testing.T) {
+		mgr := setup(t, false)
+		_, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
+			Port: 5432, Mode: "tcp", TargetHost: "10.0.1.5",
+		})
+		require.Error(t, err)
+		sErr, ok := status.FromError(err)
+		require.True(t, ok, "error must be a status error")
+		assert.Equal(t, status.PermissionDenied, sErr.Type(), "a route the firewall closes to the exposer must be denied")
+	})
+
+	t.Run("allowed with an access policy", func(t *testing.T) {
+		mgr := setup(t, true)
+		_, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
+			Port: 5432, Mode: "tcp", TargetHost: "10.0.1.5",
+		})
+		require.NoError(t, err)
+	})
+}
+
+func TestCreateServiceFromPeer_TargetHost_DefaultDNSDomain(t *testing.T) {
+	ctx := context.Background()
+	const fqdn = targetHostPeerLabel + ".netbird.selfhosted"
+
+	t.Run("peer FQDN under the management-wide domain accepted", func(t *testing.T) {
+		mgr, testStore, _ := setupL4Test(t, boolPtr(true))
+		addTargetHostPeer(t, testStore, true)
+		mgr.SetDNSDomainSource(func() string { return "netbird.selfhosted" })
+
+		resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
+			Port: 5432, Mode: "tcp", TargetHost: fqdn,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, fqdn, resp.TargetHost, "FQDN under the default domain must be applied")
+	})
+
+	t.Run("peer label under another domain rejected", func(t *testing.T) {
+		mgr, testStore, _ := setupL4Test(t, boolPtr(true))
+		addTargetHostPeer(t, testStore, true)
+		mgr.SetDNSDomainSource(func() string { return "netbird.selfhosted" })
+
+		_, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
+			Port: 5432, Mode: "tcp", TargetHost: targetHostPeerLabel + ".example.com",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not reachable by the exposing peer")
+	})
 }
 
 func TestCreateServiceFromPeer_TCP(t *testing.T) {

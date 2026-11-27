@@ -87,6 +87,7 @@ type ExposeRequest struct {
 	Password   string
 	UserGroups []string
 	ListenPort uint16
+	TargetHost string
 }
 
 type ExposeResponse struct {
@@ -94,6 +95,7 @@ type ExposeResponse struct {
 	Domain           string
 	ServiceURL       string
 	PortAutoAssigned bool
+	TargetHost       string
 }
 
 // MaxRecvMsgSize returns the configured max gRPC receive message size from
@@ -979,6 +981,7 @@ func fromProtoExposeResponse(resp *proto.ExposeServiceResponse) *ExposeResponse 
 		Domain:           resp.Domain,
 		ServiceURL:       resp.ServiceUrl,
 		PortAutoAssigned: resp.PortAutoAssigned,
+		TargetHost:       resp.TargetHost,
 	}
 }
 
@@ -1009,6 +1012,7 @@ func toProtoExposeServiceRequest(req ExposeRequest) (*proto.ExposeServiceRequest
 		Password:   req.Password,
 		UserGroups: req.UserGroups,
 		ListenPort: uint32(req.ListenPort),
+		TargetHost: req.TargetHost,
 	}, nil
 }
 

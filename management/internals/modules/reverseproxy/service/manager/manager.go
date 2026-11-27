@@ -96,6 +96,9 @@ type Manager struct {
 	capabilities       CapabilityProvider
 	clusterDeriver     ClusterDeriver
 	exposeReaper       *exposeReaper
+	// dnsDomain returns the management-wide peer DNS domain used when an
+	// account sets no custom one.
+	dnsDomain func() string
 }
 
 // NewManager creates a new service manager.
@@ -110,6 +113,12 @@ func NewManager(store store.Store, accountManager account.Manager, permissionsMa
 	}
 	mgr.exposeReaper = &exposeReaper{manager: mgr}
 	return mgr
+}
+
+// SetDNSDomainSource sets how the manager reads the management-wide peer DNS
+// domain, which expose target checks use when an account has no custom domain.
+func (m *Manager) SetDNSDomainSource(source func() string) {
+	m.dnsDomain = source
 }
 
 // StartExposeReaper starts the background goroutine that reaps expired ephemeral services.
@@ -186,6 +195,9 @@ func (m *Manager) GetAllServices(ctx context.Context, accountID, userID string) 
 
 func (m *Manager) replaceHostByLookup(ctx context.Context, accountID string, s *service.Service) error {
 	for _, target := range s.Targets {
+		if target.TargetType == service.TargetTypePeer && target.HostPinned {
+			continue
+		}
 		host, err := m.lookupTargetHost(ctx, accountID, target)
 		if err != nil {
 			if sErr, ok := status.FromError(err); !ok || sErr.Type() != status.NotFound {
@@ -1308,6 +1320,10 @@ func (m *Manager) CreateServiceFromPeer(ctx context.Context, accountID, peerID s
 		return nil, err
 	}
 
+	if err := m.validateExposeTargetHost(ctx, accountID, peerID, req.TargetHost); err != nil {
+		return nil, err
+	}
+
 	serviceName, err := service.GenerateExposeName(req.NamePrefix)
 	if err != nil {
 		return nil, status.Errorf(status.InvalidArgument, "generate service name: %v", err)
@@ -1370,6 +1386,7 @@ func (m *Manager) CreateServiceFromPeer(ctx context.Context, accountID, peerID s
 		ServiceURL:       serviceURL,
 		Domain:           svc.Domain,
 		PortAutoAssigned: svc.PortAutoAssigned,
+		TargetHost:       req.TargetHost,
 	}, nil
 }
 
