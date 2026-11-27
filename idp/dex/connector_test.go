@@ -257,7 +257,8 @@ func TestUpdateConnector_LegacyEmptyResourceVersion(t *testing.T) {
 }
 
 func TestUpdateConnector_ReloadsCachedConnectorSecret(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
@@ -308,7 +309,11 @@ func TestUpdateConnector_ReloadsCachedConnectorSecret(t *testing.T) {
 			redirectURL.RawQuery = rq.Encode()
 			http.Redirect(w, r, redirectURL.String(), http.StatusFound)
 		case "/token":
-			require.NoError(t, r.ParseForm())
+			if parseErr := r.ParseForm(); parseErr != nil {
+				t.Errorf("parse token form: %v", parseErr)
+				http.Error(w, parseErr.Error(), http.StatusBadRequest)
+				return
+			}
 			_, secret, hasBasic := r.BasicAuth()
 			if !hasBasic {
 				secret = r.FormValue("client_secret")
@@ -327,12 +332,24 @@ func TestUpdateConnector_ReloadsCachedConnectorSecret(t *testing.T) {
 				"iat":   now.Unix(),
 				"exp":   now.Add(5 * time.Minute).Unix(),
 			})
-			require.NoError(t, marshalErr)
+			if marshalErr != nil {
+				t.Errorf("marshal claims: %v", marshalErr)
+				http.Error(w, marshalErr.Error(), http.StatusInternalServerError)
+				return
+			}
 
 			jwsObj, signErr := signer.Sign(claims)
-			require.NoError(t, signErr)
+			if signErr != nil {
+				t.Errorf("sign claims: %v", signErr)
+				http.Error(w, signErr.Error(), http.StatusInternalServerError)
+				return
+			}
 			idToken, serErr := jwsObj.CompactSerialize()
-			require.NoError(t, serErr)
+			if serErr != nil {
+				t.Errorf("serialize id_token: %v", serErr)
+				http.Error(w, serErr.Error(), http.StatusInternalServerError)
+				return
+			}
 
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -358,7 +375,11 @@ func TestUpdateConnector_ReloadsCachedConnectorSecret(t *testing.T) {
 		DataDir: t.TempDir(),
 	})
 	require.NoError(t, err)
-	defer func() { _ = provider.Stop(ctx) }()
+	defer func() {
+		if closeErr := provider.storage.Close(); closeErr != nil {
+			t.Errorf("close provider storage: %v", closeErr)
+		}
+	}()
 
 	dexHTTP := &httptest.Server{
 		Listener: ln,
@@ -440,7 +461,23 @@ func TestUpdateConnector_ReloadsCachedConnectorSecret(t *testing.T) {
 
 	runAuthFlow("state-3")
 
+	// Delete and recreate the same connector ID to verify CreateConnector/DeleteConnector
+	// invalidate Dex's cached connector entry.
+	require.NoError(t, provider.DeleteConnector(ctx, "oidc-rotate"))
+	_, err = provider.CreateConnector(ctx, &ConnectorConfig{
+		ID:           "oidc-rotate",
+		Name:         "OIDC Rotate",
+		Type:         "oidc",
+		Issuer:       upstreamURL,
+		ClientID:     "client-id",
+		ClientSecret: "secret-d",
+		RedirectURI:  dexURL + "/oauth2/callback",
+	})
+	require.NoError(t, err)
+
+	runAuthFlow("state-4")
+
 	mu.Lock()
 	defer mu.Unlock()
-	assert.Equal(t, []string{"secret-a", "secret-b", "secret-c"}, receivedSecrets)
+	assert.Equal(t, []string{"secret-a", "secret-b", "secret-c", "secret-d"}, receivedSecrets)
 }
