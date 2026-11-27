@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"strconv"
 	"testing"
 
@@ -221,4 +222,28 @@ func TestPrivilegeDropper_CreateExecutorCommand_NoLoginShell(t *testing.T) {
 	cmd, err = pd.CreateExecutorCommand(context.Background(), base)
 	require.NoError(t, err)
 	assert.Contains(t, cmd.Args, "--no-login-shell", "a protocol stream must not go through a login shell")
+}
+
+// A shell started by the executor must not inherit the daemon's working directory when
+// the user's home directory cannot be entered.
+func TestEnterWorkingDir(t *testing.T) {
+	// The temporary directory is behind a symlink on macOS, while Getwd reports the target.
+	existing, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+
+	t.Chdir(existing)
+	enterWorkingDir(filepath.Join(existing, "not-created-yet"))
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+	assert.Equal(t, "/", wd, "a missing working directory must fall back to the root")
+
+	enterWorkingDir(existing)
+	wd, err = os.Getwd()
+	require.NoError(t, err)
+	assert.Equal(t, existing, wd, "an existing working directory must be entered")
+
+	enterWorkingDir("")
+	wd, err = os.Getwd()
+	require.NoError(t, err)
+	assert.Equal(t, existing, wd, "an empty working directory must leave the current one")
 }
