@@ -448,6 +448,7 @@ func (s *Server) Addr() net.Addr {
 }
 
 // GetStatus returns the current status of the SSH server and active sessions.
+// The returned sessions do not alias server state and stay valid after the call.
 func (s *Server) GetStatus() (enabled bool, sessions []SessionInfo) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -476,7 +477,7 @@ func (s *Server) GetStatus() (enabled bool, sessions []SessionInfo) {
 			RemoteAddress: remoteAddr,
 			Command:       cmd,
 			JWTUsername:   connState.jwtUsername,
-			PortForwards:  connState.portForwards,
+			PortForwards:  slices.Clone(connState.portForwards),
 		})
 	}
 
@@ -503,7 +504,7 @@ func (s *Server) buildSessionInfo(state *sessionState) SessionInfo {
 		return info
 	}
 
-	info.PortForwards = connState.portForwards
+	info.PortForwards = slices.Clone(connState.portForwards)
 	if len(connState.portForwards) > 0 && (cmd == cmdInteractiveShell || cmd == cmdNonInteractive) {
 		info.Command = cmdPortForwarding
 	}

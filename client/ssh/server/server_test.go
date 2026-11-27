@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gliderlabs/ssh"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	cryptossh "golang.org/x/crypto/ssh"
@@ -85,6 +86,77 @@ func TestServer_RejectsConnectionAfterStop(t *testing.T) {
 	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
 	_, err = conn.Read(make([]byte, 1))
 	require.ErrorIs(t, err, io.EOF, "a connection accepted after Stop must be closed, not served")
+}
+
+type fakeSessionContext struct {
+	ssh.Context
+	user string
+}
+
+func (c fakeSessionContext) User() string { return c.user }
+
+type fakeSession struct {
+	ssh.Session
+	remote net.Addr
+	user   string
+}
+
+func (s fakeSession) RemoteAddr() net.Addr { return s.remote }
+
+func (s fakeSession) Context() ssh.Context { return fakeSessionContext{user: s.user} }
+
+// TestServer_GetStatusDoesNotSharePortForwards verifies that the port forwards returned by
+// GetStatus are a copy. Callers marshal the result after the server lock is released, while
+// removing a forward rewrites the live slice in place.
+func TestServer_GetStatusDoesNotSharePortForwards(t *testing.T) {
+	key, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
+	require.NoError(t, err)
+
+	newServer := func(t *testing.T, remote net.Addr) *Server {
+		t.Helper()
+		server := New(&Config{HostKeyPEM: key})
+		server.addConnectionPortForward("alice", remote, "-R localhost:9090")
+		server.addConnectionPortForward("alice", remote, "-R localhost:9091")
+		return server
+	}
+
+	forwardsOf := func(t *testing.T, sessions []SessionInfo) []string {
+		t.Helper()
+		require.Len(t, sessions, 1, "the connection must be reported once")
+		return sessions[0].PortForwards
+	}
+
+	t.Run("connection without a session", func(t *testing.T) {
+		remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 50001}
+		server := newServer(t, remote)
+
+		_, sessions := server.GetStatus()
+		got := forwardsOf(t, sessions)
+		require.Equal(t, []string{"-R localhost:9090", "-R localhost:9091"}, got)
+
+		server.removeConnectionPortForward(remote, "-R localhost:9090")
+
+		assert.Equal(t, []string{"-R localhost:9090", "-R localhost:9091"}, got,
+			"removing a forward must not change a list already returned to a caller")
+	})
+
+	t.Run("connection with a session", func(t *testing.T) {
+		remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 2), Port: 50002}
+		server := newServer(t, remote)
+		server.sessions[sessionKey("s1")] = &sessionState{
+			session:     fakeSession{remote: remote, user: "alice"},
+			sessionType: cmdInteractiveShell,
+		}
+
+		_, sessions := server.GetStatus()
+		got := forwardsOf(t, sessions)
+		require.Equal(t, []string{"-R localhost:9090", "-R localhost:9091"}, got)
+
+		server.removeConnectionPortForward(remote, "-R localhost:9090")
+
+		assert.Equal(t, []string{"-R localhost:9090", "-R localhost:9091"}, got,
+			"removing a forward must not change a list already returned to a caller")
+	})
 }
 
 // TestServer_RemoveRemoteForwardListenerIfCurrent verifies that a forward's accept-loop
