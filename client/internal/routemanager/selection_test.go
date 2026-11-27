@@ -186,6 +186,25 @@ func TestSelectRoutes_TotalFailureLeavesInstalledRoutesAlone(t *testing.T) {
 	assert.ElementsMatch(t, installed, maps.Keys(m.activeRoutes), "a fully invalid request must not disturb the routing table")
 }
 
+// With client routes disabled, selecting or deselecting a network only changes the saved selection: no route
+// is installed, so no allowed IPs and no route status change either.
+func TestSelectRoutes_ClientRoutesDisabledInstallsNothing(t *testing.T) {
+	m := newPartialFailureTestManager()
+	m.disableClientRoutes = true
+
+	require.NoError(t, m.SelectRoutes([]route.NetID{"lan"}, false))
+	assert.True(t, m.routeSelector.IsSelected("lan"), "the selection is kept")
+	assert.False(t, m.routeSelector.IsSelected("other"))
+	assert.Empty(t, m.activeRoutes, "no route may be installed while client routes are disabled")
+
+	require.NoError(t, m.DeselectRoutes([]route.NetID{"lan"}))
+	assert.False(t, m.routeSelector.IsSelected("lan"))
+	assert.Empty(t, m.activeRoutes)
+
+	m.SelectAllRoutes()
+	assert.Empty(t, m.activeRoutes)
+}
+
 func TestExitNodeSelectionHelpers(t *testing.T) {
 	routesMap := map[route.NetID][]*route.Route{
 		"exitA": {{Network: netip.MustParsePrefix("0.0.0.0/0")}},
