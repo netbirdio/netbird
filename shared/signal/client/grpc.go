@@ -44,7 +44,12 @@ const (
 	// receiveWatchdogInterval is how often the watchdog evaluates the stream.
 	receiveWatchdogInterval = 10 * time.Second
 	// defaultRegistrationTimeout bounds the wait for a new stream's registration header.
-	defaultRegistrationTimeout = 10 * time.Second
+	// Registration subscribes the peer on Signal, which slows down under load, and a
+	// stream given up too early only comes back as another registration.
+	defaultRegistrationTimeout = 30 * time.Second
+	// registrationTimeoutJitter widens the bound per client, so a fleet that
+	// connected together does not give up together.
+	registrationTimeoutJitter = 10 * time.Second
 	// defaultRegistrationProbeInterval is how often a new stream sends a
 	// self-addressed heartbeat while it waits for its registration header.
 	// Proxies such as AWS ALB withhold gRPC response headers until the first
@@ -85,6 +90,11 @@ func (t watchdogTimings) withDefaults() watchdogTimings {
 // jitteredWatchdogTimings draws this client's idle threshold.
 func jitteredWatchdogTimings() watchdogTimings {
 	return watchdogTimings{idleThreshold: receiveInactivityThreshold + rand.N(receiveInactivityJitter)}
+}
+
+// jitteredRegistrationTimeout draws this client's registration timeout.
+func jitteredRegistrationTimeout() time.Duration {
+	return defaultRegistrationTimeout + rand.N(registrationTimeoutJitter)
 }
 
 // receiveProbe sends one watchdog probe that should come back on the receive stream.
@@ -174,7 +184,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 		mux:                       sync.Mutex{},
 		status:                    StreamDisconnected,
 		connStateCallbackLock:     sync.RWMutex{},
-		registrationTimeout:       defaultRegistrationTimeout,
+		registrationTimeout:       jitteredRegistrationTimeout(),
 		registrationProbeInterval: defaultRegistrationProbeInterval,
 		watchdog:                  jitteredWatchdogTimings(),
 		auth:                      authCredentials{hostname: signalHostname(addr)},

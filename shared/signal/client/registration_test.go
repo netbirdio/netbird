@@ -195,3 +195,17 @@ func testRegistersBehindHeaderBuffering(t *testing.T, dropFirstSend bool) {
 	}
 	require.True(t, client.StreamConnected(), "client should report a registered stream")
 }
+
+// TestRegistrationTimeoutIsJittered checks that clients draw different
+// registration timeouts within the jitter window, so a fleet that connected to a
+// slow Signal together does not give up and reconnect together.
+func TestRegistrationTimeoutIsJittered(t *testing.T) {
+	seen := map[time.Duration]bool{}
+	for i := 0; i < 50; i++ {
+		timeout := jitteredRegistrationTimeout()
+		require.GreaterOrEqual(t, timeout, defaultRegistrationTimeout, "timeout below the base")
+		require.Less(t, timeout, defaultRegistrationTimeout+registrationTimeoutJitter, "timeout past the jitter window")
+		seen[timeout] = true
+	}
+	require.Greater(t, len(seen), 1, "clients must not share one timeout")
+}
