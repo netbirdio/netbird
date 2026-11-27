@@ -1477,7 +1477,14 @@ func (s *ProxyServiceServer) SendStatusUpdate(ctx context.Context, req *proto.Se
 	}
 
 	if certificateIssued {
-		if err := s.serviceManager.SetCertificateIssuedAt(ctx, accountID, serviceID); err != nil {
+		var issuedAt time.Time
+		if req.GetCertificateIssuedAt() != nil {
+			issuedAt = req.GetCertificateIssuedAt().AsTime()
+		}
+		if err := s.serviceManager.SetCertificateIssuedAt(ctx, accountID, serviceID, issuedAt); err != nil {
+			if sErr, ok := nbstatus.FromError(err); ok && sErr.Type() == nbstatus.NotFound {
+				return nil, status.Errorf(codes.NotFound, "service %s not found", serviceID)
+			}
 			log.WithContext(ctx).WithError(err).Error("failed to set certificate issued timestamp")
 			return nil, status.Errorf(codes.Internal, "update certificate timestamp: %v", err)
 		}

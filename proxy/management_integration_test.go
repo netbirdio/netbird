@@ -331,7 +331,7 @@ func (m *storeBackedServiceManager) DeleteAccountCluster(_ context.Context, _, _
 	return nil
 }
 
-func (m *storeBackedServiceManager) SetCertificateIssuedAt(ctx context.Context, accountID, serviceID string) error {
+func (m *storeBackedServiceManager) SetCertificateIssuedAt(ctx context.Context, accountID, serviceID string, _ time.Time) error {
 	return nil
 }
 

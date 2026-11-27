@@ -63,7 +63,7 @@ func (m *mockReverseProxyManager) DeleteAccountCluster(_ context.Context, _, _, 
 	return nil
 }
 
-func (m *mockReverseProxyManager) SetCertificateIssuedAt(ctx context.Context, accountID, reverseProxyID string) error {
+func (m *mockReverseProxyManager) SetCertificateIssuedAt(ctx context.Context, accountID, reverseProxyID string, _ time.Time) error {
 	return nil
 }
 
