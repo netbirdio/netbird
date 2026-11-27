@@ -38,7 +38,9 @@ type Client struct {
 
 // clientOptions is what the ClientOption values assemble.
 type clientOptions struct {
-	name string
+	name          string
+	extraNetworks []string
+	ipForwarding  bool
 }
 
 // ClientOption adjusts how StartClient runs the client.
@@ -53,6 +55,20 @@ type ClientOption func(*clientOptions)
 // is shared, and two containers cannot hold the same alias on one network.
 func WithClientName(name string) ClientOption {
 	return func(o *clientOptions) { o.name = name }
+}
+
+// WithExtraNetworks also attaches the client to the named Docker networks, on top
+// of the combined server's. A peer that routes for others reaches what sits on
+// those networks; peers outside them reach it only through that peer.
+func WithExtraNetworks(names ...string) ClientOption {
+	return func(o *clientOptions) { o.extraNetworks = append(o.extraNetworks, names...) }
+}
+
+// WithIPForwarding enables IPv4 forwarding in the client's network namespace, which a
+// routing peer needs to forward traffic. The client cannot enable it itself because
+// Docker mounts /proc/sys read-only.
+func WithIPForwarding() ClientOption {
+	return func(o *clientOptions) { o.ipForwarding = true }
 }
 
 // StartClient builds the client image and runs it on the combined server's
@@ -76,7 +92,7 @@ func StartClient(ctx context.Context, c *Combined, setupKey string, opts ...Clie
 		// the name the peer is addressable by in the API as well as on the
 		// network. The entrypoint takes no hostname flag of its own.
 		Hostname:       o.name,
-		Networks:       []string{c.network.Name},
+		Networks:       append([]string{c.network.Name}, o.extraNetworks...),
 		NetworkAliases: map[string][]string{c.network.Name: {o.name}},
 		Env: map[string]string{
 			"NB_MANAGEMENT_URL": combinedExposedURL,
@@ -88,6 +104,9 @@ func StartClient(ctx context.Context, c *Combined, setupKey string, opts ...Clie
 		},
 		HostConfigModifier: func(hc *container.HostConfig) {
 			hc.CapAdd = append(hc.CapAdd, "NET_ADMIN", "SYS_ADMIN", "SYS_RESOURCE")
+			if o.ipForwarding {
+				hc.Sysctls = map[string]string{"net.ipv4.ip_forward": "1"}
+			}
 		},
 	}
 
@@ -127,6 +146,12 @@ func (cl *Client) Exec(ctx context.Context, cmd ...string) (int, string, error) 
 		return code, string(out), fmt.Errorf("read output of %v: %w", cmd, err)
 	}
 	return code, string(out), nil
+}
+
+// NetworkIP returns the client's address on the named Docker network, the source
+// address traffic it forwards onto that network carries.
+func (cl *Client) NetworkIP(ctx context.Context, networkName string) (string, error) {
+	return containerNetworkIP(ctx, cl.container, networkName)
 }
 
 // Hostname returns the container hostname the client reports to management —
