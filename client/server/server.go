@@ -1947,7 +1947,7 @@ func (s *Server) buildStatusResponse(ctx context.Context, msg *proto.StatusReque
 	if deadline := s.statusRecorder.GetSessionExpiresAt(); !deadline.IsZero() {
 		statusResponse.SessionExpiresAt = timestamppb.New(deadline)
 	}
-	if status == internal.StatusConnected {
+	if status == internal.StatusConnected && msg.GetFullPeerStatus {
 		statusResponse.ClientRoutesDisabled, statusResponse.RunningConfig = s.runningEngineConfig()
 	}
 
