@@ -17,11 +17,21 @@ func (t *Tray) refreshRestrictions() {
 		log.Debugf("get restrictions: %v", err)
 		return
 	}
+	clientRoutesDisabled, routesErr := t.svc.Settings.ClientRoutesDisabled(context.Background())
+	if routesErr != nil {
+		log.Debugf("get client routes state: %v", routesErr)
+	}
 	t.featureMu.Lock()
+	if routesErr != nil {
+		clientRoutesDisabled = t.clientRoutesDisabled
+	}
+	prevEffective := t.effectiveClientRoutesDisabledLocked()
 	changed := t.disableProfiles != r.Features.DisableProfiles ||
 		t.disableNetworks != r.Features.DisableNetworks
 	t.disableProfiles = r.Features.DisableProfiles
 	t.disableNetworks = r.Features.DisableNetworks
+	t.clientRoutesDisabled = clientRoutesDisabled
+	changed = changed || prevEffective != t.effectiveClientRoutesDisabledLocked()
 	t.featureMu.Unlock()
 	// relayoutMenu rebuilds the whole tree, so skip the no-op refresh (common case).
 	if changed {
@@ -30,8 +40,23 @@ func (t *Tray) refreshRestrictions() {
 }
 
 // featuresDisabled returns the cached flags under featureMu.
-func (t *Tray) featuresDisabled() (profiles, networks bool) {
+func (t *Tray) featuresDisabled() (profiles, networks, clientRoutes bool) {
 	t.featureMu.Lock()
 	defer t.featureMu.Unlock()
-	return t.disableProfiles, t.disableNetworks
+	return t.disableProfiles, t.disableNetworks, t.effectiveClientRoutesDisabledLocked()
+}
+
+func (t *Tray) applyRunningClientRoutes(running *bool) bool {
+	t.featureMu.Lock()
+	defer t.featureMu.Unlock()
+	prev := t.effectiveClientRoutesDisabledLocked()
+	t.runningClientRoutesDisabled = running
+	return prev != t.effectiveClientRoutesDisabledLocked()
+}
+
+func (t *Tray) effectiveClientRoutesDisabledLocked() bool {
+	if t.runningClientRoutesDisabled != nil {
+		return *t.runningClientRoutesDisabled
+	}
+	return t.clientRoutesDisabled
 }

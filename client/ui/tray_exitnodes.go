@@ -28,17 +28,20 @@ func (t *Tray) fillExitNodeSubmenu(nodes []exitNodeEntry) {
 	if t.exitNodeSubmenu == nil {
 		return
 	}
+	_, disableNetworks, clientRoutesDisabled := t.featuresDisabled()
 	t.exitNodeSubmenu.Clear()
 	for _, n := range nodes {
 		id := n.ID
-		selected := n.Selected
+		selected := n.Selected && !clientRoutesDisabled
 		label := id
 		if selected {
 			label = "✓ " + id
 		}
-		t.exitNodeSubmenu.Add(label).OnClick(func(*application.Context) {
+		item := t.exitNodeSubmenu.Add(label)
+		item.OnClick(func(*application.Context) {
 			t.toggleExitNode(id, selected)
 		})
+		item.SetEnabled(!disableNetworks && !clientRoutesDisabled)
 	}
 }
 
@@ -85,6 +88,9 @@ func (t *Tray) refreshExitNodes() {
 // selection (default-on semantics), turning off every other routed network the
 // user had enabled. Mutual exclusion of exit nodes is enforced daemon-side.
 func (t *Tray) toggleExitNode(id string, selected bool) {
+	if _, _, clientRoutesDisabled := t.featuresDisabled(); clientRoutesDisabled {
+		return
+	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()

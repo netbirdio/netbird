@@ -17,13 +17,15 @@ export const MainExitNodeSwitcher = () => {
     const dir = useDirection();
     const { t } = useTranslation();
     const { status } = useStatus();
-    const { exitNodes, toggleExitNode } = useNetworks();
+    const { exitNodes, toggleExitNode, clientRoutesDisabled } = useNetworks();
     const active = exitNodes.find((n) => n.selected) ?? null;
     const isConnected = status?.status === "Connected";
     const hasAny = exitNodes.length > 0;
-    const disabled = !isConnected || !hasAny;
+    const disabled = !isConnected || !hasAny || clientRoutesDisabled;
 
-    const [open, setOpen] = useState(false);
+    const [openRequested, setOpen] = useState(false);
+    if (disabled && openRequested) setOpen(false);
+    const open = openRequested && !disabled;
     const listRef = useRef<HTMLDivElement>(null);
 
     const handleTriggerKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
@@ -53,7 +55,10 @@ export const MainExitNodeSwitcher = () => {
     const activeDescription = active
         ? t("exitNodes.card.statusActive")
         : t("exitNodes.card.statusInactive");
-    const description = hasAny ? activeDescription : t("exitNodes.empty.title");
+    const availableDescription = clientRoutesDisabled
+        ? t("exitNodes.card.statusClientRoutesDisabled")
+        : activeDescription;
+    const description = hasAny ? availableDescription : t("exitNodes.empty.title");
 
     return (
         <Popover.Root open={open} onOpenChange={setOpen}>

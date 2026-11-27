@@ -1807,6 +1807,14 @@
         "message": "Disable all",
         "description": "Button to disable all resources. Keep short."
     },
+    "networks.clientRoutesDisabled.message": {
+        "message": "Client routes are disabled, so resources cannot be used. Enable Client Routes in Settings to turn them on.",
+        "description": "Notice above the resources list when the user switched off the Enable Client Routes setting. Every resource toggle is locked while it shows. Use the same wording for Client Routes as the settings toggle."
+    },
+    "networks.clientRoutesDisabled.managed": {
+        "message": "Client routes are disabled by your administrator, so resources cannot be used.",
+        "description": "Notice above the resources list when an administrator's device-management policy switched off client routes. The user cannot change it."
+    },
     "exitNodes.search.placeholder": {
         "message": "Search exit nodes",
         "description": "Placeholder in the exit-nodes search field."
@@ -1834,6 +1842,10 @@
     "exitNodes.card.statusInactive": {
         "message": "Inactive",
         "description": "Exit node card status: Inactive."
+    },
+    "exitNodes.card.statusClientRoutesDisabled": {
+        "message": "Client routes disabled",
+        "description": "Exit node card status when client routes are switched off, so no exit node can be used. Keep short."
     },
     "exitNodes.dropdown.noneTitle": {
         "message": "None",

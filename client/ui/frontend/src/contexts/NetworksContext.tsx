@@ -8,7 +8,8 @@ import {
     useState,
     type ReactNode,
 } from "react";
-import { Networks as NetworksSvc } from "@bindings/services";
+import { Events } from "@wailsio/runtime";
+import { Networks as NetworksSvc, Settings as SettingsSvc } from "@bindings/services";
 import type { Network } from "@bindings/services/models.js";
 import { useStatus } from "@/contexts/StatusContext";
 
@@ -20,11 +21,27 @@ export const isExitNode = (range: string): boolean =>
         return trimmed === "0.0.0.0/0" || trimmed === "::/0";
     });
 
+const withNothingSelected = (routes: Network[]): Network[] =>
+    routes.map((r) => (r.selected ? { ...r, selected: false } : r));
+
+const withPendingOverrides = (routes: Network[], pending: Map<string, boolean>): Network[] => {
+    if (pending.size === 0) return routes;
+    return routes.map((r) => {
+        const override = pending.get(r.id);
+        return override === undefined || override === r.selected ? r : { ...r, selected: override };
+    });
+};
+
+const EVENT_SYSTEM = "netbird:event";
+const EVENT_SETTINGS_SAVED = "netbird:settings:saved";
+const EVENT_PROFILE_CHANGED = "netbird:profile:changed";
+
 type NetworksContextValue = {
     routes: Network[];
     networkRoutes: Network[];
     exitNodes: Network[];
     activeExitNode: Network | null;
+    clientRoutesDisabled: boolean;
     refresh: () => Promise<void>;
     toggleNetwork: (id: string, selected: boolean) => Promise<void>;
     toggleExitNode: (id: string, selected: boolean) => Promise<void>;
@@ -44,6 +61,17 @@ export const useNetworks = () => {
 export const NetworksProvider = ({ children }: { children: ReactNode }) => {
     const { status } = useStatus();
     const [routes, setRoutes] = useState<Network[]>([]);
+    const [storedClientRoutesDisabled, setStoredClientRoutesDisabled] = useState<boolean | null>(
+        null,
+    );
+    const [storedClientRoutesRead, setStoredClientRoutesRead] = useState(false);
+    const clientRoutesDisabled =
+        status?.clientRoutesDisabled ??
+        (storedClientRoutesRead ? (storedClientRoutesDisabled ?? false) : true);
+    const clientRoutesDisabledRef = useRef(clientRoutesDisabled);
+    useEffect(() => {
+        clientRoutesDisabledRef.current = clientRoutesDisabled;
+    }, [clientRoutesDisabled]);
     const [pending, setPending] = useState<Map<string, boolean>>(new Map());
     const pendingRef = useRef(pending);
     useEffect(() => {
@@ -110,6 +138,42 @@ export const NetworksProvider = ({ children }: { children: ReactNode }) => {
         }
     }, []);
 
+    const refreshClientRoutes = useCallback(async () => {
+        try {
+            setStoredClientRoutesDisabled(await SettingsSvc.ClientRoutesDisabled());
+        } catch (e) {
+            setStoredClientRoutesDisabled(null);
+            console.error("[NetworksContext] client routes state refresh failed", e);
+        } finally {
+            setStoredClientRoutesRead(true);
+        }
+    }, []);
+
+    const connectionStatus = status?.status;
+    useEffect(() => {
+        refreshClientRoutes();
+    }, [refreshClientRoutes, connectionStatus]);
+
+    useEffect(() => {
+        const offSaved = Events.On(EVENT_SETTINGS_SAVED, () => {
+            refreshClientRoutes();
+        });
+        const offProfile = Events.On(EVENT_PROFILE_CHANGED, () => {
+            refreshClientRoutes();
+        });
+        const offSystem = Events.On(
+            EVENT_SYSTEM,
+            (e: { data?: { metadata?: { [k: string]: string | undefined } } }) => {
+                if (e.data?.metadata?.type === "config_changed") refreshClientRoutes();
+            },
+        );
+        return () => {
+            offSaved();
+            offProfile();
+            offSystem();
+        };
+    }, [refreshClientRoutes]);
+
     const networksRevision = status?.networksRevision;
     useEffect(() => {
         refresh().catch((err: unknown) => console.error("[NetworksContext] refresh failed", err));
@@ -152,6 +216,7 @@ export const NetworksProvider = ({ children }: { children: ReactNode }) => {
 
     const toggleNetwork = useCallback(
         async (id: string, selected: boolean) => {
+            if (clientRoutesDisabledRef.current) return;
             const target = !selected;
             setPendingFor([[id, target]]);
             await mutate([id], target, [[id, selected]]).catch(() => {});
@@ -161,7 +226,7 @@ export const NetworksProvider = ({ children }: { children: ReactNode }) => {
 
     const setNetworksSelected = useCallback(
         async (ids: string[], selected: boolean) => {
-            if (ids.length === 0) return;
+            if (ids.length === 0 || clientRoutesDisabledRef.current) return;
             const prevById = new Map(routes.map((r) => [r.id, r.selected]));
             const rollback: Array<[string, boolean]> = ids.map((id) => [
                 id,
@@ -176,6 +241,7 @@ export const NetworksProvider = ({ children }: { children: ReactNode }) => {
     // Daemon enforces exit-node mutual exclusion; mirror it locally so the optimistic paint matches.
     const toggleExitNode = useCallback(
         async (id: string, selected: boolean) => {
+            if (clientRoutesDisabledRef.current) return;
             const target = !selected;
             const updates: Array<[string, boolean]> = [[id, target]];
             const rollback: Array<[string, boolean]> = [[id, selected]];
@@ -194,15 +260,9 @@ export const NetworksProvider = ({ children }: { children: ReactNode }) => {
     );
 
     const value = useMemo<NetworksContextValue>(() => {
-        const effective =
-            pending.size === 0
-                ? routes
-                : routes.map((r) => {
-                      const override = pending.get(r.id);
-                      return override === undefined || override === r.selected
-                          ? r
-                          : { ...r, selected: override };
-                  });
+        const effective = clientRoutesDisabled
+            ? withNothingSelected(routes)
+            : withPendingOverrides(routes, pending);
         const networkRoutes = effective.filter((r) => !isExitNode(r.range));
         const exitNodes = effective.filter((r) => isExitNode(r.range));
         const activeExitNode = exitNodes.find((r) => r.selected) ?? null;
@@ -211,12 +271,21 @@ export const NetworksProvider = ({ children }: { children: ReactNode }) => {
             networkRoutes,
             exitNodes,
             activeExitNode,
+            clientRoutesDisabled,
             refresh,
             toggleNetwork,
             toggleExitNode,
             setNetworksSelected,
         };
-    }, [routes, pending, refresh, toggleNetwork, toggleExitNode, setNetworksSelected]);
+    }, [
+        routes,
+        pending,
+        clientRoutesDisabled,
+        refresh,
+        toggleNetwork,
+        toggleExitNode,
+        setNetworksSelected,
+    ]);
 
     return <NetworksContext.Provider value={value}>{children}</NetworksContext.Provider>;
 };

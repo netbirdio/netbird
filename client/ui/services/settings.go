@@ -123,14 +123,16 @@ type Settings struct {
 	// elevator raises the platform's privilege prompt when a change needs more
 	// rights than this process has.
 	elevator elevator
+	emitter  Emitter
 }
 
-func NewSettings(conn DaemonConn, translator ErrorTranslator, prefs LanguagePreference, daemonAddr string) *Settings {
+func NewSettings(conn DaemonConn, translator ErrorTranslator, prefs LanguagePreference, daemonAddr string, emitter Emitter) *Settings {
 	return &Settings{
 		conn:       conn,
 		classifier: errorClassifier{translator: translator, prefs: prefs},
 		daemonAddr: daemonAddr,
 		elevator:   osElevator{},
+		emitter:    emitter,
 	}
 }
 
@@ -180,6 +182,17 @@ func (s *Settings) GetConfig(ctx context.Context, p ConfigParams) (Config, error
 }
 
 func (s *Settings) SetConfig(ctx context.Context, p SetConfigParams) (SaveOutcome, error) {
+	outcome, err := s.setConfig(ctx, p)
+	if err != nil {
+		return outcome, err
+	}
+	if !outcome.Declined && s.emitter != nil {
+		s.emitter.Emit(EventSettingsSaved)
+	}
+	return outcome, nil
+}
+
+func (s *Settings) setConfig(ctx context.Context, p SetConfigParams) (SaveOutcome, error) {
 	cli, err := s.conn.Client()
 	if err != nil {
 		return SaveOutcome{}, s.classifier.classify(err)
@@ -353,14 +366,7 @@ func (s *Settings) GetRestrictions(ctx context.Context) (Restrictions, error) {
 	if err != nil {
 		return Restrictions{}, err
 	}
-	active, err := cli.GetActiveProfile(ctx, &proto.GetActiveProfileRequest{})
-	if err != nil {
-		return Restrictions{}, fmt.Errorf("get active profile: %w", err)
-	}
-	cfgResp, err := cli.GetConfig(ctx, &proto.GetConfigRequest{
-		ProfileName: active.GetId(),
-		Username:    active.GetUsername(),
-	})
+	cfgResp, err := activeProfileConfig(ctx, cli)
 	if err != nil {
 		return Restrictions{}, err
 	}
@@ -378,6 +384,19 @@ func (s *Settings) GetRestrictions(ctx context.Context) (Restrictions, error) {
 	applyMDMRestrictions(&r.MDM, cfgResp)
 	r.MDM.DisableAdvancedView = featResp.DisableAdvancedView
 	return r, nil
+}
+
+// ClientRoutesDisabled reports whether the active profile's stored config disables client routes.
+func (s *Settings) ClientRoutesDisabled(ctx context.Context) (bool, error) {
+	cli, err := s.conn.Client()
+	if err != nil {
+		return false, err
+	}
+	cfgResp, err := activeProfileConfig(ctx, cli)
+	if err != nil {
+		return false, err
+	}
+	return cfgResp.GetDisableClientRoutes(), nil
 }
 
 // changedFlag returns requested only when it differs from what is stored, so a
@@ -419,4 +438,15 @@ func applyMDMRestrictions(mdm *MDMFields, cfgResp *proto.GetConfigResponse) {
 		allowed := cfgResp.GetServerVNCAllowed()
 		mdm.AllowServerVNC = &allowed
 	}
+}
+
+func activeProfileConfig(ctx context.Context, cli proto.DaemonServiceClient) (*proto.GetConfigResponse, error) {
+	active, err := cli.GetActiveProfile(ctx, &proto.GetActiveProfileRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("get active profile: %w", err)
+	}
+	return cli.GetConfig(ctx, &proto.GetConfigRequest{
+		ProfileName: active.GetId(),
+		Username:    active.GetUsername(),
+	})
 }

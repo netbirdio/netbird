@@ -22,6 +22,7 @@ import { EmptyState } from "@/components/empty-state/EmptyState";
 import { NoResults } from "@/components/empty-state/NoResults";
 import { useStatus } from "@/contexts/StatusContext";
 import { useNetworks } from "@/contexts/NetworksContext";
+import { useRestrictions } from "@/contexts/RestrictionsContext";
 import { type NetworkFilter, NetworkFilters } from "./NetworkFilters";
 import { useDirection } from "@/hooks/useDirection";
 
@@ -75,7 +76,9 @@ export const Networks = () => {
     const { t } = useTranslation();
     const { status } = useStatus();
     const isConnected = status?.status === "Connected";
-    const { networkRoutes, toggleNetwork, setNetworksSelected } = useNetworks();
+    const { networkRoutes, toggleNetwork, setNetworksSelected, clientRoutesDisabled } =
+        useNetworks();
+    const { mdm } = useRestrictions();
     const [search, setSearch] = useState("");
     const [filter, setFilter] = useState<NetworkFilter>("all");
     const [scrollParent, setScrollParent] = useState<HTMLDivElement | null>(null);
@@ -147,7 +150,7 @@ export const Networks = () => {
     const bulkLabel = allSelected ? t("networks.bulk.disableAll") : t("networks.bulk.enableAll");
 
     const onBulkClick = () => {
-        if (filtered.length === 0) return;
+        if (filtered.length === 0 || clientRoutesDisabled) return;
         if (allSelected) {
             setNetworksSelected(
                 filtered.map((r) => r.id),
@@ -174,6 +177,19 @@ export const Networks = () => {
                 </div>
                 <NetworkFilters value={filter} onChange={setFilter} counts={counts} />
             </div>
+            {clientRoutesDisabled && (
+                <div
+                    role={"status"}
+                    className={cn(
+                        "border-b border-nb-gray-910 px-6 py-2.5",
+                        "text-xs font-medium text-nb-gray-300",
+                    )}
+                >
+                    {mdm.disableClientRoutes
+                        ? t("networks.clientRoutesDisabled.managed")
+                        : t("networks.clientRoutesDisabled.message")}
+                </div>
+            )}
             {filtered.length === 0 ? (
                 <NoResults />
             ) : (
@@ -186,6 +202,7 @@ export const Networks = () => {
                         {scrollParent && (
                             <NetworksList
                                 data={filtered}
+                                locked={clientRoutesDisabled}
                                 onToggle={toggleNetwork}
                                 scrollParent={scrollParent}
                             />
@@ -223,12 +240,16 @@ export const Networks = () => {
                         type={"button"}
                         tabIndex={0}
                         onClick={onBulkClick}
+                        disabled={clientRoutesDisabled}
                         aria-label={t("networks.bulk.label")}
                         className={cn(
                             "inline-flex h-8 items-center rounded-md px-3",
                             "text-xs font-medium text-nb-gray-100",
-                            "border border-nb-gray-900 bg-nb-gray-920 hover:border-nb-gray-850 hover:bg-nb-gray-910",
-                            "wails-no-draggable cursor-pointer outline-hidden transition-colors",
+                            "border border-nb-gray-900 bg-nb-gray-920",
+                            "wails-no-draggable outline-hidden transition-colors",
+                            clientRoutesDisabled
+                                ? "cursor-not-allowed opacity-60"
+                                : "cursor-pointer hover:border-nb-gray-850 hover:bg-nb-gray-910",
                             "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                         )}
                     >
@@ -242,13 +263,14 @@ export const Networks = () => {
 
 type NetworksListProps = {
     data: Network[];
+    locked: boolean;
     onToggle: (id: string, selected: boolean) => void;
     scrollParent: HTMLElement;
 };
 
 const NetworksHeader = () => <div className={"h-2"} />;
 
-const NetworksList = ({ data, onToggle, scrollParent }: NetworksListProps) => {
+const NetworksList = ({ data, locked, onToggle, scrollParent }: NetworksListProps) => {
     const virtuosoRef = useRef<VirtuosoHandle>(null);
     const rowRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
@@ -298,9 +320,9 @@ const NetworksList = ({ data, onToggle, scrollParent }: NetworksListProps) => {
     };
 
     const ctx = useMemo<NetworkRowContext>(
-        () => ({ onKeyDown: handleRowKeyDown, onToggle, setRowRef }),
+        () => ({ locked, onKeyDown: handleRowKeyDown, onToggle, setRowRef }),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [data, onToggle],
+        [data, locked, onToggle],
     );
 
     return (
@@ -318,6 +340,7 @@ const NetworksList = ({ data, onToggle, scrollParent }: NetworksListProps) => {
 };
 
 type NetworkRowContext = {
+    locked: boolean;
     onKeyDown: (e: KeyboardEvent<Element>, index: number) => void;
     onToggle: (id: string, selected: boolean) => void;
     setRowRef: (id: string, el: HTMLButtonElement | null) => void;
@@ -327,6 +350,7 @@ const renderNetworkRow = (index: number, n: Network, ctx: NetworkRowContext): Re
     <NetworkRow
         network={n}
         index={index}
+        locked={ctx.locked}
         onKeyDown={ctx.onKeyDown}
         onToggle={ctx.onToggle}
         setRowRef={ctx.setRowRef}
@@ -336,12 +360,20 @@ const renderNetworkRow = (index: number, n: Network, ctx: NetworkRowContext): Re
 type NetworkRowProps = {
     network: Network;
     index: number;
+    locked: boolean;
     onKeyDown: (e: KeyboardEvent<Element>, index: number) => void;
     onToggle: (id: string, selected: boolean) => void;
     setRowRef: (id: string, el: HTMLButtonElement | null) => void;
 };
 
-const NetworkRow = ({ network: n, index, onKeyDown, onToggle, setRowRef }: NetworkRowProps) => {
+const NetworkRow = ({
+    network: n,
+    index,
+    locked,
+    onKeyDown,
+    onToggle,
+    setRowRef,
+}: NetworkRowProps) => {
     const { t } = useTranslation();
     // Same handler is attached to the overlay button and to the network-id copy
     // button so arrow nav works wherever focus sits inside the row.
@@ -360,10 +392,14 @@ const NetworkRow = ({ network: n, index, onKeyDown, onToggle, setRowRef }: Netwo
                 ref={(el) => setRowRef(n.id, el)}
                 aria-label={t("networks.row.toggle", { name: n.id })}
                 aria-pressed={n.selected}
-                onClick={() => onToggle(n.id, n.selected)}
+                aria-disabled={locked}
+                onClick={() => {
+                    if (!locked) onToggle(n.id, n.selected);
+                }}
                 onKeyDown={handleKey}
                 className={cn(
-                    "absolute inset-0 cursor-pointer outline-hidden",
+                    "absolute inset-0 outline-hidden",
+                    locked ? "cursor-not-allowed" : "cursor-pointer",
                     "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-inset",
                 )}
             />
@@ -389,7 +425,7 @@ const NetworkRow = ({ network: n, index, onKeyDown, onToggle, setRowRef }: Netwo
                 aria-hidden={"true"}
                 className={"pointer-events-none relative shrink-0 self-center"}
             >
-                <NetworkToggle checked={n.selected} />
+                <NetworkToggle checked={n.selected} locked={locked} />
             </div>
         </div>
     );
@@ -512,9 +548,10 @@ const ResolvedIpsTooltip = ({ ips }: { ips: string[] }) => {
 type ToggleProps = {
     checked: boolean;
     mixed?: boolean;
+    locked?: boolean;
 };
 
-const NetworkToggle = ({ checked, mixed }: ToggleProps) => {
+const NetworkToggle = ({ checked, mixed, locked }: ToggleProps) => {
     const checkedTranslate = checked
         ? "translate-x-4.5 rtl:-translate-x-4.5"
         : "translate-x-0.5 rtl:-translate-x-0.5";
@@ -524,7 +561,7 @@ const NetworkToggle = ({ checked, mixed }: ToggleProps) => {
                 "inline-flex h-5 w-9 shrink-0 items-center rounded-full",
                 "wails-no-draggable transition-colors",
                 checked || mixed ? "bg-netbird" : "bg-nb-gray-700",
-                mixed && "opacity-60",
+                (mixed || locked) && "opacity-60",
             )}
         >
             <span

@@ -51,7 +51,7 @@ func notOwnerRefusal(t *testing.T) error {
 // so an unclassified refusal there is a raw gRPC dump in front of the user.
 func TestSettingsGetConfigClassifiesRefusal(t *testing.T) {
 	// nil translator → Short is the bare "error.<code>" key.
-	settings := NewSettings(stubConn{client: &stubConfigDaemon{err: notOwnerRefusal(t)}}, nil, nil, testDaemonAddr)
+	settings := NewSettings(stubConn{client: &stubConfigDaemon{err: notOwnerRefusal(t)}}, nil, nil, testDaemonAddr, nil)
 
 	_, err := settings.GetConfig(context.Background(), ConfigParams{ProfileName: "01HZY0000000000000000000"})
 

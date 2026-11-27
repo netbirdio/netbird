@@ -133,7 +133,7 @@ func (t *Tray) fillProfileSubmenu() {
 
 	// Wails' systray does not reliably propagate a disabled parent to its
 	// children on every platform, so disable each row explicitly.
-	disableProfiles, _ := t.featuresDisabled()
+	disableProfiles, _, _ := t.featuresDisabled()
 
 	t.profileSubmenu.Clear()
 	var activeName, activeEmail string

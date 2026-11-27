@@ -163,9 +163,11 @@ type Tray struct {
 	// Fetched at startup and refreshed on every config_changed event (the
 	// daemon re-applies MDM policy per engine spawn), so featuresDisabled can
 	// grey out menus without polling GetFeatures.
-	featureMu       sync.Mutex
-	disableProfiles bool
-	disableNetworks bool
+	featureMu                   sync.Mutex
+	disableProfiles             bool
+	disableNetworks             bool
+	clientRoutesDisabled        bool
+	runningClientRoutesDisabled *bool
 }
 
 func NewTray(app *application.App, window *application.WebviewWindow, svc TrayServices) *Tray {
@@ -209,6 +211,9 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 	// hook a React-initiated switch leaves the tray's submenu stale.
 	app.Event.On(services.EventProfileChanged, func(*application.CustomEvent) {
 		go t.loadProfiles()
+	})
+	app.Event.On(services.EventSettingsSaved, func(*application.CustomEvent) {
+		go t.refreshRestrictions()
 	})
 	// Defer the first profile load until the menu impl is live — Menu.Update()
 	// short-circuits while app.running is false, and AppKit's main queue isn't
@@ -346,7 +351,7 @@ func (t *Tray) relayoutMenu() {
 	exitNodeEntries := append([]exitNodeEntry(nil), t.exitNodes...)
 	t.exitNodesMu.Unlock()
 
-	disableProfiles, disableNetworks := t.featuresDisabled()
+	disableProfiles, disableNetworks, clientRoutesDisabled := t.featuresDisabled()
 
 	daemonUnavailable := services.IsDaemonOutage(lastStatus)
 	connecting := strings.EqualFold(lastStatus, services.StatusConnecting)
@@ -376,7 +381,7 @@ func (t *Tray) relayoutMenu() {
 		t.downItem.SetEnabled(connected || connecting)
 	}
 	if t.exitNodeItem != nil {
-		t.exitNodeItem.SetEnabled(connected && len(exitNodeEntries) > 0 && !disableNetworks)
+		t.exitNodeItem.SetEnabled(connected && len(exitNodeEntries) > 0 && !disableNetworks && !clientRoutesDisabled)
 	}
 	if t.settingsItem != nil {
 		t.settingsItem.SetEnabled(!daemonUnavailable)

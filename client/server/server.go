@@ -1947,6 +1947,9 @@ func (s *Server) buildStatusResponse(ctx context.Context, msg *proto.StatusReque
 	if deadline := s.statusRecorder.GetSessionExpiresAt(); !deadline.IsZero() {
 		statusResponse.SessionExpiresAt = timestamppb.New(deadline)
 	}
+	if status == internal.StatusConnected && msg.GetFullPeerStatus {
+		statusResponse.ClientRoutesDisabled = s.runningClientRoutesDisabled()
+	}
 
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
@@ -1963,6 +1966,22 @@ func (s *Server) buildStatusResponse(ctx context.Context, msg *proto.StatusReque
 	}
 
 	return &statusResponse, nil
+}
+
+func (s *Server) runningClientRoutesDisabled() *bool {
+	s.mutex.Lock()
+	connectClient := s.connectClient
+	s.mutex.Unlock()
+
+	if connectClient == nil {
+		return nil
+	}
+	engine := connectClient.Engine()
+	if engine == nil {
+		return nil
+	}
+	disabled := engine.ClientRoutesDisabled()
+	return &disabled
 }
 
 // getSSHServerState retrieves the current SSH server state including enabled status and active sessions

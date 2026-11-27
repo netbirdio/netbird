@@ -138,7 +138,8 @@ type Status struct {
 	// when the peer is not SSO-tracked or login expiration is disabled.
 	SessionExpiresAt *time.Time `json:"sessionExpiresAt,omitempty"`
 	// VNCSessions lists the VNC connections currently attached to this machine.
-	VNCSessions []VNCSession `json:"vncSessions,omitempty"`
+	VNCSessions          []VNCSession `json:"vncSessions,omitempty"`
+	ClientRoutesDisabled *bool        `json:"clientRoutesDisabled,omitempty"`
 }
 
 // DaemonFeed fans the daemon's two long-running gRPC streams (SubscribeStatus,
@@ -579,6 +580,10 @@ func statusFromProto(resp *proto.StatusResponse) Status {
 	if ts := resp.GetSessionExpiresAt(); ts.IsValid() && !ts.AsTime().IsZero() {
 		t := ts.AsTime().UTC()
 		st.SessionExpiresAt = &t
+	}
+	if resp.ClientRoutesDisabled != nil {
+		disabled := resp.GetClientRoutesDisabled()
+		st.ClientRoutesDisabled = &disabled
 	}
 	return st
 }
