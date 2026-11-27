@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/netbirdio/dex/storage"
 )
 
@@ -44,6 +46,9 @@ func (p *Provider) CreateConnector(ctx context.Context, cfg *ConnectorConfig) (*
 
 	if err := p.storage.CreateConnector(ctx, storageConn); err != nil {
 		return nil, fmt.Errorf("failed to create connector: %w", err)
+	}
+	if p.dexServer != nil {
+		p.dexServer.CloseConnector(cfg.ID)
 	}
 
 	p.logger.Info("connector created", "id", cfg.ID, "type", cfg.Type)
@@ -111,10 +116,12 @@ func (p *Provider) UpdateConnector(ctx context.Context, cfg *ConnectorConfig) er
 		}
 
 		return storage.Connector{
-			ID:     cfg.ID,
-			Type:   old.Type,
-			Name:   name,
-			Config: configData,
+			ID:              cfg.ID,
+			Type:            old.Type,
+			Name:            name,
+			ResourceVersion: nextResourceVersion(old.ResourceVersion),
+			Config:          configData,
+			GrantTypes:      old.GrantTypes,
 		}, nil
 	}); err != nil {
 		return fmt.Errorf("failed to update connector: %w", err)
@@ -156,6 +163,9 @@ func (p *Provider) DeleteConnector(ctx context.Context, id string) error {
 
 	if err := p.storage.DeleteConnector(ctx, id); err != nil {
 		return fmt.Errorf("failed to delete connector: %w", err)
+	}
+	if p.dexServer != nil {
+		p.dexServer.CloseConnector(id)
 	}
 
 	p.logger.Info("connector deleted", "id", id)
@@ -200,7 +210,13 @@ func (p *Provider) buildStorageConnector(cfg *ConnectorConfig) (storage.Connecto
 		return storage.Connector{}, err
 	}
 
-	return storage.Connector{ID: cfg.ID, Type: dexType, Name: cfg.Name, Config: configData}, nil
+	return storage.Connector{
+		ID:              cfg.ID,
+		Type:            dexType,
+		Name:            cfg.Name,
+		ResourceVersion: "1",
+		Config:          configData,
+	}, nil
 }
 
 // resolveRedirectURI returns the redirect URI, using a default if not provided
@@ -423,10 +439,21 @@ func ensureStaticConnectors(ctx context.Context, stor storage.Storage, connector
 		if err := stor.UpdateConnector(ctx, conn.ID, func(old storage.Connector) (storage.Connector, error) {
 			old.Name = storConn.Name
 			old.Config = storConn.Config
+			old.ResourceVersion = nextResourceVersion(old.ResourceVersion)
 			return old, nil
 		}); err != nil {
 			return fmt.Errorf("failed to update connector %s: %w", conn.ID, err)
 		}
 	}
 	return nil
+}
+
+func nextResourceVersion(current string) string {
+	if current == "" {
+		return "1"
+	}
+	if rev, err := strconv.Atoi(current); err == nil {
+		return strconv.Itoa(rev + 1)
+	}
+	return uuid.NewString()
 }
