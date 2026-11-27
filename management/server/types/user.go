@@ -1,6 +1,9 @@
 package types
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -110,6 +113,12 @@ type User struct {
 
 	Name  string `gorm:"default:''"`
 	Email string `gorm:"default:''"`
+
+	// Name and Email are encrypted at rest, so searches match these hashes of them.
+	NameHash1 int64  `json:"-" gorm:"column:name_hash_1;->:false;<-"`
+	NameHash2 int64  `json:"-" gorm:"column:name_hash_2;->:false;<-"`
+	NameHash3 int64  `json:"-" gorm:"column:name_hash_3;->:false;<-"`
+	EmailHash string `json:"-" gorm:"index;->:false;<-"`
 }
 
 // IsBlocked returns true if the user is blocked, false otherwise
@@ -261,8 +270,9 @@ func NewOwnerUser(id string, email string, name string) *User {
 	return NewUser(id, UserRoleOwner, false, false, "", []string{}, UserIssuedAPI, email, name)
 }
 
-// EncryptSensitiveData encrypts the user's sensitive fields (Email and Name) in place.
+// EncryptSensitiveData sets the search hashes, then encrypts Email and Name in place.
 func (u *User) EncryptSensitiveData(enc *crypt.FieldEncrypt) error {
+	u.SetSearchHashes(enc)
 	if enc == nil {
 		return nil
 	}
@@ -326,4 +336,56 @@ func (u *User) DecryptSensitiveData(enc *crypt.FieldEncrypt) error {
 	}
 
 	return nil
+}
+
+// SetSearchHashes sets the search hashes from the plaintext name and email.
+func (u *User) SetSearchHashes(enc *crypt.FieldEncrypt) {
+	filter := NameFilter(enc, u.displayName())
+	u.NameHash1, u.NameHash2, u.NameHash3 = filter[0], filter[1], filter[2]
+	u.EmailHash = EmailSearchHash(enc, u.Email)
+}
+
+// MatchesName reports whether the user's name contains text, ignoring case.
+func (u *User) MatchesName(text string) bool {
+	return strings.Contains(strings.ToLower(u.displayName()), strings.ToLower(text))
+}
+
+func (u *User) displayName() string {
+	if u.IsServiceUser {
+		return u.ServiceUserName
+	}
+	return u.Name
+}
+
+// NameFilter returns a Bloom filter of the three-byte groups of text, ignoring case. The
+// filter of a name covers the filter of any text the name contains.
+func NameFilter(enc *crypt.FieldEncrypt, text string) [3]int64 {
+	var filter [3]int64
+	text = strings.ToLower(text)
+	for i := 0; i+3 <= len(text); i++ {
+		sum := searchHash(enc, text[i:i+3])
+		for k := range 4 {
+			bit := binary.BigEndian.Uint32(sum[4*k:]) % 192
+			filter[bit/64] |= 1 << (bit % 64)
+		}
+	}
+	return filter
+}
+
+// EmailSearchHash returns the hash of email, ignoring case and surrounding spaces.
+func EmailSearchHash(enc *crypt.FieldEncrypt, email string) string {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
+		return ""
+	}
+	return hex.EncodeToString(searchHash(enc, email))
+}
+
+// searchHash is unkeyed without encryption, as the values are then stored in plaintext.
+func searchHash(enc *crypt.FieldEncrypt, text string) []byte {
+	if enc == nil {
+		sum := sha256.Sum256([]byte(text))
+		return sum[:]
+	}
+	return enc.Hash([]byte(text))
 }

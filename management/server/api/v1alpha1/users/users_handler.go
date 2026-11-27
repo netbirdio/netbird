@@ -1,20 +1,22 @@
 package users
 
 import (
-	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/account"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/apiv1alpha1"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
-
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
 )
 
 type Handler struct {
@@ -29,152 +31,8 @@ func NewHandler(accountManager account.Manager) *Handler {
 
 func (h *Handler) WithEndpointsForRouter(router *mux.Router) *mux.Router {
 	router.HandleFunc("/users", h.getAllUsers).Methods("GET", "OPTIONS")
-	router.HandleFunc("/users", h.createUser).Methods("POST", "OPTIONS")
-	router.HandleFunc("/users/{userId}", h.updateUser).Methods("PUT", "OPTIONS")
-	router.HandleFunc("/users/{userId}", h.deleteUser).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/users/{userId}", h.getUser).Methods("GET", "OPTIONS")
 	return router
-}
-
-// updateUser is a PUT requests to update User data
-func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPut {
-		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
-		return
-	}
-
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	accountID, userID := userAuth.AccountId, userAuth.UserId
-	vars := mux.Vars(r)
-	targetUserID := vars["userId"]
-	if len(targetUserID) == 0 {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid user ID"), w)
-		return
-	}
-
-	existingUser, err := h.accountManager.GetUserByID(r.Context(), targetUserID)
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	req := &apiv1alpha1.UserRequest{}
-	err = json.NewDecoder(r.Body).Decode(req)
-	if err != nil {
-		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
-		return
-	}
-
-	if req.AutoGroups == nil {
-		util.WriteErrorResponse("auto_groups field can't be absent", http.StatusBadRequest, w)
-		return
-	}
-
-	userRole := types.StrRoleToUserRole(req.Role)
-	if userRole == types.UserRoleUnknown {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid user role"), w)
-		return
-	}
-
-	newUser, err := h.accountManager.SaveUser(r.Context(), accountID, userID, &types.User{
-		Id:                   targetUserID,
-		Role:                 userRole,
-		AutoGroups:           req.AutoGroups,
-		Blocked:              req.IsBlocked,
-		Issued:               existingUser.Issued,
-		IntegrationReference: existingUser.IntegrationReference,
-	})
-
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-	util.WriteJSONObject(r.Context(), w, toUserResponse(newUser, userID))
-}
-
-// deleteUser is a DELETE request to delete a user
-func (h *Handler) deleteUser(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
-		return
-	}
-
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	accountID, userID := userAuth.AccountId, userAuth.UserId
-	vars := mux.Vars(r)
-	targetUserID := vars["userId"]
-	if len(targetUserID) == 0 {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid user ID"), w)
-		return
-	}
-
-	err = h.accountManager.DeleteUser(r.Context(), accountID, userID, targetUserID)
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
-}
-
-// createUser creates a User in the system with a status "invited" (effectively this is a user invite).
-func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
-		return
-	}
-
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-	accountID, userID := userAuth.AccountId, userAuth.UserId
-
-	req := &apiv1alpha1.UserCreateRequest{}
-	err = json.NewDecoder(r.Body).Decode(req)
-	if err != nil {
-		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
-		return
-	}
-
-	if types.StrRoleToUserRole(req.Role) == types.UserRoleUnknown {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "unknown user role %s", req.Role), w)
-		return
-	}
-
-	email := ""
-	if req.Email != nil {
-		email = *req.Email
-	}
-
-	name := ""
-	if req.Name != nil {
-		name = *req.Name
-	}
-
-	newUser, err := h.accountManager.CreateUser(r.Context(), accountID, userID, &types.UserInfo{
-		Email:         email,
-		Name:          name,
-		Role:          req.Role,
-		AutoGroups:    req.AutoGroups,
-		IsServiceUser: req.IsServiceUser,
-		Issued:        types.UserIssuedAPI,
-	})
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-	util.WriteJSONObject(r.Context(), w, toUserResponse(newUser, userID))
 }
 
 // getAllUsers returns a list of users of the account this user belongs to.
@@ -192,36 +50,71 @@ func (h *Handler) getAllUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	accountID, userID := userAuth.AccountId, userAuth.UserId
-	data, err := h.accountManager.GetUsersFromAccount(r.Context(), accountID, userID)
+	pagination, err := paginationFromQuery(r.URL.Query())
+	if err != nil {
+		log.WithContext(r.Context()).Errorf("error parsing query: %v", err)
+		util.WriteError(r.Context(), &status.Error{ErrorType: status.InvalidArgument, Message: err.Error()}, w)
+		return
+	}
+
+	filters, err := filtersFromQuery(r.URL.Query())
+	if err != nil {
+		log.WithContext(r.Context()).Errorf("error parsing query: %v", err)
+		util.WriteError(r.Context(), &status.Error{ErrorType: status.InvalidArgument, Message: err.Error()}, w)
+		return
+	}
+
+	sorting, err := sortingFromQuery(r.URL.Query())
+	if err != nil {
+		log.WithContext(r.Context()).Errorf("error parsing query: %v", err)
+		util.WriteError(r.Context(), &status.Error{ErrorType: status.InvalidArgument, Message: err.Error()}, w)
+		return
+	}
+
+	data, userCount, err := h.accountManager.GetUsersFromAccountPaginated(r.Context(), accountID, userID, pagination, filters, sorting)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	serviceUser := r.URL.Query().Get("service_user")
-
-	users := make([]*apiv1alpha1.User, 0)
+	users := make([]apiv1alpha1.User, 0, len(data))
 	for _, d := range data {
-		if d.NonDeletable {
-			continue
-		}
-		if serviceUser == "" {
-			users = append(users, toUserResponse(d, userID))
-			continue
-		}
-
-		includeServiceUser, err := strconv.ParseBool(serviceUser)
-		log.WithContext(r.Context()).Tracef("Should include service user: %v", includeServiceUser)
-		if err != nil {
-			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid service_user query parameter"), w)
-			return
-		}
-		if includeServiceUser == d.IsServiceUser {
-			users = append(users, toUserResponse(d, userID))
-		}
+		users = append(users, *toUserResponse(d, userID))
 	}
 
-	util.WriteJSONObject(r.Context(), w, users)
+	util.WriteJSONObject(r.Context(), w, apiv1alpha1.UserBatch{UserCount: userCount, Users: users, Page: pagination.Page, PageSize: pagination.PageSize})
+}
+
+func (h *Handler) getUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
+		return
+	}
+
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	targetUserID := mux.Vars(r)["userId"]
+	if len(targetUserID) == 0 {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid user ID"), w)
+		return
+	}
+
+	found, _, err := h.accountManager.GetUsersFromAccountPaginated(r.Context(), userAuth.AccountId, userAuth.UserId,
+		store.PaginationState{Page: 1, PageSize: 1}, store.UserFilters{UserIDs: []string{targetUserID}}, store.UserSorting{})
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	if len(found) == 0 {
+		util.WriteError(r.Context(), status.NewUserNotFoundError(targetUserID), w)
+		return
+	}
+
+	util.WriteJSONObject(r.Context(), w, toUserResponse(found[0], userAuth.UserId))
 }
 
 func toUserResponse(user *types.UserInfo, currenUserID string) *apiv1alpha1.User {
@@ -272,4 +165,97 @@ func toUserResponse(user *types.UserInfo, currenUserID string) *apiv1alpha1.User
 		Password:        password,
 		IdpId:           idpID,
 	}
+}
+
+func paginationFromQuery(v url.Values) (store.PaginationState, error) {
+	page, err := strconv.Atoi(v.Get("page"))
+	if err != nil {
+		return store.PaginationState{}, err
+	}
+
+	pageSize, err := strconv.Atoi(v.Get("page_size"))
+	if err != nil {
+		return store.PaginationState{}, err
+	}
+
+	return store.PaginationState{
+		Page:     page,
+		PageSize: pageSize,
+	}, nil
+}
+
+func filtersFromQuery(v url.Values) (store.UserFilters, error) {
+	serviceUser, err := parseBool(v.Get("service_user"))
+	if err != nil {
+		return store.UserFilters{}, fmt.Errorf("parse service_user: %w", err)
+	}
+
+	pendingApproval, err := parseBool(v.Get("pending_approval"))
+	if err != nil {
+		return store.UserFilters{}, fmt.Errorf("parse pending_approval: %w", err)
+	}
+
+	var roles []types.UserRole
+	for _, value := range v["role"] {
+		role := types.StrRoleToUserRole(value)
+		if role == types.UserRoleUnknown {
+			return store.UserFilters{}, fmt.Errorf("unknown role %q", value)
+		}
+		roles = append(roles, role)
+	}
+
+	return store.UserFilters{
+		Name:            strings.TrimSpace(v.Get("name")),
+		Email:           strings.TrimSpace(v.Get("email")),
+		ServiceUser:     serviceUser,
+		PendingApproval: pendingApproval,
+		Roles:           roles,
+		GroupIDs:        v["group_ids"],
+		UserIDs:         v["user_ids"],
+	}, nil
+}
+
+// sortingFromQuery parses repeated sort_by values such as "last_login,desc". The order
+// defaults to ascending.
+func sortingFromQuery(v url.Values) (store.UserSorting, error) {
+	var sorting store.UserSorting
+	for _, value := range v["sort_by"] {
+		field, order, _ := strings.Cut(value, ",")
+
+		key := store.UserSortingKey{Order: store.AscOrderBy}
+		switch strings.TrimSpace(field) {
+		case "is_current":
+			key.Field = store.UserSortByIsCurrent
+		case "role":
+			key.Field = store.UserSortByRole
+		case "last_login":
+			key.Field = store.UserSortByLastLogin
+		default:
+			return store.UserSorting{}, fmt.Errorf("unknown sort field %q", field)
+		}
+
+		switch strings.TrimSpace(order) {
+		case "", "asc":
+		case "desc":
+			key.Order = store.DescOrderBy
+		default:
+			return store.UserSorting{}, fmt.Errorf("unknown sort order %q", order)
+		}
+
+		sorting.Fields = append(sorting.Fields, key)
+	}
+	return sorting, nil
+}
+
+func parseBool(maybeBool string) (*bool, error) {
+	if maybeBool == "" {
+		return nil, nil //nolint:nilnil
+	}
+
+	parsed, err := strconv.ParseBool(maybeBool)
+	if err != nil {
+		return nil, err
+	}
+
+	return new(parsed), nil
 }

@@ -108,8 +108,12 @@ func (s *SqlStore) UpdateUserInfo(ctx context.Context, userID, email, name strin
 	}
 
 	result := s.db.Model(&types.User{}).Where("id = ?", userID).Updates(map[string]any{
-		"email": user.Email,
-		"name":  user.Name,
+		"email":       user.Email,
+		"name":        user.Name,
+		"name_hash_1": user.NameHash1,
+		"name_hash_2": user.NameHash2,
+		"name_hash_3": user.NameHash3,
+		"email_hash":  user.EmailHash,
 	})
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("error updating user info for %s: %s", userID, result.Error)

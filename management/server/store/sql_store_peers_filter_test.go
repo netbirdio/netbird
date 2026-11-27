@@ -4,11 +4,12 @@ import (
 	"context"
 	"testing"
 
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/stretchr/testify/require"
 )
 
 func TestSqlStore_FilterPeers(t *testing.T) {
-	runTestForAllEnginesNoSqliteSeed(t, "../testdata/peers_pagination.sql", func(t *testing.T, engine string, store Store) {
+	runTestForAllEnginesNoSqliteSeed(t, func(e types.Engine) string { return "../testdata/peers_pagination.sql" }, func(t *testing.T, engine string, store Store) {
 		require.NoError(t, store.RegisterInstance(context.Background(), "instance-1", "host"))
 		for _, peerID := range []string{"peer-id-one", "peer-id-two"} {
 			applied, err := store.ConnectPeer(context.Background(), "account-1", peerID, "instance-1", 1)
@@ -150,7 +151,7 @@ func TestSqlStore_FilterPeers(t *testing.T) {
 }
 
 func TestSqlStore_PeersPaging(t *testing.T) {
-	runTestForAllEnginesNoSqliteSeed(t, "../testdata/peers_pagination.sql", func(t *testing.T, engine string, store Store) {
+	runTestForAllEnginesNoSqliteSeed(t, func(e types.Engine) string { return "../testdata/peers_pagination.sql" }, func(t *testing.T, engine string, store Store) {
 		var tests = []struct {
 			description    string
 			page           int
@@ -195,7 +196,7 @@ func TestSqlStore_PeersPaging(t *testing.T) {
 }
 
 func TestSqlStore_PeersSorting(t *testing.T) {
-	runTestForAllEnginesNoSqliteSeed(t, "../testdata/peers_pagination.sql", func(t *testing.T, engine string, store Store) {
+	runTestForAllEnginesNoSqliteSeed(t, func(e types.Engine) string { return "../testdata/peers_pagination.sql" }, func(t *testing.T, engine string, store Store) {
 		var tests = []struct {
 			description    string
 			sorting        PeerSorting

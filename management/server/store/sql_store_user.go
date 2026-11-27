@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
+	"github.com/netbirdio/netbird/util/crypt"
 )
 
 // SaveUsers saves the given list of users to the database.
@@ -131,6 +134,7 @@ func (s *SqlStore) GetAccountUsers(ctx context.Context, lockStrength LockingStre
 	}
 
 	var users []*types.User
+
 	result := tx.Find(&users, accountIDCondition, accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -147,6 +151,168 @@ func (s *SqlStore) GetAccountUsers(ctx context.Context, lockStrength LockingStre
 	}
 
 	return users, nil
+}
+
+func (s *SqlStore) GetAccountUsersPaginated(ctx context.Context,
+	lockStrength LockingStrength,
+	accountID string,
+	pagination PaginationState,
+	filters UserFilters,
+	sorting UserSorting,
+) ([]*types.User, int, error) {
+	engine := s.conn.Engine()
+
+	// A fresh statement per query keeps the page's LIMIT/OFFSET out of the count.
+	listedUsers := func() *gorm.DB {
+		tx := s.db
+		if lockStrength != LockingStrengthNone {
+			tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+		}
+		tx = whereBool(tx.Where(accountIDCondition, accountID), "users.non_deletable", false)
+		return filters.AsConditions(tx, engine, s.fieldEncrypt)
+	}
+
+	var users []*types.User
+	{
+		query := listedUsers()
+		query = pagination.AsScope(query)
+		query = sorting.AsOrderBy(query)
+
+		if err := query.Find(&users).Error; err != nil {
+			log.WithContext(ctx).Errorf("failed to get users from the store: %s", err)
+			return nil, 0, status.Errorf(status.Internal, "failed to get users from store")
+		}
+	}
+
+	var count int64
+	{
+		if err := listedUsers().Table("users").Select("count(distinct(users.id))").Count(&count).Error; err != nil {
+			log.WithContext(ctx).Errorf("failed to get total number of users from the store: %s", err)
+			return nil, 0, status.Errorf(status.Internal, "failed to get total number of users from store")
+		}
+	}
+
+	for _, user := range users {
+		if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, 0, fmt.Errorf("decrypt user: %w", err)
+		}
+	}
+
+	if filters.Name != "" {
+		// the name filter also matches some users by chance; they are still counted
+		users = slices.DeleteFunc(users, func(user *types.User) bool { return !user.MatchesName(filters.Name) })
+	}
+
+	return users, int(count), nil
+}
+
+// UserFilters narrows the users GetAccountUsersPaginated lists. Empty fields don't filter.
+type UserFilters struct {
+	// Name matches part of the name and Email the whole email, ignoring case.
+	Name            string
+	Email           string
+	ServiceUser     *bool
+	PendingApproval *bool
+	Roles           []types.UserRole
+	// GroupIDs matches users with any of these groups in their auto groups.
+	GroupIDs []string
+	UserIDs  []string
+}
+
+// AsConditions adds the filters to a users query.
+func (f *UserFilters) AsConditions(db *gorm.DB, engine types.Engine, enc *crypt.FieldEncrypt) *gorm.DB {
+	if f.Name != "" {
+		for i, bits := range types.NameFilter(enc, f.Name) {
+			if bits != 0 {
+				db = db.Where(fmt.Sprintf("(users.name_hash_%d & ?) = ?", i+1), bits, bits)
+			}
+		}
+	}
+	if f.Email != "" {
+		db = db.Where("users.email_hash = ?", types.EmailSearchHash(enc, f.Email))
+	}
+	if f.ServiceUser != nil {
+		db = whereBool(db, "users.is_service_user", *f.ServiceUser)
+	}
+	if f.PendingApproval != nil {
+		db = whereBool(db, "users.pending_approval", *f.PendingApproval)
+	}
+	if len(f.Roles) > 0 {
+		db = db.Where("users.role IN ?", f.Roles)
+	}
+	if len(f.GroupIDs) > 0 {
+		db = db.Where(autoGroupsMatchAnyCondition(engine), f.GroupIDs)
+	}
+	if len(f.UserIDs) > 0 {
+		db = db.Where("users.id IN ?", f.UserIDs)
+	}
+	return db
+}
+
+// whereBool matches a boolean column, counting NULL as false.
+func whereBool(db *gorm.DB, column string, value bool) *gorm.DB {
+	if value {
+		return db.Where(column+" = ?", true)
+	}
+	return db.Where("("+column+" = ? OR "+column+" IS NULL)", false)
+}
+
+// autoGroupsMatchAnyCondition matches users whose auto groups contain any of the given group IDs.
+// The auto groups are a JSON array in a text column; any other value counts as no groups.
+func autoGroupsMatchAnyCondition(engine types.Engine) string {
+	if engine == types.PostgresStoreEngine {
+		return `EXISTS (SELECT 1 FROM jsonb_array_elements_text(CASE WHEN users.auto_groups LIKE '[%' THEN users.auto_groups::jsonb ELSE '[]'::jsonb END) AS auto_group(id) WHERE auto_group.id IN ?)`
+	}
+	return `EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(users.auto_groups) THEN users.auto_groups ELSE '[]' END) AS auto_group WHERE auto_group.value IN ?)`
+}
+
+// UserSortByField is a field the users listing can be sorted by.
+type UserSortByField int
+
+const (
+	UserSortByIsCurrent UserSortByField = iota
+	UserSortByRole
+	UserSortByLastLogin
+)
+
+// UserSortingKey is one sort field and its direction.
+type UserSortingKey struct {
+	Field UserSortByField
+	Order OrderBy
+}
+
+// UserSorting orders the users GetAccountUsersPaginated lists. The id always comes last,
+// so pages stay stable.
+type UserSorting struct {
+	// CurrentUserID is the user the is_current field refers to.
+	CurrentUserID string
+	Fields        []UserSortingKey
+}
+
+// AsOrderBy adds the sort fields to a users query.
+func (s *UserSorting) AsOrderBy(db *gorm.DB) *gorm.DB {
+	// TODO: sort by name. Names are encrypted at rest, so SQL can't order them.
+	var columns []string
+	var vars []any
+	for _, key := range s.Fields {
+		direction := " ASC"
+		if key.Order == DescOrderBy {
+			direction = " DESC"
+		}
+		switch key.Field {
+		case UserSortByIsCurrent:
+			columns = append(columns, "CASE WHEN users.id = ? THEN 1 ELSE 0 END"+direction)
+			vars = append(vars, s.CurrentUserID)
+		case UserSortByRole:
+			columns = append(columns, "users.role"+direction)
+		case UserSortByLastLogin:
+			// users who never logged in come last in both directions, as engines order NULLs differently
+			columns = append(columns, "CASE WHEN users.last_login IS NULL THEN 1 ELSE 0 END", "users.last_login"+direction)
+		}
+	}
+	columns = append(columns, "users.id")
+
+	return db.Order(clause.OrderBy{Expression: clause.Expr{SQL: strings.Join(columns, ", "), Vars: vars}})
 }
 
 func (s *SqlStore) GetAccountOwner(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.User, error) {
@@ -311,11 +477,19 @@ func (s *SqlStore) FillUserEmailAndName(ctx context.Context, accountID, userID, 
 		return fmt.Errorf("encrypt user email and name: %w", err)
 	}
 
+	// SET expressions read the row as it was before the update.
+	ifEmpty := func(field, column string, value any) clause.Expr {
+		return gorm.Expr("CASE WHEN COALESCE("+field+", '') = '' THEN ? ELSE "+column+" END", value)
+	}
 	result := s.db.Model(&types.User{}).
 		Where(accountAndIDQueryCondition, accountID, userID).
 		Updates(map[string]any{
-			"email": gorm.Expr("COALESCE(NULLIF(email, ''), ?)", encrypted.Email),
-			"name":  gorm.Expr("COALESCE(NULLIF(name, ''), ?)", encrypted.Name),
+			"email":       gorm.Expr("COALESCE(NULLIF(email, ''), ?)", encrypted.Email),
+			"name":        gorm.Expr("COALESCE(NULLIF(name, ''), ?)", encrypted.Name),
+			"email_hash":  ifEmpty("email", "email_hash", encrypted.EmailHash),
+			"name_hash_1": ifEmpty("name", "name_hash_1", encrypted.NameHash1),
+			"name_hash_2": ifEmpty("name", "name_hash_2", encrypted.NameHash2),
+			"name_hash_3": ifEmpty("name", "name_hash_3", encrypted.NameHash3),
 		})
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to fill user email and name: %s", result.Error)

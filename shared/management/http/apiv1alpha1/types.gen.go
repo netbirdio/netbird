@@ -226,6 +226,20 @@ type PeerRequest struct {
 	Ipv6 *string `json:"ipv6,omitempty"`
 }
 
+type UserBatch struct {
+	// UserCount Total number of users.
+	// UserCount example value is defined in the OpenAPI schema.
+	UserCount int `json:"user_count"`
+	// Page Current page number.
+	// Page example value is defined in the OpenAPI schema.
+	Page int `json:"page"`
+	// PageSize Page size.
+	// PageSize example value is defined in the OpenAPI schema.
+	PageSize int `json:"page_size"`
+	// Users List of users.
+	Users []User `json:"users"`
+}
+
 // UserStatus User's status.
 // UserStatus example value is defined in the OpenAPI schema.
 type UserStatus string
@@ -281,34 +295,6 @@ type User struct {
 	// IdpId example value is defined in the OpenAPI schema.
 	IdpId       *string          `json:"idp_id,omitempty"`
 	Permissions *UserPermissions `json:"permissions,omitempty"`
-}
-
-type UserCreateRequest struct {
-	// Email User's Email to send invite to.
-	// Email example value is defined in the OpenAPI schema.
-	Email *string `json:"email,omitempty"`
-	// Name User's full name.
-	// Name example value is defined in the OpenAPI schema.
-	Name *string `json:"name,omitempty"`
-	// Role User's NetBird account role.
-	// Role example value is defined in the OpenAPI schema.
-	Role string `json:"role"`
-	// AutoGroups Group IDs to auto-assign to peers registered by this user.
-	AutoGroups []string `json:"auto_groups"`
-	// IsServiceUser Is true if this user is a service user.
-	// IsServiceUser example value is defined in the OpenAPI schema.
-	IsServiceUser bool `json:"is_service_user"`
-}
-
-type UserRequest struct {
-	// Role User's NetBird account role.
-	// Role example value is defined in the OpenAPI schema.
-	Role string `json:"role"`
-	// AutoGroups Group IDs to auto-assign to peers registered by this user.
-	AutoGroups []string `json:"auto_groups"`
-	// IsBlocked If set to true then user is blocked and can't use the system.
-	// IsBlocked example value is defined in the OpenAPI schema.
-	IsBlocked bool `json:"is_blocked"`
 }
 
 type UserPermissionsModulesAdditionalProperty struct {

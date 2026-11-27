@@ -1110,6 +1110,58 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 	return am.BuildUserInfosForAccount(ctx, accountID, initiatorUserID, accountUsers)
 }
 
+// GetUsersFromAccountPaginated returns one page of the account's users in store order, with the
+// total number of users matching the filters. Callers without users read permission get only themselves.
+func (am *DefaultAccountManager) GetUsersFromAccountPaginated(ctx context.Context, accountID, initiatorUserID string,
+	pagination store.PaginationState, filters store.UserFilters, sorting store.UserSorting) ([]*types.UserInfo, int, error) {
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Read)
+	if err != nil {
+		return nil, 0, status.NewPermissionValidationError(err)
+	}
+
+	var user *types.User
+	if initiatorUserID != activity.SystemInitiator {
+		result, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, initiatorUserID)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to get user: %w", err)
+		}
+		user = result
+	}
+
+	if !allowed {
+		// users without read access see only themselves, through the same query and filters
+		if user == nil || user.AccountID != accountID {
+			return []*types.UserInfo{}, 0, nil
+		}
+		if len(filters.UserIDs) > 0 && !slices.Contains(filters.UserIDs, user.Id) {
+			return []*types.UserInfo{}, 0, nil
+		}
+		filters.UserIDs = []string{user.Id}
+	}
+
+	sorting.CurrentUserID = initiatorUserID
+
+	start := time.Now()
+	accountUsers, count, err := am.Store.GetAccountUsersPaginated(ctx, store.LockingStrengthNone, accountID, pagination, filters, sorting)
+	if err != nil {
+		return nil, 0, err
+	}
+	log.WithContext(ctx).Tracef("Got %d users from account %s after %s", len(accountUsers), accountID, time.Since(start))
+
+	infos, err := am.BuildUserInfosForAccount(ctx, accountID, initiatorUserID, accountUsers)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	users := make([]*types.UserInfo, 0, len(accountUsers))
+	for _, u := range accountUsers {
+		if info, ok := infos[u.Id]; ok {
+			users = append(users, info)
+		}
+	}
+	return users, count, nil
+}
+
 // BuildUserInfosForAccount builds user info for the given account.
 func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, accountID, _ string, accountUsers []*types.User) (map[string]*types.UserInfo, error) {
 	var queriedUsers []*idp.UserData

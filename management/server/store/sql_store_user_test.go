@@ -344,6 +344,207 @@ func TestSqlStore_SaveUsers_LargeBatch(t *testing.T) {
 	require.Equal(t, 8002, len(accountUsers))
 }
 
+func TestSqlStore_GetAccountUsersPaginated(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+		// The seed holds two regular users. Add enough to span several pages, a few
+		// service users, and one non-deletable user that must never be listed.
+		var users []*types.User
+		for i := range 7 {
+			users = append(users, types.NewUser(fmt.Sprintf("paged-user-%02d", i), types.UserRoleUser, false, false, "", []string{}, types.UserIssuedAPI, "", ""))
+		}
+		for i := range 3 {
+			users = append(users, types.NewUser(fmt.Sprintf("paged-service-%02d", i), types.UserRoleUser, true, false, "svc", []string{}, types.UserIssuedAPI, "", ""))
+		}
+		nonDeletable := types.NewUser("paged-non-deletable", types.UserRoleAdmin, true, true, "integration", []string{"grp-a"}, types.UserIssuedIntegration, "", "")
+		users = append(users, nonDeletable)
+		for _, u := range users {
+			u.AccountID = accountID
+		}
+
+		// Names and emails are encrypted at rest.
+		key, err := crypt.GenerateKey()
+		require.NoError(t, err)
+		fieldEncrypt, err := crypt.NewFieldEncrypt(key)
+		require.NoError(t, err)
+		store.SetFieldEncrypt(fieldEncrypt)
+		users[0].Name, users[0].Email = "Alice Smith", "alice@example.com"
+		users[1].Name, users[1].Email = "Bob Smithson", "bob@corp.example"
+		users[2].Name, users[2].Email = "Carol", "carol.smith@example.com"
+		users[7].ServiceUserName = "Smith Bot"
+		nonDeletable.ServiceUserName = "smith-integration"
+
+		// Vary the fields the filters and sorts use. The seed's admin user has the auto group
+		// cfefqs706sqkneg59g3g, and neither seed user has logged in or has pending_approval set.
+		loginTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+		users[0].Role, users[0].AutoGroups, users[0].LastLogin = types.UserRoleAdmin, []string{"grp-a"}, new(loginTime.Add(time.Hour))
+		users[1].Role, users[1].AutoGroups, users[1].PendingApproval = types.UserRoleNetworkAdmin, []string{"grp-a", "grp-b"}, true
+		users[2].AutoGroups, users[2].LastLogin = []string{"grp-b"}, new(loginTime.Add(2*time.Hour))
+		require.NoError(t, store.SaveUsers(ctx, users))
+
+		// auto_groups can hold a value that isn't a JSON array; such users have no groups.
+		db := store.(*SqlStore).db
+		require.NoError(t, db.Exec("UPDATE users SET auto_groups = ? WHERE id = ?", "null", users[3].Id).Error)
+		require.NoError(t, db.Exec("UPDATE users SET auto_groups = ? WHERE id = ?", "", users[4].Id).Error)
+		require.NoError(t, db.Exec("UPDATE users SET auto_groups = NULL WHERE id = ?", users[5].Id).Error)
+
+		const listedUsers = 12
+
+		listIDs := func(t *testing.T, pagination PaginationState, filters UserFilters, sorting UserSorting) ([]string, int) {
+			t.Helper()
+			got, count, err := store.GetAccountUsersPaginated(ctx, LockingStrengthNone, accountID, pagination, filters, sorting)
+			require.NoError(t, err)
+			ids := make([]string, 0, len(got))
+			for _, u := range got {
+				ids = append(ids, u.Id)
+			}
+			return ids, count
+		}
+		allUsers := PaginationState{Page: 1, PageSize: 100}
+		const seedAdmin, seedUser = "edafee4e-63fb-11ec-90d6-0242ac120003", "f4f6d672-63fb-11ec-90d6-0242ac120003"
+
+		t.Run("pages cover every listed user once, in id order", func(t *testing.T) {
+			var ids []string
+			for page, wantLen := range []int{5, 5, 2} {
+				got, count, err := store.GetAccountUsersPaginated(ctx, LockingStrengthNone, accountID,
+					PaginationState{Page: page + 1, PageSize: 5}, UserFilters{}, UserSorting{})
+				require.NoError(t, err)
+				assert.Equal(t, listedUsers, count, "total count on page %d", page+1)
+				assert.Len(t, got, wantLen, "users on page %d", page+1)
+				for _, u := range got {
+					ids = append(ids, u.Id)
+				}
+			}
+
+			assert.Len(t, ids, listedUsers, "users across all pages")
+			assert.True(t, slices.IsSorted(ids), "users should be ordered by id across pages, got %v", ids)
+			assert.Len(t, slices.Compact(slices.Clone(ids)), listedUsers, "no user should appear on two pages")
+			assert.NotContains(t, ids, nonDeletable.Id, "non-deletable users must not be listed")
+		})
+
+		t.Run("service_user filter", func(t *testing.T) {
+			for _, tc := range []struct {
+				serviceUser bool
+				want        int
+			}{
+				{serviceUser: true, want: 3},
+				{serviceUser: false, want: 9},
+			} {
+				got, count, err := store.GetAccountUsersPaginated(ctx, LockingStrengthNone, accountID,
+					PaginationState{Page: 1, PageSize: 100}, UserFilters{ServiceUser: &tc.serviceUser}, UserSorting{})
+				require.NoError(t, err)
+				assert.Equal(t, tc.want, count, "total count with service_user=%v", tc.serviceUser)
+				assert.Len(t, got, tc.want, "users with service_user=%v", tc.serviceUser)
+				for _, u := range got {
+					assert.Equal(t, tc.serviceUser, u.IsServiceUser, "user %s with service_user=%v", u.Id, tc.serviceUser)
+				}
+			}
+		})
+
+		t.Run("role filter matches any of the roles", func(t *testing.T) {
+			ids, count := listIDs(t, allUsers, UserFilters{Roles: []types.UserRole{types.UserRoleAdmin, types.UserRoleNetworkAdmin}}, UserSorting{})
+			assert.Equal(t, []string{seedAdmin, "paged-user-00", "paged-user-01"}, ids, "admins and network admins, without the non-deletable admin")
+			assert.Equal(t, 3, count, "total count with the role filter")
+		})
+
+		t.Run("pending_approval filter counts unset as false", func(t *testing.T) {
+			ids, count := listIDs(t, allUsers, UserFilters{PendingApproval: new(true)}, UserSorting{})
+			assert.Equal(t, []string{"paged-user-01"}, ids, "users pending approval")
+			assert.Equal(t, 1, count, "total count with pending_approval=true")
+
+			ids, count = listIDs(t, allUsers, UserFilters{PendingApproval: new(false)}, UserSorting{})
+			assert.Equal(t, listedUsers-1, count, "total count with pending_approval=false")
+			assert.Contains(t, ids, seedUser, "a seed user with pending_approval unset is not pending")
+			assert.NotContains(t, ids, "paged-user-01", "a pending user is excluded")
+		})
+
+		t.Run("user_ids filter", func(t *testing.T) {
+			ids, count := listIDs(t, allUsers, UserFilters{UserIDs: []string{"paged-user-05", "paged-user-00", nonDeletable.Id, "no-such-user"}}, UserSorting{})
+			assert.Equal(t, []string{"paged-user-00", "paged-user-05"}, ids, "listed users with the requested ids")
+			assert.Equal(t, 2, count, "total count with the user_ids filter")
+		})
+
+		t.Run("group_ids filter matches any auto group", func(t *testing.T) {
+			for _, tc := range []struct {
+				groups []string
+				want   []string
+			}{
+				{groups: []string{"grp-a"}, want: []string{"paged-user-00", "paged-user-01"}},
+				{groups: []string{"grp-b", "cfefqs706sqkneg59g3g"}, want: []string{seedAdmin, "paged-user-01", "paged-user-02"}},
+				{groups: []string{"no-such-group"}, want: []string{}},
+			} {
+				ids, count := listIDs(t, allUsers, UserFilters{GroupIDs: tc.groups}, UserSorting{})
+				assert.Equal(t, tc.want, ids, "users with any of the groups %v", tc.groups)
+				assert.Equal(t, len(tc.want), count, "total count with the groups %v", tc.groups)
+			}
+		})
+
+		t.Run("name and email search", func(t *testing.T) {
+			for _, tc := range []struct {
+				name    string
+				filters UserFilters
+				want    []string
+			}{
+				{name: "name, ignoring case and matching service user names", filters: UserFilters{Name: "SMITH"}, want: []string{"paged-service-00", "paged-user-00", "paged-user-01"}},
+				{name: "name across words", filters: UserFilters{Name: "ice sm"}, want: []string{"paged-user-00"}},
+				{name: "name nobody has", filters: UserFilters{Name: "jones"}, want: []string{}},
+				{name: "whole email, ignoring case", filters: UserFilters{Email: "Alice@Example.COM"}, want: []string{"paged-user-00"}},
+				{name: "part of an email", filters: UserFilters{Email: "example.com"}, want: []string{}},
+				{name: "name and email", filters: UserFilters{Name: "smith", Email: "bob@corp.example"}, want: []string{"paged-user-01"}},
+				{name: "name and service_user", filters: UserFilters{Name: "smith", ServiceUser: new(false)}, want: []string{"paged-user-00", "paged-user-01"}},
+			} {
+				ids, count := listIDs(t, allUsers, tc.filters, UserSorting{})
+				assert.Equal(t, tc.want, ids, "users matching %s", tc.name)
+				assert.Equal(t, len(tc.want), count, "total count matching %s", tc.name)
+			}
+		})
+
+		t.Run("search pages and sorts the matches", func(t *testing.T) {
+			var ids []string
+			for page, wantLen := range []int{2, 1, 0} {
+				got, count := listIDs(t, PaginationState{Page: page + 1, PageSize: 2}, UserFilters{Name: "smith"}, UserSorting{})
+				assert.Equal(t, 3, count, "total count on page %d", page+1)
+				assert.Len(t, got, wantLen, "matches on page %d", page+1)
+				ids = append(ids, got...)
+			}
+			assert.Equal(t, []string{"paged-service-00", "paged-user-00", "paged-user-01"}, ids, "matches across pages")
+
+			sorting := UserSorting{Fields: []UserSortingKey{{Field: UserSortByLastLogin, Order: DescOrderBy}}}
+			ids, _ = listIDs(t, allUsers, UserFilters{Name: "smith"}, sorting)
+			assert.Equal(t, []string{"paged-user-00", "paged-service-00", "paged-user-01"}, ids, "the user who logged in, then the rest by id")
+		})
+
+		t.Run("is_current sorts the current user first", func(t *testing.T) {
+			sorting := UserSorting{CurrentUserID: "paged-user-04", Fields: []UserSortingKey{{Field: UserSortByIsCurrent, Order: DescOrderBy}}}
+			ids, _ := listIDs(t, PaginationState{Page: 1, PageSize: 3}, UserFilters{}, sorting)
+			assert.Equal(t, []string{"paged-user-04", seedAdmin, seedUser}, ids, "the current user, then the rest by id")
+		})
+
+		t.Run("role sort breaks ties by id", func(t *testing.T) {
+			sorting := UserSorting{Fields: []UserSortingKey{{Field: UserSortByRole, Order: AscOrderBy}}}
+			ids, _ := listIDs(t, PaginationState{Page: 1, PageSize: 4}, UserFilters{}, sorting)
+			assert.Equal(t, []string{seedAdmin, "paged-user-00", "paged-user-01", seedUser}, ids, "admins, then network admins, then users, each by id")
+		})
+
+		t.Run("last_login sort puts users who never logged in last", func(t *testing.T) {
+			for _, tc := range []struct {
+				order OrderBy
+				want  []string
+			}{
+				{order: DescOrderBy, want: []string{"paged-user-02", "paged-user-00", seedAdmin, seedUser}},
+				{order: AscOrderBy, want: []string{"paged-user-00", "paged-user-02", seedAdmin, seedUser}},
+			} {
+				sorting := UserSorting{Fields: []UserSortingKey{{Field: UserSortByLastLogin, Order: tc.order}}}
+				page1, _ := listIDs(t, PaginationState{Page: 1, PageSize: 2}, UserFilters{}, sorting)
+				page2, _ := listIDs(t, PaginationState{Page: 2, PageSize: 2}, UserFilters{}, sorting)
+				assert.Equal(t, tc.want, append(page1, page2...), "first two pages with last_login order %v", tc.order)
+			}
+		})
+	})
+}
+
 func TestSqlStore_SaveUserLastLogin(t *testing.T) {
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
@@ -430,6 +631,15 @@ func TestSqlStore_FillUserEmailAndName(t *testing.T) {
 	require.NoError(t, store.(*SqlStore).db.Table("users").Select("email, name").Where("id = ?", userID).First(&raw).Error)
 	assert.NotEqual(t, "alice@example.com", raw.Email, "email must be stored encrypted")
 	assert.NotEqual(t, "Alice", raw.Name, "name must be stored encrypted")
+
+	search := func(filters UserFilters) int {
+		_, count, err := store.GetAccountUsersPaginated(ctx, LockingStrengthNone, accountID, PaginationState{Page: 1, PageSize: 10}, filters, UserSorting{})
+		require.NoError(t, err)
+		return count
+	}
+	assert.Equal(t, 1, search(UserFilters{Email: "alice@example.com"}), "the filled email should be searchable")
+	assert.Equal(t, 1, search(UserFilters{Name: "alice"}), "the filled name should be searchable")
+	assert.Zero(t, search(UserFilters{Name: "bob"}), "a name that wasn't filled should not be searchable")
 }
 
 func TestSqlStore_GetUsersMissingEmailOrName(t *testing.T) {

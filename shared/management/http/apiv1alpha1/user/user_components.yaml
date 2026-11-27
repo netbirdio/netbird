@@ -76,6 +76,31 @@ components:
         - status
         - is_blocked
         - pending_approval
+    UserBatch:
+      type: object
+      properties:
+        user_count:
+          description: Total number of users
+          type: integer
+          example: 5
+        page:
+          description: Current page number
+          type: integer
+          example: 5
+        page_size:
+          description: Page size
+          type: integer
+          example: 5
+        users:
+          description: List of users
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+      required:
+        - user_count
+        - page
+        - page_size
+        - users
     UserPermissions:
       type: object
       properties:
@@ -98,53 +123,3 @@ components:
       required:
         - modules
         - is_restricted
-    UserRequest:
-      type: object
-      properties:
-        role:
-          description: User's NetBird account role
-          type: string
-          example: admin
-        auto_groups:
-          description: Group IDs to auto-assign to peers registered by this user
-          type: array
-          items:
-            type: string
-            example: ch8i4ug6lnn4g9hqv7m0
-        is_blocked:
-          description: If set to true then user is blocked and can't use the system
-          type: boolean
-          example: false
-      required:
-        - role
-        - auto_groups
-        - is_blocked
-    UserCreateRequest:
-      type: object
-      properties:
-        email:
-          description: User's Email to send invite to
-          type: string
-          example: demo@netbird.io
-        name:
-          description: User's full name
-          type: string
-          example: Tom Schulz
-        role:
-          description: User's NetBird account role
-          type: string
-          example: admin
-        auto_groups:
-          description: Group IDs to auto-assign to peers registered by this user
-          type: array
-          items:
-            type: string
-            example: ch8i4ug6lnn4g9hqv7m0
-        is_service_user:
-          description: Is true if this user is a service user
-          type: boolean
-          example: false
-      required:
-        - role
-        - auto_groups
-        - is_service_user

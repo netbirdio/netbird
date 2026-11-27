@@ -6,13 +6,14 @@ import (
 	"time"
 
 	rpproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestSaveProxy_EnforcesAccountIDMatch(t *testing.T) {
-	runTestForAllEnginesNoSqliteSeed(t, "", func(t *testing.T, engine string, store Store) {
+	runTestForAllEnginesNoSqliteSeed(t, func(types.Engine) string { return "" }, func(t *testing.T, engine string, store Store) {
 		ctx := context.Background()
 
 		for _, proxy := range []*rpproxy.Proxy{

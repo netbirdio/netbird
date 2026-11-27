@@ -437,3 +437,36 @@ func TestMaskEmail(t *testing.T) {
 	}
 
 }
+
+func TestUser_SearchHashes(t *testing.T) {
+	key, err := crypt.GenerateKey()
+	require.NoError(t, err)
+	enc, err := crypt.NewFieldEncrypt(key)
+	require.NoError(t, err)
+
+	covers := func(name, text string) bool {
+		nameFilter, textFilter := NameFilter(enc, name), NameFilter(enc, text)
+		for i := range nameFilter {
+			if nameFilter[i]&textFilter[i] != textFilter[i] {
+				return false
+			}
+		}
+		return true
+	}
+	// A name's filter must cover anything the name contains, or search would miss the user.
+	for _, text := range []string{"olivia", "SMITH", "via sm", "livia smit"} {
+		assert.True(t, covers("Olivia Smith", text), "the name filter should cover %q", text)
+	}
+	assert.False(t, covers("Olivia Smith", "jones"), "the name filter should not cover text the name doesn't contain")
+
+	email := EmailSearchHash(enc, "olivia@example.com")
+	assert.Equal(t, email, EmailSearchHash(enc, " Olivia@Example.COM "), "the email hash should ignore case and spaces")
+	assert.NotEqual(t, email, EmailSearchHash(enc, "example.com"), "part of an email should hash differently")
+	assert.NotEqual(t, email, EmailSearchHash(nil, "olivia@example.com"), "the hash should be keyed")
+
+	user := &User{IsServiceUser: true, ServiceUserName: "Deploy Bot", Email: "olivia@example.com"}
+	require.NoError(t, user.EncryptSensitiveData(enc))
+	assert.Equal(t, NameFilter(enc, "Deploy Bot"), [3]int64{user.NameHash1, user.NameHash2, user.NameHash3}, "service users should be searched by their service user name")
+	assert.Equal(t, email, user.EmailHash, "encrypting should hash the plaintext email")
+	assert.True(t, user.MatchesName("BOT"), "service users should match on their service user name")
+}
