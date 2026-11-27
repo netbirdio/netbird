@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -149,20 +150,54 @@ func (d *DnsInterceptor) addAllowedIPForPrefix(realPrefix netip.Prefix, peerKey 
 	return nil
 }
 
-// addRouteAndAllowedIP handles both route and AllowedIPs addition for a prefix
-func (d *DnsInterceptor) addRouteAndAllowedIP(realPrefix netip.Prefix, domain domain.Domain) error {
-	// Routes use fake IPs (so traffic to fake IPs gets routed to interface)
-	routePrefix := d.transformRealToFakePrefix(realPrefix)
-	if _, err := d.routeRefCounter.Increment(routePrefix, struct{}{}); err != nil {
-		return fmt.Errorf("add route for IP %s: %v", routePrefix, err)
+// addRoutesAndAllowedIPs handles both route and AllowedIPs addition for the prefixes
+// and returns the ones whose route was accepted. A prefix the route validation
+// refused must not be remembered, otherwise AddAllowedIPs would later install it
+// for the routing peer without any check.
+func (d *DnsInterceptor) addRoutesAndAllowedIPs(realPrefixes []netip.Prefix, domain domain.Domain) ([]netip.Prefix, error) {
+	var addedPrefixes []netip.Prefix
+	var merr *multierror.Error
+
+	for _, realPrefix := range realPrefixes {
+		// Routes use fake IPs (so traffic to fake IPs gets routed to interface)
+		routePrefix := d.transformRealToFakePrefix(realPrefix)
+		if _, err := d.routeRefCounter.Increment(routePrefix, struct{}{}); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("add route for IP %s: %v", routePrefix, err))
+			continue
+		}
+		addedPrefixes = append(addedPrefixes, realPrefix)
+
+		// Add to AllowedIPs if we have a current peer (uses real IPs)
+		if d.currentPeerKey == "" {
+			continue
+		}
+		if err := d.addAllowedIPForPrefix(realPrefix, d.currentPeerKey, domain); err != nil {
+			merr = multierror.Append(merr, err)
+		}
 	}
 
-	// Add to AllowedIPs if we have a current peer (uses real IPs)
-	if d.currentPeerKey == "" {
-		return nil
+	return addedPrefixes, merr.ErrorOrNil()
+}
+
+// isRoutableAddr reports whether an address answered by the routing peer may be
+// routed through it. Addresses inside the overlay network belong to peers and
+// must never become another peer's AllowedIP; the other classes mirror the
+// route validation of the system ops, which does not run in netstack mode.
+func (d *DnsInterceptor) isRoutableAddr(addr netip.Addr) bool {
+	switch {
+	case
+		!addr.IsValid(),
+		addr.IsLoopback(),
+		addr.IsLinkLocalUnicast(),
+		addr.IsLinkLocalMulticast(),
+		addr.IsInterfaceLocalMulticast(),
+		addr.IsMulticast(),
+		addr.IsUnspecified():
+		return false
 	}
 
-	return d.addAllowedIPForPrefix(realPrefix, d.currentPeerKey, domain)
+	wgAddr := d.wgInterface.Address()
+	return !wgAddr.Network.Contains(addr) && !(wgAddr.IPv6Net.IsValid() && wgAddr.IPv6Net.Contains(addr))
 }
 
 // removeAllowedIP handles AllowedIPs removal for a prefix (uses real IPs)
@@ -310,57 +345,7 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg, logger *log.
 	r.MsgHdr.Zero = false
 
 	if len(r.Answer) > 0 && len(r.Question) > 0 {
-		origPattern := ""
-		if writer, ok := w.(*nbdns.ResponseWriterChain); ok {
-			origPattern = writer.GetOrigPattern()
-		}
-
-		resolvedDomain := domain.Domain(strings.ToLower(r.Question[0].Name))
-
-		// already punycode via RegisterHandler()
-		originalDomain := domain.Domain(origPattern)
-		if originalDomain == "" {
-			originalDomain = resolvedDomain
-		}
-
-		var newPrefixes []netip.Prefix
-		for _, answer := range r.Answer {
-			var ip netip.Addr
-			switch rr := answer.(type) {
-			case *dns.A:
-				addr, ok := netip.AddrFromSlice(rr.A)
-				if !ok {
-					logger.Tracef("failed to convert A record for domain=%s ip=%v", resolvedDomain, rr.A)
-					continue
-				}
-				ip = addr
-			case *dns.AAAA:
-				addr, ok := netip.AddrFromSlice(rr.AAAA)
-				if !ok {
-					logger.Tracef("failed to convert AAAA record for domain=%s ip=%v", resolvedDomain, rr.AAAA)
-					continue
-				}
-				ip = addr
-			default:
-				continue
-			}
-
-			prefix := netip.PrefixFrom(ip.Unmap(), ip.BitLen())
-			newPrefixes = append(newPrefixes, prefix)
-		}
-
-		if len(newPrefixes) > 0 {
-			if err := d.updateDomainPrefixes(resolvedDomain, originalDomain, newPrefixes, logger); err != nil {
-				logger.Errorf("failed to update domain prefixes: %v", err)
-			}
-
-			// Allow time for route changes to be applied before sending
-			// the DNS response (relevant on iOS where setTunnelNetworkSettings
-			// is asynchronous).
-			waitForRouteSettlement(logger)
-
-			d.replaceIPsInDNSResponse(r, newPrefixes, logger)
-		}
+		d.reconcileAnswer(w, r, logger)
 	}
 
 	if err := w.WriteMsg(r); err != nil {
@@ -368,6 +353,73 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg, logger *log.
 	}
 
 	return nil
+}
+
+// reconcileAnswer updates the routes of the answered domain to the addresses of the
+// response that are routable via the peer, and swaps them for fake IPs where used.
+func (d *DnsInterceptor) reconcileAnswer(w dns.ResponseWriter, r *dns.Msg, logger *log.Entry) {
+	origPattern := ""
+	if writer, ok := w.(*nbdns.ResponseWriterChain); ok {
+		origPattern = writer.GetOrigPattern()
+	}
+
+	resolvedDomain := domain.Domain(strings.ToLower(r.Question[0].Name))
+
+	// already punycode via RegisterHandler()
+	originalDomain := domain.Domain(origPattern)
+	if originalDomain == "" {
+		originalDomain = resolvedDomain
+	}
+
+	newPrefixes, rejected := d.routablePrefixes(r.Answer, resolvedDomain, logger)
+
+	// An answer whose addresses were all rejected still reconciles, so the
+	// routes of an earlier accepted answer are withdrawn.
+	if len(newPrefixes) == 0 && !rejected {
+		return
+	}
+
+	accepted, err := d.updateDomainPrefixes(resolvedDomain, originalDomain, newPrefixes, logger)
+	if err != nil {
+		logger.Errorf("failed to update domain prefixes: %v", err)
+	}
+
+	// Allow time for route changes to be applied before sending
+	// the DNS response (relevant on iOS where setTunnelNetworkSettings
+	// is asynchronous).
+	waitForRouteSettlement(logger)
+
+	if len(newPrefixes) > 0 {
+		d.replaceIPsInDNSResponse(r, accepted, logger)
+	}
+}
+
+// routablePrefixes returns the host prefixes of the A and AAAA answers that are routable
+// via the peer, and whether any such answer was refused.
+func (d *DnsInterceptor) routablePrefixes(answers []dns.RR, resolvedDomain domain.Domain, logger *log.Entry) ([]netip.Prefix, bool) {
+	var prefixes []netip.Prefix
+	var rejected bool
+	for _, answer := range answers {
+		ip, ok := answerAddr(answer, resolvedDomain, logger)
+		if !ok {
+			continue
+		}
+
+		ip = ip.Unmap()
+		if !d.isRoutableAddr(ip) {
+			rejected = true
+			logger.Warnf("ignoring a DNS answer address from the routing peer: not routable via peer")
+			logger.Debugf("ignoring address %s answered for domain=%s by the routing peer: not routable via peer", ip, resolvedDomain.SafeString())
+			continue
+		}
+
+		// A repeated address must be counted once, the route counter is incremented per prefix
+		prefix := netip.PrefixFrom(ip, ip.BitLen())
+		if !slices.Contains(prefixes, prefix) {
+			prefixes = append(prefixes, prefix)
+		}
+	}
+	return prefixes, rejected
 }
 
 // logPrefixChanges handles the logging for prefix changes
@@ -386,7 +438,10 @@ func (d *DnsInterceptor) logPrefixChanges(resolvedDomain, originalDomain domain.
 	}
 }
 
-func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain domain.Domain, newPrefixes []netip.Prefix, logger *log.Entry) error {
+// updateDomainPrefixes reconciles the routes of the domain with newPrefixes and returns
+// a copy of the prefixes the domain holds a route for once it is done. The copy belongs
+// to this reconciliation, a concurrent answer for the same domain does not change it.
+func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain domain.Domain, newPrefixes []netip.Prefix, logger *log.Entry) ([]netip.Prefix, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -411,47 +466,72 @@ func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain dom
 	}
 
 	// Add new prefixes
-	for _, prefix := range toAdd {
-		if err := d.addRouteAndAllowedIP(prefix, resolvedDomain); err != nil {
-			merr = multierror.Append(merr, err)
-		}
+	added, err := d.addRoutesAndAllowedIPs(toAdd, resolvedDomain)
+	if err != nil {
+		merr = multierror.Append(merr, err)
 	}
 
+	// Only prefixes that were accepted keep their mapping, a refused one could never be cleaned up
+	for fakeIP, realIP := range dnatMappings {
+		if !slices.Contains(added, netip.PrefixFrom(realIP, realIP.BitLen())) {
+			delete(dnatMappings, fakeIP)
+		}
+	}
 	d.addDNATMappings(dnatMappings, logger)
 
+	var removed []netip.Prefix
 	if !d.route.KeepRoute {
-		// Remove old prefixes
-		for _, prefix := range toRemove {
-			// Routes use fake IPs
-			routePrefix := d.transformRealToFakePrefix(prefix)
-			if _, err := d.routeRefCounter.Decrement(routePrefix); err != nil {
-				merr = multierror.Append(merr, fmt.Errorf("remove route for IP %s: %v", routePrefix, err))
-			}
-			// AllowedIPs use real IPs
-			if err := d.removeAllowedIP(prefix); err != nil {
-				merr = multierror.Append(merr, err)
-			}
+		var removeErr error
+		removed, removeErr = d.removePrefixes(toRemove, logger)
+		if removeErr != nil {
+			merr = multierror.Append(merr, removeErr)
 		}
-
-		d.removeDNATMappings(toRemove, logger)
 	}
 
-	// Update domain prefixes using resolved domain as key - store real IPs
-	if len(toAdd) > 0 || len(toRemove) > 0 {
-		if d.route.KeepRoute {
-			// nolint:gocritic
-			newPrefixes = append(oldPrefixes, toAdd...)
-		}
+	// Update domain prefixes using resolved domain as key - store real IPs,
+	// but only the ones that were accepted, so that a refused prefix is never
+	// replayed by AddAllowedIPs. A prefix whose route could not be removed stays
+	// tracked, the route counter still holds its reference.
+	if len(added) > 0 || len(removed) > 0 {
+		newPrefixes = slices.Clone(oldPrefixes)
+		newPrefixes = slices.DeleteFunc(newPrefixes, func(prefix netip.Prefix) bool {
+			return slices.Contains(removed, prefix)
+		})
+		newPrefixes = append(newPrefixes, added...)
 		d.interceptedDomains[resolvedDomain] = newPrefixes
 		originalDomain = domain.Domain(strings.TrimSuffix(string(originalDomain), "."))
 
 		// Store real IPs for status (user-facing), not fake IPs
 		d.statusRecorder.UpdateResolvedDomainsStates(originalDomain, resolvedDomain, newPrefixes, d.route.GetResourceID())
 
-		d.logPrefixChanges(resolvedDomain, originalDomain, toAdd, toRemove, logger)
+		d.logPrefixChanges(resolvedDomain, originalDomain, toAdd, removed, logger)
 	}
 
-	return nberrors.FormatErrorOrNil(merr)
+	return slices.Clone(d.interceptedDomains[resolvedDomain]), nberrors.FormatErrorOrNil(merr)
+}
+
+// removePrefixes withdraws the route, the AllowedIP and the DNAT mapping of each prefix and
+// returns the prefixes whose route was removed. A prefix whose route removal failed keeps all
+// of its state, so a later answer or removal still sees the reference the counter holds.
+func (d *DnsInterceptor) removePrefixes(toRemove []netip.Prefix, logger *log.Entry) ([]netip.Prefix, error) {
+	var merr *multierror.Error
+	var removed []netip.Prefix
+	for _, prefix := range toRemove {
+		// Routes use fake IPs
+		routePrefix := d.transformRealToFakePrefix(prefix)
+		if _, err := d.routeRefCounter.Decrement(routePrefix); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("remove route for IP %s: %v", routePrefix, err))
+			continue
+		}
+		removed = append(removed, prefix)
+		// AllowedIPs use real IPs
+		if err := d.removeAllowedIP(prefix); err != nil {
+			merr = multierror.Append(merr, err)
+		}
+	}
+
+	d.removeDNATMappings(removed, logger)
+	return removed, nberrors.FormatErrorOrNil(merr)
 }
 
 // removeDNATMappings removes DNAT mappings from the firewall for real IP prefixes
@@ -518,32 +598,39 @@ func (d *DnsInterceptor) cleanupDNATMappings() {
 }
 
 // replaceIPsInDNSResponse replaces real IPs with fake IPs in the DNS response
-func (d *DnsInterceptor) replaceIPsInDNSResponse(reply *dns.Msg, realPrefixes []netip.Prefix, logger *log.Entry) {
+func (d *DnsInterceptor) replaceIPsInDNSResponse(reply *dns.Msg, accepted []netip.Prefix, logger *log.Entry) {
 	if _, ok := d.internalDnatFw(); !ok {
 		return
 	}
+	d.rewriteToFakeIPs(reply, accepted, logger)
+}
 
-	// Replace A and AAAA records with fake IPs
+// rewriteToFakeIPs swaps the A and AAAA answers whose host prefix is in accepted for
+// their fake IPs. An address without an accepted route keeps its real IP, since its
+// fake IP has no route or DNAT mapping behind it.
+func (d *DnsInterceptor) rewriteToFakeIPs(reply *dns.Msg, accepted []netip.Prefix, logger *log.Entry) {
+	fakeFor := func(ip net.IP) (netip.Addr, netip.Addr, bool) {
+		realIP, ok := netip.AddrFromSlice(ip)
+		if !ok {
+			return netip.Addr{}, netip.Addr{}, false
+		}
+		realIP = realIP.Unmap()
+		if !slices.Contains(accepted, netip.PrefixFrom(realIP, realIP.BitLen())) {
+			return netip.Addr{}, netip.Addr{}, false
+		}
+		fakeIP, exists := d.fakeIPManager.GetFakeIP(realIP)
+		return realIP, fakeIP, exists
+	}
+
 	for _, answer := range reply.Answer {
 		switch rr := answer.(type) {
 		case *dns.A:
-			realIP, ok := netip.AddrFromSlice(rr.A)
-			if !ok {
-				continue
-			}
-
-			if fakeIP, exists := d.fakeIPManager.GetFakeIP(realIP); exists {
+			if realIP, fakeIP, ok := fakeFor(rr.A); ok {
 				rr.A = fakeIP.AsSlice()
 				logger.Tracef("replaced real IP %s with fake IP %s in DNS response", realIP, fakeIP)
 			}
-
 		case *dns.AAAA:
-			realIP, ok := netip.AddrFromSlice(rr.AAAA)
-			if !ok {
-				continue
-			}
-
-			if fakeIP, exists := d.fakeIPManager.GetFakeIP(realIP); exists {
+			if realIP, fakeIP, ok := fakeFor(rr.AAAA); ok {
 				rr.AAAA = fakeIP.AsSlice()
 				logger.Tracef("replaced real IP %s with fake IP %s in DNS response", realIP, fakeIP)
 			}
@@ -620,4 +707,24 @@ func (d *DnsInterceptor) debugPeerTimeout(peerIP netip.Addr, peerKey string) str
 	}
 
 	return fmt.Sprintf(" (peer %s)", nbdns.FormatPeerStatus(&peerState))
+}
+
+// answerAddr extracts the address of an A or AAAA record.
+func answerAddr(answer dns.RR, resolvedDomain domain.Domain, logger *log.Entry) (netip.Addr, bool) {
+	switch rr := answer.(type) {
+	case *dns.A:
+		addr, ok := netip.AddrFromSlice(rr.A)
+		if !ok {
+			logger.Tracef("failed to convert A record for domain=%s ip=%v", resolvedDomain, rr.A)
+		}
+		return addr, ok
+	case *dns.AAAA:
+		addr, ok := netip.AddrFromSlice(rr.AAAA)
+		if !ok {
+			logger.Tracef("failed to convert AAAA record for domain=%s ip=%v", resolvedDomain, rr.AAAA)
+		}
+		return addr, ok
+	default:
+		return netip.Addr{}, false
+	}
 }
