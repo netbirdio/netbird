@@ -128,7 +128,7 @@ func main() {
 	// After bundle + prefStore: both are used to localise daemon errors.
 	profiles := services.NewProfiles(conn, bundle, prefStore)
 	update := services.NewUpdate(conn, updaterHolder, bundle, prefStore)
-	settings := services.NewSettings(conn, bundle, prefStore, daemonAddr)
+	settings := services.NewSettings(conn, bundle, prefStore, daemonAddr, app.Event)
 	connection := services.NewConnection(conn, bundle, prefStore)
 	profileSwitcher := services.NewProfileSwitcher(profiles, connection, daemonFeed)
 	// authsession.Session owns the full extend + dismiss surface the tray

@@ -46,6 +46,9 @@ const EventBrowserLoginCancel = "browser-login:cancel"
 // EventSettingsOpen tells the mounted settings window which tab to show.
 const EventSettingsOpen = "netbird:settings:open"
 
+// EventSettingsSaved fires after the daemon accepted a config save from the settings window.
+const EventSettingsSaved = "netbird:settings:saved"
+
 const EventWindowPainted = "netbird:window-painted"
 
 // generationParam carries the painted-report token in each dialog's start URL.
