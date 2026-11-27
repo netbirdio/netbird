@@ -119,19 +119,18 @@ func (s *headerBufferingStream) Send(msg *sigProto.EncryptedMessage) error {
 
 type headerBufferingSignalServer struct {
 	*server.Server
-	dropFirstSend atomic.Bool
+	registrationDelay time.Duration
 }
 
-// Send can drop the first message while still acknowledging it, as the server
-// does for a heartbeat that arrives before the stream is registered.
-func (s *headerBufferingSignalServer) Send(ctx context.Context, msg *sigProto.EncryptedMessage) (*sigProto.EncryptedMessage, error) {
-	if s.dropFirstSend.CompareAndSwap(true, false) {
-		return &sigProto.EncryptedMessage{}, nil
-	}
-	return s.Server.Send(ctx, msg)
+// Send acknowledges and drops every message, as Signal does for a heartbeat that
+// arrives before the stream is registered, so only the stream can release the header.
+func (s *headerBufferingSignalServer) Send(context.Context, *sigProto.EncryptedMessage) (*sigProto.EncryptedMessage, error) {
+	return &sigProto.EncryptedMessage{}, nil
 }
 
+// ConnectStream registers the peer after registrationDelay, like a Signal under load.
 func (s *headerBufferingSignalServer) ConnectStream(stream sigProto.SignalExchange_ConnectStreamServer) error {
+	time.Sleep(s.registrationDelay)
 	return s.Server.ConnectStream(&headerBufferingStream{SignalExchange_ConnectStreamServer: stream})
 }
 
@@ -140,22 +139,21 @@ func (s *headerBufferingSignalServer) ConnectStream(stream sigProto.SignalExchan
 // sending anything, the client must produce that message itself instead of
 // timing out on every attempt.
 func TestReceiveRegistersWhenProxyBuffersHeaders(t *testing.T) {
-	t.Run("first heartbeat delivered", func(t *testing.T) {
-		testRegistersBehindHeaderBuffering(t, false)
+	t.Run("fast registration", func(t *testing.T) {
+		testRegistersBehindHeaderBuffering(t, 0)
 	})
-	// A heartbeat that loses the race with the registration is dropped; the
-	// next one must still release the header.
-	t.Run("first heartbeat dropped", func(t *testing.T) {
-		testRegistersBehindHeaderBuffering(t, true)
+	// The probe is written before Signal registers the peer: it must wait on the
+	// stream instead of being lost.
+	t.Run("slow registration", func(t *testing.T) {
+		testRegistersBehindHeaderBuffering(t, 500*time.Millisecond)
 	})
 }
 
-func testRegistersBehindHeaderBuffering(t *testing.T, dropFirstSend bool) {
+func testRegistersBehindHeaderBuffering(t *testing.T, registrationDelay time.Duration) {
 	t.Helper()
 	realServer, err := server.NewServer(context.Background(), otel.Meter(""))
 	require.NoError(t, err)
-	srv := &headerBufferingSignalServer{Server: realServer}
-	srv.dropFirstSend.Store(dropFirstSend)
+	srv := &headerBufferingSignalServer{Server: realServer, registrationDelay: registrationDelay}
 	addr := serveTestSignalExchange(t, srv)
 
 	key, err := wgtypes.GenerateKey()
@@ -168,7 +166,6 @@ func testRegistersBehindHeaderBuffering(t *testing.T, dropFirstSend bool) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Close() })
 	client.registrationTimeout = 2 * time.Second
-	client.registrationProbeInterval = 200 * time.Millisecond
 
 	// Stop Receive before Close runs (cleanups are LIFO), so the two never overlap.
 	receiveDone := make(chan struct{})
@@ -186,12 +183,90 @@ func testRegistersBehindHeaderBuffering(t *testing.T, dropFirstSend bool) {
 		client.WaitStreamConnected(ctx)
 		close(streamReady)
 	}()
-	// Registering within the first stream's timeout proves the heartbeats
-	// released the header, not a retry on a new stream.
+	// Registering within the first stream's timeout proves the probe released
+	// the header, not a retry on a new stream.
 	select {
 	case <-streamReady:
 	case <-time.After(client.registrationTimeout):
 		t.Fatal("client never registered while the proxy withheld the header")
 	}
 	require.True(t, client.StreamConnected(), "client should report a registered stream")
+}
+
+// legacyStream hides the registration probe header from Signal, as a Signal
+// released before the probe existed never looks at it.
+type legacyStream struct {
+	sigProto.SignalExchange_ConnectStreamServer
+	ctx context.Context
+}
+
+func (s *legacyStream) Context() context.Context { return s.ctx }
+
+type legacySignalServer struct {
+	*server.Server
+}
+
+func (s *legacySignalServer) ConnectStream(stream sigProto.SignalExchange_ConnectStreamServer) error {
+	md, _ := metadata.FromIncomingContext(stream.Context())
+	md = md.Copy()
+	md.Delete(sigProto.HeaderRegistrationProbe)
+	ctx := metadata.NewIncomingContext(stream.Context(), md)
+	return s.Server.ConnectStream(&legacyStream{SignalExchange_ConnectStreamServer: stream, ctx: ctx})
+}
+
+// TestReceiveRegistersWithSignalIgnoringTheProbe keeps a new client working
+// against a Signal that never echoes the probe, when no proxy holds the header:
+// the header arrives on its own and the unread probe must not get in the way.
+func TestReceiveRegistersWithSignalIgnoringTheProbe(t *testing.T) {
+	realServer, err := server.NewServer(context.Background(), otel.Meter(""))
+	require.NoError(t, err)
+	addr := serveTestSignalExchange(t, &legacySignalServer{Server: realServer})
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	client, err := NewClient(ctx, addr, key, false)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+	client.registrationTimeout = 2 * time.Second
+
+	// Stop Receive before Close runs (cleanups are LIFO), so the two never overlap.
+	receiveDone := make(chan struct{})
+	go func() {
+		defer close(receiveDone)
+		_ = client.Receive(ctx, func(*sigProto.Message) error { return nil })
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-receiveDone
+	})
+
+	streamReady := make(chan struct{})
+	go func() {
+		client.WaitStreamConnected(ctx)
+		close(streamReady)
+	}()
+	select {
+	case <-streamReady:
+	case <-time.After(client.registrationTimeout):
+		t.Fatal("client never registered with a Signal that ignores the probe")
+	}
+	require.True(t, client.StreamConnected(), "client should report a registered stream")
+}
+
+// TestRegistrationTimeoutIsJittered checks that clients draw different
+// registration timeouts within the jitter window, so a fleet that connected to a
+// slow Signal together does not give up and reconnect together.
+func TestRegistrationTimeoutIsJittered(t *testing.T) {
+	seen := map[time.Duration]bool{}
+	for i := 0; i < 20; i++ {
+		timeout := jitteredRegistrationTimeout()
+		require.GreaterOrEqual(t, timeout, defaultRegistrationTimeout, "timeout below the base")
+		require.Less(t, timeout, defaultRegistrationTimeout+registrationTimeoutJitter, "timeout past the jitter window")
+		seen[timeout] = true
+	}
+	require.Greater(t, len(seen), 1, "clients must not share one timeout")
 }

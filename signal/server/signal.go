@@ -52,6 +52,7 @@ const (
 	labelRoute       = "route"
 	labelRouteLocal  = "local"
 	labelRouteRemote = "remote"
+	labelRouteStream = "stream"
 
 	sendTimeout = 10 * time.Second
 
@@ -201,12 +202,42 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 
 	log.Debugf("peer connected [%s] [streamID %d] [authenticated: %t]", p.Id, p.StreamID, p.Authenticated)
 
+	if wantsRegistrationProbeEcho(stream.Context()) {
+		go s.echoRegistrationProbe(p)
+	}
+
 	select {
 	case <-stream.Context().Done():
 		log.Debugf("peer stream closing [%s] [streamID %d] ", p.Id, p.StreamID)
 		return nil
 	case <-ctx.Done():
 		return ErrPeerRegisteredAgain
+	}
+}
+
+// wantsRegistrationProbeEcho reports whether the client writes a registration
+// probe on its stream and expects it back.
+func wantsRegistrationProbeEcho(ctx context.Context) bool {
+	values := metadata.ValueFromIncomingContext(ctx, proto.HeaderRegistrationProbe)
+	return len(values) > 0 && values[0] == "1"
+}
+
+// echoRegistrationProbe reads the first message the client writes on its stream and
+// echoes it if it is from and to the stream's peer. Anything else is dropped:
+// forwarding it would skip the per-message authentication of Send. It reads one
+// message only, so no reader outlives the registration.
+func (s *Server) echoRegistrationProbe(p *peer.Peer) {
+	msg, err := p.Stream.Recv()
+	if err != nil {
+		return
+	}
+	if msg.GetKey() != p.Id || msg.GetRemoteKey() != p.Id {
+		log.Tracef("dropping a stream message from peer [%s] that is not a probe", p.Id)
+		return
+	}
+	s.metrics.ProbeMessages.Add(p.Stream.Context(), 1, metric.WithAttributes(attribute.String(labelRoute, labelRouteStream)))
+	if err := p.Send(msg); err != nil {
+		log.Tracef("failed to echo the registration probe to peer [%s]: %v", p.Id, err)
 	}
 }
 
