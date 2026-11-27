@@ -329,8 +329,9 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		return mapError(ctx, err)
 	}
 
+	aligned := alignedHeartbeatAnswer(syncReq, peerKey)
 	trackChallenge := func() { s.accountManager.TrackCertificateChallenges(ctx, accountID, peer.ID, syncStart) }
-	err = s.sendInitialSync(ctx, peerKey, peer, netMap, postureChecks, srv, dnsFwdPort, settings, trackChallenge)
+	err = s.sendInitialSync(ctx, peerKey, peer, netMap, postureChecks, srv, dnsFwdPort, settings, aligned, trackChallenge)
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while sending initial sync for %s: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
@@ -368,7 +369,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	return PeerUpdateHandlerFactory(peerKey, updates, s.secretsManager, s.challenger,
 		trackChallenge,
 		srv, func() { s.cancelPeerRoutines(ctx, accountID, peer, syncStart, updates) }).
-		WithMetrics(s.appMetrics).HandleUpdates(ctx)
+		WithMetrics(s.appMetrics).WithAlignedHeartbeat(aligned).HandleUpdates(ctx)
 }
 
 func (s *Server) handleHandshake(ctx context.Context, srv proto.ManagementService_JobServer) (wgtypes.Key, error) {
@@ -969,7 +970,7 @@ func (s *Server) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Empty,
 }
 
 // sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
-func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, networkMap *types.NetworkMap, postureChecks []*nmdata.PostureChecks, srv proto.ManagementService_SyncServer, dnsFwdPort int64, settings *types.Settings, onChallengeStamped func()) error {
+func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, networkMap *types.NetworkMap, postureChecks []*nmdata.PostureChecks, srv proto.ManagementService_SyncServer, dnsFwdPort int64, settings *types.Settings, aligned *alignedHeartbeat, onChallengeStamped func()) error {
 	var err error
 	var turnToken *Token
 
@@ -1025,6 +1026,7 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 		plainResp = ToSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, types.TwinPeer(peer), turnToken, relayToken, networkMap, dnsName, postureChecks, nil, types.TwinAccountSettings(settings), settings.Extra, peerGroups, dnsFwdPort)
 	}
 
+	setAlignedHeartbeatConfig(plainResp, aligned)
 	setAuthToken(plainResp.NetbirdConfig, authToken)
 
 	key, err := s.secretsManager.GetWGKey()

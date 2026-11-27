@@ -23,6 +23,7 @@ type Metrics struct {
 	TransferBytesRecv    metric.Int64Counter
 	AuthenticationTime   metric.Float64Histogram
 	PeerStoreTime        metric.Float64Histogram
+	AlignedPeers         metric.Int64UpDownCounter
 	peerReconnections    metric.Int64Counter
 	peerProtocolVersions metric.Int64Counter
 	peers                metric.Int64UpDownCounter
@@ -49,6 +50,13 @@ func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 
 	peers, err := meter.Int64UpDownCounter("relay_peers",
 		metric.WithDescription("Number of connected peers"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	alignedPeers, err := meter.Int64UpDownCounter("relay_aligned_peers",
+		metric.WithDescription("Number of connected peers with the aligned heartbeat"),
 	)
 	if err != nil {
 		return nil, err
@@ -104,6 +112,7 @@ func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 		TransferBytesRecv:    bytesRecv,
 		AuthenticationTime:   authTime,
 		PeerStoreTime:        peerStoreTime,
+		AlignedPeers:         alignedPeers,
 		peers:                peers,
 		peerReconnections:    peerReconnections,
 		peerProtocolVersions: peerProtocolVersions,
@@ -147,6 +156,22 @@ func (m *Metrics) RecordAuthenticationTime(duration time.Duration) {
 // RecordPeerStoreTime measures the time to store the peer in map
 func (m *Metrics) RecordPeerStoreTime(duration time.Duration) {
 	m.PeerStoreTime.Record(m.ctx, float64(duration.Nanoseconds())/1e6)
+}
+
+// AlignedPeerConnected counts one more peer with the aligned heartbeat.
+func (m *Metrics) AlignedPeerConnected() {
+	if m == nil || m.AlignedPeers == nil {
+		return
+	}
+	m.AlignedPeers.Add(m.ctx, 1)
+}
+
+// AlignedPeerDisconnected counts one peer with the aligned heartbeat less.
+func (m *Metrics) AlignedPeerDisconnected() {
+	if m == nil || m.AlignedPeers == nil {
+		return
+	}
+	m.AlignedPeers.Add(m.ctx, -1)
 }
 
 // PeerDisconnected decrements the number of connected peers and decrements number of idle or active connections

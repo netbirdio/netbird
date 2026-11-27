@@ -963,3 +963,64 @@ func Test_LoginAndSyncReuseRequestSettings(t *testing.T) {
 	}, 5*time.Second, 50*time.Millisecond)
 	require.Zero(t, counting.reads.Load(), "sync must not read settings through the account manager")
 }
+
+// A Sync stream that asks for the aligned heartbeat gets the clamped period
+// in the peer config of its first response. A stream without the
+// capability gets no aligned config.
+func Test_SyncAlignedHeartbeatAnswer(t *testing.T) {
+	mgmtServer, _, mgmtAddr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", &config.Config{
+		Datadir: t.TempDir(),
+	})
+	defer cleanup()
+	require.NoError(t, err)
+	defer mgmtServer.GracefulStop()
+
+	client, clientConn, err := createRawClient(mgmtAddr)
+	require.NoError(t, err)
+	defer clientConn.Close()
+	serverKey, err := getServerKey(client)
+	require.NoError(t, err)
+
+	firstResponse := func(t *testing.T, req *mgmtProto.SyncRequest) *mgmtProto.SyncResponse {
+		t.Helper()
+		key, err := wgtypes.GeneratePrivateKey()
+		require.NoError(t, err)
+		_, err = loginPeerWithValidSetupKey(key, client)
+		require.NoError(t, err)
+		message, err := encryption.EncryptMessage(*serverKey, key, req)
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		t.Cleanup(cancel)
+		sync, err := client.Sync(ctx, &mgmtProto.EncryptedMessage{WgPubKey: key.PublicKey().String(), Body: message})
+		require.NoError(t, err)
+		encrypted := &mgmtProto.EncryptedMessage{}
+		require.NoError(t, sync.RecvMsg(encrypted))
+		resp := &mgmtProto.SyncResponse{}
+		require.NoError(t, encryption.DecryptMessage(*serverKey, key, encrypted.Body, resp))
+		return resp
+	}
+
+	aligned := firstResponse(t, &mgmtProto.SyncRequest{
+		Meta: &mgmtProto.PeerSystemMeta{
+			Capabilities: []mgmtProto.PeerCapability{mgmtProto.PeerCapability_PeerCapabilityAlignedHeartbeat},
+		},
+		AlignedHeartbeat: &mgmtProto.AlignedHeartbeatRequest{PeriodSeconds: 1},
+	})
+	for name, cfg := range map[string]*mgmtProto.AlignedHeartbeatConfig{
+		"top level":   aligned.GetPeerConfig().GetAlignedHeartbeat(),
+		"network map": aligned.GetNetworkMap().GetPeerConfig().GetAlignedHeartbeat(),
+	} {
+		require.NotNil(t, cfg, "%s peer config must carry the aligned answer", name)
+		require.True(t, cfg.GetEnabled(), "%s: enabled", name)
+		require.Equal(t, uint32(30), cfg.GetPeriodSeconds(), "%s: the 1 s request is clamped to 30 s", name)
+	}
+
+	stock := firstResponse(t, &mgmtProto.SyncRequest{
+		Meta:             &mgmtProto.PeerSystemMeta{},
+		AlignedHeartbeat: &mgmtProto.AlignedHeartbeatRequest{PeriodSeconds: 60},
+	})
+	require.NotNil(t, stock.GetPeerConfig(), "the stock response has a peer config")
+	require.Nil(t, stock.GetPeerConfig().GetAlignedHeartbeat(), "no capability, no aligned answer")
+	require.Nil(t, stock.GetNetworkMap().GetPeerConfig().GetAlignedHeartbeat(), "no capability, no aligned answer in the network map")
+}

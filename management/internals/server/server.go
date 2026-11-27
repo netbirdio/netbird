@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/metrics"
 	"github.com/netbirdio/netbird/management/server/store"
+	alignedka "github.com/netbirdio/netbird/shared/alignedhb/keepalive"
 	"github.com/netbirdio/netbird/shared/lifecycle"
 	"github.com/netbirdio/netbird/shared/profiling"
 	"github.com/netbirdio/netbird/util/wsproxy"
@@ -511,7 +512,12 @@ func (s *BaseServer) serveHTTP(ctx context.Context, httpListener net.Listener, h
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		err := http.Serve(httpListener, handler)
+		srv := &http.Server{
+			Handler: handler,
+			// Aligned heartbeat streams tune the TCP keepalive of their connection.
+			ConnContext: alignedka.ConnContext,
+		}
+		err := srv.Serve(httpListener)
 		if ctx.Err() != nil {
 			return
 		}
@@ -529,13 +535,20 @@ func (s *BaseServer) serveGRPCWithHTTP(ctx context.Context, listener net.Listene
 		defer s.wg.Done()
 		var err error
 		if tlsEnabled {
-			err = http.Serve(listener, handler)
+			srv := &http.Server{
+				Handler: handler,
+				// Aligned heartbeat streams tune the TCP keepalive of their connection.
+				ConnContext: alignedka.ConnContext,
+			}
+			err = srv.Serve(listener)
 		} else {
 			// the following magic is needed to support HTTP2 without TLS
 			// and still share a single port between gRPC and HTTP APIs
 			h1s := &http.Server{
 				//nolint:staticcheck // h2c also handles the HTTP/1 Upgrade mechanism, which http.Server's UnencryptedHTTP2 does not
 				Handler: h2c.NewHandler(handler, &http2.Server{MaxReadFrameSize: h2cMaxReadFrameSize}),
+				// Aligned heartbeat streams tune the TCP keepalive of their connection.
+				ConnContext: alignedka.ConnContext,
 			}
 			err = h1s.Serve(listener)
 		}

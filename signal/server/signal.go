@@ -17,8 +17,11 @@ import (
 
 	"github.com/netbirdio/signal-dispatcher/dispatcher"
 
+	"github.com/netbirdio/netbird/shared/alignedhb"
+	"github.com/netbirdio/netbird/shared/alignedhb/keepalive"
 	"github.com/netbirdio/netbird/shared/lifecycle"
 	"github.com/netbirdio/netbird/shared/profiling"
+	"github.com/netbirdio/netbird/shared/relay/messages"
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/signal/metrics"
 	"github.com/netbirdio/netbird/signal/peer"
@@ -75,6 +78,13 @@ type Server struct {
 	sendTimeout time.Duration
 
 	peerAuth *peerAuth
+}
+
+// alignedAnswer is the answer to an aligned heartbeat request: the clamped
+// period and the phase the server sends heartbeats on.
+type alignedAnswer struct {
+	period time.Duration
+	phase  time.Duration
 }
 
 // NewServer creates a new Signal server
@@ -152,7 +162,7 @@ func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.
 	}
 
 	s.recordReceived(ctx, msg, labelRouteRemote)
-	resp, err := s.dispatcher.SendMessage(ctx, msg)
+	resp, err := s.dispatcher.SendMessage(ctx, stripServerFields(msg))
 	if err != nil {
 		s.recordSendResult(ctx, labelRouteRemote, labelTypeDispatch)
 		return resp, err
@@ -192,14 +202,19 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 
 	defer s.DeregisterPeer(p)
 
+	answer := s.alignedHeartbeatAnswer(stream.Context(), p.Id)
+
 	// needed to confirm that the peer has been registered so that the client can proceed
-	err = stream.SendHeader(s.successHeader)
+	err = stream.SendHeader(s.registrationHeader(answer))
 	if err != nil {
 		s.metrics.RegistrationFailures.Add(stream.Context(), 1, metric.WithAttributes(attribute.String(labelError, labelErrorFailedHeader)))
 		return err
 	}
 
 	log.Debugf("peer connected [%s] [streamID %d] [authenticated: %t]", p.Id, p.StreamID, p.Authenticated)
+
+	stopHeartbeat := s.startAlignedHeartbeat(stream.Context(), p, answer)
+	defer stopHeartbeat()
 
 	select {
 	case <-stream.Context().Done():
@@ -259,6 +274,7 @@ func (s *Server) DeregisterPeer(p *peer.Peer) {
 // returns labelResultDelivered or the failure type.
 func (s *Server) forwardMessageToPeer(ctx context.Context, msg *proto.EncryptedMessage) string {
 	log.Tracef("forwarding a new message from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
+	msg = stripServerFields(msg)
 	getRegistrationStart := time.Now()
 
 	// lookup the target peer where the message is going to
@@ -311,4 +327,95 @@ func (s *Server) forwardMessageToPeer(ctx context.Context, msg *proto.EncryptedM
 		s.metrics.MessageForwardFailures.Add(ctx, 1, metric.WithAttributes(attribute.String(labelType, result)))
 	}
 	return result
+}
+
+// alignedHeartbeatAnswer reads the aligned heartbeat request from the stream
+// metadata and returns the answer for the peer. It is nil, and the stream
+// stays stock, when the client did not ask or sent a value this server
+// cannot read.
+func (s *Server) alignedHeartbeatAnswer(ctx context.Context, peerID string) *alignedAnswer {
+	v := metadata.ValueFromIncomingContext(ctx, alignedhb.MetadataKey)
+	if len(v) == 0 {
+		return nil
+	}
+	requested, err := alignedhb.ParseMetadataValue(v[0])
+	if err != nil {
+		log.Debugf("ignoring aligned heartbeat request from [%s]: %v", peerID, err)
+		return nil
+	}
+	period := alignedhb.ClampPeriod(requested)
+	if period != requested {
+		log.Debugf("aligned heartbeat period %s from [%s] clamped to %s", requested, peerID, period)
+	}
+	return &alignedAnswer{
+		period: period,
+		phase:  alignedhb.Phase(messages.HashID(peerID), period),
+	}
+}
+
+// registrationHeader returns the header that confirms the registration, with
+// the aligned heartbeat answer added when there is one.
+func (s *Server) registrationHeader(answer *alignedAnswer) metadata.MD {
+	if answer == nil {
+		return s.successHeader
+	}
+	return metadata.Join(s.successHeader, metadata.Pairs(alignedhb.MetadataKey, alignedhb.MetadataValue(answer.period)))
+}
+
+// startAlignedHeartbeat sends server heartbeats to the peer on the phase of
+// answer until the stream ends. It also sets the keepalive of the stream
+// connection and counts the stream on the gauge. A stream without an answer
+// never gets a heartbeat. Sends go through Peer.Send, so they never race
+// forwarded messages.
+func (s *Server) startAlignedHeartbeat(ctx context.Context, p *peer.Peer, answer *alignedAnswer) func() {
+	if answer == nil {
+		return func() {}
+	}
+	if err := keepalive.SetAlignedStream(ctx, answer.period); err != nil {
+		log.Debugf("aligned heartbeat keepalive for [%s]: %v", p.Id, err)
+	}
+	s.metrics.AlignedStreams.Add(ctx, 1)
+	hbCtx, cancel := context.WithCancel(ctx)
+	go func() {
+		ticks := alignedhb.Ticker(hbCtx, answer.period, answer.phase, time.Now)
+		for {
+			select {
+			case <-hbCtx.Done():
+				return
+			case <-ticks:
+				if err := p.Send(heartbeatMessage(p.Id)); err != nil {
+					log.Debugf("signal heartbeat to [%s] failed: %v", p.Id, err)
+					return
+				}
+				log.Tracef("sent signal heartbeat to [%s]", p.Id)
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		s.metrics.AlignedStreams.Add(ctx, -1)
+	}
+}
+
+// heartbeatMessage returns the server heartbeat for a peer. It has no sender
+// key and no body, so it never looks like a message from another peer.
+func heartbeatMessage(peerID string) *proto.EncryptedMessage {
+	return &proto.EncryptedMessage{
+		RemoteKey:       peerID,
+		ServerHeartbeat: &proto.ServerHeartbeat{},
+	}
+}
+
+// stripServerFields returns msg without the server heartbeat field. Only the
+// server writes a heartbeat, so it may never reach a peer: a forged
+// heartbeat would count as a Signal heartbeat on the victim. msg itself is
+// not changed.
+func stripServerFields(msg *proto.EncryptedMessage) *proto.EncryptedMessage {
+	if msg.GetServerHeartbeat() == nil {
+		return msg
+	}
+	log.Debugf("dropping server heartbeat field from peer [%s] to peer [%s]", msg.GetKey(), msg.GetRemoteKey())
+	out := gproto.Clone(msg).(*proto.EncryptedMessage)
+	out.ServerHeartbeat = nil
+	return out
 }

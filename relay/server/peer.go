@@ -12,6 +12,7 @@ import (
 	"github.com/netbirdio/netbird/relay/metrics"
 	"github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/relay/server/store"
+	"github.com/netbirdio/netbird/shared/alignedhb"
 	"github.com/netbirdio/netbird/shared/relay/healthcheck"
 	"github.com/netbirdio/netbird/shared/relay/messages"
 )
@@ -50,6 +51,10 @@ type Peer struct {
 	sendQueue chan *[]byte
 
 	peersListener *store.Listener
+
+	// alignedPeriod is the aligned heartbeat period accepted at the handshake, zero for a
+	// stock connection. It is set before the peer is stored and never changes after.
+	alignedPeriod time.Duration
 
 	// between the online peer collection step and the notification sending should not be sent offline notifications from another thread
 	notificationMutex sync.Mutex
@@ -91,7 +96,11 @@ func (p *Peer) Work() {
 
 	ctx := p.ctx
 
-	hc := healthcheck.NewSender(p.log)
+	if p.alignedPeriod > 0 {
+		p.metrics.AlignedPeerConnected()
+		defer p.metrics.AlignedPeerDisconnected()
+	}
+	hc := p.newHealthcheckSender()
 	go hc.StartHealthCheck(ctx)
 	go p.handleHealthcheckEvents(ctx, hc)
 	go p.sendLoop(ctx)
@@ -332,6 +341,18 @@ func (p *Peer) sendPeersWentOffline(peers []messages.PeerID) {
 			p.log.Errorf("failed to write %d. peers went offline message: %s", n, err)
 		}
 	}
+}
+
+// newHealthcheckSender returns the stock sender, or for an aligned connection one that
+// sends on the peer's phase from the start.
+func (p *Peer) newHealthcheckSender() *healthcheck.Sender {
+	if p.alignedPeriod == 0 {
+		return healthcheck.NewSender(p.log)
+	}
+	return healthcheck.NewAlignedSender(p.log, healthcheck.AlignedSchedule{
+		Period: p.alignedPeriod,
+		Phase:  alignedhb.Phase(p.id, p.alignedPeriod),
+	})
 }
 
 func (p *Peer) enqueueTransport(bufPtr *[]byte) {

@@ -23,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/shared/peerauth"
 
 	"github.com/netbirdio/netbird/encryption"
+	alignedka "github.com/netbirdio/netbird/shared/alignedhb/keepalive"
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/signal/server"
 	"github.com/netbirdio/netbird/util"
@@ -344,6 +345,8 @@ func serveHTTP(httpListener net.Listener, handler http.Handler) {
 		h1s := &http.Server{
 			//nolint:staticcheck // h2c also handles the HTTP/1 Upgrade mechanism, which http.Server's UnencryptedHTTP2 does not
 			Handler: h2c.NewHandler(handler, &http2.Server{MaxReadFrameSize: h2cMaxReadFrameSize}),
+			// Aligned heartbeat streams tune the TCP keepalive of their connection.
+			ConnContext: alignedka.ConnContext,
 		}
 		err := h1s.Serve(httpListener)
 		// Closing the listener on shutdown is not a failure.

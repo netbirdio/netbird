@@ -21,6 +21,7 @@ type GRPCMetrics struct {
 	loginRequestHighLatencyCounter   metric.Int64Counter
 	getKeyRequestsCounter            metric.Int64Counter
 	activeStreamsGauge               metric.Int64ObservableGauge
+	alignedStreamsGauge              metric.Int64UpDownCounter
 	syncRequestDuration              metric.Int64Histogram
 	syncRequestDurationP95ByAccount  metric.Int64Histogram
 	loginRequestDuration             metric.Int64Histogram
@@ -91,6 +92,14 @@ func NewGRPCMetrics(ctx context.Context, meter metric.Meter) (*GRPCMetrics, erro
 		return nil, err
 	}
 
+	alignedStreamsGauge, err := meter.Int64UpDownCounter("management.grpc.aligned.streams",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of active peer streams with the aligned heartbeat"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	syncRequestDuration, err := meter.Int64Histogram("management.grpc.sync.request.duration.ms",
 		metric.WithUnit("milliseconds"),
 		metric.WithDescription("Duration of the sync gRPC requests from the peers to establish a connection and receive network map updates (update channel)"),
@@ -147,6 +156,7 @@ func NewGRPCMetrics(ctx context.Context, meter metric.Meter) (*GRPCMetrics, erro
 		loginRequestHighLatencyCounter:   loginRequestHighLatencyCounter,
 		getKeyRequestsCounter:            getKeyRequestsCounter,
 		activeStreamsGauge:               activeStreamsGauge,
+		alignedStreamsGauge:              alignedStreamsGauge,
 		syncRequestDuration:              syncRequestDuration,
 		syncRequestDurationP95ByAccount:  syncRequestDurationP95ByAccount,
 		loginRequestDuration:             loginRequestDuration,
@@ -257,4 +267,20 @@ func (grpcMetrics *GRPCMetrics) RegisterConnectedStreams(producer func() int64) 
 // UpdateChannelQueueLength update the histogram that keep distribution of the update messages channel queue
 func (metrics *GRPCMetrics) UpdateChannelQueueLength(length int) {
 	metrics.channelQueueLength.Record(metrics.ctx, int64(length))
+}
+
+// IncAlignedStreams counts one more stream with the aligned heartbeat.
+func (grpcMetrics *GRPCMetrics) IncAlignedStreams() {
+	if grpcMetrics == nil || grpcMetrics.alignedStreamsGauge == nil {
+		return
+	}
+	grpcMetrics.alignedStreamsGauge.Add(grpcMetrics.ctx, 1)
+}
+
+// DecAlignedStreams counts one stream with the aligned heartbeat less.
+func (grpcMetrics *GRPCMetrics) DecAlignedStreams() {
+	if grpcMetrics == nil || grpcMetrics.alignedStreamsGauge == nil {
+		return
+	}
+	grpcMetrics.alignedStreamsGauge.Add(grpcMetrics.ctx, -1)
 }
