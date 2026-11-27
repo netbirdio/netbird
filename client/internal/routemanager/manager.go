@@ -518,11 +518,20 @@ func (m *DefaultManager) GetClientRoutes() route.HAMap {
 
 // GetSelectedClientRoutes returns only the currently selected/active client routes,
 // filtering out deselected exit nodes. Use this instead of GetClientRoutes when checking
-// if traffic should be routed through the tunnel.
+// if traffic should be routed through the tunnel. Empty while client routes are disabled.
 func (m *DefaultManager) GetSelectedClientRoutes() route.HAMap {
 	m.mux.Lock()
 	defer m.mux.Unlock()
 
+	return m.selectedClientRoutesLocked()
+}
+
+// selectedClientRoutesLocked expects m.mux to be held. UpdateRoutes keeps the client
+// routes while they are disabled, but installs none of them, so none counts as selected.
+func (m *DefaultManager) selectedClientRoutesLocked() route.HAMap {
+	if m.disableClientRoutes {
+		return route.HAMap{}
+	}
 	return m.routeSelector.FilterSelectedExitNodes(maps.Clone(m.clientRoutes))
 }
 
@@ -531,7 +540,7 @@ func (m *DefaultManager) GetSelectedClientRoutes() route.HAMap {
 // the one actively carrying the route (not just an HA sibling).
 func (m *DefaultManager) GetActiveClientRoutes() route.HAMap {
 	m.mux.Lock()
-	selected := m.routeSelector.FilterSelectedExitNodes(maps.Clone(m.clientRoutes))
+	selected := m.selectedClientRoutesLocked()
 	recorder := m.statusRecorder
 	m.mux.Unlock()
 
