@@ -300,16 +300,32 @@ func (s *Server) NotifyStatus(ctx context.Context, accountID types.AccountID, se
 	return err
 }
 
-// NotifyCertificateIssued sends a notification to management that a certificate was issued
+// NotifyCertificateIssued tells management that a service's certificate was issued,
+// in order with the service's other status updates. It returns once the update is
+// queued; a failed send is logged.
 func (s *Server) NotifyCertificateIssued(ctx context.Context, accountID types.AccountID, serviceID types.ServiceID, domain string) error {
-	_, err := s.mgmtClient.SendStatusUpdate(ctx, &proto.SendStatusUpdateRequest{
-		ServiceId:         string(serviceID),
-		AccountId:         string(accountID),
-		Status:            proto.ProxyStatus_PROXY_STATUS_ACTIVE,
-		CertificateIssued: true,
-		InboundListener:   s.inboundListenerProto(accountID),
+	return s.inStatusOrder(ctx, serviceID, func(ctx context.Context) error {
+		_, err := s.mgmtClient.SendStatusUpdate(ctx, &proto.SendStatusUpdateRequest{
+			ServiceId:         string(serviceID),
+			AccountId:         string(accountID),
+			Status:            proto.ProxyStatus_PROXY_STATUS_ACTIVE,
+			CertificateIssued: true,
+			InboundListener:   s.inboundListenerProto(accountID),
+		})
+		if err != nil {
+			s.Logger.Warnf("notify certificate ready for domain %q: %v", domain, err)
+		}
+		return err
 	})
-	return err
+}
+
+// inStatusOrder queues a status call to management behind the service's other
+// status updates, through the NetBird transport's queue when there is one.
+func (s *Server) inStatusOrder(ctx context.Context, serviceID types.ServiceID, call func(ctx context.Context) error) error {
+	if s.netbird == nil {
+		return call(ctx)
+	}
+	return s.netbird.SendStatus(ctx, serviceID, call)
 }
 
 // inboundListenerProto resolves the per-account inbound listener state for
@@ -1091,7 +1107,7 @@ func (s *Server) notifyError(ctx context.Context, mapping *proto.ProxyMapping, e
 	s.sendStatusUpdate(ctx, types.AccountID(mapping.GetAccountId()), types.ServiceID(mapping.GetId()), proto.ProxyStatus_PROXY_STATUS_ERROR, err)
 }
 
-// sendStatusUpdate sends a status update for a service to management.
+// sendStatusUpdate queues a status update for a service to management.
 func (s *Server) sendStatusUpdate(ctx context.Context, accountID types.AccountID, serviceID types.ServiceID, st proto.ProxyStatus, err error) {
 	req := &proto.SendStatusUpdateRequest{
 		ServiceId: string(serviceID),
@@ -1102,8 +1118,15 @@ func (s *Server) sendStatusUpdate(ctx context.Context, accountID types.AccountID
 		msg := err.Error()
 		req.ErrorMessage = &msg
 	}
-	if _, sendErr := s.mgmtClient.SendStatusUpdate(ctx, req); sendErr != nil {
-		s.Logger.Debugf("failed to send status update for %s: %v", serviceID, sendErr)
+	queueErr := s.inStatusOrder(ctx, serviceID, func(ctx context.Context) error {
+		_, sendErr := s.mgmtClient.SendStatusUpdate(ctx, req)
+		if sendErr != nil {
+			s.Logger.Debugf("failed to send status update for %s: %v", serviceID, sendErr)
+		}
+		return sendErr
+	})
+	if queueErr != nil {
+		s.Logger.Debugf("status update for %s dropped: %v", serviceID, queueErr)
 	}
 }
 
