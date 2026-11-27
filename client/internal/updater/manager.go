@@ -76,6 +76,10 @@ type Manager struct {
 	mu sync.Mutex
 
 	autoUpdateSupported func() bool
+
+	// notificationsDisabled reports whether new-version announcements are
+	// suppressed. Guarded by updateMutex; never call it with the lock held.
+	notificationsDisabled func() bool
 }
 
 // NewManager creates a new update manager. The manager is single-use: once Stop() is called, it cannot be restarted.
@@ -158,6 +162,15 @@ func (m *Manager) Start(ctx context.Context) {
 		defer m.wg.Done()
 		m.updateLoop(ctx)
 	}()
+}
+
+// SetNotificationsDisabled installs a predicate consulted every time the manager
+// would announce a new version. While it returns true the announcement is
+// dropped, but update detection and any pending install are left untouched.
+func (m *Manager) SetNotificationsDisabled(disabled func() bool) {
+	m.updateMutex.Lock()
+	m.notificationsDisabled = disabled
+	m.updateMutex.Unlock()
 }
 
 func (m *Manager) SetDownloadOnly() {
@@ -304,24 +317,12 @@ func (m *Manager) NotifyUI() {
 		if m.modeChanged(gen) {
 			return
 		}
-		m.statusRecorder.PublishEvent(
-			cProto.SystemEvent_INFO,
-			cProto.SystemEvent_SYSTEM,
-			"New version available",
-			"",
-			map[string]string{"new_version_available": latestVersion.String()},
-		)
+		m.announceVersion(latestVersion, false)
 		return
 	}
 
 	if pendingVersion != nil && !m.modeChanged(gen) {
-		m.statusRecorder.PublishEvent(
-			cProto.SystemEvent_INFO,
-			cProto.SystemEvent_SYSTEM,
-			"New version available",
-			"",
-			map[string]string{"new_version_available": pendingVersion.String(), "enforced": "true"},
-		)
+		m.announceVersion(pendingVersion, true)
 	}
 }
 
@@ -426,13 +427,7 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 	}
 
 	if mode == modeDownloadOnly {
-		m.statusRecorder.PublishEvent(
-			cProto.SystemEvent_INFO,
-			cProto.SystemEvent_SYSTEM,
-			"New version available",
-			"",
-			map[string]string{"new_version_available": updateVersion.String()},
-		)
+		m.announceVersion(updateVersion, false)
 		return
 	}
 
@@ -443,12 +438,32 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 		return
 	}
 
+	m.announceVersion(updateVersion, true)
+}
+
+// announceVersion publishes the new-version event the UI turns into its update
+// indicator, unless notifications are disabled by policy. enforced marks a
+// management-pinned version the user is asked to install.
+func (m *Manager) announceVersion(version *v.Version, enforced bool) {
+	m.updateMutex.Lock()
+	disabled := m.notificationsDisabled
+	m.updateMutex.Unlock()
+
+	if disabled != nil && disabled() {
+		log.Debugf("new version %s not announced: update notifications are disabled", version)
+		return
+	}
+
+	metadata := map[string]string{"new_version_available": version.String()}
+	if enforced {
+		metadata["enforced"] = "true"
+	}
 	m.statusRecorder.PublishEvent(
 		cProto.SystemEvent_INFO,
 		cProto.SystemEvent_SYSTEM,
 		"New version available",
 		"",
-		map[string]string{"new_version_available": updateVersion.String(), "enforced": "true"},
+		metadata,
 	)
 }
 

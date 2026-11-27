@@ -25,6 +25,7 @@ var allKeys = []string{
 	KeyDisableVNCApproval,
 	KeyDisableAutoConnect,
 	KeyDisableAutostart,
+	KeyDisableUpdateNotifications,
 	KeyPreSharedKey,
 	KeyRosenpassEnabled,
 	KeyRosenpassPermissive,

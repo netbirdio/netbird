@@ -121,6 +121,7 @@ func init() {
 func addDaemonFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&profilesDisabled, "disable-profiles", false, "Disables profiles feature. If enabled, the client will not be able to change or edit any profile. To persist this setting, use: netbird service install --disable-profiles")
 	cmd.Flags().BoolVar(&updateSettingsDisabled, "disable-update-settings", false, "Disables update settings feature. If enabled, the client will not be able to change or edit any settings. To persist this setting, use: netbird service install --disable-update-settings")
+	cmd.Flags().BoolVar(&updateNotificationsDisabled, "disable-update-notifications", false, "Hides new version notifications. If enabled, the client does not announce new versions, so the UI shows no update indicator or notification. To persist this setting, use: netbird service install --disable-update-notifications")
 	cmd.Flags().BoolVar(&captureEnabled, "enable-capture", false, "Enables packet capture via 'netbird debug capture'. To persist, use: netbird service install --enable-capture")
 	cmd.Flags().BoolVar(&networksDisabled, "disable-networks", false, "Disables network selection. If enabled, the client will not allow listing, selecting, or deselecting networks. To persist, use: netbird service install --disable-networks")
 	cmd.Flags().BoolVar(&enableJSONSocket, "enable-json-socket", false, "Enables the HTTP/JSON API socket served by grpc-gateway. To persist, use: netbird service install --enable-json-socket")

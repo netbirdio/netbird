@@ -175,6 +175,8 @@
                                 <!--
                                 <key>disableUpdateSettings</key>
                                 <true/>
+                                <key>disableUpdateNotifications</key>
+                                <true/>
                                 <key>disableProfiles</key>
                                 <true/>
                                 <key>disableNetworks</key>
