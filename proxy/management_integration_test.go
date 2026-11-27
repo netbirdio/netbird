@@ -60,6 +60,7 @@ func setupIntegrationTest(t *testing.T) *integrationTestSetup {
 		IsDomainPrimaryAccount: true,
 		CreatedAt:              time.Now(),
 	}
+	//nolint:staticcheck
 	require.NoError(t, testStore.SaveAccount(ctx, testAccount))
 
 	// Generate session keys for reverse proxies

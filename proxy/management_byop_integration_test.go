@@ -57,6 +57,7 @@ func setupBYOPIntegrationTest(t *testing.T) *byopTestSetup {
 		{Id: accountAID, Domain: "a.test.com", DomainCategory: "private", IsDomainPrimaryAccount: true, CreatedAt: time.Now()},
 		{Id: accountBID, Domain: "b.test.com", DomainCategory: "private", IsDomainPrimaryAccount: true, CreatedAt: time.Now()},
 	} {
+		//nolint:staticcheck
 		require.NoError(t, testStore.SaveAccount(ctx, acc))
 	}
 
