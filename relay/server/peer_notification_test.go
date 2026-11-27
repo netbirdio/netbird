@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/relay/metrics"
 	"github.com/netbirdio/netbird/shared/relay/auth/allow"
 	"github.com/netbirdio/netbird/shared/relay/messages"
 )
@@ -157,7 +158,7 @@ func TestPeer_StalledSubscriberDoesNotBlockPeerLifecycle(t *testing.T) {
 }
 
 func publishOnline(relay *Relay, name string) *Peer {
-	peer := NewPeer(relay.metrics, messages.HashID(name), messages.CurrentProtocolVersion, newScriptedConn(), relay.store, relay.notifier)
+	peer := NewPeer(relay.metrics, metrics.NewPeerActivity(), messages.HashID(name), messages.CurrentProtocolVersion, newScriptedConn(), relay.store, relay.notifier)
 	_, _ = relay.store.AddPeer(peer)
 	relay.notifier.PeerCameOnline(peer.ID())
 	return peer

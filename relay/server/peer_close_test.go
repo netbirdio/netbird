@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/relay/metrics"
 	"github.com/netbirdio/netbird/shared/relay/auth/allow"
 	"github.com/netbirdio/netbird/shared/relay/messages"
 )
@@ -44,7 +45,7 @@ func TestPeer_CloseDoesNotWaitForStalledWrite(t *testing.T) {
 	conn := newStalledWriteConn()
 	t.Cleanup(func() { _ = conn.Close() })
 	peerID := messages.HashID("stalled")
-	peer := NewPeer(relay.metrics, peerID, messages.CurrentProtocolVersion, conn, relay.store, relay.notifier)
+	peer := NewPeer(relay.metrics, metrics.NewPeerActivity(), peerID, messages.CurrentProtocolVersion, conn, relay.store, relay.notifier)
 
 	transport, err := messages.MarshalTransportMsg(messages.CurrentProtocolVersion, peerID, []byte("payload"))
 	require.NoError(t, err)

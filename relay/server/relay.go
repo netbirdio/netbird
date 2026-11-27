@@ -205,7 +205,8 @@ func (r *Relay) Accept(conn listener.Conn) {
 	}
 	r.metrics.RecordAuthenticationTime(time.Since(acceptTime))
 
-	peer := NewPeer(r.metrics, *peerID, h.selectedVersion, conn, r.store, r.notifier)
+	activity := metrics.NewPeerActivity()
+	peer := NewPeer(r.metrics, activity, *peerID, h.selectedVersion, conn, r.store, r.notifier)
 	peer.authenticated = h.authenticated
 	storeTime := time.Now()
 	isReconnection, err := r.store.AddPeer(peer)
@@ -224,7 +225,7 @@ func (r *Relay) Accept(conn listener.Conn) {
 
 	transport := conn.Protocol()
 	r.metrics.RecordPeerStoreTime(time.Since(storeTime))
-	r.metrics.PeerConnected(peer.String(), transport)
+	r.metrics.PeerConnected(peer.String(), transport, activity)
 	r.metrics.RecordProtocolVersion(h.advertisedVersion, h.selectedVersion)
 	go func() {
 		peer.Work()
@@ -232,7 +233,7 @@ func (r *Relay) Accept(conn listener.Conn) {
 			r.notifier.PeerWentOffline(peer.ID())
 		}
 		peer.log.Debugf("relay connection closed")
-		r.metrics.PeerDisconnected(peer.String(), transport)
+		r.metrics.PeerDisconnected(peer.String(), transport, activity)
 	}()
 }
 

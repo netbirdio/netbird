@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/relay/metrics"
 	"github.com/netbirdio/netbird/shared/relay/auth/allow"
 	"github.com/netbirdio/netbird/shared/relay/healthcheck"
 	"github.com/netbirdio/netbird/shared/relay/messages"
@@ -26,7 +27,7 @@ func (c *failingWriteConn) Write(context.Context, []byte) (int, error) {
 func TestPeer_HealthcheckWriteErrorClosesConnection(t *testing.T) {
 	relay := newTestRelay(t, &allow.Auth{})
 	conn := &failingWriteConn{scriptedConn: newScriptedConn()}
-	peer := NewPeer(relay.metrics, messages.HashID("peer"), messages.CurrentProtocolVersion, conn, relay.store, relay.notifier)
+	peer := NewPeer(relay.metrics, metrics.NewPeerActivity(), messages.HashID("peer"), messages.CurrentProtocolVersion, conn, relay.store, relay.notifier)
 	hc := healthcheck.NewSender(peer.log)
 	hc.HealthCheck <- struct{}{}
 
@@ -56,7 +57,7 @@ func TestPeer_HealthcheckHandlerAfterSenderExit(t *testing.T) {
 			// cannot show every order.
 			for range 50 {
 				conn := newScriptedConn()
-				peer := NewPeer(relay.metrics, messages.HashID("peer"), messages.CurrentProtocolVersion, conn, relay.store, relay.notifier)
+				peer := NewPeer(relay.metrics, metrics.NewPeerActivity(), messages.HashID("peer"), messages.CurrentProtocolVersion, conn, relay.store, relay.notifier)
 				hc := healthcheck.NewSender(peer.log)
 				if tc.timedOut {
 					hc.Timeout <- struct{}{}
