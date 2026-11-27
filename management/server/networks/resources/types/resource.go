@@ -41,6 +41,9 @@ type NetworkResource struct {
 	Domain      string
 	Prefix      netip.Prefix `gorm:"serializer:json"`
 	Enabled     bool
+	// SkipAutoApply is only set on the resources exit nodes are sent as, which are built
+	// in memory, so it is not stored.
+	SkipAutoApply bool `gorm:"-"`
 }
 
 func NewNetworkResource(accountID, networkID, name, description, address string, groupIDs []string, enabled bool) (*NetworkResource, error) {
@@ -94,18 +97,19 @@ func (n *NetworkResource) FromAPIRequest(req *api.NetworkResourceRequest) {
 
 func (n *NetworkResource) Copy() *NetworkResource {
 	return &NetworkResource{
-		ID:          n.ID,
-		AccountID:   n.AccountID,
-		NetworkID:   n.NetworkID,
-		PublicID:    n.PublicID,
-		Name:        n.Name,
-		Description: n.Description,
-		Type:        n.Type,
-		Address:     n.Address,
-		Domain:      n.Domain,
-		Prefix:      n.Prefix,
-		GroupIDs:    n.GroupIDs,
-		Enabled:     n.Enabled,
+		ID:            n.ID,
+		AccountID:     n.AccountID,
+		NetworkID:     n.NetworkID,
+		PublicID:      n.PublicID,
+		Name:          n.Name,
+		Description:   n.Description,
+		Type:          n.Type,
+		Address:       n.Address,
+		Domain:        n.Domain,
+		Prefix:        n.Prefix,
+		GroupIDs:      n.GroupIDs,
+		Enabled:       n.Enabled,
+		SkipAutoApply: n.SkipAutoApply,
 	}
 }
 
@@ -123,6 +127,7 @@ func (n *NetworkResource) Equal(other *NetworkResource) bool {
 		n.Domain == other.Domain &&
 		n.Prefix == other.Prefix &&
 		n.Enabled == other.Enabled &&
+		n.SkipAutoApply == other.SkipAutoApply &&
 		util.ElementsMatch(n.GroupIDs, other.GroupIDs)
 }
 

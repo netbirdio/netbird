@@ -25,6 +25,7 @@ const (
 	UpdateResourceService         UpdateResource = "service"
 	UpdateResourceZone            UpdateResource = "zone"
 	UpdateResourceZoneRecord      UpdateResource = "zone_record"
+	UpdateResourceExitNode        UpdateResource = "exit_node"
 )
 
 // UpdateOperation represents the kind of change that triggered the update.

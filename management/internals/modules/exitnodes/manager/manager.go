@@ -88,12 +88,16 @@ func (m *managerImpl) CreateExitNode(ctx context.Context, accountID, userID stri
 		if err := checkConflicts(existing, node); err != nil {
 			return err
 		}
-		return repo.Create(ctx, node)
+		if err := repo.Create(ctx, node); err != nil {
+			return err
+		}
+		return repo.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return nil, err
 	}
 
+	m.updatePeers(ctx, accountID, types.UpdateOperationCreate)
 	return node, nil
 }
 
@@ -132,12 +136,16 @@ func (m *managerImpl) UpdateExitNode(ctx context.Context, accountID, userID stri
 		if err := checkConflicts(existing, node); err != nil {
 			return err
 		}
-		return repo.Update(ctx, node)
+		if err := repo.Update(ctx, node); err != nil {
+			return err
+		}
+		return repo.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return nil, err
 	}
 
+	m.updatePeers(ctx, accountID, types.UpdateOperationUpdate)
 	return node, nil
 }
 
@@ -164,13 +172,28 @@ func (m *managerImpl) DeleteExitNode(ctx context.Context, accountID, userID stri
 		}
 	}
 
-	return m.conn.RunInTx(ctx, func(tx *db.Tx) error {
+	err = m.conn.RunInTx(ctx, func(tx *db.Tx) error {
 		repo := m.repo.WithTx(tx)
 		if err := repo.LockAccount(ctx, accountID); err != nil {
 			return err
 		}
-		return repo.Delete(ctx, accountID, exitNodeID)
+		if err := repo.Delete(ctx, accountID, exitNodeID); err != nil {
+			return err
+		}
+		return repo.IncrementNetworkSerial(ctx, accountID)
 	})
+	if err != nil {
+		return err
+	}
+
+	m.updatePeers(ctx, accountID, types.UpdateOperationDelete)
+	return nil
+}
+
+// updatePeers sends every peer of the account a new network map. The affected peers
+// resolver does not know exit nodes yet, so the update is not narrowed to them.
+func (m *managerImpl) updatePeers(ctx context.Context, accountID string, operation types.UpdateOperation) {
+	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceExitNode, Operation: operation})
 }
 
 func (m *managerImpl) validatePermission(ctx context.Context, accountID, userID string, operation operations.Operation) (context.Context, error) {

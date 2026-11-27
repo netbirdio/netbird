@@ -122,7 +122,9 @@ func (s *BaseServer) EphemeralManager() ephemeral.Manager {
 
 func (s *BaseServer) NetworkMapController() network_map.Controller {
 	return Create(s, func() network_map.Controller {
-		return nmapcontroller.NewController(context.Background(), s.Store(), s.Metrics(), s.PeersUpdateManager(), s.AccountRequestBuffer(), s.IntegratedValidator(), s.SettingsManager(), s.DNSDomain(), s.EphemeralManager(), s.Config, s.NetworkMapStore())
+		controller := nmapcontroller.NewController(context.Background(), s.Store(), s.Metrics(), s.PeersUpdateManager(), s.AccountRequestBuffer(), s.IntegratedValidator(), s.SettingsManager(), s.DNSDomain(), s.EphemeralManager(), s.Config, s.NetworkMapStore())
+		controller.SetExitNodes(s.ExitNodesRepository())
+		return controller
 	})
 }
 

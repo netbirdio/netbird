@@ -81,6 +81,10 @@ type managerEnv struct {
 	// deletedPolicies records the policies the account manager was asked to delete.
 	deletedPolicies []string
 	deletePolicyErr error
+	// peerUpdates records the reasons of the peer updates the manager asked for.
+	peerUpdates []types.UpdateReason
+	// serialBumps counts the network serial increments the manager made.
+	serialBumps int
 }
 
 func setupManager(t *testing.T) *managerEnv {
@@ -91,6 +95,11 @@ func setupManager(t *testing.T) *managerEnv {
 	repo.EXPECT().LockAccount(gomock.Any(), testAccountID).Return(nil).AnyTimes()
 
 	env := &managerEnv{repo: repo, store: newTestStore(t)}
+	repo.EXPECT().IncrementNetworkSerial(gomock.Any(), testAccountID).
+		DoAndReturn(func(context.Context, string) error {
+			env.serialBumps++
+			return nil
+		}).AnyTimes()
 	accountManager := &mock_server.MockAccountManager{
 		DeletePolicyFunc: func(ctx context.Context, accountID, policyID, userID string) error {
 			if env.deletePolicyErr != nil {
@@ -98,6 +107,11 @@ func setupManager(t *testing.T) *managerEnv {
 			}
 			env.deletedPolicies = append(env.deletedPolicies, policyID)
 			return env.store.DeletePolicy(ctx, accountID, policyID)
+		},
+		UpdateAccountPeersFunc: func(_ context.Context, accountID string, reason types.UpdateReason) {
+			if accountID == testAccountID {
+				env.peerUpdates = append(env.peerUpdates, reason)
+			}
 		},
 	}
 
@@ -160,6 +174,9 @@ func TestManager_CreateStoresBoundExitNode(t *testing.T) {
 		assert.NotEmpty(t, p.PublicID, "every peer should get a public ID")
 	}
 	assert.NotEqual(t, stored.Peers[0].PublicID, stored.Peers[1].PublicID, "peer public IDs should be unique")
+	assert.Equal(t, []types.UpdateReason{{Resource: types.UpdateResourceExitNode, Operation: types.UpdateOperationCreate}},
+		env.peerUpdates, "create should update the account peers once")
+	assert.Equal(t, 1, env.serialBumps, "create should bump the network serial once")
 }
 
 func TestManager_UpdateKeepsPublicIDs(t *testing.T) {
@@ -196,6 +213,9 @@ func TestManager_UpdateKeepsPublicIDs(t *testing.T) {
 	assert.NotEmpty(t, stored.Peers[1].PublicID, "a new peer should get a public ID")
 	assert.NotEqual(t, "from-request", stored.Peers[1].PublicID, "a public ID from the request should be ignored")
 	assert.NotEqual(t, "peer-b-public", stored.Peers[1].PublicID, "a removed peer's public ID should not be reused")
+	assert.Equal(t, []types.UpdateReason{{Resource: types.UpdateResourceExitNode, Operation: types.UpdateOperationUpdate}},
+		env.peerUpdates, "update should update the account peers once")
+	assert.Equal(t, 1, env.serialBumps, "update should bump the network serial once")
 }
 
 func TestManager_CreateRejectsInvalidInput(t *testing.T) {
@@ -244,6 +264,8 @@ func TestManager_CreateConflicts(t *testing.T) {
 
 			_, err := env.manager.CreateExitNode(ctx, testAccountID, testUserID, tt.node)
 			assertStatus(t, err, status.AlreadyExists)
+			assert.Empty(t, env.peerUpdates, "a rejected create should not update peers")
+			assert.Zero(t, env.serialBumps, "a rejected create should not bump the network serial")
 		})
 	}
 }
@@ -335,10 +357,15 @@ func TestManager_DeleteRemovesPolicies(t *testing.T) {
 	env.deletePolicyErr = status.NewPermissionDeniedError()
 	err := env.manager.DeleteExitNode(ctx, testAccountID, testUserID, "en-1")
 	assertStatus(t, err, status.PermissionDenied)
+	assert.Empty(t, env.peerUpdates, "a failed delete should not update peers")
+	assert.Zero(t, env.serialBumps, "a failed delete should not bump the network serial")
 
 	env.deletePolicyErr = nil
 	env.repo.EXPECT().Delete(gomock.Any(), testAccountID, exitnodes.ID("en-1")).Return(nil)
 	require.NoError(t, env.manager.DeleteExitNode(ctx, testAccountID, testUserID, "en-1"))
+	assert.Equal(t, []types.UpdateReason{{Resource: types.UpdateResourceExitNode, Operation: types.UpdateOperationDelete}},
+		env.peerUpdates, "delete should update the account peers once")
+	assert.Equal(t, 1, env.serialBumps, "delete should bump the network serial once")
 
 	assert.Equal(t, []string{"policy-1"}, env.deletedPolicies, "only the policy targeting the exit node should be deleted")
 	_, err = env.store.GetPolicyByID(ctx, store.LockingStrengthNone, testAccountID, "policy-2")

@@ -21,7 +21,7 @@ func newTestConn(t *testing.T, accountIDs ...string) *db.Conn {
 	t.Helper()
 	conn := dbtest.NewConn(t, &exitnodes.ExitNode{}, &exitnodes.Peer{})
 	gormDB := conn.DB(nil)
-	require.NoError(t, gormDB.Exec("CREATE TABLE accounts (id VARCHAR(255) PRIMARY KEY)").Error)
+	require.NoError(t, gormDB.Exec("CREATE TABLE accounts (id VARCHAR(255) PRIMARY KEY, network_serial BIGINT NOT NULL DEFAULT 0)").Error)
 	for _, id := range accountIDs {
 		require.NoError(t, gormDB.Exec("INSERT INTO accounts (id) VALUES (?)", id).Error)
 	}
@@ -103,6 +103,24 @@ func TestSqlRepository_LockAccount(t *testing.T) {
 		return repo.WithTx(tx).LockAccount(ctx, "acc-missing")
 	})
 	assertStatus(t, err, status.NotFound)
+}
+
+func TestSqlRepository_IncrementNetworkSerial(t *testing.T) {
+	repo, conn := newTestRepository(t)
+	ctx := context.Background()
+
+	serial := func(accountID string) int64 {
+		var value int64
+		require.NoError(t, conn.DB(nil).Table("accounts").Where("id = ?", accountID).Pluck("network_serial", &value).Error)
+		return value
+	}
+
+	require.NoError(t, repo.IncrementNetworkSerial(ctx, "acc-a"))
+	require.NoError(t, repo.IncrementNetworkSerial(ctx, "acc-a"))
+	assert.Equal(t, int64(2), serial("acc-a"), "each call should bump the serial by one")
+	assert.Equal(t, int64(0), serial("acc-b"), "other accounts should keep their serial")
+
+	assertStatus(t, repo.IncrementNetworkSerial(ctx, "acc-missing"), status.NotFound)
 }
 
 func TestSqlRepository_ListByAccount(t *testing.T) {
