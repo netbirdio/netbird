@@ -126,7 +126,7 @@ func NewAppMetrics(meter metric.Meter, prefix ...string) (*AppMetrics, error) {
 	}
 
 	probeMessages, err := meter.Int64Counter(p+"probe_messages_total",
-		metric.WithDescription("Total number of self-addressed probe messages received through Send"),
+		metric.WithDescription("Total number of self-addressed probe messages received through Send or on the stream, by route"),
 	)
 	if err != nil {
 		return nil, err

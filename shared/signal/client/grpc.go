@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -40,15 +41,20 @@ const (
 	// receiveWatchdogInterval is how often the watchdog evaluates the stream.
 	receiveWatchdogInterval = 10 * time.Second
 	// defaultRegistrationTimeout bounds the wait for a new stream's registration header.
-	defaultRegistrationTimeout = 10 * time.Second
-	// defaultRegistrationProbeInterval is how often a new stream sends a
-	// self-addressed heartbeat while it waits for its registration header.
-	// Proxies such as AWS ALB withhold gRPC response headers until the first
-	// message. The heartbeat is repeated because one that reaches the server
-	// before the stream is registered is dropped, and spaced so a stream that
-	// waits out defaultRegistrationTimeout sends at most three.
-	defaultRegistrationProbeInterval = 3 * time.Second
+	// It is generous on purpose: a Signal under load registers slowly, and giving up
+	// early only adds another registration to its queue. After a network change the
+	// engine restarts the client if Signal is not back 30s after the redial, so base
+	// plus jitter leaves at least 5s of that window for dialing Signal.
+	defaultRegistrationTimeout = 15 * time.Second
+	// registrationTimeoutJitter widens the bound per client, so a fleet that
+	// connected together does not give up together.
+	registrationTimeoutJitter = 10 * time.Second
 )
+
+// jitteredRegistrationTimeout draws this client's registration timeout.
+func jitteredRegistrationTimeout() time.Duration {
+	return defaultRegistrationTimeout + rand.N(registrationTimeoutJitter)
+}
 
 // errReceiveStreamStalled is reported when the receive stream is transport-alive
 // but no longer delivering messages, so the stream is torn down to reconnect.
@@ -103,8 +109,7 @@ type GrpcClient struct {
 	receiveHandoffBlocked atomic.Bool
 	watchdogWg            sync.WaitGroup
 
-	registrationTimeout       time.Duration
-	registrationProbeInterval time.Duration
+	registrationTimeout time.Duration
 
 	auth authCredentials
 	// cancelStream closes the current stream, guarded by mux.
@@ -128,15 +133,14 @@ func WithAuthKey(key ed25519.PrivateKey) Option {
 func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled bool, opts ...Option) (*GrpcClient, error) {
 	// Options apply before dialing: the sweeper must wrap the first connection too.
 	c := &GrpcClient{
-		ctx:                       ctx,
-		key:                       key,
-		sharedKeys:                encryption.NewSharedKeyCache(key),
-		mux:                       sync.Mutex{},
-		status:                    StreamDisconnected,
-		connStateCallbackLock:     sync.RWMutex{},
-		registrationTimeout:       defaultRegistrationTimeout,
-		registrationProbeInterval: defaultRegistrationProbeInterval,
-		auth:                      authCredentials{hostname: signalHostname(addr)},
+		ctx:                   ctx,
+		key:                   key,
+		sharedKeys:            encryption.NewSharedKeyCache(key),
+		mux:                   sync.Mutex{},
+		status:                StreamDisconnected,
+		connStateCallbackLock: sync.RWMutex{},
+		registrationTimeout:   jitteredRegistrationTimeout(),
+		auth:                  authCredentials{hostname: signalHostname(addr)},
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -368,7 +372,7 @@ func (c *GrpcClient) connect(ctx context.Context, cancel context.CancelFunc, key
 	c.stream = nil
 
 	// add key fingerprint to the request header to be identified on the server side
-	md := metadata.New(map[string]string{proto.HeaderId: key})
+	md := metadata.New(map[string]string{proto.HeaderId: key, proto.HeaderRegistrationProbe: "1"})
 	authPairs, err := c.auth.metadataPairs(time.Now())
 	if err != nil {
 		return nil, fmt.Errorf("auth credentials: %w", err)
@@ -382,8 +386,11 @@ func (c *GrpcClient) connect(ctx context.Context, cancel context.CancelFunc, key
 	if err != nil {
 		return nil, err
 	}
-	stopProbes := c.probeUntilRegistered(ctx)
-	defer stopProbes()
+	// Proxies such as AWS ALB withhold gRPC response headers until the first
+	// message. A probe written on the stream waits there until Signal has
+	// registered the peer and echoes it, which releases the header. The write
+	// runs apart because flow control can hold it until the stream is cancelled.
+	go c.sendRegistrationProbe(ctx, stream)
 	if err := awaitRegistration(stream, c.registrationTimeout, cancel); err != nil {
 		return nil, err
 	}
@@ -391,31 +398,15 @@ func (c *GrpcClient) connect(ctx context.Context, cancel context.CancelFunc, key
 	return stream, nil
 }
 
-// probeUntilRegistered sends a self-addressed heartbeat every
-// registrationProbeInterval until the returned stop function is called. The
-// server forwards it onto this client's stream, so a proxy that holds the
-// registration header until the first message releases it.
-func (c *GrpcClient) probeUntilRegistered(ctx context.Context) func() {
-	ctx, cancel := context.WithCancel(ctx)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		ticker := time.NewTicker(c.registrationProbeInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				if err := c.sendReceiveProbe(ctx); err != nil && ctx.Err() == nil {
-					log.Debugf("failed to send signal registration probe: %v", err)
-				}
-			}
-		}
-	}()
-	return func() {
-		cancel()
-		<-done
+// sendRegistrationProbe writes a self-addressed heartbeat on stream.
+func (c *GrpcClient) sendRegistrationProbe(ctx context.Context, stream proto.SignalExchange_ConnectStreamClient) {
+	self := c.key.PublicKey().String()
+	msg, err := c.encryptMessage(&proto.Message{Key: self, RemoteKey: self, Body: &proto.Body{Type: proto.Body_HEARTBEAT}})
+	if err == nil {
+		err = stream.Send(msg)
+	}
+	if err != nil && ctx.Err() == nil {
+		log.Debugf("failed to send signal registration probe: %v", err)
 	}
 }
 

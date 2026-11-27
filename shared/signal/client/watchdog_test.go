@@ -58,8 +58,13 @@ func TestReceiveProbeRoundTrips(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Close() })
 
-	received := make(chan struct{}, 1)
+	// The registration probe comes back first, then the watchdog's probe.
+	received := make(chan struct{}, 2)
+	// Stop Receive before Close runs (cleanups are LIFO): Close drops the decryption
+	// worker that a message still in flight would be handed to.
+	receiveDone := make(chan struct{})
 	go func() {
+		defer close(receiveDone)
 		_ = client.Receive(ctx, func(msg *sigProto.Message) error {
 			if msg.GetBody().GetType() == sigProto.Body_HEARTBEAT && msg.GetKey() == key.PublicKey().String() {
 				select {
@@ -70,6 +75,10 @@ func TestReceiveProbeRoundTrips(t *testing.T) {
 			return nil
 		})
 	}()
+	t.Cleanup(func() {
+		cancel()
+		<-receiveDone
+	})
 
 	streamReady := make(chan struct{})
 	go func() {
@@ -84,10 +93,12 @@ func TestReceiveProbeRoundTrips(t *testing.T) {
 
 	require.NoError(t, client.sendReceiveProbe(ctx))
 
-	select {
-	case <-received:
-	case <-time.After(3 * time.Second):
-		t.Fatal("self-addressed heartbeat did not round-trip back through the signal server")
+	for i := 0; i < 2; i++ {
+		select {
+		case <-received:
+		case <-time.After(3 * time.Second):
+			t.Fatal("self-addressed heartbeat did not round-trip back through the signal server")
+		}
 	}
 }
 
