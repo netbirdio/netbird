@@ -29,3 +29,57 @@ components:
         - name
         - peers_count
         - resources_count
+    GroupRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Group name identifier
+          example: devs
+        peers:
+          type: array
+          description: List of peers ids
+          items:
+            type: string
+            example: "ch8i4ug6lnn4g9hqv7m1"
+        resources:
+          type: array
+          items:
+            $ref: '#/components/schemas/Resource'
+      required:
+        - name
+    Group:
+      allOf:
+        - $ref: '#/components/schemas/GroupMinimum'
+        - type: object
+          properties:
+            peers:
+              description: List of IDs of the group's peers that the caller is allowed to see
+              type: array
+              items:
+                type: string
+                example: "chacbco6lnnbn6cg5s90"
+            resources:
+              type: array
+              items:
+                $ref: '#/components/schemas/Resource'
+          required:
+            - peers
+            - resources
+    Resource:
+      type: object
+      properties:
+        id:
+          description: ID of the resource
+          type: string
+          example: chacdk86lnnboviihd7g
+        type:
+          $ref: '#/components/schemas/ResourceType'
+      required:
+        - id
+        - type
+    ResourceType:
+      description: Type of the resource
+      type: string
+      enum: [ "host", "subnet", "domain", "peer" ]
+      example: peer

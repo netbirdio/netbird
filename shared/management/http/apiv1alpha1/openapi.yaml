@@ -248,3 +248,7 @@ paths:
     $ref: './user/user_paths.yaml#/UsersPath'
   /users/{userId}:
     $ref: './user/user_paths.yaml#/UserPath'
+  /groups:
+    $ref: './group/groups.yaml'
+  /groups/{groupId}:
+    $ref: './group/group.yaml'

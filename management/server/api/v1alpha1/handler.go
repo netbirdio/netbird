@@ -13,6 +13,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions"
 
 	peersmodule "github.com/netbirdio/netbird/management/internals/modules/peers"
+	"github.com/netbirdio/netbird/management/server/api/v1alpha1/groups"
 	"github.com/netbirdio/netbird/management/server/api/v1alpha1/peers"
 	"github.com/netbirdio/netbird/management/server/api/v1alpha1/users"
 )
@@ -34,6 +35,9 @@ func NewAPIV1Handler(
 
 	peersHandler := peers.NewHandler(accountManager, peerManager, networkMapController, permissionsManager)
 	_ = peersHandler.WithEndpointsForRouter(router)
+
+	groupsHandler := groups.NewHandler(accountManager, permissionsManager)
+	_ = groupsHandler.WithEndpointsForRouter(router)
 
 	usersHandler := users.NewHandler(accountManager)
 	return usersHandler.WithEndpointsForRouter(router), nil
