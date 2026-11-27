@@ -152,6 +152,7 @@ type DefaultServer struct {
 	handlerChain       *HandlerChain
 	extraDomains       map[domain.Domain]int
 	batchMode          bool
+	doh                *dohServer
 
 	mgmtCacheResolver *mgmt.Resolver
 
@@ -444,6 +445,7 @@ func (s *DefaultServer) Initialize() (err error) {
 		if err != nil {
 			return fmt.Errorf("service listen: %w", err)
 		}
+		s.startDoH()
 	}
 
 	s.stateManager.RegisterState(&ShutdownState{})
@@ -522,6 +524,8 @@ func (s *DefaultServer) Stop() {
 }
 
 func (s *DefaultServer) disableDNS() (retErr error) {
+	s.stopDoH()
+
 	defer func() {
 		if err := s.service.Stop(); err != nil {
 			retErr = errors.Join(retErr, fmt.Errorf("stop DNS service: %w", err))
@@ -709,6 +713,7 @@ func (s *DefaultServer) enableDNS() error {
 	if err := s.service.Listen(); err != nil {
 		return fmt.Errorf("start DNS service: %w", err)
 	}
+	s.startDoH()
 
 	if !s.isUsingNoopHostManager() {
 		return nil
