@@ -13,6 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
+	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
@@ -169,8 +170,9 @@ type recoveryWatch struct {
 // redialOnUnderlayChange moves the control connections to the new underlay
 // without restarting the client.
 // It returns false when the change could not be handled in place and only a
-// restart can recover.
-func (e *Engine) redialOnUnderlayChange(change networkmonitor.Change) bool {
+// restart can recover. hostDNS is passed in rather than read from the engine,
+// whose teardown clears e.dnsServer while a redial may still be running.
+func (e *Engine) redialOnUnderlayChange(change networkmonitor.Change, hostDNS dns.Server) bool {
 	// The engine may be stopping: there is nothing left to move, and its
 	// teardown must not race with the steps below.
 	if e.ctx.Err() != nil {
@@ -202,6 +204,10 @@ func (e *Engine) redialOnUnderlayChange(change networkmonitor.Change) bool {
 	// below must advertise the new one.
 	if e.udpMux != nil {
 		e.udpMux.ForgetMappings()
+	}
+
+	if hostDNS != nil {
+		hostDNS.RefreshHostFallback()
 	}
 
 	e.netMgr.NotifyNetworkChange()

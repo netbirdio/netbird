@@ -77,6 +77,7 @@ type Server interface {
 	DnsIP() netip.Addr
 	UpdateDNSServer(serial uint64, update nbdns.Config) error
 	OnUpdatedHostDNSServer(addrs []netip.AddrPort)
+	RefreshHostFallback()
 	SearchDomains() []string
 	UpdateServerConfig(domains dnsconfig.ServerDomains) error
 	PopulateManagementDomain(mgmtURL *url.URL) error
@@ -557,6 +558,39 @@ func (s *DefaultServer) OnUpdatedHostDNSServer(hostsDnsList []netip.AddrPort) {
 
 	s.mux.Lock()
 	defer s.mux.Unlock()
+	s.registerFallback()
+}
+
+// RefreshHostFallback reads the host resolvers again and re-registers them as
+// the fallback upstreams. Called after the underlay changed without a client
+// restart, since the resolvers captured on the previous network may be
+// unreachable from the new one. A failed or empty capture keeps the previous
+// resolvers: the new link may not publish its DNS yet, and they may still answer.
+func (s *DefaultServer) RefreshHostFallback() {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	if s.ctx.Err() != nil {
+		return
+	}
+	refresher, ok := s.hostManager.(originalNameserversRefresher)
+	if !ok {
+		return
+	}
+
+	captured, err := refresher.captureOriginalNameservers()
+	switch {
+	case err != nil:
+		log.Warnf("capture host nameservers after a network change, keeping the previous fallback: %v", err)
+		return
+	case len(captured) == 0:
+		log.Warnf("no host nameservers found after a network change, keeping the previous fallback")
+		return
+	case slices.Equal(captured, s.hostManager.getOriginalNameservers()):
+		return
+	}
+
+	refresher.setOriginalNameservers(captured)
 	s.registerFallback()
 }
 

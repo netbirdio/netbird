@@ -40,6 +40,8 @@ const (
 	dnsSecDisabled = "no"
 )
 
+var _ originalNameserversRefresher = (*systemdDbusConfigurator)(nil)
+
 type systemdDbusConfigurator struct {
 	dbusLinkObject  dbus.ObjectPath
 	ifaceName       string
@@ -226,6 +228,10 @@ func readSystemdLinkDNS(linkPath dbus.ObjectPath) []netip.Addr {
 
 func (s *systemdDbusConfigurator) getOriginalNameservers() []netip.Addr {
 	return slices.Clone(s.origNameservers)
+}
+
+func (s *systemdDbusConfigurator) setOriginalNameservers(nameservers []netip.Addr) {
+	s.origNameservers = slices.Clone(nameservers)
 }
 
 func (s *systemdDbusConfigurator) supportCustomPort() bool {

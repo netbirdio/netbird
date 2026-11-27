@@ -22,6 +22,14 @@ type hostManager interface {
 	getOriginalNameservers() []netip.Addr
 }
 
+// originalNameserversRefresher is implemented by host managers that snapshot the
+// OS resolvers at construction, so the snapshot can follow the host to a new
+// network without rebuilding the manager.
+type originalNameserversRefresher interface {
+	captureOriginalNameservers() ([]netip.Addr, error)
+	setOriginalNameservers(nameservers []netip.Addr)
+}
+
 type SystemDNSSettings struct {
 	Domains    []string
 	ServerIP   netip.Addr

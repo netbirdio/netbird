@@ -2512,12 +2512,15 @@ func (e *Engine) startNetworkMonitor() {
 
 	e.networkMonitor = networkmonitor.New()
 	var watch recoveryWatch
+	hostDNS := e.dnsServer
 	loop := underlayLoop{
 		listen: e.networkMonitor.Listen,
 		decide: func(change networkmonitor.Change) underlayAction {
 			return decideUnderlayAction(change, e.netMgr != nil)
 		},
-		redial:  e.redialOnUnderlayChange,
+		redial: func(change networkmonitor.Change) bool {
+			return e.redialOnUnderlayChange(change, hostDNS)
+		},
 		restart: e.triggerClientRestart,
 		armWatch: func() {
 			watchCtx := watch.replace(e.ctx)
