@@ -28,6 +28,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	recordsManager "github.com/netbirdio/netbird/management/internals/modules/zones/records/manager"
 	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/auth"
 	"github.com/netbirdio/netbird/management/server/settings"
 
 	"github.com/netbirdio/netbird/management/server/permissions"
@@ -56,7 +57,7 @@ import (
 )
 
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func NewAPIHandler(ctx context.Context, router *mux.Router, accountManager account.Manager, networksManager nbnetworks.Manager,
+func NewAPIHandler(ctx context.Context, router *mux.Router, authManager auth.Manager, accountManager account.Manager, networksManager nbnetworks.Manager,
 	resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation,
 	permissionsManager permissions.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager,
 	networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager,
@@ -117,7 +118,7 @@ func NewAPIHandler(ctx context.Context, router *mux.Router, accountManager accou
 
 	// Register OAuth callback handler for proxy authentication
 	if proxyGRPCServer != nil {
-		oauthHandler := proxy.NewAuthCallbackHandler(proxyGRPCServer, trustedHTTPProxies)
+		oauthHandler := proxy.NewAuthCallbackHandler(proxyGRPCServer, authManager, accountManager, trustedHTTPProxies)
 		oauthHandler.RegisterEndpoints(router)
 	}
 
