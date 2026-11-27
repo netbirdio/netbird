@@ -10,6 +10,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
@@ -440,8 +441,28 @@ func selectProfileFunc(cmd *cobra.Command, args []string) error {
 	}
 
 	id := profilemanager.ID(switchResp.Id)
-	cmd.Printf("Profile switched to: %s\n", id.ShortID())
+	cmd.Printf("Profile switched to: %s\n", switchedProfileLabel(ctx, daemonClient, currUser.Username, id))
 	return nil
+}
+
+// switchedProfileLabel names the profile a switch landed on. The switch response
+// carries only the ID, so the name comes from the profile list. GetActiveProfile
+// is not used: daemons before v0.83.0 report the default profile's ID as its name.
+func switchedProfileLabel(ctx context.Context, c proto.DaemonServiceClient, username string, id profilemanager.ID) string {
+	fallback := "id " + id.ShortID()
+
+	resp, err := c.ListProfiles(ctx, &proto.ListProfilesRequest{Username: username})
+	if err != nil {
+		log.Debugf("failed to list profiles to name the switched one: %v", err)
+		return fallback
+	}
+	for _, p := range resp.GetProfiles() {
+		if profilemanager.ID(p.GetId()) != id || p.GetName() == "" {
+			continue
+		}
+		return fmt.Sprintf("%s (id: %s)", profilemanager.StripCtrlChars(p.GetName()), id.ShortID())
+	}
+	return fallback
 }
 
 // wrapAmbiguityError turns the daemon's gRPC InvalidArgument errors
