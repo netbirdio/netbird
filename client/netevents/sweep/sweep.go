@@ -91,6 +91,12 @@ func (c *sweptConn) Close() error {
 	return c.Conn.Close()
 }
 
+// NetConn returns the wrapped connection, so code that tunes the socket
+// below, such as the relay TCP keepalive, can reach it.
+func (c *sweptConn) NetConn() net.Conn {
+	return c.Conn
+}
+
 // Sweeper registers live connections and in-flight dials so the
 // network-change sweep can cut everything registered before the change.
 type Sweeper struct {

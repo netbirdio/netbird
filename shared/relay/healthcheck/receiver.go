@@ -39,6 +39,16 @@ func NewReceiver(log *log.Entry) *Receiver {
 	return NewReceiverWithOpts(log, opts)
 }
 
+// NewReceiverWithTimeout creates a healthcheck receiver that waits heartbeatTimeout for each
+// heartbeat, with the attempt threshold of NewReceiver.
+func NewReceiverWithTimeout(log *log.Entry, heartbeatTimeout time.Duration) *Receiver {
+	opts := ReceiverOptions{
+		HeartbeatTimeout: heartbeatTimeout,
+		AttemptThreshold: getAttemptThresholdFromEnv(),
+	}
+	return NewReceiverWithOpts(log, opts)
+}
+
 func NewReceiverWithOpts(log *log.Entry, opts ReceiverOptions) *Receiver {
 	heartbeatTimeout := opts.HeartbeatTimeout
 	if heartbeatTimeout <= 0 {

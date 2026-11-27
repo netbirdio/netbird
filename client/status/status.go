@@ -756,6 +756,7 @@ func ToProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 	pbFullStatus.LocalPeerState.RosenpassEnabled = fullStatus.RosenpassState.Enabled
 	pbFullStatus.LocalPeerState.Networks = maps.Keys(fullStatus.LocalPeerState.Routes)
 	pbFullStatus.LazyConnectionEnabled = fullStatus.LazyConnectionEnabled
+	pbFullStatus.AlignedHeartbeat = peer.AlignedHeartbeatToProto(fullStatus.AlignedHeartbeat)
 
 	for _, peerState := range fullStatus.Peers {
 		pbPeerState := &proto.PeerState{

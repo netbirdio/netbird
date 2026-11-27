@@ -468,6 +468,9 @@ func (m *Manager) adoptHome(s *session) {
 	defer m.relayClientMu.Unlock()
 
 	m.relayClient = s.client
+	// Only the home relay session registers with hbwatch; foreign and
+	// picker-loser sessions never do.
+	s.startWatch()
 }
 
 func (m *Manager) isForeignServer(homeClient *Client, address string) (bool, error) {

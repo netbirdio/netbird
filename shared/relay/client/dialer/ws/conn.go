@@ -20,6 +20,7 @@ type Conn struct {
 	ctx context.Context
 	*websocket.Conn
 	remoteAddr net.Addr
+	underlying net.Conn
 
 	writeMu      sync.Mutex
 	writeTimeout time.Duration
@@ -41,11 +42,19 @@ func NewConn(wsConn *websocket.Conn, serverAddress string, underlying net.Conn) 
 		ctx:          context.Background(),
 		Conn:         wsConn,
 		remoteAddr:   addr,
+		underlying:   underlying,
 		writeTimeout: writeTimeout,
 	}
 	c.writeTimer = time.AfterFunc(writeTimeout, c.closeOnWriteTimeout)
 	c.writeTimer.Stop()
 	return c
+}
+
+// NetConn returns the raw connection below the WebSocket, nil when unknown.
+// The relay client tunes its TCP keepalive once the server confirms the
+// aligned heartbeat.
+func (c *Conn) NetConn() net.Conn {
+	return c.underlying
 }
 
 // Protocol returns the transport name for this connection.

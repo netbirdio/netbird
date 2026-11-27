@@ -2,6 +2,7 @@ package ws
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,8 @@ import (
 	"github.com/coder/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/shared/alignedhb/keepalive"
 )
 
 func TestPrepareURL(t *testing.T) {
@@ -226,4 +229,47 @@ func TestWriteTimesOutWhenPeerStopsReading(t *testing.T) {
 
 	_, err = conn.Write([]byte("x"))
 	assert.ErrorIs(t, err, net.ErrClosed, "the connection must be closed once a write has timed out")
+}
+
+// TestDialedConnExposesTCPKeepalive covers the aligned relay client: it dials
+// WebSocket only and switches the TCP keepalive of that connection once the
+// server confirms the heartbeat, so the TCP socket must be reachable.
+func TestDialedConnExposesTCPKeepalive(t *testing.T) {
+	if _, err := keepalive.Idle(nil); errors.Is(err, errors.ErrUnsupported) {
+		t.Skip(err)
+	}
+	// Dial plain TCP, as mobile clients do, without the desktop routing hooks.
+	t.Setenv("NB_DISABLE_CUSTOM_ROUTING", "true")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		_, _, _ = c.Read(r.Context())
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, err := (Dialer{}).Dial(ctx, "rel://"+srv.Listener.Addr().String(), "")
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	if err := keepalive.SetAligned(conn, time.Minute); err != nil {
+		t.Fatalf("switch the keepalive of the relay connection: %v", err)
+	}
+	tcp, ok := keepalive.TCPConn(conn)
+	if !ok {
+		t.Fatal("no TCP socket below the relay connection")
+	}
+	idle, err := keepalive.Idle(tcp)
+	if err != nil {
+		t.Fatalf("read idle: %v", err)
+	}
+	if idle != 2*time.Minute {
+		t.Errorf("idle = %s, want 2m0s at a 60 s period", idle)
+	}
 }

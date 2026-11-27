@@ -2,6 +2,7 @@ package sweep
 
 import (
 	"context"
+	"errors"
 	"math"
 	"net"
 	"testing"
@@ -9,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/shared/alignedhb/keepalive"
 )
 
 func TestSweepClosesRegisteredConns(t *testing.T) {
@@ -223,6 +226,12 @@ func connPair(t *testing.T) net.Conn {
 
 	conn, err := net.Dial("tcp", l.Addr().String())
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		// The test, a sweep or a rejected WrapConn may have closed it already.
+		if err := conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			t.Logf("client close error: %v", err)
+		}
+	})
 
 	peer, ok := <-accepted
 	require.True(t, ok, "listener must accept the dialed connection")
@@ -238,4 +247,20 @@ func connPair(t *testing.T) net.Conn {
 // sweepAll cuts every registration regardless of generation.
 func (s *Sweeper) sweepAll() int {
 	return s.sweep(math.MaxUint64)
+}
+
+// TestWrappedConnExposesTCPSocket checks that the sweeper's wrapper keeps
+// the TCP socket reachable: the relay client tunes its keepalive through it.
+func TestWrappedConnExposesTCPSocket(t *testing.T) {
+	sweeper := New()
+	dial := sweeper.StartDial(context.Background())
+	defer dial.Release()
+
+	conn := connPair(t)
+	wrapped, err := dial.WrapConn(conn)
+	require.NoError(t, err)
+
+	tcp, ok := keepalive.TCPConn(wrapped)
+	require.True(t, ok, "the TCP socket must be reachable through the wrapper")
+	assert.Same(t, conn, net.Conn(tcp), "the wrapper exposes the dialed socket")
 }

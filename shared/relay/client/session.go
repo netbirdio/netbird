@@ -7,9 +7,13 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/hbwatch"
+	"github.com/netbirdio/netbird/shared/alignedhb"
+	"github.com/netbirdio/netbird/shared/alignedhb/keepalive"
 	netErr "github.com/netbirdio/netbird/shared/relay/client/dialer/net"
 	"github.com/netbirdio/netbird/shared/relay/healthcheck"
 	"github.com/netbirdio/netbird/shared/relay/messages"
@@ -45,10 +49,21 @@ type session struct {
 	// burst of oversized datagrams triggers one reconnect, not many.
 	datagramFallbackTriggered atomic.Bool
 
+	// alignedPeriod is the heartbeat period the relay confirmed at the handshake, zero for a
+	// stock connection. It never changes after newSession.
+	alignedPeriod time.Duration
+	// watchMu guards watchStop and watchEnded. watchStop unregisters the
+	// hbwatch registration of this session, nil while unregistered.
+	// watchEnded is set when the read loop exits, so a late registration
+	// of an ended session does not stick.
+	watchMu    sync.Mutex
+	watchStop  func()
+	watchEnded bool
+
 	done chan struct{}
 }
 
-func newSession(c *Client, conn net.Conn, instanceURL *RelayAddr, transport string, encoder messages.Encoder) *session {
+func newSession(c *Client, conn net.Conn, instanceURL *RelayAddr, transport string, encoder messages.Encoder, alignedPeriod time.Duration) *session {
 	s := &session{
 		client:            c,
 		log:               c.log.WithField("relay", instanceURL.String()),
@@ -59,10 +74,16 @@ func newSession(c *Client, conn net.Conn, instanceURL *RelayAddr, transport stri
 		internallyStopped: newInternalStopFlag(),
 		conns:             make(map[messages.PeerID]*connContainer),
 		earlyMsgs:         newEarlyMsgBuffer(),
+		alignedPeriod:     alignedPeriod,
 		done:              make(chan struct{}),
 	}
 	s.stateSubscription = NewPeersStateSubscription(s.log, conn, encoder, s.closeConnsByPeerID)
-	s.hc = healthcheck.NewReceiver(s.log)
+	if alignedPeriod == 0 {
+		s.hc = healthcheck.NewReceiver(s.log)
+		return s
+	}
+	s.hc = healthcheck.NewReceiverWithTimeout(s.log, alignedhb.ReceiveTimeout(alignedPeriod))
+	s.startAligned()
 	return s
 }
 
@@ -164,6 +185,7 @@ func (s *session) ReadLoop() {
 	}
 
 	s.hc.Stop()
+	s.stopWatch()
 
 	if err := s.Close(false); err != nil {
 		s.log.Debugf("failed to close relay connection: %s", err)
@@ -240,6 +262,8 @@ func (s *session) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte
 }
 
 func (s *session) handleHealthCheck() {
+	s.seenAligned()
+
 	msg := s.encoder.Healthcheck()
 	_, wErr := s.conn.Write(msg)
 	if wErr != nil {
@@ -248,6 +272,72 @@ func (s *session) handleHealthCheck() {
 		}
 	}
 	s.hc.Heartbeat()
+}
+
+// startAligned sets the aligned TCP keepalive on the connection of an aligned session.
+func (s *session) startAligned() {
+	if err := keepalive.SetAligned(s.conn, s.alignedPeriod); err != nil && !errors.Is(err, keepalive.ErrNotTCP) {
+		s.log.Debugf("failed to set TCP keepalive for heartbeat period %s: %v", s.alignedPeriod, err)
+	}
+	phase := alignedhb.Phase(s.client.hashedID, s.alignedPeriod)
+	s.log.Infof("aligned heartbeat on, period %s, phase %d ms", s.alignedPeriod, phase.Milliseconds())
+}
+
+// seenAligned records a server health check of an aligned session with hbwatch while the
+// session is registered.
+func (s *session) seenAligned() {
+	if s.alignedPeriod == 0 {
+		return
+	}
+	s.watchMu.Lock()
+	registered := s.watchStop != nil && !s.watchEnded
+	s.watchMu.Unlock()
+	if registered {
+		hbwatch.Seen(hbwatch.Relay, s.alignedPeriod)
+	}
+}
+
+// startWatch registers this session with hbwatch, unless it is registered
+// already or its read loop has exited. The manager calls it only for the
+// home session. The stale action closes the connection like a health check
+// timeout.
+func (s *session) startWatch() {
+	// hbwatch never calls back into the relay client while it holds its
+	// own lock, so registering under watchMu cannot deadlock.
+	s.watchMu.Lock()
+	defer s.watchMu.Unlock()
+	if s.watchEnded || s.watchStop != nil {
+		return
+	}
+	s.watchStop = hbwatch.Register(hbwatch.Relay, hbwatch.Registration{
+		Kind:          hbwatch.ActionReconnect,
+		Stale:         s.closeStale,
+		Addr:          s.client.connectionURL,
+		AlignedPeriod: s.alignedPeriod,
+	})
+}
+
+// closeStale is the hbwatch stale action: it closes the connection like a
+// health check timeout, and the read loop exit lets the guard reconnect.
+func (s *session) closeStale() {
+	s.log.Warnf("relay connection is stale, closing it like a health check timeout")
+	s.internallyStopped.set()
+	if err := s.conn.Close(); err != nil {
+		s.log.Debugf("failed to close stale relay connection: %s", err)
+	}
+}
+
+// stopWatch ends the hbwatch registration of this session, and blocks any
+// later one. hbwatch ignores it once a newer session registered.
+func (s *session) stopWatch() {
+	s.watchMu.Lock()
+	s.watchEnded = true
+	stop := s.watchStop
+	s.watchStop = nil
+	s.watchMu.Unlock()
+	if stop != nil {
+		stop()
+	}
 }
 
 func (s *session) handleTransportMsg(buf []byte, bufPtr *[]byte) bool {

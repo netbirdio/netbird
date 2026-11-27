@@ -522,6 +522,25 @@ message FullStatus {
   // of polling on every status snapshot.
   uint64 networksRevision = 11;
   VNCServerState vncServerState = 12;
+
+  // alignedHeartbeat is the aligned heartbeat state of a mobile client,
+  // unset on clients that do not ask for the aligned heartbeat.
+  AlignedHeartbeatState alignedHeartbeat = 13;
+}
+
+// AlignedHeartbeatState holds the aligned heartbeat state of each stream.
+message AlignedHeartbeatState {
+  repeated AlignedHeartbeatStream streams = 1;
+}
+
+// AlignedHeartbeatStream is the aligned heartbeat state of one Management,
+// Signal or relay stream: whether it is aligned, and its period.
+message AlignedHeartbeatStream {
+  // service is management, signal or relay.
+  string service = 1;
+  string address = 2;
+  bool aligned = 3;
+  uint32 periodSeconds = 4;
 }
 
 // Networks
