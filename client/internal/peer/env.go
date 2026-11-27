@@ -3,7 +3,10 @@ package peer
 import (
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -11,11 +14,23 @@ const (
 	EnvKeyNBHomeRelayServers = "NB_HOME_RELAY_SERVERS"
 )
 
-func IsForceRelayed() bool {
+// ForceRelayFromEnv reports the NB_FORCE_RELAY value of this process and
+// whether it is set at all, so a set value can win over the profile setting.
+// The JS build has no direct connections and always relays.
+func ForceRelayFromEnv() (forced, set bool) {
 	if runtime.GOOS == "js" {
-		return true
+		return true, true
 	}
-	return strings.EqualFold(os.Getenv(EnvKeyNBForceRelay), "true")
+	val := os.Getenv(EnvKeyNBForceRelay)
+	if val == "" {
+		return false, false
+	}
+	forced, err := strconv.ParseBool(val)
+	if err != nil {
+		log.Warnf("failed to parse %s: %v", EnvKeyNBForceRelay, err)
+		return false, false
+	}
+	return forced, true
 }
 
 // OverrideRelayURLs returns the relay server URL list set in

@@ -110,9 +110,9 @@ func TestAutostartDisabledByMDM(t *testing.T) {
 			want:   false,
 		},
 		{
-			name:   "unparseable managed value is treated as disabled",
+			name:   "unparseable value is ignored",
 			values: map[string]any{mdm.KeyDisableAutostart: "not-a-bool"},
-			want:   true,
+			want:   false,
 		},
 	}
 

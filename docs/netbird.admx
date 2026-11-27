@@ -211,6 +211,43 @@
       </elements>
     </policy>
 
+    <policy name="LazyConnection"
+            class="Machine"
+            displayName="$(string.LazyConnection_Name)"
+            explainText="$(string.LazyConnection_Help)"
+            key="Software\Policies\NetBird"
+            valueName="LazyConnection">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="EnableLocalMetrics"
+            class="Machine"
+            displayName="$(string.EnableLocalMetrics_Name)"
+            explainText="$(string.EnableLocalMetrics_Help)"
+            key="Software\Policies\NetBird"
+            valueName="EnableLocalMetrics">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="LocalMetricsAddress"
+            class="Machine"
+            displayName="$(string.LocalMetricsAddress_Name)"
+            explainText="$(string.LocalMetricsAddress_Help)"
+            key="Software\Policies\NetBird"
+            presentation="$(presentation.LocalMetricsAddress_Pres)">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <elements>
+        <text id="LocalMetricsAddress_Text" valueName="LocalMetricsAddress" required="true" />
+      </elements>
+    </policy>
+
     <policy name="ExtraIFaceBlackList"
             class="Machine"
             displayName="$(string.ExtraIFaceBlackList_Name)"
@@ -221,6 +258,287 @@
       <supportedOn ref="SUPPORTED_NetBird_All" />
       <elements>
         <text id="ExtraIFaceBlackList_Text" valueName="ExtraIFaceBlackList" required="true" />
+      </elements>
+    </policy>
+
+    <policy name="DisableDNS"
+            class="Machine"
+            displayName="$(string.DisableDNS_Name)"
+            explainText="$(string.DisableDNS_Help)"
+            key="Software\Policies\NetBird"
+            valueName="DisableDNS">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="DisableIPv6"
+            class="Machine"
+            displayName="$(string.DisableIPv6_Name)"
+            explainText="$(string.DisableIPv6_Help)"
+            key="Software\Policies\NetBird"
+            valueName="DisableIPv6">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="DisableFirewall"
+            class="Machine"
+            displayName="$(string.DisableFirewall_Name)"
+            explainText="$(string.DisableFirewall_Help)"
+            key="Software\Policies\NetBird"
+            valueName="DisableFirewall">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="BlockLANAccess"
+            class="Machine"
+            displayName="$(string.BlockLANAccess_Name)"
+            explainText="$(string.BlockLANAccess_Help)"
+            key="Software\Policies\NetBird"
+            valueName="BlockLANAccess">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="DisableNotifications"
+            class="Machine"
+            displayName="$(string.DisableNotifications_Name)"
+            explainText="$(string.DisableNotifications_Help)"
+            key="Software\Policies\NetBird"
+            valueName="DisableNotifications">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="NetworkMonitor"
+            class="Machine"
+            displayName="$(string.NetworkMonitor_Name)"
+            explainText="$(string.NetworkMonitor_Help)"
+            key="Software\Policies\NetBird"
+            valueName="NetworkMonitor">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="DisableIPv6Discovery"
+            class="Machine"
+            displayName="$(string.DisableIPv6Discovery_Name)"
+            explainText="$(string.DisableIPv6Discovery_Help)"
+            key="Software\Policies\NetBird"
+            valueName="DisableIPv6Discovery">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="MTU"
+            class="Machine"
+            displayName="$(string.MTU_Name)"
+            explainText="$(string.MTU_Help)"
+            key="Software\Policies\NetBird"
+            presentation="$(presentation.MTU_Pres)">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <elements>
+        <decimal id="MTU_Decimal" valueName="MTU"
+                 minValue="576" maxValue="8192" required="true" />
+      </elements>
+    </policy>
+
+    <policy name="InterfaceName"
+            class="Machine"
+            displayName="$(string.InterfaceName_Name)"
+            explainText="$(string.InterfaceName_Help)"
+            key="Software\Policies\NetBird"
+            presentation="$(presentation.InterfaceName_Pres)">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <elements>
+        <text id="InterfaceName_Text" valueName="InterfaceName" required="true" />
+      </elements>
+    </policy>
+
+    <policy name="DNSRouteInterval"
+            class="Machine"
+            displayName="$(string.DNSRouteInterval_Name)"
+            explainText="$(string.DNSRouteInterval_Help)"
+            key="Software\Policies\NetBird"
+            presentation="$(presentation.DNSRouteInterval_Pres)">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <elements>
+        <text id="DNSRouteInterval_Text" valueName="DNSRouteInterval" required="true" />
+      </elements>
+    </policy>
+
+    <policy name="NATExternalIPs"
+            class="Machine"
+            displayName="$(string.NATExternalIPs_Name)"
+            explainText="$(string.NATExternalIPs_Help)"
+            key="Software\Policies\NetBird"
+            presentation="$(presentation.NATExternalIPs_Pres)">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <elements>
+        <text id="NATExternalIPs_Text" valueName="NATExternalIPs" required="true" />
+      </elements>
+    </policy>
+
+    <policy name="ForceRelay"
+            class="Machine"
+            displayName="$(string.ForceRelay_Name)"
+            explainText="$(string.ForceRelay_Help)"
+            key="Software\Policies\NetBird"
+            valueName="ForceRelay">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="EnableSSHRoot"
+            class="Machine"
+            displayName="$(string.EnableSSHRoot_Name)"
+            explainText="$(string.EnableSSHRoot_Help)"
+            key="Software\Policies\NetBird"
+            valueName="EnableSSHRoot">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="EnableSSHSFTP"
+            class="Machine"
+            displayName="$(string.EnableSSHSFTP_Name)"
+            explainText="$(string.EnableSSHSFTP_Help)"
+            key="Software\Policies\NetBird"
+            valueName="EnableSSHSFTP">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="EnableSSHLocalPortForwarding"
+            class="Machine"
+            displayName="$(string.EnableSSHLocalPortForwarding_Name)"
+            explainText="$(string.EnableSSHLocalPortForwarding_Help)"
+            key="Software\Policies\NetBird"
+            valueName="EnableSSHLocalPortForwarding">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="EnableSSHRemotePortForwarding"
+            class="Machine"
+            displayName="$(string.EnableSSHRemotePortForwarding_Name)"
+            explainText="$(string.EnableSSHRemotePortForwarding_Help)"
+            key="Software\Policies\NetBird"
+            valueName="EnableSSHRemotePortForwarding">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="DisableSSHAuth"
+            class="Machine"
+            displayName="$(string.DisableSSHAuth_Name)"
+            explainText="$(string.DisableSSHAuth_Help)"
+            key="Software\Policies\NetBird"
+            valueName="DisableSSHAuth">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="SSHJWTCacheTTL"
+            class="Machine"
+            displayName="$(string.SSHJWTCacheTTL_Name)"
+            explainText="$(string.SSHJWTCacheTTL_Help)"
+            key="Software\Policies\NetBird"
+            presentation="$(presentation.SSHJWTCacheTTL_Pres)">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <elements>
+        <decimal id="SSHJWTCacheTTL_Decimal" valueName="SSHJWTCacheTTL"
+                 minValue="0" maxValue="2147483647" required="true" />
+      </elements>
+    </policy>
+
+    <policy name="KeepConnectedOnQuit"
+            class="Machine"
+            displayName="$(string.KeepConnectedOnQuit_Name)"
+            explainText="$(string.KeepConnectedOnQuit_Help)"
+            key="Software\Policies\NetBird"
+            valueName="KeepConnectedOnQuit">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="DefaultLanguage"
+            class="Machine"
+            displayName="$(string.DefaultLanguage_Name)"
+            explainText="$(string.DefaultLanguage_Help)"
+            key="Software\Policies\NetBird"
+            presentation="$(presentation.DefaultLanguage_Pres)">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <elements>
+        <text id="DefaultLanguage_Text" valueName="DefaultLanguage" required="true" />
+      </elements>
+    </policy>
+
+    <policy name="DefaultViewMode"
+            class="Machine"
+            displayName="$(string.DefaultViewMode_Name)"
+            explainText="$(string.DefaultViewMode_Help)"
+            key="Software\Policies\NetBird"
+            presentation="$(presentation.DefaultViewMode_Pres)">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <elements>
+        <enum id="DefaultViewMode_Enum" valueName="DefaultViewMode" required="true">
+          <item displayName="$(string.DefaultViewMode_Default)"><value><string>default</string></value></item>
+          <item displayName="$(string.DefaultViewMode_Advanced)"><value><string>advanced</string></value></item>
+        </enum>
+      </elements>
+    </policy>
+
+    <policy name="DefaultTheme"
+            class="Machine"
+            displayName="$(string.DefaultTheme_Name)"
+            explainText="$(string.DefaultTheme_Help)"
+            key="Software\Policies\NetBird"
+            presentation="$(presentation.DefaultTheme_Pres)">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <elements>
+        <enum id="DefaultTheme_Enum" valueName="DefaultTheme" required="true">
+          <item displayName="$(string.DefaultTheme_System)"><value><string>system</string></value></item>
+          <item displayName="$(string.DefaultTheme_Light)"><value><string>light</string></value></item>
+          <item displayName="$(string.DefaultTheme_Dark)"><value><string>dark</string></value></item>
+        </enum>
       </elements>
     </policy>
 

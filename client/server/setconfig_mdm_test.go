@@ -5,11 +5,13 @@ import (
 	"os/user"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
@@ -403,4 +405,191 @@ func TestSetConfig_MDMEmpty_NoEnforcement(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, resp)
+}
+
+func TestSetConfig_MDMReject_NetworkBoolKeys(t *testing.T) {
+	s, ctx, profName, username, _ := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
+		mdm.KeyDisableDNS:           true,
+		mdm.KeyDisableIPv6:          true,
+		mdm.KeyDisableFirewall:      true,
+		mdm.KeyBlockLANAccess:       true,
+		mdm.KeyDisableNotifications: true,
+		mdm.KeyNetworkMonitor:       false,
+	}))
+
+	off, on := false, true
+	_, err := s.SetConfig(ctx, &proto.SetConfigRequest{
+		ProfileName:          profName,
+		Username:             username,
+		DisableDns:           &off,
+		DisableIpv6:          &off,
+		DisableFirewall:      &off,
+		BlockLanAccess:       &off,
+		DisableNotifications: &off,
+		NetworkMonitor:       &on,
+	})
+
+	v := extractViolation(t, err)
+	assert.ElementsMatch(t, []string{
+		mdm.KeyDisableDNS, mdm.KeyDisableIPv6, mdm.KeyDisableFirewall,
+		mdm.KeyBlockLANAccess, mdm.KeyDisableNotifications, mdm.KeyNetworkMonitor,
+	}, v.GetFields(), "every divergent network key must be reported")
+}
+
+func TestLoginRequestMDMConflicts_NetworkBoolKeys(t *testing.T) {
+	policy := mdm.NewPolicy(map[string]any{
+		mdm.KeyDisableDNS:     true,
+		mdm.KeyNetworkMonitor: false,
+	})
+	off, on := false, true
+
+	assert.Empty(t, loginRequestMDMConflicts(&proto.LoginRequest{DisableDns: &on, NetworkMonitor: &off}, policy),
+		"values equal to the enforced ones are an echo")
+	assert.Equal(t, []string{mdm.KeyDisableDNS, mdm.KeyNetworkMonitor},
+		loginRequestMDMConflicts(&proto.LoginRequest{DisableDns: &off, NetworkMonitor: &on}, policy),
+		"divergent values must be reported")
+}
+
+func TestSetConfigRequestMDMConflicts_NetworkValueKeys(t *testing.T) {
+	policy := mdm.NewPolicy(map[string]any{
+		mdm.KeyInterfaceName:    "utun100",
+		mdm.KeyMTU:              int64(1280),
+		mdm.KeyDNSRouteInterval: "90s",
+		mdm.KeyNATExternalIPs:   []string{"203.0.113.7"},
+	})
+	iface, mtu := "utun100", int64(1280)
+	otherIface, otherMTU := "utun7", int64(1400)
+
+	tests := []struct {
+		name string
+		msg  *proto.SetConfigRequest
+		want []string
+	}{
+		{name: "unset", msg: &proto.SetConfigRequest{}, want: nil},
+		{name: "echo", msg: &proto.SetConfigRequest{
+			InterfaceName:    &iface,
+			Mtu:              &mtu,
+			DnsRouteInterval: durationpb.New(90 * time.Second),
+			NatExternalIPs:   []string{"203.0.113.7"},
+		}, want: nil},
+		{name: "divergent", msg: &proto.SetConfigRequest{
+			InterfaceName:    &otherIface,
+			Mtu:              &otherMTU,
+			DnsRouteInterval: durationpb.New(time.Minute),
+			NatExternalIPs:   []string{"203.0.113.9"},
+		}, want: []string{
+			mdm.KeyInterfaceName, mdm.KeyMTU,
+			mdm.KeyDNSRouteInterval, mdm.KeyNATExternalIPs,
+		}},
+		{name: "clear marker", msg: &proto.SetConfigRequest{
+			CleanNATExternalIPs: true,
+		}, want: []string{mdm.KeyNATExternalIPs}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, mdmManagedFieldConflicts(tc.msg, policy), "SetConfig conflicts")
+			login := &proto.LoginRequest{
+				InterfaceName:       tc.msg.InterfaceName,
+				Mtu:                 tc.msg.Mtu,
+				DnsRouteInterval:    tc.msg.DnsRouteInterval,
+				NatExternalIPs:      tc.msg.NatExternalIPs,
+				CleanNATExternalIPs: tc.msg.CleanNATExternalIPs,
+			}
+			assert.Equal(t, tc.want, loginRequestMDMConflicts(login, policy), "Login conflicts")
+		})
+	}
+}
+
+func TestSetConfig_MDMReject_SSHKeys(t *testing.T) {
+	s, ctx, profName, username, _ := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
+		mdm.KeyEnableSSHRoot:                 false,
+		mdm.KeyEnableSSHSFTP:                 false,
+		mdm.KeyEnableSSHLocalPortForwarding:  false,
+		mdm.KeyEnableSSHRemotePortForwarding: false,
+		mdm.KeyDisableSSHAuth:                false,
+		mdm.KeySSHJWTCacheTTL:                int64(0),
+	}))
+
+	on := true
+	ttl := int32(60)
+	_, err := s.SetConfig(ctx, &proto.SetConfigRequest{
+		ProfileName:                   profName,
+		Username:                      username,
+		EnableSSHRoot:                 &on,
+		EnableSSHSFTP:                 &on,
+		EnableSSHLocalPortForwarding:  &on,
+		EnableSSHRemotePortForwarding: &on,
+		DisableSSHAuth:                &on,
+		SshJWTCacheTTL:                &ttl,
+	})
+
+	v := extractViolation(t, err)
+	assert.ElementsMatch(t, []string{
+		mdm.KeyEnableSSHRoot, mdm.KeyEnableSSHSFTP, mdm.KeyEnableSSHLocalPortForwarding,
+		mdm.KeyEnableSSHRemotePortForwarding, mdm.KeyDisableSSHAuth, mdm.KeySSHJWTCacheTTL,
+	}, v.GetFields(), "every divergent SSH key must be reported")
+}
+
+func TestLoginRequestMDMConflicts_SSHKeys(t *testing.T) {
+	policy := mdm.NewPolicy(map[string]any{
+		mdm.KeyDisableSSHAuth: false,
+		mdm.KeySSHJWTCacheTTL: int64(3600),
+	})
+	off, on := false, true
+	same, other := int32(3600), int32(60)
+
+	assert.Empty(t, loginRequestMDMConflicts(&proto.LoginRequest{DisableSSHAuth: &off, SshJWTCacheTTL: &same}, policy),
+		"values equal to the enforced ones are an echo")
+	assert.Equal(t, []string{mdm.KeyDisableSSHAuth, mdm.KeySSHJWTCacheTTL},
+		loginRequestMDMConflicts(&proto.LoginRequest{DisableSSHAuth: &on, SshJWTCacheTTL: &other}, policy),
+		"divergent values must be reported")
+}
+
+func TestSetConfig_MDMReject_ForceRelay(t *testing.T) {
+	s, ctx, profName, username, _ := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{mdm.KeyForceRelay: true}))
+
+	off := false
+	_, err := s.SetConfig(ctx, &proto.SetConfigRequest{ProfileName: profName, Username: username, ForceRelay: &off})
+
+	v := extractViolation(t, err)
+	assert.Equal(t, []string{mdm.KeyForceRelay}, v.GetFields(), "a divergent force relay must be reported")
+}
+
+func TestLoginRequestMDMConflicts_ForceRelay(t *testing.T) {
+	policy := mdm.NewPolicy(map[string]any{mdm.KeyForceRelay: true})
+	off, on := false, true
+
+	assert.Empty(t, loginRequestMDMConflicts(&proto.LoginRequest{ForceRelay: &on}, policy), "a value equal to the enforced one is an echo")
+	assert.Equal(t, []string{mdm.KeyForceRelay}, loginRequestMDMConflicts(&proto.LoginRequest{ForceRelay: &off}, policy),
+		"a divergent value must be reported")
+}
+
+// A settings write while a policy is active must persist only the user's own
+// values: the enforced copy lives in memory, and a write that started from it
+// would pin the policy in the profile after the policy goes away.
+func TestSetConfig_MDMValuesNeverReachTheProfileFile(t *testing.T) {
+	s, ctx, profName, username, cfgPath := setupServerWithProfile(t)
+	managed := []string{"DisableDNS", "BlockLANAccess", "MTU", "ForceRelay", "NATExternalIPs", "EnableSSHRoot"}
+	before := readProfileFile(t, cfgPath)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
+		mdm.KeyDisableDNS:     true,
+		mdm.KeyBlockLANAccess: true,
+		mdm.KeyMTU:            int64(1300),
+		mdm.KeyForceRelay:     true,
+		mdm.KeyNATExternalIPs: "203.0.113.7",
+		mdm.KeyEnableSSHRoot:  true,
+	}))
+
+	rosenpass := true
+	_, err := s.SetConfig(ctx, &proto.SetConfigRequest{ProfileName: profName, Username: username, RosenpassEnabled: &rosenpass})
+	require.NoError(t, err, "a write of an unmanaged field must succeed")
+
+	after := readProfileFile(t, cfgPath)
+	require.Equal(t, true, after["RosenpassEnabled"], "precondition: the write reached the profile file")
+	for _, field := range managed {
+		assert.Equal(t, before[field], after[field], "%s must keep the user's value on disk", field)
+	}
 }

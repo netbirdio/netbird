@@ -98,6 +98,7 @@ type ConfigInput struct {
 	BlockLANAccess      *bool
 	BlockInbound        *bool
 	DisableIPv6         *bool
+	ForceRelay          *bool
 	SyncMessageVersion  *int
 
 	DisableNotifications *bool
@@ -151,6 +152,10 @@ type Config struct {
 	BlockInbound        bool
 	DisableIPv6         bool
 	SyncMessageVersion  *int
+
+	// ForceRelay skips direct connections and always uses a relay.
+	// NB_FORCE_RELAY in the daemon environment overrides it.
+	ForceRelay bool
 
 	DisableNotifications *bool
 
@@ -248,6 +253,14 @@ func (config *Config) ApplyMDMPolicy(policy *mdm.Policy) {
 		return
 	}
 	config.applyMDMPolicy(policy)
+}
+
+// WithMDMPolicy returns a copy of the Config with the policy applied on top,
+// leaving the receiver as it was read. Nil stays nil.
+func (config *Config) WithMDMPolicy(policy *mdm.Policy) *Config {
+	enforced := config.clone()
+	enforced.ApplyMDMPolicy(policy)
+	return enforced
 }
 
 // Policy returns the MDM policy applied to this Config. Returns a non-nil
@@ -852,6 +865,12 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
+	if input.ForceRelay != nil && *input.ForceRelay != config.ForceRelay {
+		log.Infof("setting force relay=%v", *input.ForceRelay)
+		config.ForceRelay = *input.ForceRelay
+		updated = true
+	}
+
 	// Assigning the pointer, not writing through it: a config that carries no
 	// version yet would otherwise be a nil dereference, and a panic inside a
 	// request handler is not a way to fail.
@@ -952,22 +971,12 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 		return
 	}
 
-	// Helper: log the application of a single MDM-managed key. Values for
-	// keys in mdm.SecretKeys are redacted.
-	logApplied := func(key string, displayValue any) {
-		if _, secret := mdm.SecretKeys[key]; secret {
-			log.Infof("MDM override %s = ********** (secret)", key)
-			return
-		}
-		log.Infof("MDM override %s = %v", key, displayValue)
-	}
-
 	if v, ok := policy.GetString(mdm.KeyManagementURL); ok {
 		if u, err := parseURL("Management URL", v); err != nil {
 			log.Warnf("MDM management URL %q invalid: %v; keeping previous value", v, err)
 		} else {
 			config.ManagementURL = u
-			logApplied(mdm.KeyManagementURL, u.String())
+			logMDMApplied(mdm.KeyManagementURL, u.String())
 		}
 	}
 
@@ -976,51 +985,30 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 		// through a manifest by mistake.
 		if !isPreSharedKeyHidden(&v) {
 			config.PreSharedKey = v
-			logApplied(mdm.KeyPreSharedKey, "")
+			logMDMApplied(mdm.KeyPreSharedKey, "")
 		}
 	}
 
-	// applyBool collapses the per-key "read + set + log" boilerplate
-	// for every plain bool MDM key into a single helper. Keeps the
-	// outer function's cognitive complexity below SonarCube's
-	// threshold; functional behaviour is identical to the inlined
-	// branches it replaces.
-	applyBool := func(key string, setter func(bool)) {
-		v, ok := policy.GetBool(key)
-		if !ok {
-			return
-		}
-		setter(v)
-		logApplied(key, v)
-	}
-
-	applyBool(mdm.KeyAllowServerSSH, func(v bool) { bv := v; config.ServerSSHAllowed = &bv })
-	applyBool(mdm.KeyRemoteJobsAllowed, func(v bool) { bv := v; config.RemoteJobsAllowed = &bv })
-	applyBool(mdm.KeyAllowServerVNC, func(v bool) { bv := v; config.ServerVNCAllowed = &bv })
-	applyBool(mdm.KeyDisableVNCApproval, func(v bool) { bv := v; config.DisableVNCApproval = &bv })
-	applyBool(mdm.KeyDisableClientRoutes, func(v bool) { config.DisableClientRoutes = v })
-	applyBool(mdm.KeyDisableServerRoutes, func(v bool) { config.DisableServerRoutes = v })
-	applyBool(mdm.KeyBlockInbound, func(v bool) { config.BlockInbound = v })
-	applyBool(mdm.KeyDisableAutoConnect, func(v bool) { config.DisableAutoConnect = v })
-	applyBool(mdm.KeyRosenpassEnabled, func(v bool) { config.RosenpassEnabled = v })
-	applyBool(mdm.KeyRosenpassPermissive, func(v bool) { config.RosenpassPermissive = v })
-	applyBool(mdm.KeyEnableLocalMetrics, func(v bool) { config.LocalMetricsEnabled = v })
+	applyMDMBool(policy, mdm.KeyAllowServerSSH, func(v bool) { bv := v; config.ServerSSHAllowed = &bv })
+	applyMDMBool(policy, mdm.KeyRemoteJobsAllowed, func(v bool) { bv := v; config.RemoteJobsAllowed = &bv })
+	applyMDMBool(policy, mdm.KeyAllowServerVNC, func(v bool) { bv := v; config.ServerVNCAllowed = &bv })
+	applyMDMBool(policy, mdm.KeyDisableVNCApproval, func(v bool) { bv := v; config.DisableVNCApproval = &bv })
+	applyMDMBool(policy, mdm.KeyDisableClientRoutes, func(v bool) { config.DisableClientRoutes = v })
+	applyMDMBool(policy, mdm.KeyDisableServerRoutes, func(v bool) { config.DisableServerRoutes = v })
+	applyMDMBool(policy, mdm.KeyBlockInbound, func(v bool) { config.BlockInbound = v })
+	applyMDMBool(policy, mdm.KeyDisableAutoConnect, func(v bool) { config.DisableAutoConnect = v })
+	applyMDMBool(policy, mdm.KeyRosenpassEnabled, func(v bool) { config.RosenpassEnabled = v })
+	applyMDMBool(policy, mdm.KeyRosenpassPermissive, func(v bool) { config.RosenpassPermissive = v })
+	applyMDMBool(policy, mdm.KeyEnableLocalMetrics, func(v bool) { config.LocalMetricsEnabled = v })
 
 	if v, ok := policy.GetString(mdm.KeyLocalMetricsAddress); ok {
 		config.LocalMetricsAddress = v
-		logApplied(mdm.KeyLocalMetricsAddress, v)
+		logMDMApplied(mdm.KeyLocalMetricsAddress, v)
 	}
 
 	if v, ok := policy.GetInt(mdm.KeyWireguardPort); ok {
-		// REG_DWORD is 32-bit; UDP port range is 1-65535. Clamp at the
-		// upper bound and reject obviously-invalid values to avoid the
-		// engine binding to an unusable port if the admin pushes garbage.
-		if v >= 1 && v <= 65535 {
-			config.WgPort = int(v)
-			logApplied(mdm.KeyWireguardPort, v)
-		} else {
-			log.Warnf("MDM wireguard port %d out of range [1,65535]; keeping previous value", v)
-		}
+		config.WgPort = int(v)
+		logMDMApplied(mdm.KeyWireguardPort, v)
 	}
 
 	if v, ok := policy.GetBool(mdm.KeyLazyConnection); ok {
@@ -1029,10 +1017,114 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 			state = "on"
 		}
 		config.LazyConnection = state
-		logApplied(mdm.KeyLazyConnection, state)
+		logMDMApplied(mdm.KeyLazyConnection, state)
 	}
 
 	config.applyMDMExtraIFaceBlackList(policy)
+	config.applyMDMNetworkOverrides(policy)
+	config.applyMDMSSHOverrides(policy)
+}
+
+// applyMDMNetworkOverrides applies the network and daemon override keys.
+func (config *Config) applyMDMNetworkOverrides(policy *mdm.Policy) {
+	applyMDMBool(policy, mdm.KeyDisableDNS, func(v bool) { config.DisableDNS = v })
+	applyMDMBool(policy, mdm.KeyDisableIPv6, func(v bool) { config.DisableIPv6 = v })
+	applyMDMBool(policy, mdm.KeyDisableFirewall, func(v bool) { config.DisableFirewall = v })
+	applyMDMBool(policy, mdm.KeyBlockLANAccess, func(v bool) { config.BlockLANAccess = v })
+	applyMDMBool(policy, mdm.KeyDisableNotifications, func(v bool) { config.DisableNotifications = &v })
+	applyMDMBool(policy, mdm.KeyNetworkMonitor, func(v bool) { config.NetworkMonitor = &v })
+	applyMDMBool(policy, mdm.KeyDisableIPv6Discovery, func(v bool) { config.DisableIPv6Discovery = v })
+	applyMDMBool(policy, mdm.KeyForceRelay, func(v bool) { config.ForceRelay = v })
+
+	config.applyMDMInterfaceName(policy)
+	config.applyMDMMTU(policy)
+	config.applyMDMDNSRouteInterval(policy)
+	config.applyMDMNATExternalIPs(policy)
+}
+
+// applyMDMSSHOverrides applies the keys that shape the NetBird SSH server.
+func (config *Config) applyMDMSSHOverrides(policy *mdm.Policy) {
+	applyMDMBool(policy, mdm.KeyEnableSSHRoot, func(v bool) { config.EnableSSHRoot = &v })
+	applyMDMBool(policy, mdm.KeyEnableSSHSFTP, func(v bool) { config.EnableSSHSFTP = &v })
+	applyMDMBool(policy, mdm.KeyEnableSSHLocalPortForwarding, func(v bool) { config.EnableSSHLocalPortForwarding = &v })
+	applyMDMBool(policy, mdm.KeyEnableSSHRemotePortForwarding, func(v bool) { config.EnableSSHRemotePortForwarding = &v })
+	applyMDMBool(policy, mdm.KeyDisableSSHAuth, func(v bool) {
+		config.DisableSSHAuth = &v
+		if v {
+			log.Warnf("MDM %s is on: the SSH server lets in any peer the access policy allows, with no user login", mdm.KeyDisableSSHAuth)
+		}
+	})
+	config.applyMDMSSHJWTCacheTTL(policy)
+}
+
+func (config *Config) applyMDMSSHJWTCacheTTL(policy *mdm.Policy) {
+	v, ok := policy.GetInt(mdm.KeySSHJWTCacheTTL)
+	if !ok {
+		return
+	}
+	ttl := int(v)
+	config.SSHJWTCacheTTL = &ttl
+	logMDMApplied(mdm.KeySSHJWTCacheTTL, ttl)
+}
+
+func (config *Config) applyMDMInterfaceName(policy *mdm.Policy) {
+	v, ok := policy.GetString(mdm.KeyInterfaceName)
+	if !ok {
+		return
+	}
+	config.WgIface = v
+	logMDMApplied(mdm.KeyInterfaceName, v)
+}
+
+func (config *Config) applyMDMMTU(policy *mdm.Policy) {
+	v, ok := policy.GetInt(mdm.KeyMTU)
+	if !ok {
+		return
+	}
+	config.MTU = uint16(v)
+	logMDMApplied(mdm.KeyMTU, v)
+}
+
+func (config *Config) applyMDMDNSRouteInterval(policy *mdm.Policy) {
+	v, ok := policy.GetDuration(mdm.KeyDNSRouteInterval)
+	if !ok {
+		return
+	}
+	config.DNSRouteInterval = v
+	logMDMApplied(mdm.KeyDNSRouteInterval, v)
+}
+
+// applyMDMNATExternalIPs replaces the mappings. A list with a malformed entry
+// never gets here: the policy drops it when it loads.
+func (config *Config) applyMDMNATExternalIPs(policy *mdm.Policy) {
+	values, ok := policy.GetStringSlice(mdm.KeyNATExternalIPs)
+	if !ok {
+		return
+	}
+	config.NATExternalIPs = mdm.SplitList(values)
+	log.Infof("MDM override %s = %d mapping(s)", mdm.KeyNATExternalIPs, len(config.NATExternalIPs))
+	log.Debugf("MDM %s mappings: %v", mdm.KeyNATExternalIPs, config.NATExternalIPs)
+}
+
+// logMDMApplied logs the application of a single MDM-managed key. Values for
+// keys in mdm.SecretKeys are redacted.
+func logMDMApplied(key string, displayValue any) {
+	if _, secret := mdm.SecretKeys[key]; secret {
+		log.Infof("MDM override %s = ********** (secret)", key)
+		return
+	}
+	log.Infof("MDM override %s = %v", key, displayValue)
+}
+
+// applyMDMBool collapses the per-key "read + set + log" boilerplate for a
+// plain bool MDM key, keeping the appliers below Sonar's complexity threshold.
+func applyMDMBool(policy *mdm.Policy, key string, setter func(bool)) {
+	v, ok := policy.GetBool(key)
+	if !ok {
+		return
+	}
+	setter(v)
+	logMDMApplied(key, v)
 }
 
 // applyMDMExtraIFaceBlackList appends the MDM interface prefixes missing from

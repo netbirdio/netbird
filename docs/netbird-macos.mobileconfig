@@ -16,11 +16,24 @@
         (confirm against the signed pkg before fleet roll-out)
 
     Distribution:
-      - sign with `productsign --sign "Developer ID Installer: ..." ...`
-        before fleet roll-out (Apple-Configurator-2 won't install an
-        unsigned profile on Sonoma+ without user override).
-      - For local dev install: `sudo profiles install -path netbird-macos.mobileconfig`.
-      - For MDM (Jamf/Kandji/Mosyle/Intune): upload as a Custom Profile.
+      - delivered through an MDM, the profile is signed by the MDM
+        channel itself; nothing to sign by hand,
+      - handed out any other way (Apple Configurator, double-click), it
+        installs unsigned and asks the user to confirm on recent macOS.
+        To avoid that, sign it as a CMS message with an identity the
+        target Macs trust:
+            security cms -S -N "Your Signing Identity" \
+                         -i netbird-macos.mobileconfig -o signed.mobileconfig
+        Configuration profiles are not signed with productsign, which
+        handles installer packages.
+      - For a local test: double-click the file, then install it from
+        System Settings > General > Device Management (macOS 13 and later)
+        or System Preferences > Profiles (macOS 11 and 12). macOS 11 and
+        later cannot install configuration profiles with the `profiles`
+        command.
+      - For MDM (Kandji/Mosyle/Intune/Workspace ONE/JumpCloud): upload as
+        a custom profile. Jamf Pro: prefer io.netbird.client.plist in
+        Application & Custom Settings, or sign this profile before upload.
 
     Editing:
       - Replace UUID placeholders below with fresh UUIDs (`uuidgen` on
@@ -145,6 +158,23 @@
                                 <integer>51820</integer>
                                 -->
 
+                                <!-- ===== Lazy connections (bool) =====
+                                     true forces them on, false forces them off, an
+                                     absent key defers to the Management setting.
+                                     NB_LAZY_CONN wins over both. -->
+                                <!--
+                                <key>lazyConnection</key>
+                                <true/>
+                                -->
+
+                                <!-- ===== Local Prometheus metrics endpoint ===== -->
+                                <!--
+                                <key>enableLocalMetrics</key>
+                                <true/>
+                                <key>localMetricsAddress</key>
+                                <string>127.0.0.1:9191</string>
+                                -->
+
                                 <!-- ===== Extra interface blacklist (array or comma-separated string)
                                      Interface name prefixes whose local addresses NetBird never
                                      offers as peer connection candidates. Case-sensitive prefix,
@@ -169,6 +199,106 @@
                                 <string>allow</string>
                                 <key>splitTunnelApps</key>
                                 <string>com.acme.app1,com.acme.app2</string>
+                                -->
+
+                                <!-- ===== Network and daemon overrides =====
+                                     Each replaces the device's own value and rejects a change to it.
+                                     interfaceName      : macOS needs utun followed by a number.
+                                     mtu                : 576-8192.
+                                     dnsRouteInterval   : a duration such as 30s, 1m or 1m30s.
+                                     natExternalIPs     : array or comma-separated string of
+                                                          external-IP[/internal-IP or /interface].
+                                     forceRelay         : true never tries a direct connection, false allows
+                                                          one; either value wins over NB_FORCE_RELAY in the
+                                                          daemon environment.
+                                     An invalid value is ignored and the device keeps its own,
+                                     except that disableFirewall then enforces false and
+                                     blockLANAccess enforces true. -->
+                                <!--
+                                <key>disableDNS</key>
+                                <false/>
+
+                                <key>disableIPv6</key>
+                                <false/>
+
+                                <key>disableFirewall</key>
+                                <false/>
+
+                                <key>blockLANAccess</key>
+                                <true/>
+
+                                <key>disableNotifications</key>
+                                <false/>
+
+                                <key>networkMonitor</key>
+                                <true/>
+
+                                <key>disableIPv6Discovery</key>
+                                <false/>
+
+                                <key>interfaceName</key>
+                                <string>utun100</string>
+
+                                <key>mtu</key>
+                                <integer>1280</integer>
+
+                                <key>dnsRouteInterval</key>
+                                <string>1m</string>
+
+                                <key>natExternalIPs</key>
+                                <string>203.0.113.7/10.0.0.5</string>
+
+                                <key>forceRelay</key>
+                                <false/>
+                                -->
+
+                                <!-- ===== SSH server =====
+                                     Each replaces the device's own value and rejects a change to it.
+                                     They shape the server allowServerSSH turns on.
+                                     disableSSHAuth     : lets in any peer the access policy allows,
+                                                          with no user login. Automation hosts only.
+                                     sshJWTCacheTTL     : seconds; 0 disables the cache. -->
+                                <!--
+                                <key>enableSSHRoot</key>
+                                <false/>
+
+                                <key>enableSSHSFTP</key>
+                                <false/>
+
+                                <key>enableSSHLocalPortForwarding</key>
+                                <false/>
+
+                                <key>enableSSHRemotePortForwarding</key>
+                                <false/>
+
+                                <key>disableSSHAuth</key>
+                                <false/>
+
+                                <key>sshJWTCacheTTL</key>
+                                <integer>0</integer>
+                                -->
+
+                                <!-- ===== Desktop app =====
+                                     keepConnectedOnQuit : quitting the app leaves the connection up;
+                                                           the user cannot change it.
+                                     default*            : applied when first seen or when the value
+                                                           changes; the user can change them afterwards.
+                                     defaultLanguage     : en, de, es, fr, gl, he, hu, it, ja, ko, pl,
+                                                           pt, ru, uk, zh-CN, zh-HK.
+                                     defaultViewMode     : default or advanced.
+                                     defaultTheme        : system, light or dark. -->
+                                <!--
+                                <key>keepConnectedOnQuit</key>
+                                <true/>
+
+                                <key>defaultLanguage</key>
+                                <string>it</string>
+
+                                <key>defaultViewMode</key>
+                                <string>default</string>
+
+                                <key>defaultTheme</key>
+                                <string>system</string>
                                 -->
 
                                 <!-- ===== UI / kill switches (bool) ===== -->

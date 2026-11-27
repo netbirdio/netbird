@@ -6,10 +6,12 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/mdm"
 )
 
@@ -335,7 +337,6 @@ func TestApply_MDMExtraIFaceBlackList_AddsToResolvedList(t *testing.T) {
 		assert.Contains(t, cfg.IFaceBlackList, want, "effective blacklist should contain %q", want)
 	}
 	assert.True(t, cfg.Policy().HasKey(mdm.KeyExtraIFaceBlackList))
-
 }
 
 func TestApply_MDMExtraIFaceBlackList_NotPersistedByLaterWrite(t *testing.T) {
@@ -417,7 +418,7 @@ func TestApply_MDMExtraIFaceBlackList_InvalidTypeIgnored(t *testing.T) {
 	}))
 
 	assert.ElementsMatch(t, DefaultInterfaceBlacklist, cfg.IFaceBlackList, "a non-list value must leave the blacklist untouched")
-	assert.True(t, cfg.Policy().HasKey(mdm.KeyExtraIFaceBlackList), "the key is still reported as managed")
+	assert.False(t, cfg.Policy().HasKey(mdm.KeyExtraIFaceBlackList), "a non-list value leaves the setting to the user")
 }
 
 func countOf(list []string, item string) int {
@@ -431,3 +432,326 @@ func countOf(list []string, item string) int {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+func TestApply_MDMNetworkBoolKeysOverrideOnDiskValue(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "config.json")
+
+	// The profile file holds the opposite of every value MDM is about to
+	// enforce, so each assertion proves the override and not a default.
+	configWithMDM(t, ConfigInput{
+		ConfigPath:           tmp,
+		DisableDNS:           boolPtr(false),
+		DisableIPv6:          boolPtr(false),
+		DisableFirewall:      boolPtr(false),
+		BlockLANAccess:       boolPtr(false),
+		DisableNotifications: boolPtr(true),
+		NetworkMonitor:       boolPtr(true),
+	}, mdm.NewPolicy(nil))
+	cfg := configWithMDM(t, ConfigInput{ConfigPath: tmp}, mdm.NewPolicy(map[string]any{
+		mdm.KeyDisableDNS:           true,
+		mdm.KeyDisableIPv6:          "yes",
+		mdm.KeyDisableFirewall:      int64(1),
+		mdm.KeyBlockLANAccess:       true,
+		mdm.KeyDisableNotifications: false,
+		mdm.KeyNetworkMonitor:       "off",
+		mdm.KeyDisableIPv6Discovery: true,
+	}))
+
+	assert.True(t, cfg.DisableDNS, "disableDNS")
+	assert.True(t, cfg.DisableIPv6, "disableIPv6 from a string literal")
+	assert.True(t, cfg.DisableFirewall, "disableFirewall from a REG_DWORD")
+	assert.True(t, cfg.BlockLANAccess, "blockLANAccess")
+	require.NotNil(t, cfg.DisableNotifications)
+	assert.False(t, *cfg.DisableNotifications, "disableNotifications")
+	require.NotNil(t, cfg.NetworkMonitor)
+	assert.False(t, *cfg.NetworkMonitor, "networkMonitor")
+	assert.True(t, cfg.DisableIPv6Discovery, "disableIPv6Discovery")
+}
+
+func TestApply_MDMNetworkBoolKeys_UnparseableValueLeavesSettingToUser(t *testing.T) {
+	cfg := configWithMDM(t, ConfigInput{
+		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
+		DisableDNS: boolPtr(true),
+	}, mdm.NewPolicy(map[string]any{
+		mdm.KeyDisableDNS: "maybe",
+	}))
+
+	assert.True(t, cfg.DisableDNS, "an unparseable bool must not flip the profile value")
+	assert.False(t, cfg.Policy().HasKey(mdm.KeyDisableDNS), "an unparseable bool must leave the setting to the user")
+}
+
+func TestMDMConflicts_NetworkBoolKeys(t *testing.T) {
+	policy := mdm.NewPolicy(map[string]any{
+		mdm.KeyDisableDNS:           true,
+		mdm.KeyDisableIPv6:          true,
+		mdm.KeyDisableFirewall:      true,
+		mdm.KeyBlockLANAccess:       true,
+		mdm.KeyDisableNotifications: true,
+		mdm.KeyNetworkMonitor:       false,
+	})
+
+	tests := []struct {
+		name  string
+		input ConfigInput
+		want  []string
+	}{
+		{name: "unset", input: ConfigInput{}, want: nil},
+		{name: "echo", input: ConfigInput{
+			DisableDNS:           boolPtr(true),
+			DisableIPv6:          boolPtr(true),
+			DisableFirewall:      boolPtr(true),
+			BlockLANAccess:       boolPtr(true),
+			DisableNotifications: boolPtr(true),
+			NetworkMonitor:       boolPtr(false),
+		}, want: nil},
+		{name: "all divergent", input: ConfigInput{
+			DisableDNS:           boolPtr(false),
+			DisableIPv6:          boolPtr(false),
+			DisableFirewall:      boolPtr(false),
+			BlockLANAccess:       boolPtr(false),
+			DisableNotifications: boolPtr(false),
+			NetworkMonitor:       boolPtr(true),
+		}, want: []string{
+			mdm.KeyDisableDNS, mdm.KeyDisableIPv6, mdm.KeyDisableFirewall,
+			mdm.KeyBlockLANAccess, mdm.KeyDisableNotifications, mdm.KeyNetworkMonitor,
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, MDMConflicts(tc.input, policy), "conflicting keys")
+		})
+	}
+}
+
+func TestApply_MDMNetworkValueKeysOverrideOnDiskValue(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "config.json")
+	iface := "utun250"
+	mtu := uint16(1400)
+	interval := time.Minute
+	configWithMDM(t, ConfigInput{
+		ConfigPath:       tmp,
+		InterfaceName:    &iface,
+		MTU:              &mtu,
+		DNSRouteInterval: &interval,
+		NATExternalIPs:   []string{"198.51.100.1"},
+	}, mdm.NewPolicy(nil))
+	cfg := configWithMDM(t, ConfigInput{ConfigPath: tmp}, mdm.NewPolicy(map[string]any{
+		mdm.KeyInterfaceName:    "utun100",
+		mdm.KeyMTU:              int64(1280),
+		mdm.KeyDNSRouteInterval: "90s",
+		mdm.KeyNATExternalIPs:   " 203.0.113.7, 203.0.113.8/10.0.0.1,,203.0.113.7",
+	}))
+
+	assert.Equal(t, "utun100", cfg.WgIface, "interfaceName")
+	assert.Equal(t, uint16(1280), cfg.MTU, "mtu")
+	assert.Equal(t, 90*time.Second, cfg.DNSRouteInterval, "dnsRouteInterval")
+	assert.Equal(t, []string{"203.0.113.7", "203.0.113.8/10.0.0.1"}, cfg.NATExternalIPs,
+		"natExternalIPs is split, trimmed and deduplicated")
+}
+
+func TestApply_MDMNetworkValueKeys_InvalidValueKeepsProfileValue(t *testing.T) {
+	iface := "utun250"
+	mtu := uint16(1400)
+	interval := time.Minute
+	input := ConfigInput{
+		InterfaceName:    &iface,
+		MTU:              &mtu,
+		DNSRouteInterval: &interval,
+	}
+
+	tests := []struct {
+		name  string
+		key   string
+		value any
+		check func(t *testing.T, cfg *Config)
+	}{
+		{"mtu below minimum", mdm.KeyMTU, int64(100), func(t *testing.T, cfg *Config) {
+			assert.Equal(t, mtu, cfg.MTU, "mtu")
+		}},
+		{"mtu above maximum", mdm.KeyMTU, int64(70000), func(t *testing.T, cfg *Config) {
+			assert.Equal(t, mtu, cfg.MTU, "mtu")
+		}},
+		{"interval not a duration", mdm.KeyDNSRouteInterval, "90", func(t *testing.T, cfg *Config) {
+			assert.Equal(t, time.Minute, cfg.DNSRouteInterval, "dnsRouteInterval")
+		}},
+		{"interval negative", mdm.KeyDNSRouteInterval, "-1m", func(t *testing.T, cfg *Config) {
+			assert.Equal(t, time.Minute, cfg.DNSRouteInterval, "dnsRouteInterval")
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			in := input
+			in.ConfigPath = filepath.Join(t.TempDir(), "config.json")
+			cfg := configWithMDM(t, in, mdm.NewPolicy(map[string]any{tc.key: tc.value}))
+			tc.check(t, cfg)
+			assert.False(t, cfg.Policy().HasKey(tc.key), "an unusable tuning value leaves the setting to the user")
+		})
+	}
+}
+
+func TestMDMConflicts_NetworkValueKeys(t *testing.T) {
+	policy := mdm.NewPolicy(map[string]any{
+		mdm.KeyInterfaceName:    "utun100",
+		mdm.KeyMTU:              int64(1280),
+		mdm.KeyDNSRouteInterval: "90s",
+		mdm.KeyNATExternalIPs:   "203.0.113.7,203.0.113.8",
+	})
+	sameIface, otherIface := "utun100", "utun7"
+	sameMTU, otherMTU := uint16(1280), uint16(1400)
+	sameInterval, otherInterval := 90*time.Second, time.Minute
+
+	tests := []struct {
+		name  string
+		input ConfigInput
+		want  []string
+	}{
+		{name: "unset", input: ConfigInput{}, want: nil},
+		{name: "echo", input: ConfigInput{
+			InterfaceName:    &sameIface,
+			MTU:              &sameMTU,
+			DNSRouteInterval: &sameInterval,
+			NATExternalIPs:   []string{"203.0.113.7", "203.0.113.8"},
+		}, want: nil},
+		{name: "all divergent", input: ConfigInput{
+			InterfaceName:    &otherIface,
+			MTU:              &otherMTU,
+			DNSRouteInterval: &otherInterval,
+			NATExternalIPs:   []string{"203.0.113.9"},
+		}, want: []string{
+			mdm.KeyInterfaceName, mdm.KeyMTU,
+			mdm.KeyDNSRouteInterval, mdm.KeyNATExternalIPs,
+		}},
+		{name: "clearing a managed list", input: ConfigInput{
+			NATExternalIPs: []string{},
+		}, want: []string{mdm.KeyNATExternalIPs}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, MDMConflicts(tc.input, policy), "conflicting keys")
+		})
+	}
+}
+
+func TestMDMMTUBoundsMatchInterface(t *testing.T) {
+	assert.Equal(t, iface.MinMTU, mdm.MinMTU, "mdm.MinMTU must track iface.MinMTU")
+	assert.Equal(t, iface.MaxMTU, mdm.MaxMTU, "mdm.MaxMTU must track iface.MaxMTU")
+}
+
+func TestApply_MDMSSHKeysOverrideOnDiskValue(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "config.json")
+
+	// The profile file holds the opposite of every value MDM is about to
+	// enforce, so each assertion proves the override and not a default.
+	configWithMDM(t, ConfigInput{
+		ConfigPath:                    tmp,
+		EnableSSHRoot:                 boolPtr(false),
+		EnableSSHSFTP:                 boolPtr(false),
+		EnableSSHLocalPortForwarding:  boolPtr(false),
+		EnableSSHRemotePortForwarding: boolPtr(true),
+		DisableSSHAuth:                boolPtr(false),
+		SSHJWTCacheTTL:                intPtr(0),
+	}, mdm.NewPolicy(nil))
+	cfg := configWithMDM(t, ConfigInput{ConfigPath: tmp}, mdm.NewPolicy(map[string]any{
+		mdm.KeyEnableSSHRoot:                 true,
+		mdm.KeyEnableSSHSFTP:                 "yes",
+		mdm.KeyEnableSSHLocalPortForwarding:  int64(1),
+		mdm.KeyEnableSSHRemotePortForwarding: false,
+		mdm.KeyDisableSSHAuth:                true,
+		mdm.KeySSHJWTCacheTTL:                int64(3600),
+	}))
+
+	require.NotNil(t, cfg.EnableSSHRoot)
+	assert.True(t, *cfg.EnableSSHRoot, "enableSSHRoot")
+	require.NotNil(t, cfg.EnableSSHSFTP)
+	assert.True(t, *cfg.EnableSSHSFTP, "enableSSHSFTP from a string literal")
+	require.NotNil(t, cfg.EnableSSHLocalPortForwarding)
+	assert.True(t, *cfg.EnableSSHLocalPortForwarding, "enableSSHLocalPortForwarding from a REG_DWORD")
+	require.NotNil(t, cfg.EnableSSHRemotePortForwarding)
+	assert.False(t, *cfg.EnableSSHRemotePortForwarding, "enableSSHRemotePortForwarding")
+	require.NotNil(t, cfg.DisableSSHAuth)
+	assert.True(t, *cfg.DisableSSHAuth, "disableSSHAuth")
+	require.NotNil(t, cfg.SSHJWTCacheTTL)
+	assert.Equal(t, 3600, *cfg.SSHJWTCacheTTL, "sshJWTCacheTTL")
+}
+
+func TestApply_MDMSSHJWTCacheTTL_OutOfRangeKeepsProfileValue(t *testing.T) {
+	for _, v := range []int64{-1, 1 << 40} {
+		cfg := configWithMDM(t, ConfigInput{
+			ConfigPath:     filepath.Join(t.TempDir(), "config.json"),
+			SSHJWTCacheTTL: intPtr(600),
+		}, mdm.NewPolicy(map[string]any{mdm.KeySSHJWTCacheTTL: v}))
+
+		require.NotNil(t, cfg.SSHJWTCacheTTL)
+		assert.Equal(t, 600, *cfg.SSHJWTCacheTTL, "TTL %d must be skipped", v)
+	}
+}
+
+func TestMDMConflicts_SSHKeys(t *testing.T) {
+	policy := mdm.NewPolicy(map[string]any{
+		mdm.KeyEnableSSHRoot:                 true,
+		mdm.KeyEnableSSHSFTP:                 true,
+		mdm.KeyEnableSSHLocalPortForwarding:  true,
+		mdm.KeyEnableSSHRemotePortForwarding: false,
+		mdm.KeyDisableSSHAuth:                false,
+		mdm.KeySSHJWTCacheTTL:                int64(3600),
+	})
+
+	tests := []struct {
+		name  string
+		input ConfigInput
+		want  []string
+	}{
+		{name: "unset", input: ConfigInput{}, want: nil},
+		{name: "echo", input: ConfigInput{
+			EnableSSHRoot:                 boolPtr(true),
+			EnableSSHSFTP:                 boolPtr(true),
+			EnableSSHLocalPortForwarding:  boolPtr(true),
+			EnableSSHRemotePortForwarding: boolPtr(false),
+			DisableSSHAuth:                boolPtr(false),
+			SSHJWTCacheTTL:                intPtr(3600),
+		}, want: nil},
+		{name: "all divergent", input: ConfigInput{
+			EnableSSHRoot:                 boolPtr(false),
+			EnableSSHSFTP:                 boolPtr(false),
+			EnableSSHLocalPortForwarding:  boolPtr(false),
+			EnableSSHRemotePortForwarding: boolPtr(true),
+			DisableSSHAuth:                boolPtr(true),
+			SSHJWTCacheTTL:                intPtr(60),
+		}, want: []string{
+			mdm.KeyEnableSSHRoot, mdm.KeyEnableSSHSFTP, mdm.KeyEnableSSHLocalPortForwarding,
+			mdm.KeyEnableSSHRemotePortForwarding, mdm.KeyDisableSSHAuth, mdm.KeySSHJWTCacheTTL,
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, MDMConflicts(tc.input, policy), "conflicting keys")
+		})
+	}
+}
+
+func TestApply_MDMForceRelayOverridesOnDiskValue(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "config.json")
+	configWithMDM(t, ConfigInput{ConfigPath: tmp, ForceRelay: boolPtr(false)}, mdm.NewPolicy(nil))
+	cfg := configWithMDM(t, ConfigInput{ConfigPath: tmp}, mdm.NewPolicy(map[string]any{mdm.KeyForceRelay: true}))
+
+	assert.True(t, cfg.ForceRelay, "the policy value applies")
+}
+
+func TestMDMConflicts_ForceRelay(t *testing.T) {
+	policy := mdm.NewPolicy(map[string]any{mdm.KeyForceRelay: true})
+
+	assert.Nil(t, MDMConflicts(ConfigInput{}, policy), "an unset value does not conflict")
+	assert.Nil(t, MDMConflicts(ConfigInput{ForceRelay: boolPtr(true)}, policy), "a value matching the policy does not conflict")
+	assert.Equal(t, []string{mdm.KeyForceRelay}, MDMConflicts(ConfigInput{ForceRelay: boolPtr(false)}, policy), "a differing value conflicts")
+}
+
+// An empty managed list is how an administrator enforces no NAT mappings, so it
+// must clear the ones in the profile instead of being ignored.
+func TestApply_MDMEmptyNATExternalIPsClearsProfileMappings(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "config.json")
+	cfg := configWithMDM(t, ConfigInput{ConfigPath: tmp, NATExternalIPs: []string{"198.51.100.1"}},
+		mdm.NewPolicy(map[string]any{mdm.KeyNATExternalIPs: []string{}}))
+
+	assert.Empty(t, cfg.NATExternalIPs, "an empty managed list enforces no mappings")
+	assert.True(t, cfg.Policy().HasKey(mdm.KeyNATExternalIPs), "the empty list stays managed")
+}

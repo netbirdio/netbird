@@ -9,10 +9,10 @@ import { VerticalTabs } from "@/components/VerticalTabs.tsx";
 import { SettingsNavigation } from "@/modules/settings/SettingsNavigation.tsx";
 import { AutostartSettingsProvider, SettingsProvider } from "@/contexts/SettingsContext.tsx";
 import { SettingsGeneral } from "@/modules/settings/SettingsGeneral.tsx";
-import { SettingsNetwork } from "@/modules/settings/SettingsNetwork.tsx";
-import { SettingsSecurity } from "@/modules/settings/SettingsSecurity.tsx";
+import { SettingsNetwork, networkTabHasControls } from "@/modules/settings/SettingsNetwork.tsx";
+import { SettingsSecurity, securityTabHasControls } from "@/modules/settings/SettingsSecurity.tsx";
 import { ProfilesTab } from "@/modules/profiles/ProfilesTab.tsx";
-import { SettingsSSH } from "@/modules/settings/SettingsSSH.tsx";
+import { SettingsSSH, sshTabHasControls } from "@/modules/settings/SettingsSSH.tsx";
 import { SettingsVNC } from "@/modules/settings/SettingsVNC.tsx";
 import { SettingsAdvanced } from "@/modules/settings/SettingsAdvanced.tsx";
 import { SettingsTroubleshooting } from "@/modules/settings/SettingsTroubleshooting.tsx";
@@ -75,22 +75,17 @@ export const SettingsPage = () => {
         const editable = !features.disableUpdateSettings;
         const visibility: Record<Tab, boolean> = {
             [Tab.General]: true,
-            [Tab.Network]: editable,
-            [Tab.Security]: editable,
+            [Tab.Network]: editable && networkTabHasControls(mdm),
+            [Tab.Security]: editable && securityTabHasControls(mdm),
             [Tab.Profiles]: !features.disableProfiles,
-            [Tab.SSH]: mdm.allowServerSSH ?? editable,
+            [Tab.SSH]: (mdm.allowServerSSH ?? editable) && sshTabHasControls(mdm),
             [Tab.VNC]: mdm.allowServerVNC ?? editable,
             [Tab.Advanced]: editable,
             [Tab.Troubleshooting]: true,
             [Tab.About]: true,
         };
         return (Object.keys(visibility) as Tab[]).filter((t) => visibility[t]);
-    }, [
-        features.disableUpdateSettings,
-        features.disableProfiles,
-        mdm.allowServerSSH,
-        mdm.allowServerVNC,
-    ]);
+    }, [features.disableUpdateSettings, features.disableProfiles, mdm]);
 
     const defaultTab = visibleTabs[0];
     // The window carries its tab in the URL, so the first render opens on the

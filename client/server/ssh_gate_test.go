@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"os"
 	"runtime"
@@ -16,6 +17,8 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
+	"github.com/netbirdio/netbird/client/proto"
 )
 
 // ctxWithIdentity builds a request context carrying the identity the transport
@@ -222,7 +225,7 @@ func TestRequirePrivilegeForConfigChange_SSHFlags(t *testing.T) {
 			if tt.privileged {
 				ctx = rootCtx()
 			}
-			err := requirePrivilegeForConfigChange(ctx, tt.stored, tt.change)
+			err := requirePrivilegeForConfigChange(ctx, tt.stored, nil, tt.change)
 			if tt.wantDeny {
 				assertDenied(t, err)
 				return
@@ -318,7 +321,7 @@ func TestRequirePrivilegeForConfigChange_LocalMetrics(t *testing.T) {
 			if tt.privileged {
 				ctx = rootCtx()
 			}
-			err := requirePrivilegeForConfigChange(ctx, tt.stored, tt.change)
+			err := requirePrivilegeForConfigChange(ctx, tt.stored, nil, tt.change)
 			if tt.wantDeny {
 				assertDenied(t, err)
 				return
@@ -406,7 +409,7 @@ func TestRequirePrivilegeForConfigChange_ManagementURL(t *testing.T) {
 			if tt.privileged {
 				ctx = rootCtx()
 			}
-			err := requirePrivilegeForConfigChange(ctx, tt.stored, privilegedConfigChange{managementURL: tt.requested})
+			err := requirePrivilegeForConfigChange(ctx, tt.stored, nil, privilegedConfigChange{managementURL: tt.requested})
 			if tt.wantDeny {
 				assertDenied(t, err)
 				return
@@ -420,7 +423,7 @@ func TestRequirePrivilegeForConfigChange_ManagementURL(t *testing.T) {
 // state on a TCP daemon socket, where no peer credentials exist.
 func TestRequirePrivilegeForConfigChange_UnidentifiedCallerIsRefused(t *testing.T) {
 	err := requirePrivilegeForConfigChange(noIdentityCtx(),
-		&profilemanager.Config{ServerSSHAllowed: boolPtr(false)},
+		&profilemanager.Config{ServerSSHAllowed: boolPtr(false)}, nil,
 		privilegedConfigChange{serverSSHAllowed: boolPtr(true)})
 	assertDenied(t, err)
 
@@ -541,12 +544,63 @@ func TestRequirePrivilegeForConfigChange_UnblockInbound(t *testing.T) {
 			if tt.privileged {
 				ctx = rootCtx()
 			}
-			err := requirePrivilegeForConfigChange(ctx, tt.stored, tt.change)
+			err := requirePrivilegeForConfigChange(ctx, tt.stored, nil, tt.change)
 			if tt.wantDeny {
 				assertDenied(t, err)
 				return
 			}
 			assertAllowed(t, err)
 		})
+	}
+}
+
+// A policy source that exists but cannot be read must not leave the gate judging
+// a change against no policy: an unprivileged caller is refused any change, while
+// a restatement and a privileged caller still go through.
+func TestGatePolicy_UnreadableSource(t *testing.T) {
+	readErr := errors.New("registry access denied")
+	managed := mdm.NewPolicy(map[string]any{mdm.KeyAllowServerSSH: true})
+	changes := func() bool { return true }
+	restates := func() bool { return false }
+
+	got, err := gatePolicy(userCtx(), managed, nil, changes)
+	assertAllowed(t, err)
+	if !got.HasKey(mdm.KeyAllowServerSSH) {
+		t.Error("a readable policy must reach the checks unchanged")
+	}
+
+	_, err = gatePolicy(userCtx(), nil, readErr, changes)
+	if gstatus.Code(err) != codes.PermissionDenied {
+		t.Fatalf("unprivileged change with an unreadable policy: code = %v, want PermissionDenied", gstatus.Code(err))
+	}
+
+	_, err = gatePolicy(noIdentityCtx(), nil, readErr, changes)
+	if gstatus.Code(err) != codes.PermissionDenied {
+		t.Fatalf("unidentified change with an unreadable policy: code = %v, want PermissionDenied", gstatus.Code(err))
+	}
+
+	got, err = gatePolicy(userCtx(), nil, readErr, restates)
+	assertAllowed(t, err)
+	if !got.IsEmpty() {
+		t.Error("a restatement with an unreadable policy must be judged against no policy")
+	}
+
+	_, err = gatePolicy(rootCtx(), nil, readErr, changes)
+	assertAllowed(t, err)
+}
+
+// With the policy unreadable, a login is refused only when it changes something:
+// a privileged flag restating the stored value is not a change.
+func TestLoginGateInput_RestatedFlagIsNoChange(t *testing.T) {
+	stored := &profilemanager.Config{ServerSSHAllowed: boolPtr(true), BlockInbound: false}
+
+	restate := &proto.LoginRequest{ServerSSHAllowed: boolPtr(true), BlockInbound: boolPtr(false)}
+	if configChangeRequested(stored, loginGateInput(restate)) {
+		t.Error("a login restating the stored privileged flags must not count as a change")
+	}
+
+	change := &proto.LoginRequest{ServerSSHAllowed: boolPtr(false)}
+	if !configChangeRequested(stored, loginGateInput(change)) {
+		t.Error("a login flipping a privileged flag must count as a change")
 	}
 }

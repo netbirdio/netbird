@@ -113,6 +113,24 @@
     <integer>51820</integer>
     -->
 
+    <!-- ===== Lazy connections =====
+         true forces lazy connections on, false forces them off, and an
+         absent key defers to the Management setting. NB_LAZY_CONN
+         takes precedence when both are configured. -->
+    <!--
+    <key>lazyConnection</key>
+    <true/>
+    -->
+
+    <!-- ===== Local Prometheus metrics endpoint ===== -->
+    <!--
+    <key>enableLocalMetrics</key>
+    <true/>
+
+    <key>localMetricsAddress</key>
+    <string>127.0.0.1:9191</string>
+    -->
+
     <!-- ===== Extra interface blacklist =====
          Interface name prefixes whose local addresses are never offered as
          peer connection candidates. Array or comma-separated string; added
@@ -123,6 +141,106 @@
         <string>bridge</string>
         <string>vmenet</string>
     </array>
+    -->
+
+    <!-- ===== Network and daemon overrides =====
+         Each replaces the device's own value and rejects a change to it.
+         interfaceName      : macOS needs utun followed by a number.
+         mtu                : 576-8192.
+         dnsRouteInterval   : a duration such as 30s, 1m or 1m30s.
+         natExternalIPs     : array or comma-separated string of
+                              external-IP[/internal-IP or /interface].
+         forceRelay         : true never tries a direct connection, false allows
+                              one; either value wins over NB_FORCE_RELAY in the
+                              daemon environment.
+         An invalid value is ignored and the device keeps its own,
+         except that disableFirewall then enforces false and
+         blockLANAccess enforces true. -->
+    <!--
+    <key>disableDNS</key>
+    <false/>
+
+    <key>disableIPv6</key>
+    <false/>
+
+    <key>disableFirewall</key>
+    <false/>
+
+    <key>blockLANAccess</key>
+    <true/>
+
+    <key>disableNotifications</key>
+    <false/>
+
+    <key>networkMonitor</key>
+    <true/>
+
+    <key>disableIPv6Discovery</key>
+    <false/>
+
+    <key>interfaceName</key>
+    <string>utun100</string>
+
+    <key>mtu</key>
+    <integer>1280</integer>
+
+    <key>dnsRouteInterval</key>
+    <string>1m</string>
+
+    <key>natExternalIPs</key>
+    <string>203.0.113.7/10.0.0.5</string>
+
+    <key>forceRelay</key>
+    <false/>
+    -->
+
+    <!-- ===== SSH server =====
+         Each replaces the device's own value and rejects a change to it.
+         They shape the server allowServerSSH turns on.
+         disableSSHAuth     : lets in any peer the access policy allows,
+                              with no user login. Automation hosts only.
+         sshJWTCacheTTL     : seconds; 0 disables the cache. -->
+    <!--
+    <key>enableSSHRoot</key>
+    <false/>
+
+    <key>enableSSHSFTP</key>
+    <false/>
+
+    <key>enableSSHLocalPortForwarding</key>
+    <false/>
+
+    <key>enableSSHRemotePortForwarding</key>
+    <false/>
+
+    <key>disableSSHAuth</key>
+    <false/>
+
+    <key>sshJWTCacheTTL</key>
+    <integer>0</integer>
+    -->
+
+    <!-- ===== Desktop app =====
+         keepConnectedOnQuit : quitting the app leaves the connection up;
+                               the user cannot change it.
+         default*            : applied when first seen or when the value
+                               changes; the user can change them afterwards.
+         defaultLanguage     : en, de, es, fr, gl, he, hu, it, ja, ko, pl,
+                               pt, ru, uk, zh-CN, zh-HK.
+         defaultViewMode     : default or advanced.
+         defaultTheme        : system, light or dark. -->
+    <!--
+    <key>keepConnectedOnQuit</key>
+    <true/>
+
+    <key>defaultLanguage</key>
+    <string>it</string>
+
+    <key>defaultViewMode</key>
+    <string>default</string>
+
+    <key>defaultTheme</key>
+    <string>system</string>
     -->
 
     <!-- ===== UI / lockdown kill switches =====
@@ -136,7 +254,7 @@
                                    UI. Tristate at the daemon: set to true to
                                    hide, false to explicitly show, omit the
                                    key to let the UI apply its own default.
-         disableMetricsCollection: opt out of anonymous usage telemetry. -->
+         disableMetricsCollection: reserved; recognized but no effect yet. -->
     <!--
     <key>disableUpdateSettings</key>
     <true/>

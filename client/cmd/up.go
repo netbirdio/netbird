@@ -574,6 +574,8 @@ func setNetworkSetConfigFields(req *proto.SetConfigRequest, cmd *cobra.Command) 
 	if cmd.Flag(disableIPv6Flag).Changed {
 		req.DisableIpv6 = &disableIPv6
 	}
+
+	setBoolPtrIfChanged(cmd, forceRelayFlag, &req.ForceRelay, forceRelay)
 }
 
 // setLocalMetricsSetConfigFields copies the local metrics endpoint flags the
@@ -686,6 +688,8 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 	if cmd.Flag(disableIPv6Flag).Changed {
 		ic.DisableIPv6 = &disableIPv6
 	}
+
+	setBoolPtrIfChanged(cmd, forceRelayFlag, &ic.ForceRelay, forceRelay)
 
 	if cmd.Flag(enableLocalMetricsFlag).Changed {
 		ic.LocalMetricsEnabled = &localMetricsEnabled
@@ -851,6 +855,8 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 	if cmd.Flag(disableIPv6Flag).Changed {
 		loginRequest.DisableIpv6 = &disableIPv6
 	}
+
+	setBoolPtrIfChanged(cmd, forceRelayFlag, &loginRequest.ForceRelay, forceRelay)
 
 	return &loginRequest, nil
 }

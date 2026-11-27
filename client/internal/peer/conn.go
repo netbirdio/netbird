@@ -98,6 +98,9 @@ type ConnConfig struct {
 	// NetMgr gates the reconnection guard on OS-reported network
 	// availability; nil disables gating.
 	NetMgr *netevents.Manager
+
+	// ForceRelay skips the direct connection attempt and always uses a relay.
+	ForceRelay bool
 }
 
 type Conn struct {
@@ -258,8 +261,7 @@ func (conn *Conn) open(engineCtx context.Context, firstPacket []byte) error {
 
 	conn.workerRelay = NewWorkerRelay(conn.ctx, conn.Log, isController(conn.config), conn.config, conn, conn.relayManager)
 
-	forceRelay := IsForceRelayed()
-	if !forceRelay {
+	if !conn.config.ForceRelay {
 		relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
 		workerICE, err := NewWorkerICE(conn.ctx, conn.Log, conn.config, conn, conn.signaler, conn.iFaceDiscover, conn.statusRecorder, relayIsSupportedLocally)
 		if err != nil {
@@ -271,7 +273,7 @@ func (conn *Conn) open(engineCtx context.Context, firstPacket []byte) error {
 	conn.handshaker = NewHandshaker(conn.Log, conn.config, conn.signaler, conn.workerICE, conn.workerRelay, conn.metricsStages)
 
 	conn.handshaker.AddRelayListener(conn.workerRelay.OnNewOffer)
-	if !forceRelay {
+	if !conn.config.ForceRelay {
 		conn.handshaker.AddICEListener(conn.workerICE.OnNewOffer)
 	}
 
@@ -953,7 +955,7 @@ func (conn *Conn) isConnectedOnAllWay() (status guard.ConnStatus) {
 	}
 
 	return evalConnStatus(connStatusInputs{
-		forceRelay:              IsForceRelayed(),
+		forceRelay:              conn.config.ForceRelay,
 		peerUsesRelay:           conn.workerRelay.IsRelayConnectionSupportedWithPeer(),
 		relayConnected:          conn.statusRelay.Get() == worker.StatusConnected,
 		relayTransportConnected: conn.workerRelay.IsTransportConnected(),

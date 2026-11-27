@@ -731,6 +731,7 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		EnableSSHRemotePortForwarding: config.EnableSSHRemotePortForwarding,
 		DisableSSHAuth:                config.DisableSSHAuth,
 		DNSRouteInterval:              config.DNSRouteInterval,
+		ForceRelay:                    config.ForceRelayInEffect(),
 
 		DisableClientRoutes: config.DisableClientRoutes,
 		DisableServerRoutes: config.DisableServerRoutes || config.BlockInbound,

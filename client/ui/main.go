@@ -16,6 +16,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/ui/authsession"
 	"github.com/netbirdio/netbird/client/ui/i18n"
 	"github.com/netbirdio/netbird/client/ui/preferences"
@@ -122,6 +123,13 @@ func main() {
 
 	bundle, prefStore, localizer := buildI18n(app)
 
+	// Before any window exists so the first render already uses them. The
+	// ticker takes its baseline first, so a change in between is not missed.
+	mdmLoader := mdm.NewLoader(nil)
+	mdmTicker := mdm.NewTicker(mdm.DefaultReloadInterval, mdmLoader)
+	applyMDMDefaults(prefStore, mdmLoader.Load())
+	go watchMDMDefaults(context.Background(), prefStore, mdmTicker)
+
 	// Before any window exists so creation-time backgrounds are already themed.
 	app.RegisterService(application.NewService(services.NewTheme(app, prefStore)))
 
@@ -192,6 +200,7 @@ func main() {
 		Session:         authSession,
 		Localizer:       localizer,
 		Preferences:     prefStore,
+		MDMLoader:       mdmLoader,
 	})
 	listenForShowSignal(context.Background(), tray)
 

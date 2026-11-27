@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sync"
@@ -86,6 +87,31 @@ type UIPreferences struct {
 	// Its false zero value preserves the historical disconnect-on-quit
 	// behaviour for preference files written before the field existed.
 	KeepConnectedOnQuit bool `json:"keepConnectedOnQuit"`
+	// MDMDefaults records, per preference, the last value an MDM policy
+	// proposed, so a proposal is applied once and again only when it changes.
+	MDMDefaults map[string]string `json:"mdmDefaults,omitempty"`
+}
+
+// MDMDefaults carries the preference values an MDM policy proposes; a nil
+// field means the policy does not propose that preference.
+type MDMDefaults struct {
+	Language *i18n.LanguageCode
+	ViewMode *ViewMode
+	Theme    *Theme
+}
+
+const (
+	mdmDefaultLanguage = "language"
+	mdmDefaultViewMode = "viewMode"
+	mdmDefaultTheme    = "theme"
+)
+
+// mdmProposal is one preference an MDM policy proposes.
+type mdmProposal struct {
+	key   string
+	value *string
+	valid bool
+	set   func(*UIPreferences)
 }
 
 // LanguageValidator rejects SetLanguage inputs with no shipped bundle.
@@ -143,7 +169,7 @@ func NewStore(validator LanguageValidator, emitter Emitter) (*Store, error) {
 func (s *Store) Get() UIPreferences {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.current
+	return s.current.clone()
 }
 
 // SetViewMode validates, persists, and broadcasts. No-op if unchanged.
@@ -244,6 +270,56 @@ func (s *Store) SetKeepConnectedOnQuit(keep bool) error {
 	}
 	next := s.current
 	next.KeepConnectedOnQuit = keep
+	if err := s.persistLocked(next); err != nil {
+		s.mu.Unlock()
+		return fmt.Errorf("persist preferences: %w", err)
+	}
+	s.current = next
+	s.mu.Unlock()
+
+	s.broadcast(next)
+	return nil
+}
+
+// ApplyMDMDefaults applies each proposed value the first time it is seen and
+// again only when it changes, leaving the user free to change the preference
+// in between. A proposal that disappears is forgotten, so proposing the same
+// value again applies it again.
+func (s *Store) ApplyMDMDefaults(d MDMDefaults) error {
+	proposals := []mdmProposal{
+		{
+			key:   mdmDefaultLanguage,
+			value: (*string)(d.Language),
+			valid: d.Language != nil && *d.Language != "" && (s.validator == nil || s.validator.HasLanguage(*d.Language)),
+			set:   func(p *UIPreferences) { p.Language = *d.Language },
+		},
+		{
+			key:   mdmDefaultViewMode,
+			value: (*string)(d.ViewMode),
+			valid: d.ViewMode != nil && d.ViewMode.IsValid(),
+			set:   func(p *UIPreferences) { p.ViewMode = *d.ViewMode },
+		},
+		{
+			key:   mdmDefaultTheme,
+			value: (*string)(d.Theme),
+			valid: d.Theme != nil && d.Theme.IsValid(),
+			set:   func(p *UIPreferences) { p.Theme = *d.Theme },
+		},
+	}
+
+	s.mu.Lock()
+	next := s.current
+	next.MDMDefaults = maps.Clone(s.current.MDMDefaults)
+	changed := false
+	for _, proposal := range proposals {
+		if proposal.applyTo(&next) {
+			changed = true
+		}
+	}
+	if !changed {
+		s.mu.Unlock()
+		return nil
+	}
 	if err := s.persistLocked(next); err != nil {
 		s.mu.Unlock()
 		return fmt.Errorf("persist preferences: %w", err)
@@ -358,6 +434,7 @@ func (s *Store) persistLocked(v UIPreferences) error {
 // broadcast fans v out to subscribers and the emitter. Full-buffer subscribers
 // are skipped: consumers only need the latest value, so dropping is safe.
 func (s *Store) broadcast(v UIPreferences) {
+	v = v.clone()
 	s.subsMu.Lock()
 	subs := make([]chan UIPreferences, len(s.subs))
 	copy(subs, s.subs)
@@ -376,10 +453,42 @@ func (s *Store) broadcast(v UIPreferences) {
 	}
 }
 
+// clone copies the MDMDefaults map so a caller cannot change the store's
+// state through the snapshot it was given.
+func (p UIPreferences) clone() UIPreferences {
+	p.MDMDefaults = maps.Clone(p.MDMDefaults)
+	return p
+}
+
 func preferencesPath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(dir, "netbird", preferencesFileName), nil
+}
+
+// applyTo applies the proposal to prefs and reports whether prefs changed.
+func (p mdmProposal) applyTo(prefs *UIPreferences) bool {
+	if p.value == nil {
+		if _, seen := prefs.MDMDefaults[p.key]; !seen {
+			return false
+		}
+		delete(prefs.MDMDefaults, p.key)
+		return true
+	}
+	if last, seen := prefs.MDMDefaults[p.key]; seen && last == *p.value {
+		return false
+	}
+	if !p.valid {
+		log.Warnf("MDM default %s %q is not supported; ignoring it", p.key, *p.value)
+		return false
+	}
+	p.set(prefs)
+	if prefs.MDMDefaults == nil {
+		prefs.MDMDefaults = map[string]string{}
+	}
+	prefs.MDMDefaults[p.key] = *p.value
+	log.Infof("MDM default %s %q applied", p.key, *p.value)
+	return true
 }

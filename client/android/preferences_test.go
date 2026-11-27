@@ -118,3 +118,29 @@ func TestPreferences_Commit(t *testing.T) {
 		t.Errorf("expected preshared key presence after commit")
 	}
 }
+
+type jsonFetcher string
+
+func (f jsonFetcher) FetchJSON() string { return string(f) }
+
+func TestPreferences_MDMNetworkKeysBeatLocalValues(t *testing.T) {
+	p := NewPreferences(filepath.Join(t.TempDir(), "netbird.json"))
+	p.SetDisableDNS(false)
+	p.SetDisableFirewall(false)
+	p.SetDisableIPv6(false)
+	p.SetMDMPolicyFetcher(jsonFetcher(`{"disableDNS": true, "disableFirewall": "true", "disableIPv6": true}`))
+
+	for name, get := range map[string]func() (bool, error){
+		"disableDNS":      p.GetDisableDNS,
+		"disableFirewall": p.GetDisableFirewall,
+		"disableIPv6":     p.GetDisableIPv6,
+	} {
+		got, err := get()
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if !got {
+			t.Errorf("%s: the MDM value must win over the staged local value", name)
+		}
+	}
+}

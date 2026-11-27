@@ -55,9 +55,9 @@ set -euo pipefail
 #   docs/netbird.admx + .adml (Windows ADMX schema)
 #
 NULL='__UNSET__'
-managementURL='https://api.netbird.io:443'
+managementURL="$NULL"
 preSharedKey="$NULL"                       # secret; redacted in log
-allowServerSSH='true'
+allowServerSSH="$NULL"
 allowRemoteJobs="$NULL"
 debugBundleUploadURL="$NULL"                # HTTPS URL with a host; overrides management
 allowServerVNC="$NULL"
@@ -71,11 +71,36 @@ disableMetricsCollection="$NULL"
 disableUpdateSettings="$NULL"
 disableProfiles="$NULL"
 disableNetworks="$NULL"
-disableAdvancedView="$NULL"           # tristate at the daemon
+disableAdvancedView="$NULL"                # UI-only: hides the advanced section, rejects nothing
 rosenpassEnabled="$NULL"
 rosenpassPermissive="$NULL"
-wireguardPort='51820'
+wireguardPort="$NULL"
+lazyConnection="$NULL"                     # "true"/"false"; absent defers to the Management setting
+enableLocalMetrics="$NULL"                 # local Prometheus endpoint; unrelated to disableMetricsCollection
+localMetricsAddress="$NULL"                # default 127.0.0.1:9191
 extraIFaceBlackList="$NULL"                # comma-separated interface name prefixes, added to the built-in list
+disableDNS="$NULL"
+disableIPv6="$NULL"
+disableFirewall="$NULL"
+blockLANAccess="$NULL"
+disableNotifications="$NULL"
+networkMonitor="$NULL"
+disableIPv6Discovery="$NULL"
+interfaceName="$NULL"                      # macOS: utun followed by a number, e.g. utun100
+mtu="$NULL"                                # 576-8192
+dnsRouteInterval="$NULL"                   # duration such as 1m or 1m30s
+natExternalIPs="$NULL"                     # comma-separated external-IP[/internal-IP or /interface]
+forceRelay="$NULL"                         # true: never try a direct connection; false: allow one
+enableSSHRoot="$NULL"
+enableSSHSFTP="$NULL"
+enableSSHLocalPortForwarding="$NULL"
+enableSSHRemotePortForwarding="$NULL"
+disableSSHAuth="$NULL"                     # no user login on the SSH server, automation hosts only
+sshJWTCacheTTL="$NULL"                     # seconds, 0 disables the cache
+keepConnectedOnQuit="$NULL"                # quitting the app leaves the connection up
+defaultLanguage="$NULL"                    # applied once, user can change it: en, de, it, ...
+defaultViewMode="$NULL"                    # applied once: "default" or "advanced"
+defaultTheme="$NULL"                       # applied once: "system", "light" or "dark"
 splitTunnelMode="$NULL"                    # "allow" or "disallow", Android-only at the daemon level
 splitTunnelApps="$NULL"                    # comma-separated app IDs, Android-only
 ##############################################################################
@@ -140,9 +165,8 @@ is_bool() {
 # emit_bool writes a boolean plist entry for a key when the provided value matches
 # an accepted boolean token; logs an error and skips the key on invalid input.
 # It returns success even on invalid input (like emit_int) so a single typo in one
-# boolean does not abort the whole policy push under `set -euo pipefail`. Callers
-# that must fail closed on an invalid value (e.g. allowRemoteJobs) validate with
-# is_bool before calling and substitute a safe default themselves.
+# boolean does not abort the whole policy push under `set -euo pipefail`. Security
+# booleans go through emit_secure_bool instead, which fails closed.
 emit_bool() {
   local key="$1" value="$2"
   local xml_bool
@@ -155,6 +179,19 @@ emit_bool() {
   log "set $key = $value"
 }
 
+# emit_secure_bool writes a security boolean, enforcing SAFE when the value is
+# invalid: omitting the key would hand the setting to the user, which is why the
+# client also locks an unreadable security boolean to its restrictive value.
+emit_secure_bool() {
+  local key="$1" value="$2" safe="$3"
+  if is_bool "$value"; then
+    emit_bool "$key" "$value"
+    return
+  fi
+  log "invalid boolean for $key: $value; enforcing the restrictive value ($safe)"
+  emit_bool "$key" "$safe"
+}
+
 # emit_int validates that VALUE contains only decimal digits and, if valid, appends an `<integer>` plist entry for KEY to the temporary plist (`$PLIST_PATH.tmp`) and logs the assignment; on invalid input it logs a skip and does not emit the key.
 emit_int() {
   local key="$1" value="$2"
@@ -162,8 +199,21 @@ emit_int() {
     log "invalid integer for $key: $value (must be decimal); skipping"
     return
   fi
+  if [[ "$key" == "wireguardPort" ]] && (( 10#$value < 1 || 10#$value > 65535 )); then
+    log "invalid integer for $key: $value (must be 1-65535); skipping"
+    return
+  fi
   printf '    <key>%s</key>\n    <integer>%s</integer>\n' "$key" "$value" >> "$PLIST_PATH.tmp"
   log "set $key = $value"
+}
+
+# emit_split_tunnel_mode validates that VALUE is "allow" or "disallow" and, if valid, appends a plist string entry for splitTunnelMode; on invalid input it logs a skip and does not emit the key.
+emit_split_tunnel_mode() {
+  local value="$1"
+  case "$value" in
+    allow|disallow) emit_string splitTunnelMode "$value" ;;
+    *) log "invalid splitTunnelMode: $value (must be allow/disallow); skipping" ;;
+  esac
 }
 
 # main builds the NetBird MDM plist from configured policy variables, validates and installs it to /Library/Managed Preferences/io.netbird.client.plist (root:wheel, 600 — the daemon reads it directly as root, so it need not be world-readable) and optionally triggers the NetBird daemon to reload.
@@ -183,21 +233,12 @@ main() {
 
   is_set "$managementURL"             && emit_string  managementURL             "$managementURL"
   is_set "$preSharedKey"              && emit_string  preSharedKey              "$preSharedKey"
-  is_set "$allowServerSSH"            && emit_bool    allowServerSSH            "$allowServerSSH"
-  # Fail closed: an invalid allowRemoteJobs value must not drop the key and
-  # leave a conflicting local opt-in active — enforce the safe default (false).
-  if is_set "$allowRemoteJobs"; then
-    if is_bool "$allowRemoteJobs"; then
-      emit_bool allowRemoteJobs "$allowRemoteJobs"
-    else
-      log "invalid boolean for allowRemoteJobs: $allowRemoteJobs; enforcing safe default (false)"
-      emit_bool allowRemoteJobs false
-    fi
-  fi
+  is_set "$allowServerSSH"            && emit_secure_bool allowServerSSH "$allowServerSSH" false
+  is_set "$allowRemoteJobs"           && emit_secure_bool allowRemoteJobs "$allowRemoteJobs" false
   is_set "$debugBundleUploadURL"      && emit_string  debugBundleUploadURL      "$debugBundleUploadURL"
-  is_set "$allowServerVNC"            && emit_bool    allowServerVNC            "$allowServerVNC"
-  is_set "$disableVNCApproval"        && emit_bool    disableVNCApproval        "$disableVNCApproval"
-  is_set "$blockInbound"              && emit_bool    blockInbound              "$blockInbound"
+  is_set "$allowServerVNC"            && emit_secure_bool allowServerVNC "$allowServerVNC" false
+  is_set "$disableVNCApproval"        && emit_secure_bool disableVNCApproval "$disableVNCApproval" false
+  is_set "$blockInbound"              && emit_secure_bool blockInbound "$blockInbound" true
   is_set "$disableAutoConnect"        && emit_bool    disableAutoConnect        "$disableAutoConnect"
   is_set "$disableAutostart"          && emit_bool    disableAutostart          "$disableAutostart"
   is_set "$disableClientRoutes"       && emit_bool    disableClientRoutes       "$disableClientRoutes"
@@ -210,8 +251,33 @@ main() {
   is_set "$rosenpassEnabled"          && emit_bool    rosenpassEnabled          "$rosenpassEnabled"
   is_set "$rosenpassPermissive"       && emit_bool    rosenpassPermissive       "$rosenpassPermissive"
   is_set "$wireguardPort"             && emit_int     wireguardPort             "$wireguardPort"
+  is_set "$lazyConnection"            && emit_bool    lazyConnection            "$lazyConnection"
+  is_set "$enableLocalMetrics"        && emit_secure_bool enableLocalMetrics "$enableLocalMetrics" false
+  is_set "$localMetricsAddress"       && emit_string  localMetricsAddress       "$localMetricsAddress"
   is_set "$extraIFaceBlackList"       && emit_string  extraIFaceBlackList       "$extraIFaceBlackList"
-  is_set "$splitTunnelMode"           && emit_string  splitTunnelMode           "$splitTunnelMode"
+  is_set "$disableDNS"                && emit_bool    disableDNS                "$disableDNS"
+  is_set "$disableIPv6"               && emit_bool    disableIPv6               "$disableIPv6"
+  is_set "$disableFirewall"           && emit_secure_bool disableFirewall "$disableFirewall" false
+  is_set "$blockLANAccess"            && emit_secure_bool blockLANAccess "$blockLANAccess" true
+  is_set "$disableNotifications"      && emit_bool    disableNotifications      "$disableNotifications"
+  is_set "$networkMonitor"            && emit_bool    networkMonitor            "$networkMonitor"
+  is_set "$disableIPv6Discovery"      && emit_bool    disableIPv6Discovery      "$disableIPv6Discovery"
+  is_set "$interfaceName"             && emit_string  interfaceName             "$interfaceName"
+  is_set "$mtu"                       && emit_int     mtu                       "$mtu"
+  is_set "$dnsRouteInterval"          && emit_string  dnsRouteInterval          "$dnsRouteInterval"
+  is_set "$natExternalIPs"            && emit_string  natExternalIPs            "$natExternalIPs"
+  is_set "$forceRelay"                && emit_bool    forceRelay                "$forceRelay"
+  is_set "$enableSSHRoot"             && emit_secure_bool enableSSHRoot "$enableSSHRoot" false
+  is_set "$enableSSHSFTP"             && emit_secure_bool enableSSHSFTP "$enableSSHSFTP" false
+  is_set "$enableSSHLocalPortForwarding" && emit_secure_bool enableSSHLocalPortForwarding "$enableSSHLocalPortForwarding" false
+  is_set "$enableSSHRemotePortForwarding" && emit_secure_bool enableSSHRemotePortForwarding "$enableSSHRemotePortForwarding" false
+  is_set "$disableSSHAuth"            && emit_secure_bool disableSSHAuth "$disableSSHAuth" false
+  is_set "$sshJWTCacheTTL"            && emit_int     sshJWTCacheTTL            "$sshJWTCacheTTL"
+  is_set "$keepConnectedOnQuit"       && emit_bool    keepConnectedOnQuit       "$keepConnectedOnQuit"
+  is_set "$defaultLanguage"           && emit_string  defaultLanguage           "$defaultLanguage"
+  is_set "$defaultViewMode"           && emit_string  defaultViewMode           "$defaultViewMode"
+  is_set "$defaultTheme"              && emit_string  defaultTheme              "$defaultTheme"
+  is_set "$splitTunnelMode"           && emit_split_tunnel_mode                  "$splitTunnelMode"
   is_set "$splitTunnelApps"           && emit_string  splitTunnelApps           "$splitTunnelApps"
 
   end_plist

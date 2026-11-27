@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/mdm"
 )
 
@@ -24,6 +25,16 @@ func MDMConflicts(input ConfigInput, policy *mdm.Policy) []string {
 		v := int64(*input.WireguardPort)
 		port = &v
 	}
+	var mtu *int64
+	if input.MTU != nil {
+		v := int64(*input.MTU)
+		mtu = &v
+	}
+	var sshJWTCacheTTL *int64
+	if input.SSHJWTCacheTTL != nil {
+		v := int64(*input.SSHJWTCacheTTL)
+		sshJWTCacheTTL = &v
+	}
 	return mdm.ResolveConflicts(policy, []mdm.ConflictCheck{
 		mdm.ConflictURL(mdm.KeyManagementURL, input.ManagementURL),
 		mdm.ConflictStringPtr(mdm.KeyPreSharedKey, pskGot),
@@ -38,6 +49,23 @@ func MDMConflicts(input ConfigInput, policy *mdm.Policy) []string {
 		mdm.ConflictInt64(mdm.KeyWireguardPort, port),
 		mdm.ConflictBool(mdm.KeyEnableLocalMetrics, input.LocalMetricsEnabled),
 		mdm.ConflictStringPtr(mdm.KeyLocalMetricsAddress, input.LocalMetricsAddress),
+		mdm.ConflictBool(mdm.KeyDisableDNS, input.DisableDNS),
+		mdm.ConflictBool(mdm.KeyDisableIPv6, input.DisableIPv6),
+		mdm.ConflictBool(mdm.KeyForceRelay, input.ForceRelay),
+		mdm.ConflictBool(mdm.KeyDisableFirewall, input.DisableFirewall),
+		mdm.ConflictBool(mdm.KeyBlockLANAccess, input.BlockLANAccess),
+		mdm.ConflictBool(mdm.KeyDisableNotifications, input.DisableNotifications),
+		mdm.ConflictBool(mdm.KeyNetworkMonitor, input.NetworkMonitor),
+		mdm.ConflictStringPtr(mdm.KeyInterfaceName, input.InterfaceName),
+		mdm.ConflictInt64(mdm.KeyMTU, mtu),
+		mdm.ConflictDuration(mdm.KeyDNSRouteInterval, input.DNSRouteInterval),
+		mdm.ConflictStringSlice(mdm.KeyNATExternalIPs, input.NATExternalIPs),
+		mdm.ConflictBool(mdm.KeyEnableSSHRoot, input.EnableSSHRoot),
+		mdm.ConflictBool(mdm.KeyEnableSSHSFTP, input.EnableSSHSFTP),
+		mdm.ConflictBool(mdm.KeyEnableSSHLocalPortForwarding, input.EnableSSHLocalPortForwarding),
+		mdm.ConflictBool(mdm.KeyEnableSSHRemotePortForwarding, input.EnableSSHRemotePortForwarding),
+		mdm.ConflictBool(mdm.KeyDisableSSHAuth, input.DisableSSHAuth),
+		mdm.ConflictInt64(mdm.KeySSHJWTCacheTTL, sshJWTCacheTTL),
 	})
 }
 
@@ -49,4 +77,17 @@ func CheckMDMConflicts(input ConfigInput, policy *mdm.Policy) error {
 		return nil
 	}
 	return fmt.Errorf("%w: %v", ErrMDMManagedFields, conflicts)
+}
+
+// ForceRelayInEffect resolves the force relay setting: an MDM policy wins over
+// everything, then NB_FORCE_RELAY in the daemon environment wins over the
+// profile, as environment variables do for every other option.
+func (config *Config) ForceRelayInEffect() bool {
+	if _, managed := config.Policy().GetBool(mdm.KeyForceRelay); managed {
+		return config.ForceRelay
+	}
+	if forced, set := peer.ForceRelayFromEnv(); set {
+		return forced
+	}
+	return config.ForceRelay
 }

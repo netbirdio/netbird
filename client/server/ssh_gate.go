@@ -13,6 +13,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/internal/localmetrics"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/util"
 )
@@ -90,6 +91,49 @@ func privilegedChangeFromLogin(msg *proto.LoginRequest) privilegedConfigChange {
 	}
 }
 
+// gatePolicy returns the MDM policy the managed-field and privilege checks run
+// against. A source that exists but cannot be read leaves those checks blind to
+// what it enforces, so a caller without privilege is refused any change until it
+// reads again; a request that changes nothing still goes through.
+func gatePolicy(ctx context.Context, policy *mdm.Policy, loadErr error, changes func() bool) (*mdm.Policy, error) {
+	if loadErr == nil {
+		return policy, nil
+	}
+	log.Warnf("MDM policy unreadable: %v", loadErr)
+	if changes() {
+		if err := denyPrivileged(ctx, "changing the configuration while the MDM policy cannot be read", ""); err != nil {
+			return nil, err
+		}
+	}
+	return mdm.NewPolicy(nil), nil
+}
+
+// loginGatePolicy is gatePolicy for a login, which changes the config through
+// the overrides it persists or the privileged flags it carries.
+func (s *Server) loginGatePolicy(ctx context.Context, stored *profilemanager.Config, msg *proto.LoginRequest) (*mdm.Policy, error) {
+	loaded, loadErr := s.mdmLoader.LoadWithError()
+	return gatePolicy(ctx, loaded, loadErr, func() bool {
+		return configChangeRequested(stored, loginGateInput(msg))
+	})
+}
+
+// loginGateInput is the dry-run input the gate compares a login against: the
+// overrides it persists plus the privileged flags it carries, which it does not
+// persist, so a login restating them compares as no change.
+func loginGateInput(msg *proto.LoginRequest) profilemanager.ConfigInput {
+	input := loginOverridesInput(msg)
+	input.ServerSSHAllowed = msg.ServerSSHAllowed
+	input.RemoteJobsAllowed = msg.RemoteJobsAllowed
+	input.EnableSSHRoot = msg.EnableSSHRoot
+	input.DisableSSHAuth = msg.DisableSSHAuth
+	input.ServerVNCAllowed = msg.ServerVNCAllowed
+	input.DisableVNCApproval = msg.DisableVNCApproval
+	input.BlockInbound = msg.BlockInbound
+	input.LocalMetricsEnabled = msg.EnableLocalMetrics
+	input.LocalMetricsAddress = msg.LocalMetricsAddress
+	return input
+}
+
 // requirePrivilegeForConfigChange refuses the privileged parts of a config
 // change when the caller is not root/administrator. stored is the profile's
 // current config, or nil when it has none yet.
@@ -97,7 +141,13 @@ func privilegedChangeFromLogin(msg *proto.LoginRequest) privilegedConfigChange {
 // Each check compares against the stored value so that a request restating a
 // value it does not change is never refused: a UI that submits the whole
 // settings form must not start failing once an administrator has enabled SSH.
-func requirePrivilegeForConfigChange(ctx context.Context, stored *profilemanager.Config, change privilegedConfigChange) error {
+//
+// The checks that depend on the state the request lands in also look at the
+// config with the MDM policy on top: the policy is never persisted, so the
+// file alone can say off for something the daemon runs.
+func requirePrivilegeForConfigChange(ctx context.Context, stored *profilemanager.Config, policy *mdm.Policy, change privilegedConfigChange) error {
+	enforced := withPolicyOrDefault(stored, policy)
+
 	if enables(storedFlag(stored, func(c *profilemanager.Config) *bool { return c.EnableSSHRoot }), change.enableSSHRoot) {
 		return denyPrivileged(ctx, "enabling SSH root login", ipcauth.UpCommand("--enable-ssh-root"))
 	}
@@ -123,7 +173,7 @@ func requirePrivilegeForConfigChange(ctx context.Context, stored *profilemanager
 		return err
 	}
 
-	if addr, exposes := exposesLocalMetrics(stored, change); exposes {
+	if addr, exposes := exposesLocalMetricsOnEither(stored, enforced, change); exposes {
 		return denyPrivileged(ctx,
 			"exposing the local metrics endpoint on a non-loopback address",
 			ipcauth.UpCommand("--enable-local-metrics --local-metrics-address "+addr))
@@ -131,13 +181,17 @@ func requirePrivilegeForConfigChange(ctx context.Context, stored *profilemanager
 
 	// Only guard the management binding while a remote-access server is enabled:
 	// that is when the management identity decides who may open a shell or reach
-	// the desktop here.
+	// the desktop here. Either side counts, since the file takes over again once
+	// the policy goes away.
 	server, enabled := enabledRemoteAccessServer(stored)
+	if !enabled {
+		server, enabled = enabledRemoteAccessServer(enforced)
+	}
 	if !enabled {
 		return nil
 	}
 
-	if change.managementURL != "" && !sameManagementURL(stored.ManagementURL, change.managementURL) {
+	if change.managementURL != "" && !sameManagementURL(fileManagementURL(stored), change.managementURL) {
 		return denyPrivileged(ctx,
 			fmt.Sprintf("changing the management URL while the NetBird %s server is enabled", server),
 			ipcauth.UpCommand("-m "+change.managementURL))
@@ -260,6 +314,23 @@ func storedBlockInbound(cfg *profilemanager.Config) *bool {
 	return &blocked
 }
 
+// withPolicyOrDefault puts the policy on top of stored, or of a new profile's
+// defaults when the profile has no config yet, so a policy running a
+// remote-access server is guarded from the first login.
+func withPolicyOrDefault(stored *profilemanager.Config, policy *mdm.Policy) *profilemanager.Config {
+	if stored == nil {
+		stored = &profilemanager.Config{ServerSSHAllowed: util.False()}
+	}
+	return stored.WithMDMPolicy(policy)
+}
+
+func fileManagementURL(cfg *profilemanager.Config) *url.URL {
+	if cfg == nil {
+		return nil
+	}
+	return cfg.ManagementURL
+}
+
 // storedFlag reads a flag from the stored config, tolerating a config that does
 // not exist yet.
 func storedFlag(cfg *profilemanager.Config, get func(*profilemanager.Config) *bool) *bool {
@@ -319,6 +390,16 @@ func exposesLocalMetrics(stored *profilemanager.Config, change privilegedConfigC
 		return "", false
 	}
 	return addr, true
+}
+
+// exposesLocalMetricsOnEither runs exposesLocalMetrics against the file and
+// against the config with the MDM policy on top: a change exposing the endpoint
+// on either is privileged.
+func exposesLocalMetricsOnEither(stored, enforced *profilemanager.Config, change privilegedConfigChange) (string, bool) {
+	if addr, exposes := exposesLocalMetrics(stored, change); exposes {
+		return addr, true
+	}
+	return exposesLocalMetrics(enforced, change)
 }
 
 // storedLocalMetrics reads the metrics settings from the stored config,

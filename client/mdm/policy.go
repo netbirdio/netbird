@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -98,6 +99,48 @@ const (
 	// keep their entries, so a device can still exclude its own interfaces.
 	// Read as a list or a comma-separated string.
 	KeyExtraIFaceBlackList = "extraIFaceBlackList"
+
+	// Network and daemon overrides: each replaces the matching Config field
+	// and rejects a user write that diverges from it.
+	KeyDisableDNS           = "disableDNS"
+	KeyDisableIPv6          = "disableIPv6"
+	KeyDisableFirewall      = "disableFirewall"
+	KeyBlockLANAccess       = "blockLANAccess"
+	KeyDisableNotifications = "disableNotifications"
+	KeyNetworkMonitor       = "networkMonitor"
+	// KeyDisableIPv6Discovery has no RPC or CLI surface, so it is never
+	// rejected; it only overrides the value in the profile file.
+	KeyDisableIPv6Discovery = "disableIPv6Discovery"
+	KeyInterfaceName        = "interfaceName"
+	KeyMTU                  = "mtu"
+	// KeyDNSRouteInterval is read as a Go duration string such as "1m30s".
+	KeyDNSRouteInterval = "dnsRouteInterval"
+	// KeyNATExternalIPs is read as a list or a comma-separated string.
+	KeyNATExternalIPs = "natExternalIPs"
+	// KeyForceRelay also wins over NB_FORCE_RELAY in the daemon environment.
+	KeyForceRelay = "forceRelay"
+
+	// SSH server overrides: they shape the server allowServerSSH turns on.
+	KeyEnableSSHRoot                 = "enableSSHRoot"
+	KeyEnableSSHSFTP                 = "enableSSHSFTP"
+	KeyEnableSSHLocalPortForwarding  = "enableSSHLocalPortForwarding"
+	KeyEnableSSHRemotePortForwarding = "enableSSHRemotePortForwarding"
+	KeyDisableSSHAuth                = "disableSSHAuth"
+	// KeySSHJWTCacheTTL is in seconds; 0 disables the cache.
+	KeySSHJWTCacheTTL = "sshJWTCacheTTL"
+
+	// KeyKeepConnectedOnQuit enforces whether quitting the desktop app leaves
+	// the connection up. Read by the app itself; the daemon ignores it.
+	KeyKeepConnectedOnQuit = "keepConnectedOnQuit"
+
+	// Default preferences of the desktop app: applied when the key appears or
+	// its value changes, and left for the user to change afterwards. Only
+	// cosmetic settings belong here.
+	KeyDefaultLanguage = "defaultLanguage"
+	// KeyDefaultViewMode is "default" or "advanced".
+	KeyDefaultViewMode = "defaultViewMode"
+	// KeyDefaultTheme is "system", "light" or "dark".
+	KeyDefaultTheme = "defaultTheme"
 )
 
 // Split-tunnel mode literals (KeySplitTunnelMode values).
@@ -141,7 +184,7 @@ func NewPolicy(values map[string]any) *Policy {
 	if values == nil {
 		values = map[string]any{}
 	}
-	return &Policy{values: values}
+	return &Policy{values: dropUnusableValues(values)}
 }
 
 // PolicyFetcher supplies the managed configuration to a Loader. Mobile
@@ -182,7 +225,7 @@ func NewLoader(f PolicyFetcher) *Loader {
 func (l *Loader) Load() *Policy {
 	policy, err := l.LoadWithError()
 	if err != nil {
-		log.Tracef("MDM policy load: %v", err)
+		log.Warnf("MDM policy unreadable, running without it: %v", err)
 		return &Policy{values: map[string]any{}}
 	}
 	return policy
@@ -218,7 +261,7 @@ func (l *Loader) LoadWithError() (*Policy, error) {
 	} else {
 		log.Infof("MDM enrolled with %d managed key(s): %v", len(values), sortedKeys(values))
 	}
-	return &Policy{values: values}, nil
+	return &Policy{values: dropUnusableValues(values)}, nil
 }
 
 // IsEmpty reports whether the Policy has no managed keys.
@@ -244,6 +287,16 @@ func (p *Policy) ManagedKeys() []string {
 	return sortedKeys(p.values)
 }
 
+// Value returns the managed value for key as the platform delivered it, and
+// whether the key was set.
+func (p *Policy) Value(key string) (any, bool) {
+	if p == nil {
+		return nil, false
+	}
+	v, ok := p.values[key]
+	return v, ok
+}
+
 // GetString returns the managed value for key coerced to string, and whether
 // the key was set. A non-string value returns ("", false).
 func (p *Policy) GetString(key string) (string, bool) {
@@ -263,7 +316,8 @@ func (p *Policy) GetString(key string) (string, bool) {
 
 // GetBool returns the managed value for key coerced to bool, and whether the
 // key was set. Accepts native bool and string literals (true/false, 1/0,
-// yes/no, on/off), case-insensitively and trimmed of surrounding whitespace.
+// yes/no, on/off), case-insensitively and trimmed of surrounding whitespace,
+// and integers, nonzero meaning true. A macOS plist <integer> decodes to uint64.
 func (p *Policy) GetBool(key string) (bool, bool) {
 	if p == nil {
 		return false, false
@@ -281,6 +335,8 @@ func (p *Policy) GetBool(key string) (bool, bool) {
 	case int:
 		return t != 0, true
 	case int64:
+		return t != 0, true
+	case uint64:
 		return t != 0, true
 	case float64:
 		return t != 0, true
@@ -346,6 +402,20 @@ func (p *Policy) GetStringSlice(key string) ([]string, bool) {
 		return []string{t}, true
 	}
 	return nil, false
+}
+
+// GetDuration returns the managed value for key parsed as a Go duration
+// string ("90s", "1m30s"), and whether the key was set to a valid one.
+func (p *Policy) GetDuration(key string) (time.Duration, bool) {
+	s, ok := p.GetString(key)
+	if !ok {
+		return 0, false
+	}
+	d, err := time.ParseDuration(strings.TrimSpace(s))
+	if err != nil {
+		return 0, false
+	}
+	return d, true
 }
 
 // SplitList flattens comma-separated values into trimmed, non-empty, unique

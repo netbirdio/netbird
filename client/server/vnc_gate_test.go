@@ -79,7 +79,7 @@ func TestRequirePrivilegeForConfigChange_VNCFlags(t *testing.T) {
 			if tt.privileged {
 				ctx = rootCtx()
 			}
-			err := requirePrivilegeForConfigChange(ctx, tt.stored, tt.change)
+			err := requirePrivilegeForConfigChange(ctx, tt.stored, nil, tt.change)
 			if tt.wantDeny {
 				assertDenied(t, err)
 				return
@@ -99,16 +99,16 @@ func TestRequirePrivilegeForConfigChange_ManagementURLWithVNCOnly(t *testing.T) 
 		DisableVNCApproval: boolPtr(false),
 	}
 
-	err := requirePrivilegeForConfigChange(userCtx(), vncOnly,
+	err := requirePrivilegeForConfigChange(userCtx(), vncOnly, nil,
 		privilegedConfigChange{managementURL: "https://attacker.example.com:443"})
 	assertDenied(t, err)
 
 	// The same move is the administrator's to make.
-	assertAllowed(t, requirePrivilegeForConfigChange(rootCtx(), vncOnly,
+	assertAllowed(t, requirePrivilegeForConfigChange(rootCtx(), vncOnly, nil,
 		privilegedConfigChange{managementURL: "https://selfhosted.example.com:443"}))
 
 	// Restating the stored binding is not a change, so it is never refused.
-	assertAllowed(t, requirePrivilegeForConfigChange(userCtx(), vncOnly,
+	assertAllowed(t, requirePrivilegeForConfigChange(userCtx(), vncOnly, nil,
 		privilegedConfigChange{managementURL: "https://api.netbird.io"}))
 }
 

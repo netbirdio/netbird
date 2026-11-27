@@ -29,10 +29,7 @@ func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 		// MDM gets a localised toast here; the daemon's English "policy_applied"
 		// event is suppressed in shouldSkipSystemEvent. Other sources stay silent.
 		if se.Metadata[proto.MetadataSourceKey] == proto.MetadataSourceMDM {
-			t.profileMu.Lock()
-			enabled := t.notificationsEnabled
-			t.profileMu.Unlock()
-			if enabled {
+			if t.isNotificationsEnabled() {
 				t.notify(
 					t.loc.T("notify.mdm.policyApplied.title"),
 					t.loc.T("notify.mdm.policyApplied.body"),
@@ -62,10 +59,7 @@ func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 	}
 
 	critical := strings.EqualFold(se.Severity, services.SeverityCritical)
-	t.profileMu.Lock()
-	enabled := t.notificationsEnabled
-	t.profileMu.Unlock()
-	if !enabled && !critical {
+	if !t.isNotificationsEnabled() && !critical {
 		return
 	}
 

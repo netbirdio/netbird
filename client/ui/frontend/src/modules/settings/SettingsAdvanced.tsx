@@ -72,21 +72,28 @@ export function SettingsAdvanced() {
         return out;
     }, [values.interfaceName, values.wireguardPort, values.mtu, t]);
 
-    const filteredErrors = mdm.wireguardPort ? { ...errors, wireguardPort: undefined } : errors;
+    const filteredErrors = {
+        interfaceName: mdm.interfaceName ? undefined : errors.interfaceName,
+        wireguardPort: mdm.wireguardPort ? undefined : errors.wireguardPort,
+        mtu: mdm.mtu ? undefined : errors.mtu,
+    };
     const hasErrors = Object.values(filteredErrors).some((v) => v !== undefined);
     const pskChanged = pskInputValue !== initialPsk;
     const hasChanges =
-        values.interfaceName !== config.interfaceName ||
+        (!mdm.interfaceName && values.interfaceName !== config.interfaceName) ||
         (!mdm.wireguardPort && values.wireguardPort !== config.wireguardPort) ||
-        values.mtu !== config.mtu ||
+        (!mdm.mtu && values.mtu !== config.mtu) ||
         (!mdm.preSharedKey && pskChanged);
+    const showInterfaceSection = !(mdm.interfaceName && mdm.wireguardPort && mdm.mtu);
 
     const handleSave = async () => {
         if (!hasChanges || saving || hasErrors) return;
         setSaving(true);
         try {
             const partial: typeof values = { ...values };
+            if (mdm.interfaceName) partial.interfaceName = config.interfaceName;
             if (mdm.wireguardPort) partial.wireguardPort = config.wireguardPort;
+            if (mdm.mtu) partial.mtu = config.mtu;
 
             const pskEdited = !mdm.preSharedKey && pskChanged && pskInputValue !== PSK_MASK;
             const pskOpts = pskEdited ? { preSharedKey: pskInputValue } : undefined;
@@ -99,51 +106,61 @@ export function SettingsAdvanced() {
 
     return (
         <>
-            <SectionGroup title={t("settings.advanced.section.interface")}>
-                <Input
-                    label={t("settings.advanced.interfaceName.label")}
-                    dir={"ltr"}
-                    value={values.interfaceName}
-                    error={errors.interfaceName}
-                    onChange={(e) => setValues((v) => ({ ...v, interfaceName: e.target.value }))}
-                    spellCheck={false}
-                    autoComplete={"off"}
-                    autoCorrect={"off"}
-                    autoCapitalize={"off"}
-                />
-                <div className={mdm.wireguardPort ? "" : "grid grid-cols-2 gap-4"}>
-                    {!mdm.wireguardPort && (
-                        <div>
+            {showInterfaceSection && (
+                <SectionGroup title={t("settings.advanced.section.interface")}>
+                    {!mdm.interfaceName && (
+                        <Input
+                            label={t("settings.advanced.interfaceName.label")}
+                            dir={"ltr"}
+                            value={values.interfaceName}
+                            error={errors.interfaceName}
+                            onChange={(e) =>
+                                setValues((v) => ({ ...v, interfaceName: e.target.value }))
+                            }
+                            spellCheck={false}
+                            autoComplete={"off"}
+                            autoCorrect={"off"}
+                            autoCapitalize={"off"}
+                        />
+                    )}
+                    <div className={mdm.wireguardPort || mdm.mtu ? "" : "grid grid-cols-2 gap-4"}>
+                        {!mdm.wireguardPort && (
+                            <div>
+                                <Input
+                                    label={t("settings.advanced.port.label")}
+                                    type={"number"}
+                                    min={PORT_MIN}
+                                    max={PORT_MAX}
+                                    value={values.wireguardPort}
+                                    error={errors.wireguardPort}
+                                    onChange={(e) =>
+                                        setValues((v) => ({
+                                            ...v,
+                                            wireguardPort: Number(e.target.value),
+                                        }))
+                                    }
+                                />
+                                <HelpText className={"mt-1.5"}>
+                                    {t("settings.advanced.port.help")}
+                                </HelpText>
+                            </div>
+                        )}
+                        {!mdm.mtu && (
                             <Input
-                                label={t("settings.advanced.port.label")}
+                                label={t("settings.advanced.mtu.label")}
                                 type={"number"}
-                                min={PORT_MIN}
-                                max={PORT_MAX}
-                                value={values.wireguardPort}
-                                error={errors.wireguardPort}
+                                min={MTU_MIN}
+                                max={MTU_MAX}
+                                value={values.mtu}
+                                error={errors.mtu}
                                 onChange={(e) =>
-                                    setValues((v) => ({
-                                        ...v,
-                                        wireguardPort: Number(e.target.value),
-                                    }))
+                                    setValues((v) => ({ ...v, mtu: Number(e.target.value) }))
                                 }
                             />
-                            <HelpText className={"mt-1.5"}>
-                                {t("settings.advanced.port.help")}
-                            </HelpText>
-                        </div>
-                    )}
-                    <Input
-                        label={t("settings.advanced.mtu.label")}
-                        type={"number"}
-                        min={MTU_MIN}
-                        max={MTU_MAX}
-                        value={values.mtu}
-                        error={errors.mtu}
-                        onChange={(e) => setValues((v) => ({ ...v, mtu: Number(e.target.value) }))}
-                    />
-                </div>
-            </SectionGroup>
+                        )}
+                    </div>
+                </SectionGroup>
+            )}
 
             {!mdm.preSharedKey && (
                 <SectionGroup title={t("settings.advanced.section.security")}>

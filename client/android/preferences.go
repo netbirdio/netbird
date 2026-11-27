@@ -178,6 +178,9 @@ func (p *Preferences) SetDisableServerRoutes(disable bool) {
 
 // GetDisableDNS reads disable DNS setting from config file
 func (p *Preferences) GetDisableDNS() (bool, error) {
+	if v, ok := p.policy().GetBool(mdm.KeyDisableDNS); ok {
+		return v, nil
+	}
 	if p.configInput.DisableDNS != nil {
 		return *p.configInput.DisableDNS, nil
 	}
@@ -196,6 +199,9 @@ func (p *Preferences) SetDisableDNS(disable bool) {
 
 // GetDisableFirewall reads disable firewall setting from config file
 func (p *Preferences) GetDisableFirewall() (bool, error) {
+	if v, ok := p.policy().GetBool(mdm.KeyDisableFirewall); ok {
+		return v, nil
+	}
 	if p.configInput.DisableFirewall != nil {
 		return *p.configInput.DisableFirewall, nil
 	}
@@ -348,6 +354,9 @@ func (p *Preferences) SetBlockInbound(block bool) {
 
 // GetDisableIPv6 reads disable IPv6 setting from config file
 func (p *Preferences) GetDisableIPv6() (bool, error) {
+	if v, ok := p.policy().GetBool(mdm.KeyDisableIPv6); ok {
+		return v, nil
+	}
 	if p.configInput.DisableIPv6 != nil {
 		return *p.configInput.DisableIPv6, nil
 	}
@@ -362,6 +371,22 @@ func (p *Preferences) GetDisableIPv6() (bool, error) {
 // SetDisableIPv6 stores the given value and waits for commit
 func (p *Preferences) SetDisableIPv6(disable bool) {
 	p.configInput.DisableIPv6 = &disable
+}
+
+// GetForceRelay reads the force relay setting from config file
+func (p *Preferences) GetForceRelay() (bool, error) {
+	if v, ok := p.policy().GetBool(mdm.KeyForceRelay); ok {
+		return v, nil
+	}
+	if p.configInput.ForceRelay != nil {
+		return *p.configInput.ForceRelay, nil
+	}
+
+	cfg, err := profilemanager.ReadConfigOrDefault(p.configInput.ConfigPath)
+	if err != nil {
+		return false, err
+	}
+	return cfg.ForceRelay, err
 }
 
 // GetRemoteJobsAllowed reads the remote jobs opt-in from config file

@@ -11,6 +11,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/ui/services"
 )
 
@@ -57,6 +58,18 @@ func (t *Tray) loadConfig() {
 	t.activeUsername = active.Username
 	t.notificationsEnabled = !cfg.DisableNotifications
 	t.profileMu.Unlock()
+}
+
+// isNotificationsEnabled reads the MDM policy itself: the cached setting is
+// refreshed only on daemon events, and the daemon sends none for a policy
+// change while it is disconnected.
+func (t *Tray) isNotificationsEnabled() bool {
+	if disabled, ok := t.svc.MDMLoader.Load().GetBool(mdm.KeyDisableNotifications); ok {
+		return !disabled
+	}
+	t.profileMu.Lock()
+	defer t.profileMu.Unlock()
+	return t.notificationsEnabled
 }
 
 // loadProfiles fetches the profile list and relayouts the menu. Also called

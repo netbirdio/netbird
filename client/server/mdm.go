@@ -8,6 +8,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/proto"
@@ -179,6 +180,23 @@ func mdmManagedFieldConflicts(msg *proto.SetConfigRequest, policy *mdm.Policy) [
 		mdm.ConflictInt64(mdm.KeyWireguardPort, msg.WireguardPort),
 		mdm.ConflictBool(mdm.KeyEnableLocalMetrics, msg.EnableLocalMetrics),
 		mdm.ConflictStringPtr(mdm.KeyLocalMetricsAddress, msg.LocalMetricsAddress),
+		mdm.ConflictBool(mdm.KeyDisableDNS, msg.DisableDns),
+		mdm.ConflictBool(mdm.KeyDisableIPv6, msg.DisableIpv6),
+		mdm.ConflictBool(mdm.KeyForceRelay, msg.ForceRelay),
+		mdm.ConflictBool(mdm.KeyDisableFirewall, msg.DisableFirewall),
+		mdm.ConflictBool(mdm.KeyBlockLANAccess, msg.BlockLanAccess),
+		mdm.ConflictBool(mdm.KeyDisableNotifications, msg.DisableNotifications),
+		mdm.ConflictBool(mdm.KeyNetworkMonitor, msg.NetworkMonitor),
+		mdm.ConflictStringPtr(mdm.KeyInterfaceName, msg.InterfaceName),
+		mdm.ConflictInt64(mdm.KeyMTU, msg.Mtu),
+		mdm.ConflictDuration(mdm.KeyDNSRouteInterval, requestedDuration(msg.DnsRouteInterval)),
+		mdm.ConflictStringSlice(mdm.KeyNATExternalIPs, requestedNATExternalIPs(msg.NatExternalIPs, msg.CleanNATExternalIPs)),
+		mdm.ConflictBool(mdm.KeyEnableSSHRoot, msg.EnableSSHRoot),
+		mdm.ConflictBool(mdm.KeyEnableSSHSFTP, msg.EnableSSHSFTP),
+		mdm.ConflictBool(mdm.KeyEnableSSHLocalPortForwarding, msg.EnableSSHLocalPortForwarding),
+		mdm.ConflictBool(mdm.KeyEnableSSHRemotePortForwarding, msg.EnableSSHRemotePortForwarding),
+		mdm.ConflictBool(mdm.KeyDisableSSHAuth, msg.DisableSSHAuth),
+		mdm.ConflictInt64(mdm.KeySSHJWTCacheTTL, requestedInt64(msg.SshJWTCacheTTL)),
 	})
 }
 
@@ -219,7 +237,49 @@ func loginRequestMDMConflicts(msg *proto.LoginRequest, policy *mdm.Policy) []str
 		mdm.ConflictInt64(mdm.KeyWireguardPort, msg.WireguardPort),
 		mdm.ConflictBool(mdm.KeyEnableLocalMetrics, msg.EnableLocalMetrics),
 		mdm.ConflictStringPtr(mdm.KeyLocalMetricsAddress, msg.LocalMetricsAddress),
+		mdm.ConflictBool(mdm.KeyDisableDNS, msg.DisableDns),
+		mdm.ConflictBool(mdm.KeyDisableIPv6, msg.DisableIpv6),
+		mdm.ConflictBool(mdm.KeyForceRelay, msg.ForceRelay),
+		mdm.ConflictBool(mdm.KeyDisableFirewall, msg.DisableFirewall),
+		mdm.ConflictBool(mdm.KeyBlockLANAccess, msg.BlockLanAccess),
+		mdm.ConflictBool(mdm.KeyDisableNotifications, msg.DisableNotifications),
+		mdm.ConflictBool(mdm.KeyNetworkMonitor, msg.NetworkMonitor),
+		mdm.ConflictStringPtr(mdm.KeyInterfaceName, msg.InterfaceName),
+		mdm.ConflictInt64(mdm.KeyMTU, msg.Mtu),
+		mdm.ConflictDuration(mdm.KeyDNSRouteInterval, requestedDuration(msg.DnsRouteInterval)),
+		mdm.ConflictStringSlice(mdm.KeyNATExternalIPs, requestedNATExternalIPs(msg.NatExternalIPs, msg.CleanNATExternalIPs)),
+		mdm.ConflictBool(mdm.KeyEnableSSHRoot, msg.EnableSSHRoot),
+		mdm.ConflictBool(mdm.KeyEnableSSHSFTP, msg.EnableSSHSFTP),
+		mdm.ConflictBool(mdm.KeyEnableSSHLocalPortForwarding, msg.EnableSSHLocalPortForwarding),
+		mdm.ConflictBool(mdm.KeyEnableSSHRemotePortForwarding, msg.EnableSSHRemotePortForwarding),
+		mdm.ConflictBool(mdm.KeyDisableSSHAuth, msg.DisableSSHAuth),
+		mdm.ConflictInt64(mdm.KeySSHJWTCacheTTL, requestedInt64(msg.SshJWTCacheTTL)),
 	})
+}
+
+func requestedInt64(v *int32) *int64 {
+	if v == nil {
+		return nil
+	}
+	w := int64(*v)
+	return &w
+}
+
+func requestedDuration(d *durationpb.Duration) *time.Duration {
+	if d == nil {
+		return nil
+	}
+	v := d.AsDuration()
+	return &v
+}
+
+// requestedNATExternalIPs returns nil when the request leaves the mappings
+// alone and an empty list when it clears them.
+func requestedNATExternalIPs(ips []string, clean bool) []string {
+	if clean {
+		return []string{}
+	}
+	return ips
 }
 
 // rejectMDMManagedFieldConflicts returns a FailedPrecondition gRPC error
