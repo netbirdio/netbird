@@ -48,6 +48,8 @@ const (
 	maxDomainBytesPerResolverEntry = 1500
 )
 
+var _ originalNameserversRefresher = (*systemConfigurator)(nil)
+
 type systemConfigurator struct {
 	createdKeys       map[string]struct{}
 	systemDNSSettings SystemDNSSettings
@@ -359,6 +361,17 @@ func (s *systemConfigurator) getOriginalNameservers() []netip.Addr {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return slices.Clone(s.origNameservers)
+}
+
+func (s *systemConfigurator) captureOriginalNameservers() ([]netip.Addr, error) {
+	_, serverAddresses, err := s.readPrimaryServiceDNS()
+	return serverAddresses, err
+}
+
+func (s *systemConfigurator) setOriginalNameservers(nameservers []netip.Addr) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.origNameservers = slices.Clone(nameservers)
 }
 
 // splitDomainsIntoBatches splits domains into batches respecting both element count and byte size limits.
