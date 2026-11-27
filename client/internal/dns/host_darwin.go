@@ -254,20 +254,7 @@ func (s *systemConfigurator) recordSystemDNSSettings(force bool) error {
 }
 
 func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
-	primaryServiceKey, _, err := s.getPrimaryService()
-	if err != nil || primaryServiceKey == "" {
-		return SystemDNSSettings{}, fmt.Errorf("couldn't find the primary service key: %w", err)
-	}
-	dnsServiceKey := getKeyWithInput(primaryServiceStateKeyFormat, primaryServiceKey)
-	line := buildCommandLine("show", dnsServiceKey, "")
-	stdinCommands := wrapCommand(line)
-
-	b, err := runSystemConfigCommand(stdinCommands)
-	if err != nil {
-		return SystemDNSSettings{}, fmt.Errorf("sending the command: %w", err)
-	}
-
-	dnsSettings, serverAddresses, err := parseSystemDNSSettings(b)
+	dnsSettings, serverAddresses, err := s.readPrimaryServiceDNS()
 	if err != nil {
 		return dnsSettings, err
 	}
@@ -277,6 +264,25 @@ func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
 	s.mu.Unlock()
 
 	return dnsSettings, nil
+}
+
+// readPrimaryServiceDNS reads the DNS state of the primary network service
+// without touching the recorded snapshot.
+func (s *systemConfigurator) readPrimaryServiceDNS() (SystemDNSSettings, []netip.Addr, error) {
+	primaryServiceKey, _, err := s.getPrimaryService()
+	if err != nil || primaryServiceKey == "" {
+		return SystemDNSSettings{}, nil, fmt.Errorf("couldn't find the primary service key: %w", err)
+	}
+	dnsServiceKey := getKeyWithInput(primaryServiceStateKeyFormat, primaryServiceKey)
+	line := buildCommandLine("show", dnsServiceKey, "")
+	stdinCommands := wrapCommand(line)
+
+	b, err := runSystemConfigCommand(stdinCommands)
+	if err != nil {
+		return SystemDNSSettings{}, nil, fmt.Errorf("sending the command: %w", err)
+	}
+
+	return parseSystemDNSSettings(b)
 }
 
 // parseSystemDNSSettings parses the output of `scutil show State:/Network/Service/<id>/DNS`.
