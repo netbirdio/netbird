@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -25,7 +24,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -722,27 +720,6 @@ func (c *Controller) GetDNSDomain(settings *types.Settings) string {
 	return settings.DNSDomain
 }
 
-// getPeerPostureChecks returns the posture checks applied for a given peer.
-func (c *Controller) getPeerPostureChecks(account *types.Account, peerID string) ([]*nmdata.PostureChecks, error) {
-	peerPostureChecks := make(map[string]*posture.Checks)
-
-	if len(account.PostureChecks) == 0 {
-		return nil, nil
-	}
-
-	for _, policy := range account.Policies {
-		if !policy.Enabled || len(policy.SourcePostureChecks) == 0 {
-			continue
-		}
-
-		if err := addPolicyPostureChecks(account, peerID, policy, peerPostureChecks); err != nil {
-			return nil, err
-		}
-	}
-
-	return types.TwinPostureChecksList(maps.Values(peerPostureChecks)), nil
-}
-
 func (c *Controller) StartWarmup(ctx context.Context) {
 	var initialInterval int64
 	intervalStr := os.Getenv("NB_PEER_UPDATE_INTERVAL_MS")
@@ -815,54 +792,6 @@ func computeForwarderPortFromVersions(wtVersions []string, requiredVersion strin
 
 	// All peers have the required version or newer
 	return int64(network_map.DnsForwarderPort)
-}
-
-// addPolicyPostureChecks adds posture checks from a policy to the peer posture checks map if the peer is in the policy's source groups.
-func addPolicyPostureChecks(account *types.Account, peerID string, policy *types.Policy, peerPostureChecks map[string]*posture.Checks) error {
-	isInGroup, err := isPeerInPolicySources(account, peerID, policy)
-	if err != nil {
-		return err
-	}
-
-	if !isInGroup {
-		return nil
-	}
-
-	for _, sourcePostureCheckID := range policy.SourcePostureChecks {
-		postureCheck := account.GetPostureChecks(sourcePostureCheckID)
-		if postureCheck == nil {
-			return errors.New("failed to add policy posture checks: posture checks not found")
-		}
-		peerPostureChecks[sourcePostureCheckID] = postureCheck
-	}
-
-	return nil
-}
-
-// isPeerInPolicySources checks if a peer is a source of the policy, directly or through a source group.
-func isPeerInPolicySources(account *types.Account, peerID string, policy *types.Policy) (bool, error) {
-	for _, rule := range policy.Rules {
-		if !rule.Enabled {
-			continue
-		}
-
-		if rule.SourceResource.Type == types.ResourceTypePeer && rule.SourceResource.ID == peerID {
-			return true, nil
-		}
-
-		for _, sourceGroup := range rule.Sources {
-			group := account.GetGroup(sourceGroup)
-			if group == nil {
-				return false, fmt.Errorf("failed to check peer in policy source group: group not found")
-			}
-
-			if slices.Contains(group.Peers, peerID) {
-				return true, nil
-			}
-		}
-	}
-
-	return false, nil
 }
 
 func (c *Controller) OnPeersUpdated(ctx context.Context, accountID string, peerIDs []string, affectedPeerIDs []string) error {
