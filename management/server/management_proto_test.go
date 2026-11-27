@@ -385,7 +385,7 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 
 	nmapStoreConfig, err := networkmapdb.NewNetworkMapDBStoreConfig().
 		WithKind(nbstore.GetStoreEngineFromEnv()).
-		WithSqliteDataDir(config.Datadir).
+		WithSqliteDataDir(dataDir).
 		WithPostgresDSNFromSQLStore(store).
 		Finish()
 	require.NoError(t, err)
