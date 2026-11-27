@@ -177,6 +177,37 @@ func TestDialByIPSendsServerNameAsHost(t *testing.T) {
 	}
 }
 
+// TestFailedDialClosesConnection covers a relay behind a proxy that answers the
+// handshake with a short error page while the relay is down. The client must
+// close the TCP connection, or it stays open and the proxy keeps it alive.
+func TestFailedDialClosesConnection(t *testing.T) {
+	closed := make(chan struct{}, 1)
+	srv := httptest.NewUnstartedServer(http.NotFoundHandler())
+	srv.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state != http.StateClosed {
+			return
+		}
+		select {
+		case closed <- struct{}{}:
+		default:
+		}
+	}
+	srv.Start()
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := (Dialer{}).Dial(ctx, "rel://"+srv.Listener.Addr().String(), "")
+	require.Error(t, err, "the handshake must fail against a plain HTTP server")
+
+	select {
+	case <-closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the client kept the connection open after the failed handshake")
+	}
+}
+
 func TestWriteTimesOutWhenPeerStopsReading(t *testing.T) {
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
