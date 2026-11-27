@@ -9,6 +9,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
@@ -46,6 +47,12 @@ func (r *SysOps) RemoveVPNRoute(prefix netip.Prefix, _ *net.Interface) error {
 	return nil
 }
 
+// ReconcileLocalSubnets is a no-op on iOS: VPN routes are programmed by the platform TUN,
+// so there is no local-subnet guard state to converge.
+func (r *SysOps) ReconcileLocalSubnets(*refcounter.RouteRefCounter) error {
+	return nil
+}
+
 func (r *SysOps) notify() {
 	prefixes := make([]netip.Prefix, 0, len(r.prefixes))
 	for prefix := range r.prefixes {
@@ -54,6 +61,7 @@ func (r *SysOps) notify() {
 	r.notifier.OnNewPrefixes(prefixes)
 }
 
+// removeFromRouteTable is a no-op on iOS, since VPN routes are handled by the platform VPN API.
 func (r *SysOps) removeFromRouteTable(netip.Prefix, Nexthop) error {
 	return nil
 }
