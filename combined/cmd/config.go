@@ -413,9 +413,14 @@ func (c *CombinedConfig) applyManagementDefaults(exposedHost string) {
 	}
 
 	// Copy reverse proxy config from server
-	if len(c.Server.ReverseProxy.TrustedHTTPProxies) > 0 || c.Server.ReverseProxy.TrustedHTTPProxiesCount > 0 || len(c.Server.ReverseProxy.TrustedPeers) > 0 {
+	if c.Server.ReverseProxy.isSet() {
 		c.Management.ReverseProxy = c.Server.ReverseProxy
 	}
+}
+
+func (r ReverseProxyConfig) isSet() bool {
+	return len(r.TrustedHTTPProxies) > 0 || r.TrustedHTTPProxiesCount > 0 || len(r.TrustedPeers) > 0 ||
+		r.AccessLogRetentionDays != 0 || r.AccessLogCleanupIntervalHours != 0
 }
 
 // autoConfigureClientSettings sets up STUN/relay/signal URIs for clients
