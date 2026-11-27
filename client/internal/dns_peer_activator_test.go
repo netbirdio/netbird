@@ -127,3 +127,41 @@ func TestDNSPeerActivator_NoWaitWithoutPeerConn(t *testing.T) {
 	a.ActivatePeersByIP(ctx, []netip.Addr{netip.MustParseAddr("100.64.0.1")})
 	require.Less(t, time.Since(start), time.Second, "peer without a conn must not be waited on")
 }
+
+// TestDNSPeerActivator_NoWaitWhenAnyPeerConnected checks that we bail out right away
+// when at least one of the peers is already connected, even if the other one never
+// comes up. Should work the same no matter which address is listed first, instead
+// of burning the whole per-query timeout.
+func TestDNSPeerActivator_NoWaitWhenAnyPeerConnected(t *testing.T) {
+	connected := netip.MustParseAddr("100.64.0.1")
+	pending := netip.MustParseAddr("100.64.0.2")
+
+	tests := []struct {
+		name  string
+		addrs []netip.Addr
+	}{
+		{"connected first", []netip.Addr{connected, pending}},
+		{"pending first", []netip.Addr{pending, connected}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a, status, store := newTestDNSPeerActivator(t)
+
+			require.NoError(t, status.AddPeer("peerA", "a.netbird.cloud", "100.64.0.1", ""))
+			require.NoError(t, status.UpdatePeerState(peer.State{PubKey: "peerA", ConnStatus: peer.StatusConnected}))
+			store.AddPeerConn("peerA", newTestPeerConn(t, "peerA"))
+
+			// peerB is idle and never connects.
+			require.NoError(t, status.AddPeer("peerB", "b.netbird.cloud", "100.64.0.2", ""))
+			store.AddPeerConn("peerB", newTestPeerConn(t, "peerB"))
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			start := time.Now()
+			a.ActivatePeersByIP(ctx, tc.addrs)
+			require.Less(t, time.Since(start), time.Second, "a connected peer in the answer must skip the wait")
+		})
+	}
+}
