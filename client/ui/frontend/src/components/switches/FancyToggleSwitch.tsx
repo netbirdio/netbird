@@ -35,6 +35,10 @@ export default function FancyToggleSwitch({
 }: Readonly<Props>) {
     const switchId = React.useId();
     const descriptionId = React.useId();
+    const noteId = React.useId();
+    const describedBy =
+        [helpText ? descriptionId : null, note ? noteId : null].filter(Boolean).join(" ") ||
+        undefined;
 
     if (loading) {
         const shimmer =
@@ -88,7 +92,7 @@ export default function FancyToggleSwitch({
                     <HelpText margin={false}>
                         <span id={descriptionId}>{helpText}</span>
                     </HelpText>
-                    {note}
+                    {note ? <div id={noteId}>{note}</div> : null}
                 </div>
                 <div className={"mt-2 pe-1"}>
                     <ToggleSwitch
@@ -97,7 +101,7 @@ export default function FancyToggleSwitch({
                         onCheckedChange={onChange}
                         disabled={disabled}
                         dataCy={dataCy}
-                        aria-describedby={helpText ? descriptionId : undefined}
+                        aria-describedby={describedBy}
                     />
                 </div>
             </div>

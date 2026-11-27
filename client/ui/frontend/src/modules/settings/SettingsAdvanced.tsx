@@ -148,7 +148,13 @@ export function SettingsAdvanced() {
                         onChange={(e) => setValues((v) => ({ ...v, mtu: Number(e.target.value) }))}
                     />
                 </div>
-                <PendingReconnectNote pending={pending("interfaceName", "wireguardPort", "mtu")} />
+                <PendingReconnectNote
+                    pending={
+                        mdm.wireguardPort
+                            ? pending("interfaceName", "mtu")
+                            : pending("interfaceName", "wireguardPort", "mtu")
+                    }
+                />
             </SectionGroup>
 
             {!mdm.preSharedKey && (

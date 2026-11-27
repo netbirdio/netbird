@@ -154,16 +154,17 @@ export const Networks = () => {
     const allSelected = filtered.length > 0 && selectedInView === filtered.length;
     const bulkLabel = allSelected ? t("networks.bulk.disableAll") : t("networks.bulk.enableAll");
 
-    const clientRoutesNotice = () => {
+    const clientRoutesNotice = (() => {
+        if (mdm.disableClientRoutes) {
+            return clientRoutesDisabled ? t("networks.clientRoutesDisabled.managed") : null;
+        }
         if (clientRoutesPendingReconnect) {
             return clientRoutesDisabled
                 ? t("networks.clientRoutesDisabled.enablePending")
                 : t("networks.clientRoutesDisabled.disablePending");
         }
-        return mdm.disableClientRoutes
-            ? t("networks.clientRoutesDisabled.managed")
-            : t("networks.clientRoutesDisabled.message");
-    };
+        return clientRoutesDisabled ? t("networks.clientRoutesDisabled.message") : null;
+    })();
 
     const onBulkClick = () => {
         if (filtered.length === 0 || clientRoutesDisabled) return;
@@ -193,7 +194,7 @@ export const Networks = () => {
                 </div>
                 <NetworkFilters value={filter} onChange={setFilter} counts={counts} />
             </div>
-            {(clientRoutesDisabled || clientRoutesPendingReconnect) && (
+            {clientRoutesNotice && (
                 <div
                     role={"status"}
                     className={cn(
@@ -201,7 +202,7 @@ export const Networks = () => {
                         "text-xs font-medium text-nb-gray-300",
                     )}
                 >
-                    {clientRoutesNotice()}
+                    {clientRoutesNotice}
                 </div>
             )}
             {filtered.length === 0 ? (

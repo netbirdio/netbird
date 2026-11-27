@@ -10,7 +10,7 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 )
 
-func TestRunningConfigFromProfileMatchesConfigResponse(t *testing.T) {
+func TestRunningConfigFromProfileCarriesProfileValues(t *testing.T) {
 	enabled := true
 	cfg := &profilemanager.Config{
 		WgIface:                      "wt7",
@@ -28,31 +28,27 @@ func TestRunningConfigFromProfileMatchesConfigResponse(t *testing.T) {
 	}
 
 	running := runningConfigFromProfile(cfg)
-	stored := configResponseFromProfile(cfg)
 
 	require.NotNil(t, running)
 	assert.Equal(t, &proto.RunningConfig{
-		InterfaceName:                 stored.GetInterfaceName(),
-		WireguardPort:                 stored.GetWireguardPort(),
-		Mtu:                           stored.GetMtu(),
-		NetworkMonitor:                stored.GetNetworkMonitor(),
-		DisableDns:                    stored.GetDisableDns(),
-		DisableClientRoutes:           stored.GetDisableClientRoutes(),
-		DisableServerRoutes:           stored.GetDisableServerRoutes(),
-		DisableIpv6:                   stored.GetDisableIpv6(),
-		BlockInbound:                  stored.GetBlockInbound(),
-		BlockLanAccess:                stored.GetBlockLanAccess(),
-		RosenpassEnabled:              stored.GetRosenpassEnabled(),
-		RosenpassPermissive:           stored.GetRosenpassPermissive(),
-		ServerSSHAllowed:              stored.GetServerSSHAllowed(),
-		EnableSSHRoot:                 stored.GetEnableSSHRoot(),
-		EnableSSHSFTP:                 stored.GetEnableSSHSFTP(),
-		EnableSSHLocalPortForwarding:  stored.GetEnableSSHLocalPortForwarding(),
-		EnableSSHRemotePortForwarding: stored.GetEnableSSHRemotePortForwarding(),
-		DisableSSHAuth:                stored.GetDisableSSHAuth(),
-		ServerVNCAllowed:              stored.GetServerVNCAllowed(),
-		DisableVNCApproval:            stored.GetDisableVNCApproval(),
-	}, running, "running config should mirror the stored config response field by field")
+		InterfaceName:                "wt7",
+		WireguardPort:                51830,
+		Mtu:                          1380,
+		NetworkMonitor:               true,
+		DisableDns:                   true,
+		DisableClientRoutes:          true,
+		DisableIpv6:                  true,
+		BlockLanAccess:               true,
+		RosenpassEnabled:             true,
+		ServerSSHAllowed:             true,
+		EnableSSHSFTP:                true,
+		EnableSSHLocalPortForwarding: true,
+		ServerVNCAllowed:             true,
+	}, running, "running config should carry the profile values")
+
+	stored := configResponseFromProfile(cfg)
+	assert.Equal(t, stored.GetDisableClientRoutes(), running.GetDisableClientRoutes(), "running and stored mapping should agree")
+	assert.Equal(t, stored.GetServerSSHAllowed(), running.GetServerSSHAllowed(), "running and stored mapping should agree on defaults")
 
 	assert.Equal(t, "wt7", running.GetInterfaceName(), "interface name should come from the profile")
 	assert.Equal(t, int64(51830), running.GetWireguardPort(), "configured port should be reported, not the bound one")
