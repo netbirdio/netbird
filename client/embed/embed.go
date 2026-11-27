@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"github.com/sirupsen/logrus"
 
@@ -31,6 +32,10 @@ import (
 var (
 	ErrClientAlreadyStarted = errors.New("client already started")
 	ErrClientNotStarted     = errors.New("client not started")
+	// ErrClientRunExited is returned by Start when the client stopped on its own after
+	// starting, for example once Management no longer knows its key. Stop it and create
+	// a new one.
+	ErrClientRunExited      = errors.New("client run loop exited")
 	ErrEngineNotStarted     = errors.New("engine not started")
 	ErrConfigNotInitialized = errors.New("config not initialized")
 )
@@ -52,7 +57,10 @@ type Client struct {
 	setupKey   string
 	jwtToken   string
 	connect    *internal.ConnectClient
-	recorder   *peer.Status
+	// exit belongs to the current connect; read lock-free so callers never wait on a
+	// Start or Stop holding mu.
+	exit     atomic.Pointer[runExit]
+	recorder *peer.Status
 	// inMemoryState is set when no StatePath was given in netstack mode,
 	// where the client changes nothing on the host that needs restoring.
 	inMemoryState bool
@@ -284,6 +292,9 @@ func (c *Client) Start(startCtx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.connect != nil {
+		if err := c.RunErr(); err != nil {
+			return fmt.Errorf("%w: %w", ErrClientRunExited, err)
+		}
 		return ErrClientAlreadyStarted
 	}
 
@@ -314,11 +325,12 @@ func (c *Client) Start(startCtx context.Context) error {
 	client.SetSyncResponsePersistence(true)
 
 	// either startup error (permanent backoff err) or nil err (successful engine up)
-	// TODO: make after-startup backoff err available
 	run := make(chan struct{})
 	clientErr := make(chan error, 1)
+	exit := &runExit{}
 	go func() {
 		if err := client.Run(run, ""); err != nil {
+			exit.err.Store(&err)
 			clientErr <- err
 		}
 	}()
@@ -342,7 +354,26 @@ func (c *Client) Start(startCtx context.Context) error {
 
 	c.connect = client
 	c.cancel = cancel
+	c.exit.Store(exit)
 
+	return nil
+}
+
+// runExit records the error that ended a client's run loop.
+type runExit struct {
+	err atomic.Pointer[error]
+}
+
+// RunErr returns the error that stopped the client after a successful Start, or nil
+// while it is running or not started.
+func (c *Client) RunErr() error {
+	exit := c.exit.Load()
+	if exit == nil {
+		return nil
+	}
+	if err := exit.err.Load(); err != nil {
+		return *err
+	}
 	return nil
 }
 
@@ -360,6 +391,7 @@ func (c *Client) Stop(ctx context.Context) error {
 		c.cancel()
 		c.cancel = nil
 	}
+	c.exit.Store(nil)
 
 	done := make(chan error, 1)
 	connect := c.connect
