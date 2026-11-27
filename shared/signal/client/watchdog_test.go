@@ -245,3 +245,56 @@ func TestWatchdogTearsDownWhenSentProbeIsLost(t *testing.T) {
 	}
 	assert.True(t, c.receiveStalled.Load(), "the stall must be reported to IsHealthy")
 }
+
+// TestWatchdogsStartedTogetherProbeApart reproduces a fleet that reconnected in
+// the same instant: without jitter every watchdog checks on the same tick and
+// probes in step. The first probes must spread across the interval.
+func TestWatchdogsStartedTogetherProbeApart(t *testing.T) {
+	const watchdogs = 20
+	interval := 400 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	firstProbe := make(chan time.Time, watchdogs)
+	for i := 0; i < watchdogs; i++ {
+		c := &GrpcClient{watchdog: watchdogTimings{idleThreshold: time.Millisecond, probeTimeout: time.Hour, interval: interval}}
+		c.lastReceived.Store(time.Now().Add(-time.Second).UnixNano())
+		var once atomic.Bool
+		go c.watchReceiveStream(ctx, func() {}, func(context.Context) error {
+			if once.CompareAndSwap(false, true) {
+				firstProbe <- time.Now()
+			}
+			return nil
+		})
+	}
+
+	var earliest, latest time.Time
+	for i := 0; i < watchdogs; i++ {
+		select {
+		case at := <-firstProbe:
+			if earliest.IsZero() || at.Before(earliest) {
+				earliest = at
+			}
+			if at.After(latest) {
+				latest = at
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("a watchdog never probed")
+		}
+	}
+	assert.Greater(t, latest.Sub(earliest), interval/4,
+		"watchdogs started together must not probe in step")
+}
+
+// TestWatchdogIdleThresholdIsJittered checks that clients draw different idle
+// thresholds within the jitter window.
+func TestWatchdogIdleThresholdIsJittered(t *testing.T) {
+	seen := map[time.Duration]bool{}
+	for i := 0; i < 50; i++ {
+		threshold := jitteredWatchdogTimings().idleThreshold
+		require.GreaterOrEqual(t, threshold, receiveInactivityThreshold, "threshold below the base")
+		require.Less(t, threshold, receiveInactivityThreshold+receiveInactivityJitter, "threshold past the jitter window")
+		seen[threshold] = true
+	}
+	assert.Greater(t, len(seen), 1, "clients must not share one threshold")
+}

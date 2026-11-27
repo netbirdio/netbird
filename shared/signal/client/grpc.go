@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,6 +34,9 @@ const (
 	// healthy (keepalive satisfied) while the server stops delivering messages,
 	// which the transport layer cannot detect.
 	receiveInactivityThreshold = 30 * time.Second
+	// receiveInactivityJitter widens the threshold per client, so a fleet that
+	// reconnected together does not probe together.
+	receiveInactivityJitter = 10 * time.Second
 	// receiveProbeTimeout is how long the watchdog waits for its self-addressed
 	// probe to round-trip back on the stream before declaring the receive
 	// direction dead.
@@ -73,6 +77,11 @@ func (t watchdogTimings) withDefaults() watchdogTimings {
 		t.interval = receiveWatchdogInterval
 	}
 	return t
+}
+
+// jitteredWatchdogTimings draws this client's idle threshold.
+func jitteredWatchdogTimings() watchdogTimings {
+	return watchdogTimings{idleThreshold: receiveInactivityThreshold + rand.N(receiveInactivityJitter)}
 }
 
 // receiveProbe sends one watchdog probe that should come back on the receive stream.
@@ -161,6 +170,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 		connStateCallbackLock:     sync.RWMutex{},
 		registrationTimeout:       defaultRegistrationTimeout,
 		registrationProbeInterval: defaultRegistrationProbeInterval,
+		watchdog:                  jitteredWatchdogTimings(),
 		auth:                      authCredentials{hostname: signalHostname(addr)},
 	}
 	for _, opt := range opts {
@@ -668,15 +678,19 @@ func (c *GrpcClient) receiveAlive() bool {
 // and cancelStream is called so the retry loop reconnects.
 func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream context.CancelFunc, probe receiveProbe) {
 	timings := c.watchdog.withDefaults()
-	ticker := time.NewTicker(timings.interval)
-	defer ticker.Stop()
+
+	// The first check lands at a random point of the interval, so streams that
+	// connected together do not check, and probe, in step.
+	tick := time.NewTimer(rand.N(timings.interval))
+	defer tick.Stop()
 
 	var probeSentAt time.Time
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-tick.C:
+			tick.Reset(timings.interval)
 			if c.receiveAlive() {
 				probeSentAt = time.Time{}
 				continue
