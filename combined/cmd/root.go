@@ -269,6 +269,11 @@ func (s *serverInstances) createRelayServer(cfg *CombinedConfig, tlsSupport bool
 		ExposedAddress: cfg.Relay.ExposedAddress,
 		AuthValidator:  localLegacyValidator(cfg.Relay.AuthSecret),
 		TLSSupport:     tlsSupport,
+		RateLimit: relayServer.RateLimitConfig{
+			Enabled: cfg.Server.RelayRateLimits.Enabled,
+			Default: cfg.Server.RelayRateLimits.Default,
+			Peers:   cfg.Server.RelayRateLimits.Peers,
+		},
 		PeerAuth: relayServer.PeerAuthConfig{
 			Keys:      peerAuthKeys,
 			Hostnames: cfg.Server.PeerAuth.Hostnames,

@@ -88,6 +88,10 @@ type ServerConfig struct {
 	PerAccountSupportedSyncMessageVersions map[string]int `yaml:"perAccountSupportedSyncMessageVersions,omitempty"`
 
 	AgentNetwork AgentNetworkConfig `yaml:"agentNetwork"`
+	// RelayRateLimits caps the bandwidth the embedded relay forwards to a
+	// destination peer. It is only used when the embedded relay is enabled
+	// (no external relays configured).
+	RelayRateLimits RelayRateLimitsConfig `yaml:"relayRateLimits"`
 
 	PeerAuth PeerAuthConfig `yaml:"peerAuth"`
 }
@@ -135,6 +139,16 @@ type RelayConfig struct {
 	AuthSecret     string     `yaml:"authSecret"`
 	LogLevel       string     `yaml:"logLevel"`
 	Stun           StunConfig `yaml:"stun"`
+}
+
+// RelayRateLimitsConfig contains the embedded relay forwarding limits.
+// Keys of Peers are destination peers: either the relay identity ("sha-...")
+// or the peer WireGuard public key. Values are bit rates such as 50mbps; empty
+// or "unlimited" means no limit.
+type RelayRateLimitsConfig struct {
+	Enabled bool              `yaml:"enabled"`
+	Default string            `yaml:"default"`
+	Peers   map[string]string `yaml:"peers"`
 }
 
 // StunConfig contains embedded STUN service settings

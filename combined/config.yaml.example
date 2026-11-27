@@ -24,6 +24,20 @@ server:
   # stunPorts:
   #   - 3478
 
+  # Optional bandwidth limits for the embedded relay. Only affects traffic the
+  # relay forwards to a destination peer; direct P2P traffic is not relayed and
+  # therefore not limited.
+  #
+  # Keys of peers can be the relay identity ("sha-..." printed in relay logs)
+  # or the peer WireGuard public key. Values are bit rates (bps, kbps, mbps,
+  # gbps); empty or "unlimited" means no limit.
+  # relayRateLimits:
+  #   enabled: true
+  #   default: "50mbps"       # applies to each peer without an explicit entry
+  #   peers:
+  #     "sha-<relay id from the relay logs>": "10mbps"
+  #     "<peer WireGuard public key>": "20mbps"
+
   # Metrics endpoint port
   metricsPort: 9090
 
