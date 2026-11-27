@@ -20,6 +20,8 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness/peerlivenesstest"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
+	networkmapdbfactory "github.com/netbirdio/netbird/management/internals/network_map_db/factory"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/cache"
@@ -27,7 +29,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
-	"github.com/netbirdio/netbird/management/server/store"
+	nbstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
@@ -46,14 +48,14 @@ func createManagerWithEmbeddedIdPMode(t testing.TB, singleAccountModeDomain stri
 func createManagerWithEmbeddedIdPModeAndSetup(
 	t testing.TB,
 	singleAccountModeDomain string,
-	setupStore func(context.Context, store.Store) error,
+	setupStore func(context.Context, nbstore.Store) error,
 ) (*DefaultAccountManager, *update_channel.PeersUpdateManager, error) {
 	t.Helper()
 
 	ctx := context.Background()
 
 	dataDir := t.TempDir()
-	testStore, cleanUp, err := store.NewTestStoreFromSQL(ctx, "", dataDir)
+	testStore, cleanUp, err := nbstore.NewTestStoreFromSQL(ctx, "", dataDir)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -113,7 +115,28 @@ func createManagerWithEmbeddedIdPModeAndSetup(
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, testStore)
-	networkMapController := controller.NewController(ctx, testStore, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(testStore, peersManager), &config.Config{}, nil)
+	validatorMock := MockIntegratedValidator{}
+
+	nmapStoreConfig, err := networkmapdb.NewNetworkMapDBStoreConfig().
+		WithKind(nbstore.GetStoreEngineFromEnv()).
+		WithSqliteDataDir(dataDir).
+		WithPostgresDSNFromSQLStore(testStore).
+		Finish()
+	require.NoError(t, err)
+
+	nmapDbStore, err := networkmapdbfactory.NewNetworkMapDBStore(
+		context.Background(),
+		nmapStoreConfig,
+		validatorMock,
+		settingsMockManager,
+		nil,
+		metrics.GetMeter(),
+	)
+	if err != nil {
+		t.Fatalf("Failed to create networkmap db store: %v", err)
+	}
+
+	networkMapController := controller.NewController(ctx, testStore, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(testStore, peersManager), &config.Config{}, nmapDbStore)
 	manager, err := BuildManager(ctx, &config.Config{}, testStore, networkMapController, job.NewJobManager(nil, testStore, peersManager), idpManager, singleAccountModeDomain, eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 	if err != nil {
 		return nil, nil, err
@@ -190,8 +213,7 @@ func TestDefaultAccountManager_CreateIdentityProvider_Validation(t *testing.T) {
 }
 
 func TestDefaultAccountManager_GetIdentityProviders(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	userID := "testingUser"
 	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID})
@@ -219,7 +241,7 @@ func TestDefaultAccountManager_GetIdentityProvider_NotFound(t *testing.T) {
 
 func TestUpdateUserAuthWithSingleModeKeepsConfiguredDomain(t *testing.T) {
 	ctx := context.Background()
-	manager, _, err := createManagerWithEmbeddedIdPModeAndSetup(t, "netbird.selfhosted", func(ctx context.Context, testStore store.Store) error {
+	manager, _, err := createManagerWithEmbeddedIdPModeAndSetup(t, "netbird.selfhosted", func(ctx context.Context, testStore nbstore.Store) error {
 		// An account with no domain, as left behind by an IdP that emitted no domain claims.
 		return testStore.SaveAccount(ctx, newAccountWithId(ctx, "account-1", "user-1", "", "", "", false))
 	})

@@ -89,6 +89,10 @@ func (s *SqliteStore) Exec(_ context.Context, query string, args ...any) error {
 	return err
 }
 
+func (s *SqliteStore) Close() error {
+	return s.Db.Close()
+}
+
 func (sc *SqliteStoreConn) RollbackTx(ctx context.Context) error {
 	tx, ok := sc.Conn.(*sql.Tx)
 	if !ok {

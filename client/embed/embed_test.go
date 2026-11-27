@@ -15,6 +15,8 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness/peerlivenesstest"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
+	networkmapdbfactory "github.com/netbirdio/netbird/management/internals/network_map_db/factory"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	mgmt "github.com/netbirdio/netbird/management/server"
@@ -147,7 +149,25 @@ func startManagement(t *testing.T, signalAddr string) string {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := mgmt.NewAccountRequestBuffer(context.Background(), testStore)
-	networkMapController := controller.NewController(context.Background(), testStore, metrics, updateManager, requestBuffer, mgmt.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", manager.NewEphemeralManager(testStore, peersManager), cfg, nil)
+
+	nmapStoreConfig, err := networkmapdb.NewNetworkMapDBStoreConfig().
+		WithKind(store.GetStoreEngineFromEnv()).
+		WithSqliteDataDir(cfg.Datadir).
+		WithPostgresDSNFromSQLStore(testStore).
+		Finish()
+	require.NoError(t, err)
+
+	nmapDbStore, err := networkmapdbfactory.NewNetworkMapDBStore(
+		context.Background(),
+		nmapStoreConfig,
+		iv,
+		settingsMockManager,
+		nil,
+		metrics.GetMeter(),
+	)
+	require.NoError(t, err)
+
+	networkMapController := controller.NewController(context.Background(), testStore, metrics, updateManager, requestBuffer, mgmt.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", manager.NewEphemeralManager(testStore, peersManager), cfg, nmapDbStore)
 	accountManager, err := mgmt.BuildManager(context.Background(), cfg, testStore, networkMapController, jobManager, nil, "", eventStore, nil, false, iv, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 	require.NoError(t, err)
 

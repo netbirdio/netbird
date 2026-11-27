@@ -19,6 +19,8 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
 	reverseproxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service/manager"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
+	networkmapdbfactory "github.com/netbirdio/netbird/management/internals/network_map_db/factory"
 	"github.com/netbirdio/netbird/management/internals/shared/db"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 
@@ -59,7 +61,8 @@ import (
 // middleware, ending with the authentication, and a function that mounts the REST handlers on
 // an API router, so each layout can place them on its own routers.
 func buildTestAPI(t testing_tools.TB, sqlFile string, peersUpdateManager network_map.PeersUpdateManager) (context.Context, account.Manager, []mux.MiddlewareFunc, func(*mux.Router) http.Handler) {
-	store, cleanup, err := nbstore.NewTestStoreFromSQL(context.Background(), sqlFile, t.TempDir())
+	dbDir := t.TempDir()
+	store, cleanup, err := nbstore.NewTestStoreFromSQL(context.Background(), sqlFile, dbDir)
 	if err != nil {
 		t.Fatalf("Failed to create test store: %v", err)
 	}
@@ -94,7 +97,29 @@ func buildTestAPI(t testing_tools.TB, sqlFile string, peersUpdateManager network
 	}
 
 	requestBuffer := server.NewAccountRequestBuffer(ctx, store)
-	networkMapController := controller.NewController(ctx, store, metrics, peersUpdateManager, requestBuffer, server.MockIntegratedValidator{}, settingsManager, "", ephemeral_manager.NewEphemeralManager(store, peersManager), &config.Config{}, nil)
+
+	nmapStoreConfig, err := networkmapdb.NewNetworkMapDBStoreConfig().
+		WithKind(nbstore.GetStoreEngineFromEnv()).
+		WithSqliteDataDir(dbDir).
+		WithPostgresDSNFromSQLStore(store).
+		Finish()
+	if err != nil {
+		t.Fatalf("Failed to create networkmap db store config: %v", err)
+	}
+
+	nmapDbStore, err := networkmapdbfactory.NewNetworkMapDBStore(
+		context.Background(),
+		nmapStoreConfig,
+		validatorMock,
+		settingsManager,
+		nil,
+		metrics.GetMeter(),
+	)
+	if err != nil {
+		t.Fatalf("Failed to create networkmap db store: %v", err)
+	}
+
+	networkMapController := controller.NewController(ctx, store, metrics, peersUpdateManager, requestBuffer, server.MockIntegratedValidator{}, settingsManager, "", ephemeral_manager.NewEphemeralManager(store, peersManager), &config.Config{}, nmapDbStore)
 	am, err := server.BuildManager(ctx, nil, store, networkMapController, jobManager, nil, "", &activity.InMemoryEventStore{}, geoMock, false, validatorMock, metrics, settingsManager, permissionsManager, false, cacheStore, peerLiveness)
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)

@@ -38,15 +38,19 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness/peerlivenesstest"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
+	networkmapdbfactory "github.com/netbirdio/netbird/management/internals/network_map_db/factory"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/internals/shared/grpc"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	peershandler "github.com/netbirdio/netbird/management/server/http/handlers/peers"
 	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
+	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
+	nbstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -62,7 +66,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
-	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	nbroute "github.com/netbirdio/netbird/route"
@@ -192,11 +195,7 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 }
 
 func testGetNetworkMapGeneral(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	expectedId := "test_account"
 	userId := "account_creator"
@@ -264,11 +263,7 @@ func testGetNetworkMapGeneral(t *testing.T) {
 func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	// TODO: disable until we start use policy again
 	t.Skip()
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	expectedID := "test_account"
 	userID := "account_creator"
@@ -441,11 +436,7 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 }
 
 func TestAccountManager_GetPeerNetwork(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	expectedId := "test_account"
 	userId := "account_creator"
@@ -502,11 +493,7 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 }
 
 func TestDefaultAccountManager_GetPeer(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	// account with an admin and a regular user
 	accountID := "test_account"
@@ -519,7 +506,7 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	}
 	account.Settings.RegularUsersViewBlocked = false
 
-	err = manager.Store.SaveAccount(context.Background(), account)
+	err := manager.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -673,11 +660,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			manager, _, err := createManager(t)
-			if err != nil {
-				t.Fatal(err)
-				return
-			}
+			manager, _ := createManagerWithNetworkMapStore(t)
 
 			// account with an admin and a regular user
 			accountID := "test_account"
@@ -692,7 +675,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 			account.Policies = []*types.Policy{}
 			account.Settings.RegularUsersViewBlocked = testCase.limitedViewSettings
 
-			err = manager.Store.SaveAccount(context.Background(), account)
+			err := manager.Store.SaveAccount(context.Background(), account)
 			if err != nil {
 				t.Fatal(err)
 				return
@@ -742,8 +725,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 
 func TestDefaultAccountManager_GetPeers_FilterByMac(t *testing.T) {
 	ctx := context.Background()
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 	account := newAccountWithId(ctx, "mac-account", "mac-admin", "", "", "", false)
 	account.Peers["matching"] = &nbpeer.Peer{
 		ID: "matching", Key: "matching-key", Name: "laptop", DNSLabel: "laptop",
@@ -808,10 +790,7 @@ func TestDefaultAccountManager_GetPeers_FilterByMac(t *testing.T) {
 func setupTestAccountManager(b testing.TB, peers int, groups int) (*DefaultAccountManager, *update_channel.PeersUpdateManager, string, string, error) {
 	b.Helper()
 
-	manager, updateManager, err := createManager(b)
-	if err != nil {
-		return nil, nil, "", "", err
-	}
+	manager, updateManager := createManagerWithNetworkMapStore(b)
 
 	accountID := "test_account"
 	adminUser := "account_creator"
@@ -975,7 +954,7 @@ func setupTestAccountManager(b testing.TB, peers int, groups int) (*DefaultAccou
 		},
 	}
 
-	err = manager.Store.SaveAccount(context.Background(), account)
+	err := manager.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		return nil, nil, "", "", err
 	}
@@ -1329,7 +1308,8 @@ func Test_RegisterPeerByUser(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	dataDir := t.TempDir()
+	s, cleanup, err := nbstore.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", dataDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1354,7 +1334,25 @@ func Test_RegisterPeerByUser(t *testing.T) {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
-	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager, peerLiveness)), &config.Config{}, nil)
+
+	nmapStoreConfig, err := networkmapdb.NewNetworkMapDBStoreConfig().
+		WithKind(nbstore.GetStoreEngineFromEnv()).
+		WithSqliteDataDir(dataDir).
+		WithPostgresDSNFromSQLStore(s).
+		Finish()
+	require.NoError(t, err)
+
+	nmapDbStore, err := networkmapdbfactory.NewNetworkMapDBStore(
+		context.Background(),
+		nmapStoreConfig,
+		&integrated_validator.MockIntegratedValidator{},
+		settingsMockManager,
+		nil,
+		metrics.GetMeter(),
+	)
+	require.NoError(t, err)
+
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager, peerLiveness)), &config.Config{}, nmapDbStore)
 
 	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 	assert.NoError(t, err)
@@ -1391,7 +1389,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, newPeer.ExtraDNSLabels, addedPeer.ExtraDNSLabels)
 
-	peer, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, addedPeer.Key)
+	peer, err := s.GetPeerByPeerPubKey(context.Background(), nbstore.LockingStrengthNone, addedPeer.Key)
 	require.NoError(t, err)
 	assert.Equal(t, peer.AccountID, existingAccountID)
 	assert.Equal(t, peer.UserID, existingUserID)
@@ -1416,7 +1414,8 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	dataDir := t.TempDir()
+	s, cleanup, err := nbstore.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", dataDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1446,7 +1445,25 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
-	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager, peerLiveness)), &config.Config{}, nil)
+
+	nmapStoreConfig, err := networkmapdb.NewNetworkMapDBStoreConfig().
+		WithKind(nbstore.GetStoreEngineFromEnv()).
+		WithSqliteDataDir(dataDir).
+		WithPostgresDSNFromSQLStore(s).
+		Finish()
+	require.NoError(t, err)
+
+	nmapDbStore, err := networkmapdbfactory.NewNetworkMapDBStore(
+		context.Background(),
+		nmapStoreConfig,
+		&integrated_validator.MockIntegratedValidator{},
+		settingsMockManager,
+		nil,
+		metrics.GetMeter(),
+	)
+	require.NoError(t, err)
+
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager, peerLiveness)), &config.Config{}, nmapDbStore)
 
 	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 	assert.NoError(t, err)
@@ -1538,7 +1555,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 			assert.NotNil(t, addedPeer, "addedPeer should not be nil on success")
 			assert.Equal(t, currentPeer.ExtraDNSLabels, addedPeer.ExtraDNSLabels, "ExtraDNSLabels mismatch")
 
-			peerFromStore, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, currentPeer.Key)
+			peerFromStore, err := s.GetPeerByPeerPubKey(context.Background(), nbstore.LockingStrengthNone, currentPeer.Key)
 			require.NoError(t, err, "Failed to get peer by pub key: %s", currentPeer.Key)
 			assert.Equal(t, existingAccountID, peerFromStore.AccountID, "AccountID mismatch for peer from store")
 			assert.Equal(t, currentPeer.ExtraDNSLabels, peerFromStore.ExtraDNSLabels, "ExtraDNSLabels mismatch for peer from store")
@@ -1579,7 +1596,8 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	dataDir := t.TempDir()
+	s, cleanup, err := nbstore.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", dataDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1605,7 +1623,25 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
-	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager, peerLiveness)), &config.Config{}, nil)
+
+	nmapStoreConfig, err := networkmapdb.NewNetworkMapDBStoreConfig().
+		WithKind(nbstore.GetStoreEngineFromEnv()).
+		WithSqliteDataDir(dataDir).
+		WithPostgresDSNFromSQLStore(s).
+		Finish()
+	require.NoError(t, err)
+
+	nmapDbStore, err := networkmapdbfactory.NewNetworkMapDBStore(
+		context.Background(),
+		nmapStoreConfig,
+		&integrated_validator.MockIntegratedValidator{},
+		settingsMockManager,
+		nil,
+		metrics.GetMeter(),
+	)
+	require.NoError(t, err)
+
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager, peerLiveness)), &config.Config{}, nmapDbStore)
 
 	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 	assert.NoError(t, err)
@@ -1636,7 +1672,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 	_, _, _, _, err = am.AddPeer(context.Background(), "", faultyKey, "", newPeer, false)
 	require.Error(t, err)
 
-	_, err = s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, newPeer.Key)
+	_, err = s.GetPeerByPeerPubKey(context.Background(), nbstore.LockingStrengthNone, newPeer.Key)
 	require.Error(t, err)
 
 	account, err := s.GetAccount(context.Background(), existingAccountID)
@@ -1661,7 +1697,8 @@ func Test_LoginPeer(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	dataDir := t.TempDir()
+	s, cleanup, err := nbstore.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", dataDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1691,7 +1728,25 @@ func Test_LoginPeer(t *testing.T) {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
-	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager, peerLiveness)), &config.Config{}, nil)
+
+	nmapStoreConfig, err := networkmapdb.NewNetworkMapDBStoreConfig().
+		WithKind(nbstore.GetStoreEngineFromEnv()).
+		WithSqliteDataDir(dataDir).
+		WithPostgresDSNFromSQLStore(s).
+		Finish()
+	require.NoError(t, err)
+
+	nmapDbStore, err := networkmapdbfactory.NewNetworkMapDBStore(
+		context.Background(),
+		nmapStoreConfig,
+		&integrated_validator.MockIntegratedValidator{},
+		settingsMockManager,
+		nil,
+		metrics.GetMeter(),
+	)
+	require.NoError(t, err)
+
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager, peerLiveness)), &config.Config{}, nmapDbStore)
 
 	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 	assert.NoError(t, err)
@@ -1761,7 +1816,7 @@ func Test_LoginPeer(t *testing.T) {
 			upperKey := strings.ToUpper(tc.setupKey)
 			hashedKey := sha256.Sum256([]byte(upperKey))
 			encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
-			sk, err := s.GetSetupKeyBySecret(context.Background(), store.LockingStrengthUpdate, encodedHashedKey)
+			sk, err := s.GetSetupKeyBySecret(context.Background(), nbstore.LockingStrengthUpdate, encodedHashedKey)
 			require.NoError(t, err, "Failed to get setup key %s from storage", tc.setupKey)
 
 			currentPeer := &nbpeer.Peer{
@@ -1818,7 +1873,7 @@ func Test_LoginPeer(t *testing.T) {
 
 			assert.Equal(t, existingAccountID, loggedinPeer.AccountID, "AccountID mismatch for logged peer")
 
-			peerFromStore, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, loginInput.WireGuardPubKey)
+			peerFromStore, err := s.GetPeerByPeerPubKey(context.Background(), nbstore.LockingStrengthNone, loginInput.WireGuardPubKey)
 			require.NoError(t, err, "Failed to get peer by pub key: %s", loginInput.WireGuardPubKey)
 			assert.Equal(t, existingAccountID, peerFromStore.AccountID, "AccountID mismatch for peer from store")
 			assert.Equal(t, loggedinPeer.ID, peerFromStore.ID, "Peer ID mismatch between loggedinPeer and peerFromStore")
@@ -2161,11 +2216,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 }
 
 func Test_DeletePeer(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	// account with an admin and a regular user
 	accountID := "test_account"
@@ -2197,7 +2248,7 @@ func Test_DeletePeer(t *testing.T) {
 		},
 	}
 
-	err = manager.Store.SaveAccount(context.Background(), account)
+	err := manager.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -2244,7 +2295,7 @@ func Test_IsUniqueConstraintError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("NETBIRD_STORE_ENGINE", string(tt.engine))
-			s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+			s, cleanup, err := nbstore.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
 			if err != nil {
 				t.Fatalf("Error when creating store: %s", err)
 			}
@@ -2261,16 +2312,12 @@ func Test_IsUniqueConstraintError(t *testing.T) {
 }
 
 func Test_AddPeer(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID := "testaccount"
 	userID := "testuser"
 
-	_, err = createAccount(manager, accountID, userID, "domain.com")
+	_, err := createAccount(manager, accountID, userID, "domain.com")
 	if err != nil {
 		t.Fatalf("error creating account: %v", err)
 		return
@@ -2350,14 +2397,11 @@ func Test_AddPeer(t *testing.T) {
 }
 
 func TestAddPeer_UserPendingApprovalBlocked(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	// Create account
 	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
-	err = manager.Store.SaveAccount(context.Background(), account)
+	err := manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	// Create user pending approval
@@ -2387,14 +2431,11 @@ func TestAddPeer_UserPendingApprovalBlocked(t *testing.T) {
 }
 
 func TestAddPeer_ApprovedUserCanAddPeers(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	// Create account
 	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
-	err = manager.Store.SaveAccount(context.Background(), account)
+	err := manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	// Create regular user (not pending approval)
@@ -2421,14 +2462,11 @@ func TestAddPeer_ApprovedUserCanAddPeers(t *testing.T) {
 }
 
 func TestLoginPeer_UserPendingApprovalBlocked(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	// Create account
 	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
-	err = manager.Store.SaveAccount(context.Background(), account)
+	err := manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	// Create user pending approval
@@ -2486,14 +2524,11 @@ func TestLoginPeer_UserPendingApprovalBlocked(t *testing.T) {
 }
 
 func TestLoginPeer_ApprovedUserCanLogin(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	// Create account
 	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
-	err = manager.Store.SaveAccount(context.Background(), account)
+	err := manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	// Create regular user (not pending approval)
@@ -2533,11 +2568,10 @@ func TestLoginPeer_ApprovedUserCanLogin(t *testing.T) {
 }
 
 func TestHandleUserAddedPeer(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
-	err = manager.Store.SaveAccount(context.Background(), account)
+	err := manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	t.Run("regular user can add peer", func(t *testing.T) {
@@ -2598,11 +2632,10 @@ func TestHandleUserAddedPeer(t *testing.T) {
 }
 
 func TestHandleSetupKeyAddedPeer(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
-	err = manager.Store.SaveAccount(context.Background(), account)
+	err := manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	// Create admin user for setup key creation
@@ -2707,11 +2740,10 @@ func TestHandleSetupKeyAddedPeer(t *testing.T) {
 }
 
 func TestProcessPeerAddAuth(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
-	err = manager.Store.SaveAccount(context.Background(), account)
+	err := manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	adminUser := types.NewAdminUser("admin")
@@ -2849,8 +2881,7 @@ func TestSyncPeer_IPv6CapabilityChangePropagates(t *testing.T) {
 }
 
 func TestUpdatePeer_DnsLabelCollisionWithFQDN(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
@@ -2884,8 +2915,7 @@ func TestUpdatePeer_DnsLabelCollisionWithFQDN(t *testing.T) {
 }
 
 func TestUpdatePeer_DnsLabelUniqueName(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err, "unable to create account manager")
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
@@ -3054,8 +3084,7 @@ func TestResolvePeerLocation(t *testing.T) {
 }
 
 func TestAddPeer_HostnameCollisionRejected(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
 	account.Settings.PeerHostnameCollisionRejected = true
@@ -3110,8 +3139,7 @@ func TestAddPeer_HostnameCollisionRejected(t *testing.T) {
 }
 
 func TestUpdatePeer_HostnameCollisionRejected(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
 	account.Settings.PeerHostnameCollisionRejected = true
@@ -3132,7 +3160,7 @@ func TestUpdatePeer_HostnameCollisionRejected(t *testing.T) {
 
 	update := second.Copy()
 	update.Name = "Web-Server"
-	_, err = manager.UpdatePeer(context.Background(), account.Id, "owner", update)
+	_, err := manager.UpdatePeer(context.Background(), account.Id, "owner", update)
 	require.Error(t, err)
 	e, ok := status.FromError(err)
 	require.True(t, ok)
@@ -3152,8 +3180,7 @@ func TestUpdatePeer_HostnameCollisionRejected(t *testing.T) {
 }
 
 func TestAddPeer_HostnameCollisionRejectedConcurrent(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
 	account.Settings.PeerHostnameCollisionRejected = true
@@ -3199,7 +3226,7 @@ func TestAddPeer_HostnameCollisionRejectedConcurrent(t *testing.T) {
 	}
 	assert.Equal(t, 1, succeeded)
 
-	peers, err := manager.Store.GetAccountPeers(context.Background(), store.LockingStrengthNone, account.Id, "", "", "")
+	peers, err := manager.Store.GetAccountPeers(context.Background(), nbstore.LockingStrengthNone, account.Id, "", "", "")
 	require.NoError(t, err)
 	require.Len(t, peers, 1)
 	assert.Equal(t, "same-host", peers[0].DNSLabel)
@@ -3208,8 +3235,7 @@ func TestAddPeer_HostnameCollisionRejectedConcurrent(t *testing.T) {
 func TestAddPeer_IPCollisionKeepsLabel(t *testing.T) {
 	for _, rejectCollision := range []bool{false, true} {
 		t.Run(fmt.Sprintf("collision rejected %t", rejectCollision), func(t *testing.T) {
-			manager, _, err := createManager(t)
-			require.NoError(t, err)
+			manager, _ := createManagerWithNetworkMapStore(t)
 
 			account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
 			account.Settings.PeerHostnameCollisionRejected = rejectCollision
@@ -3235,8 +3261,7 @@ func TestAddPeer_IPCollisionKeepsLabel(t *testing.T) {
 }
 
 func TestAddPeer_StoresAuthKey(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 	ctx := context.Background()
 	account := newAccountWithId(ctx, "test-account", "owner", "", "", "", false)
 	require.NoError(t, manager.Store.SaveAccount(ctx, account))
@@ -3250,11 +3275,11 @@ func TestAddPeer_StoresAuthKey(t *testing.T) {
 	}, false)
 	require.NoError(t, err)
 
-	saved, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, added.ID)
+	saved, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, added.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "auth-key", saved.AuthPubKey, "registration must store the auth key the peer sent")
 
-	peers, err := manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, account.Id, "", "", "")
+	peers, err := manager.Store.GetAccountPeers(ctx, nbstore.LockingStrengthNone, account.Id, "", "", "")
 	require.NoError(t, err)
 	require.Len(t, peers, 1)
 	assert.Equal(t, "auth-key", peers[0].AuthPubKey, "the account peer list must load the auth key")
@@ -3267,8 +3292,7 @@ func TestAddPeer_StoresAuthKey(t *testing.T) {
 }
 
 func TestAddPeer_ExhaustedIPAllocationFails(t *testing.T) {
-	manager, _, err := createManager(t)
-	require.NoError(t, err)
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
 	_, tinyNet, err := net.ParseCIDR("100.64.0.0/30")
@@ -3290,7 +3314,7 @@ func TestAddPeer_ExhaustedIPAllocationFails(t *testing.T) {
 	err = addPeer("host-2")
 	require.Error(t, err, "no free IP left, registration must fail")
 
-	peers, err := manager.Store.GetAccountPeers(context.Background(), store.LockingStrengthNone, account.Id, "", "", "")
+	peers, err := manager.Store.GetAccountPeers(context.Background(), nbstore.LockingStrengthNone, account.Id, "", "", "")
 	require.NoError(t, err)
 	require.Len(t, peers, 1)
 	assert.Equal(t, netip.MustParseAddr("100.64.0.1"), peers[0].IP)
@@ -3301,7 +3325,7 @@ func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("SyncPeer with changed meta bumps, unchanged does not", func(t *testing.T) {
-		current, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		current, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer1.ID)
 		require.NoError(t, err)
 
 		before := networkSerial(t, manager, account.Id)
@@ -3317,7 +3341,7 @@ func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
 	})
 
 	t.Run("LoginPeer with changed ssh key bumps, unchanged does not", func(t *testing.T) {
-		current, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		current, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer1.ID)
 		require.NoError(t, err)
 
 		before := networkSerial(t, manager, account.Id)
@@ -3331,7 +3355,7 @@ func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
 	})
 
 	t.Run("LoginPeer replaces the auth key without bumping", func(t *testing.T) {
-		current, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		current, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer1.ID)
 		require.NoError(t, err)
 		login := types.PeerLogin{WireGuardPubKey: peer1.Key, SSHKey: current.SSHKey, Meta: current.Meta}
 
@@ -3356,7 +3380,7 @@ func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
 			_, _, _, _, err = manager.LoginPeer(ctx, login)
 			require.NoError(t, err)
 
-			saved, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+			saved, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer1.ID)
 			require.NoError(t, err)
 			assert.Equal(t, step.authKey, saved.AuthPubKey, "every login must replace the stored auth key, empty included")
 
@@ -3380,7 +3404,7 @@ func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
 		require.NoError(t, manager.MarkPeerDisconnected(ctx, peer2.Key, account.Id, session))
 		assert.Equal(t, before, networkSerial(t, manager, account.Id), "regular peers must not bump")
 
-		expired, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+		expired, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer2.ID)
 		require.NoError(t, err)
 		expired.Status.LoginExpired = true
 		require.NoError(t, manager.Store.SavePeer(ctx, account.Id, expired))
@@ -3390,7 +3414,7 @@ func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
 		afterExpired := networkSerial(t, manager, account.Id)
 		assert.Equal(t, before, afterExpired, "login-expired reconnect writes no network map data")
 
-		embedded, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+		embedded, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer2.ID)
 		require.NoError(t, err)
 		embedded.Status.LoginExpired = false
 		embedded.ProxyMeta.Embedded = true
@@ -3406,7 +3430,7 @@ func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
 	})
 
 	t.Run("embedded proxy write is not applied when the increment fails", func(t *testing.T) {
-		embedded, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+		embedded, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer2.ID)
 		require.NoError(t, err)
 		require.True(t, embedded.ProxyMeta.Embedded)
 		session := embedded.Status.SessionStartedAt
@@ -3416,7 +3440,7 @@ func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
 		t.Cleanup(func() { manager.Store = original })
 
 		require.Error(t, manager.MarkPeerDisconnected(ctx, peer2.Key, account.Id, session))
-		current, err := original.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+		current, err := original.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer2.ID)
 		require.NoError(t, err)
 		assert.Equal(t, session, current.Status.SessionStartedAt, "a failed increment leaves the connection untouched")
 		assert.True(t, current.Status.Connected)
@@ -3425,14 +3449,14 @@ func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
 		before := networkSerial(t, manager, account.Id)
 		require.NoError(t, manager.MarkPeerConnected(ctx, peer2.Key, account.Id, session-1, nil))
 		assert.Greater(t, networkSerial(t, manager, account.Id), before, "a write that does not apply still bumped")
-		current, err = original.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+		current, err = original.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer2.ID)
 		require.NoError(t, err)
 		assert.Equal(t, session, current.Status.SessionStartedAt)
 	})
 }
 
 type serialFailingStore struct {
-	store.Store
+	nbstore.Store
 }
 
 func (s *serialFailingStore) IncrementNetworkSerial(context.Context, string) error {
@@ -3440,11 +3464,11 @@ func (s *serialFailingStore) IncrementNetworkSerial(context.Context, string) err
 }
 
 type txCountingStore struct {
-	store.Store
+	nbstore.Store
 	txs atomic.Int32
 }
 
-func (s *txCountingStore) ExecuteInTransaction(ctx context.Context, f func(store.Store) error) error {
+func (s *txCountingStore) ExecuteInTransaction(ctx context.Context, f func(nbstore.Store) error) error {
 	s.txs.Add(1)
 	return s.Store.ExecuteInTransaction(ctx, f)
 }
@@ -3455,7 +3479,7 @@ func TestPeerSyncAndLogin_LockOnlyOnChange(t *testing.T) {
 	counting := &txCountingStore{Store: manager.Store}
 	manager.Store = counting
 
-	current, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+	current, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer1.ID)
 	require.NoError(t, err)
 
 	t.Run("SyncPeer without meta change opens no transaction", func(t *testing.T) {
@@ -3473,13 +3497,13 @@ func TestPeerSyncAndLogin_LockOnlyOnChange(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, int32(1), counting.txs.Load())
 
-		saved, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		saved, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer1.ID)
 		require.NoError(t, err)
 		assert.Equal(t, "lock-on-change-host", saved.Meta.Hostname)
 	})
 
 	t.Run("LoginPeer without change opens no transaction", func(t *testing.T) {
-		saved, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		saved, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer1.ID)
 		require.NoError(t, err)
 
 		counting.txs.Store(0)
@@ -3494,7 +3518,7 @@ func TestPeerSyncAndLogin_LockOnlyOnChange(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, int32(1), counting.txs.Load())
 
-		saved, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		saved, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer1.ID)
 		require.NoError(t, err)
 		assert.Equal(t, "ssh-ed25519 AAAAlockonchange", saved.SSHKey)
 	})
@@ -3505,7 +3529,7 @@ func TestPeerSyncAndLogin_LockOnlyOnChange(t *testing.T) {
 		assert.Equal(t, status.NewPeerLoginMismatchError(), err)
 		assert.Zero(t, counting.txs.Load())
 
-		saved, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		saved, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer1.ID)
 		require.NoError(t, err)
 		assert.Equal(t, "ssh-ed25519 AAAAlockonchange", saved.SSHKey, "a rejected login must not store its ssh key")
 	})
@@ -3526,7 +3550,7 @@ func TestCheckPeerMaySync(t *testing.T) {
 
 	require.NoError(t, manager.CheckPeerMaySync(ctx, account.Id, peer1.Key, nil))
 
-	expired, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+	expired, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer1.ID)
 	require.NoError(t, err)
 	expired.Status.LoginExpired = true
 	require.NoError(t, manager.Store.SavePeer(ctx, account.Id, expired))
@@ -3536,7 +3560,7 @@ func TestCheckPeerMaySync(t *testing.T) {
 	owner.AccountID = account.Id
 	owner.Blocked = true
 	require.NoError(t, manager.Store.SaveUser(ctx, owner))
-	blocked, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+	blocked, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer2.ID)
 	require.NoError(t, err)
 	blocked.UserID = owner.Id
 	require.NoError(t, manager.Store.SavePeer(ctx, account.Id, blocked))
@@ -3549,10 +3573,10 @@ func TestCheckPeerMaySync(t *testing.T) {
 }
 
 type failingPeerLookupStore struct {
-	store.Store
+	nbstore.Store
 }
 
-func (s *failingPeerLookupStore) GetPeerByPeerPubKey(context.Context, store.LockingStrength, string) (*nbpeer.Peer, error) {
+func (s *failingPeerLookupStore) GetPeerByPeerPubKey(context.Context, nbstore.LockingStrength, string) (*nbpeer.Peer, error) {
 	return nil, status.Errorf(status.Internal, "issue getting peer from store: connection reset")
 }
 

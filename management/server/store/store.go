@@ -496,11 +496,11 @@ func LookupPostgresDSN() (string, bool) {
 
 var supportedEngines = []types.Engine{types.SqliteStoreEngine, types.PostgresStoreEngine}
 
-func getStoreEngineFromEnv() types.Engine {
+func GetStoreEngineFromEnv() types.Engine {
 	// NETBIRD_STORE_ENGINE supposed to be used in tests. Otherwise, rely on the config file.
 	kind, ok := os.LookupEnv("NETBIRD_STORE_ENGINE")
 	if !ok {
-		return ""
+		return types.SqliteStoreEngine
 	}
 
 	value := types.Engine(strings.ToLower(kind))
@@ -517,10 +517,8 @@ func getStoreEngineFromEnv() types.Engine {
 // Additionally, it handles the migration from a JSON store file to SQLite if applicable.
 func getStoreEngine(ctx context.Context, dataDir string, kind types.Engine) types.Engine {
 	if kind == "" {
-		kind = getStoreEngineFromEnv()
-		if kind == "" {
-			kind = types.SqliteStoreEngine
-
+		kind = GetStoreEngineFromEnv()
+		if kind == types.SqliteStoreEngine {
 			// Migrate if it is the first run with a JSON file existing and no SQLite file present
 			jsonStoreFile := filepath.Join(dataDir, storeFileName)
 			sqliteStoreFile := filepath.Join(dataDir, db.SqliteFileName)
@@ -739,11 +737,8 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 
 // NewTestStoreFromSQL is only used in tests. It will create a test database base of the store engine set in env.
 // Optionally it can load a SQL file to the database. If the filename is empty it will return an empty database
-func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (Store, func(), error) {
-	kind := getStoreEngineFromEnv()
-	if kind == "" {
-		kind = types.SqliteStoreEngine
-	}
+func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (*SqlStore, func(), error) {
+	kind := GetStoreEngineFromEnv()
 
 	conn, err := db.OpenSqliteFile(ctx, dataDir, db.SqliteFileName)
 	if err != nil {
@@ -770,7 +765,7 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		return nil, nil, fmt.Errorf("failed to add all group to account: %v", err)
 	}
 
-	var sqlStore Store
+	var sqlStore *SqlStore
 	var cleanup func()
 
 	maxRetries := 2
@@ -789,10 +784,7 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 
 // NewTestStore creates a test store and optionally loads SQL after migrating its schema.
 func NewTestStore(ctx context.Context, filename string, dataDir string) (Store, func(), error) {
-	kind := getStoreEngineFromEnv()
-	if kind == "" {
-		kind = types.SqliteStoreEngine
-	}
+	kind := GetStoreEngineFromEnv()
 
 	var sqlStore *SqlStore
 	var cleanup func()

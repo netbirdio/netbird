@@ -87,6 +87,11 @@ func (p *PgStore) BeginTx(ctx context.Context) (networkmapdb.NetworkMapDBStoreCo
 	return &PgStoreConn{Conn: tx}, nil
 }
 
+func (p *PgStore) Close() error {
+	p.Pool.Close()
+	return nil
+}
+
 func (c *PgStoreConn) RollbackTx(ctx context.Context) error {
 	tx, ok := c.Conn.(pgx.Tx)
 	if !ok {

@@ -25,6 +25,8 @@ import (
 	"google.golang.org/grpc/status"
 
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
+	networkmapdbfactory "github.com/netbirdio/netbird/management/internals/network_map_db/factory"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator/validator"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
@@ -79,7 +81,9 @@ func startManagement(t *testing.T, configure ...func(*config.Config)) (*grpc.Ser
 		t.Fatal(err)
 	}
 	s := grpc.NewServer()
-	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../../management/server/testdata/store.sql", t.TempDir())
+
+	dataDir := t.TempDir()
+	testStore, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../../management/server/testdata/store.sql", dataDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,10 +107,10 @@ func startManagement(t *testing.T, configure ...func(*config.Config)) (*grpc.Ser
 		Return(true, context.Background(), nil).
 		AnyTimes()
 
-	peerLiveness := peerlivenesstest.NewStarted(t, store)
-	peersManger := peers.NewManager(store, permissionsManagerMock, peerLiveness)
+	peerLiveness := peerlivenesstest.NewStarted(t, testStore)
+	peersManger := peers.NewManager(testStore, permissionsManagerMock, peerLiveness)
 	settingsManagerMock := settings.NewMockManager(ctrl)
-	jobManager := job.NewJobManager(nil, store, peersManger)
+	jobManager := job.NewJobManager(nil, testStore, peersManger)
 
 	ctx := context.Background()
 
@@ -137,9 +141,27 @@ func startManagement(t *testing.T, configure ...func(*config.Config)) (*grpc.Ser
 		AnyTimes()
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
-	requestBuffer := mgmt.NewAccountRequestBuffer(ctx, store)
-	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, mgmt.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", ephemeral_manager.NewEphemeralManager(store, peersManger), config, nil)
-	accountManager, err := mgmt.BuildManager(context.Background(), config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, ia, metrics, settingsMockManager, permissionsManagerMock, false, cacheStore, peerLiveness)
+	requestBuffer := mgmt.NewAccountRequestBuffer(ctx, testStore)
+
+	nmapStoreConfig, err := networkmapdb.NewNetworkMapDBStoreConfig().
+		WithKind(store.GetStoreEngineFromEnv()).
+		WithSqliteDataDir(dataDir).
+		WithPostgresDSNFromSQLStore(testStore).
+		Finish()
+	require.NoError(t, err)
+
+	nmapDbStore, err := networkmapdbfactory.NewNetworkMapDBStore(
+		context.Background(),
+		nmapStoreConfig,
+		ia,
+		settingsMockManager,
+		nil,
+		metrics.GetMeter(),
+	)
+	require.NoError(t, err)
+
+	networkMapController := controller.NewController(ctx, testStore, metrics, updateManager, requestBuffer, mgmt.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", ephemeral_manager.NewEphemeralManager(testStore, peersManger), config, nmapDbStore)
+	accountManager, err := mgmt.BuildManager(context.Background(), config, testStore, networkMapController, jobManager, nil, "", eventStore, nil, false, ia, metrics, settingsMockManager, permissionsManagerMock, false, cacheStore, peerLiveness)
 	if err != nil {
 		t.Fatal(err)
 	}

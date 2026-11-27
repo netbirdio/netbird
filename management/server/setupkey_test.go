@@ -19,10 +19,7 @@ import (
 )
 
 func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	userID := "testingUser"
 	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID})
@@ -94,10 +91,7 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 }
 
 func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	userID := "testingUser"
 	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID})
@@ -199,10 +193,7 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 }
 
 func TestGetSetupKeys(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	userID := "testingUser"
 	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID})
@@ -472,10 +463,7 @@ func TestSetupKeyAccountPeersUpdate(t *testing.T) {
 }
 
 func TestDefaultAccountManager_CreateSetupKey_ShouldNotAllowToUpdateRevokedKey(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	userID := "testingUser"
 	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID})

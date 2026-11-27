@@ -1242,7 +1242,7 @@ func (am *DefaultAccountManager) expirePeers(ctx context.Context, accountID stri
 		am.networkMapController.DisconnectPeers(ctx, accountID, peerIDs)
 	}()
 	for _, candidate := range peers {
-		// nolint:staticcheck
+		//nolint:staticcheck
 		peerCtx := context.WithValue(ctx, nbcontext.PeerIDKey, candidate.Key)
 
 		if candidate.UserID == "" {

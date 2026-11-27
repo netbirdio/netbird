@@ -21,6 +21,8 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness/peerlivenesstest"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
+	networkmapdbfactory "github.com/netbirdio/netbird/management/internals/network_map_db/factory"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/job"
 
@@ -39,7 +41,7 @@ import (
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
-	"github.com/netbirdio/netbird/management/server/store"
+	nbstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/signal/proto"
@@ -165,7 +167,7 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 		return nil, "", err
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
-	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "", config.Datadir)
+	store, cleanUp, err := nbstore.NewTestStoreFromSQL(context.Background(), "", config.Datadir)
 	if err != nil {
 		return nil, "", err
 	}
@@ -201,7 +203,25 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 
 	requestBuffer := server.NewAccountRequestBuffer(context.Background(), store)
 	peersUpdateManager := update_channel.NewPeersUpdateManager(metrics)
-	networkMapController := controller.NewController(context.Background(), store, metrics, peersUpdateManager, requestBuffer, server.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", manager.NewEphemeralManager(store, peersManager), config, nil)
+
+	nmapStoreConfig, err := networkmapdb.NewNetworkMapDBStoreConfig().
+		WithKind(nbstore.GetStoreEngineFromEnv()).
+		WithSqliteDataDir(config.Datadir).
+		WithPostgresDSNFromSQLStore(store).
+		Finish()
+	require.NoError(t, err)
+
+	nmapDbStore, err := networkmapdbfactory.NewNetworkMapDBStore(
+		context.Background(),
+		nmapStoreConfig,
+		ia,
+		settingsMockManager,
+		nil,
+		metrics.GetMeter(),
+	)
+	require.NoError(t, err)
+
+	networkMapController := controller.NewController(context.Background(), store, metrics, peersUpdateManager, requestBuffer, server.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", manager.NewEphemeralManager(store, peersManager), config, nmapDbStore)
 	accountManager, err := server.BuildManager(context.Background(), config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, ia, metrics, settingsMockManager, permissionsManagerMock, false, cacheStore, peerLiveness)
 	if err != nil {
 		return nil, "", err

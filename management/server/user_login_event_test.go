@@ -70,6 +70,7 @@ func TestDefaultAccountManager_DashboardLoginEventLocation(t *testing.T) {
 			testStore, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 			require.NoError(t, err)
 			t.Cleanup(cleanup)
+			//nolint:staticcheck
 			require.NoError(t, testStore.SaveAccount(context.Background(), newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)))
 
 			eventStore := &activity.InMemoryEventStore{}

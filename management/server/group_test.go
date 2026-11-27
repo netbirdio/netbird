@@ -43,10 +43,7 @@ const (
 )
 
 func TestDefaultAccountManager_CreateGroup(t *testing.T) {
-	am, _, err := createManager(t)
-	if err != nil {
-		t.Error("failed to create account manager")
-	}
+	am, _ := createManagerWithNetworkMapStore(t)
 
 	_, account, err := initTestGroupAccount(am)
 	if err != nil {
@@ -82,8 +79,7 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 func TestDefaultAccountManager_BatchGroupChangesStoreEvents(t *testing.T) {
 	t.Setenv("NB_EVENT_ACTIVITY_LOG_ENABLED", "true")
 
-	am, _, err := createManager(t)
-	require.NoError(t, err)
+	am, _ := createManagerWithNetworkMapStore(t)
 
 	_, account, err := initTestGroupAccount(am)
 	require.NoError(t, err)
@@ -116,11 +112,7 @@ func TestDefaultAccountManager_BatchGroupChangesStoreEvents(t *testing.T) {
 }
 
 func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
-	am, _, err := createManager(t)
-	if err != nil {
-		t.Fatalf("failed to create account manager: %s", err)
-	}
-
+	am, _ := createManagerWithNetworkMapStore(t)
 	_, account, err := initTestGroupAccount(am)
 	if err != nil {
 		t.Fatalf("failed to init testing account: %s", err)
@@ -228,8 +220,7 @@ func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
 }
 
 func TestDefaultAccountManager_DeleteGroups(t *testing.T) {
-	am, _, err := createManager(t)
-	assert.NoError(t, err, "Failed to create account manager")
+	am, _ := createManagerWithNetworkMapStore(t)
 
 	manager, account, err := initTestGroupAccount(am)
 	assert.NoError(t, err, "Failed to init testing account")
@@ -374,9 +365,7 @@ func TestDefaultAccountManager_DeleteGroups(t *testing.T) {
 }
 
 func TestDefaultAccountManager_DeleteGroupUnlinkedFromReverseProxyService(t *testing.T) {
-	am, _, err := createManager(t)
-	require.NoError(t, err, "Failed to create account manager")
-
+	am, _ := createManagerWithNetworkMapStore(t)
 	_, account, err := initTestGroupAccount(am)
 	require.NoError(t, err, "Failed to init testing account")
 
@@ -433,8 +422,7 @@ func TestDefaultAccountManager_DeleteGroupUnlinkedFromReverseProxyService(t *tes
 }
 
 func TestDefaultAccountManager_DeleteGroupLinkedToFlowGroup(t *testing.T) {
-	am, _, err := createManager(t)
-	require.NoError(t, err)
+	am, _ := createManagerWithNetworkMapStore(t)
 
 	ctrl := gomock.NewController(t)
 	settingsMock := settings.NewMockManager(ctrl)
@@ -1138,11 +1126,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 }
 
 func Test_AddPeerToGroup(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID := "testaccount"
 	userID := "testuser"
@@ -1194,16 +1178,12 @@ func Test_AddPeerToGroup(t *testing.T) {
 }
 
 func Test_AddPeerToAll(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID := "testaccount"
 	userID := "testuser"
 
-	_, err = createAccount(manager, accountID, userID, "domain.com")
+	_, err := createAccount(manager, accountID, userID, "domain.com")
 	if err != nil {
 		t.Fatal("error creating account")
 		return
@@ -1250,16 +1230,12 @@ func Test_AddPeerToAll(t *testing.T) {
 }
 
 func Test_AddPeerAndAddToAll(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID := "testaccount"
 	userID := "testuser"
 
-	_, err = createAccount(manager, accountID, userID, "domain.com")
+	_, err := createAccount(manager, accountID, userID, "domain.com")
 	if err != nil {
 		t.Fatal("error creating account")
 		return
@@ -1331,16 +1307,12 @@ func uint32ToIP(n uint32) netip.Addr {
 }
 
 func Test_IncrementNetworkSerial(t *testing.T) {
-	manager, _, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	manager, _ := createManagerWithNetworkMapStore(t)
 
 	accountID := "testaccount"
 	userID := "testuser"
 
-	_, err = createAccount(manager, accountID, userID, "domain.com")
+	_, err := createAccount(manager, accountID, userID, "domain.com")
 	if err != nil {
 		t.Fatal("error creating account")
 		return

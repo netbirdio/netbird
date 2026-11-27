@@ -88,7 +88,7 @@ func setupDomainTest(t *testing.T) *domainTestEnv {
 			}
 		}
 
-		require.NoError(t, testStore.SaveAccount(ctx, &types.Account{
+		require.NoError(t, testStore.SaveAccount(ctx, &types.Account{ //nolint:staticcheck
 			Id:        accountID,
 			CreatedBy: userID,
 			Settings:  &types.Settings{},

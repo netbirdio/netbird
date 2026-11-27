@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"time"
 
@@ -13,6 +14,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
@@ -20,6 +23,7 @@ import (
 var ErrDnsUnsupportedRecordType = errors.New("unsupported record type")
 
 const replicaPollInterval = 10 * time.Millisecond
+const storeSqliteFileName = "store.db"
 
 var (
 	errReplicaLagging    = errors.New("replica lagging")
@@ -29,6 +33,7 @@ var (
 type NetworkMapDBStore interface { //nolint:revive // established name across the codebase
 	BeginTx(ctx context.Context) (NetworkMapDBStoreConn, error)
 	Exec(ctx context.Context, query string, args ...any) error
+	Close() error
 }
 
 type NetworkMapDBStoreConn interface { //nolint:revive // established name across the codebase
@@ -52,6 +57,101 @@ type NetworkMapDBStoreConn interface { //nolint:revive // established name acros
 
 	CommitTx(ctx context.Context) error
 	RollbackTx(ctx context.Context) error
+}
+
+var ErrNetworkMapDBStoreConfig = errors.New("NetworkMapDBConfig error")
+
+type NetworkMapDBStoreConfig struct { //nolint:revive
+	Kind             types.Engine
+	SqliteDBFileName string
+	SqliteDataDir    string
+	PostgresDSN      string
+}
+
+type networkMapDBStoreConfigGeneratorState struct {
+	NetworkMapDBStoreConfig
+	err error
+}
+
+func NewNetworkMapDBStoreConfig() *networkMapDBStoreConfigGeneratorState {
+	return &networkMapDBStoreConfigGeneratorState{}
+}
+
+func (nmc *networkMapDBStoreConfigGeneratorState) WithKind(kind types.Engine) *networkMapDBStoreConfigGeneratorState {
+	switch kind {
+	case types.PostgresStoreEngine:
+		nmc.Kind = types.PostgresStoreEngine
+	case "", types.SqliteStoreEngine:
+		nmc.Kind = types.SqliteStoreEngine
+		nmc.SqliteDBFileName = storeSqliteFileName
+	default:
+		nmc.err = fmt.Errorf("invalid kind when configuring postgres networkmap store: %s, %w", kind, ErrNetworkMapDBStoreConfig)
+	}
+	return nmc
+}
+
+func (nmc *networkMapDBStoreConfigGeneratorState) WithSqliteDBFileName(file string) *networkMapDBStoreConfigGeneratorState {
+	if file != "" {
+		nmc.SqliteDBFileName = file
+	}
+	return nmc
+}
+
+func (nmc *networkMapDBStoreConfigGeneratorState) WithSqliteDBFileNameFromEnv() *networkMapDBStoreConfigGeneratorState {
+	if envFile, ok := os.LookupEnv("NB_STORE_ENGINE_SQLITE_FILE"); ok && envFile != "" {
+		nmc.SqliteDBFileName = envFile
+	}
+	return nmc
+}
+
+func (nmc *networkMapDBStoreConfigGeneratorState) WithSqliteDataDir(dir string) *networkMapDBStoreConfigGeneratorState {
+	if dir != "" {
+		nmc.SqliteDataDir = dir
+	}
+	return nmc
+}
+
+func (nmc *networkMapDBStoreConfigGeneratorState) WithPostgresDSN(dsn string) *networkMapDBStoreConfigGeneratorState {
+	if dsn != "" {
+		nmc.PostgresDSN = dsn
+	}
+	return nmc
+}
+
+func (nmc *networkMapDBStoreConfigGeneratorState) WithPostgresDSNFromSQLStore(store *store.SqlStore) *networkMapDBStoreConfigGeneratorState {
+	pool := store.Conn().Pool(nil)
+	if pool == nil {
+		return nmc
+	}
+
+	nmc.PostgresDSN = pool.Config().ConnString()
+	return nmc
+}
+
+func (nmc *networkMapDBStoreConfigGeneratorState) WithPostgresDSNFromEnv() *networkMapDBStoreConfigGeneratorState {
+	if v, ok := os.LookupEnv(store.PostgresDsnEnv); ok && v != "" {
+		nmc.PostgresDSN = v
+		return nmc
+	}
+	if v, ok := os.LookupEnv(store.PostgresDsnEnvLegacy); ok && v != "" {
+		nmc.PostgresDSN = v
+		return nmc
+	}
+
+	return nmc
+}
+
+func (nmc *networkMapDBStoreConfigGeneratorState) Finish() (*NetworkMapDBStoreConfig, error) {
+	if nmc.err != nil {
+		return &nmc.NetworkMapDBStoreConfig, nmc.err
+	}
+
+	if nmc.Kind == types.PostgresStoreEngine && nmc.PostgresDSN == "" {
+		return &nmc.NetworkMapDBStoreConfig,
+			fmt.Errorf("dsn must be set when configuring postgres networkmap store (is %s env var set?), %w", store.PostgresDsnEnv, ErrNetworkMapDBStoreConfig)
+	}
+
+	return &nmc.NetworkMapDBStoreConfig, nmc.err
 }
 
 type NetworkMapDBStoreImpl struct { //nolint:revive // established name across the codebase
@@ -352,37 +452,37 @@ func ConvertToNmdataPeers(peers []Peer) ([]nmdata.Peer, map[string][]*nmdata.Pee
 		if p.LocationCityName.Valid {
 			dp.Location.CityName = p.LocationCityName.String
 		}
-		if p.LocationConnectionIp != nil {
+		if len(p.LocationConnectionIp) != 0 {
 			err := json.Unmarshal(p.LocationConnectionIp, &dp.Location.ConnectionIP)
 			if err != nil {
 				return toret, nil, err
 			}
 		}
-		if p.MetaFiles != nil {
+		if len(p.MetaFiles) != 0 {
 			err := json.Unmarshal(p.MetaFiles, &dp.Meta.Files)
 			if err != nil {
 				return toret, nil, err
 			}
 		}
-		if p.MetaCertificates != nil {
+		if len(p.MetaCertificates) != 0 {
 			err := json.Unmarshal(p.MetaCertificates, &dp.Meta.Certificates)
 			if err != nil {
 				return toret, nil, err
 			}
 		}
-		if p.MetaCapabilities != nil {
+		if len(p.MetaCapabilities) != 0 {
 			err := json.Unmarshal(p.MetaCapabilities, &dp.Meta.Capabilities)
 			if err != nil {
 				return toret, nil, err
 			}
 		}
-		if p.MetaFlags != nil {
+		if len(p.MetaFlags) != 0 {
 			err := json.Unmarshal(p.MetaFlags, &dp.Meta.Flags)
 			if err != nil {
 				return toret, nil, err
 			}
 		}
-		if p.MetaNetworkAddresses != nil {
+		if len(p.MetaNetworkAddresses) != 0 {
 			err := json.Unmarshal(p.MetaNetworkAddresses, &dp.Meta.NetworkAddresses)
 			if err != nil {
 				return toret, nil, err

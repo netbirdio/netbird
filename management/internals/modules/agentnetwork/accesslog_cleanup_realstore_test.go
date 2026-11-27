@@ -32,8 +32,8 @@ func TestCleanupAccessLogs_RealStore_DeletedAccount(t *testing.T) {
 	old := time.Now().UTC().AddDate(0, 0, -(types.DefaultAccessLogRetentionDays + 10))
 	recent := time.Now().UTC().AddDate(0, 0, -1)
 
-	require.NoError(t, s.SaveAccount(ctx, &nbtypes.Account{Id: keepAccountID}))
-	require.NoError(t, s.SaveAccount(ctx, &nbtypes.Account{Id: noSettingsAccountID}))
+	require.NoError(t, s.SaveAccount(ctx, &nbtypes.Account{Id: keepAccountID}))       //nolint:staticcheck
+	require.NoError(t, s.SaveAccount(ctx, &nbtypes.Account{Id: noSettingsAccountID})) //nolint:staticcheck
 
 	keepSettings := types.DefaultSettings(keepAccountID)
 	keepSettings.Domain = "keep.gw.example.com"

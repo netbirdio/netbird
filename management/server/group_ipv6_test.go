@@ -17,8 +17,7 @@ import (
 // TestGroupIPv6Assignment verifies that peers gain or lose IPv6 addresses
 // when they are added to or removed from an IPv6-enabled group.
 func TestGroupIPv6Assignment(t *testing.T) {
-	am, _, err := createManager(t)
-	require.NoError(t, err)
+	am, _ := createManagerWithNetworkMapStore(t)
 
 	ctx := context.Background()
 	userID := groupAdminUserID

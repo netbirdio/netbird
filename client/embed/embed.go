@@ -294,7 +294,7 @@ func (c *Client) Start(startCtx context.Context) error {
 		}
 	}()
 
-	// nolint:staticcheck
+	//nolint:staticcheck
 	ctx = context.WithValue(ctx, system.DeviceNameCtxKey, c.deviceName)
 
 	authClient, err := auth.NewAuth(ctx, c.config.PrivateKey, c.config.ManagementURL, c.config)

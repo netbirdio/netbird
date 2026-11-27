@@ -1265,7 +1265,7 @@ func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID any)
 		ctx = context.Background()
 	}
 
-	// nolint:staticcheck
+	//nolint:staticcheck
 	ctx = context.WithValue(ctx, nbcontext.AccountIDKey, accountID)
 
 	accountUsers, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthNone, accountIDString)

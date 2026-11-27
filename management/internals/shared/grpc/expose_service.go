@@ -32,7 +32,7 @@ func (s *Server) CreateExpose(ctx context.Context, req *proto.EncryptedMessage) 
 		return nil, err
 	}
 
-	// nolint:staticcheck
+	//nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
 
 	reverseProxyMgr := s.getReverseProxyManager()

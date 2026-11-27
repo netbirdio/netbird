@@ -70,6 +70,7 @@ func setupInviteTestManagerWithEmbeddedIdP(t *testing.T) (*DefaultAccountManager
 		Name:      "Regular User",
 	}
 
+	//nolint:staticcheck
 	err = s.SaveAccount(ctx, account)
 	require.NoError(t, err, "Error when saving account")
 
@@ -864,7 +865,8 @@ func TestCreateUserInvite_NonEmbeddedIdP(t *testing.T) {
 	defer cleanup()
 
 	account := newAccountWithId(context.Background(), testAccountID, testAdminUserID, "", "admin@test.com", "Admin User", false)
-	err = s.SaveAccount(context.Background(), account)
+	//nolint:staticcheck
+	err = s.SaveAccount(context.Background(), account) //nolint:staticcheck
 	require.NoError(t, err)
 
 	permissionsManager := permissions.NewManager(s)

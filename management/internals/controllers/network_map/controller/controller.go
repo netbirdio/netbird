@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -25,7 +24,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -107,11 +105,9 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 		nmdataStore: nmdataStore,
 	}
 
-	if nmdataStore != nil {
-		interval := requestbuffer.Interval(ctx, "NB_NETWORK_MAP_DATA_BUFFER_INTERVAL", defaultNetworkMapDataBufferInterval)
-		log.WithContext(ctx).Infof("set network map data request buffer interval to %s", interval)
-		c.nmdataBuffer = requestbuffer.NewSerialized(ctx, "network map data request buffer", interval, c.fetchNetworkMapData)
-	}
+	interval := requestbuffer.Interval(ctx, "NB_NETWORK_MAP_DATA_BUFFER_INTERVAL", defaultNetworkMapDataBufferInterval)
+	log.WithContext(ctx).Infof("set network map data request buffer interval to %s", interval)
+	c.nmdataBuffer = requestbuffer.NewSerialized(ctx, "network map data request buffer", interval, c.fetchNetworkMapData)
 
 	return c
 }
@@ -187,173 +183,15 @@ func (c *Controller) CountStreams() int {
 func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) error {
 	log.WithContext(ctx).Tracef("updating peers for account %s from %s", accountID, util.GetCallerName())
 
-	if nmData := c.getNetworkMapData(ctx, accountID); nmData != nil {
-		return c.sendUpdateAccountPeersFromData(ctx, accountID, reason, nmData)
-	}
-
-	account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+	nmData, err := c.getNetworkMapData(ctx, accountID)
 	if err != nil {
-		return fmt.Errorf("failed to get account: %v", err)
+		return err
 	}
 
-	globalStart := time.Now()
-
-	hasPeersConnected := false
-	for _, peer := range account.Peers {
-		if c.peersUpdateManager.HasChannel(peer.ID) {
-			hasPeersConnected = true
-			break
-		}
-
-	}
-
-	if !hasPeersConnected {
-		return nil
-	}
-
-	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, types.TwinGroups(maps.Values(account.Groups)), types.TwinPeers(maps.Values(account.Peers)), account.Settings.Extra)
-	if err != nil {
-		return fmt.Errorf("failed to get validate peers: %v", err)
-	}
-
-	var wg sync.WaitGroup
-	semaphore := make(chan struct{}, 10)
-
-	c.injectAllProxyPolicies(ctx, account)
-	account.PrecomputePostureValidation(ctx)
-	dnsCache := &cache.DNSConfigCache{}
-	dnsDomain := c.GetDNSDomain(account.Settings)
-	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
-	resourcePolicies := account.GetResourcePoliciesMap()
-	routers := account.GetResourceRoutersMap()
-	groupIDToUserIDs := account.GetActiveGroupUsers()
-
-	extraSetting, err := c.settingsManager.GetExtraSettings(ctx, accountID)
-	if err != nil {
-		return fmt.Errorf("failed to get flow enabled status: %v", err)
-	}
-
-	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
-
-	accountZones, err := c.repo.GetAccountZones(ctx, account.Id)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get account zones: %v", err)
-		return fmt.Errorf("failed to get account zones: %v", err)
-	}
-
-	for _, peer := range account.Peers {
-		if !c.peersUpdateManager.HasChannel(peer.ID) {
-			log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
-			continue
-		}
-
-		if c.accountManagerMetrics != nil {
-			c.accountManagerMetrics.CountNmapTriggered(string(reason.Resource), string(reason.Operation))
-		}
-
-		wg.Add(1)
-		semaphore <- struct{}{}
-		go func(p *nbpeer.Peer) {
-			defer wg.Done()
-			defer func() { <-semaphore }()
-
-			start := time.Now()
-
-			postureChecks, err := c.getPeerPostureChecks(account, p.ID)
-			if err != nil {
-				log.WithContext(ctx).Debugf("failed to get posture checks for peer %s: %v", p.ID, err)
-				return
-			}
-
-			c.metrics.CountCalcPostureChecksDuration(time.Since(start))
-			start = time.Now()
-
-			peerGroups := account.GetPeerGroups(p.ID)
-			var update *proto.SyncResponse
-
-			commonSyncMessageVersion := sharedgrpc.HighestCommonSyncMessageVersion(
-				c.perAccountOrGlobalSupportedSyncMessageVersions(accountID),
-				sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion))
-
-			log.WithContext(ctx).
-				WithFields(log.Fields{
-					"sync_message_version":        commonSyncMessageVersion,
-					"server_sync_message_version": c.perAccountOrGlobalSupportedSyncMessageVersions(peer.AccountID),
-					"peer_sync_message_version":   sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion),
-				}).Debug("common highest sync message version")
-
-			if commonSyncMessageVersion == sharedgrpc.ComponentNetworkMap {
-				components := account.GetPeerNetworkMapComponents(
-					ctx, p.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, groupIDToUserIDs)
-
-				c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
-
-				start = time.Now()
-				update = grpc.ToComponentSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, types.TwinPeer(p), nil, nil, components, dnsDomain, postureChecks, types.TwinAccountSettings(account.Settings), extraSetting, maps.Keys(peerGroups), dnsFwdPort)
-				c.metrics.CountToComponentSyncResponseDuration(time.Since(start))
-
-				c.peersUpdateManager.SendUpdate(ctx, p.ID, &network_map.UpdateMessage{
-					Update:      update,
-					MessageType: network_map.MessageTypeNetworkMap,
-				})
-
-				return
-			}
-
-			nmap := account.GetPeerNetworkMapFromComponents(
-				ctx, p.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
-
-			c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
-
-			start = time.Now()
-			update = grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, types.TwinPeer(p), nil, nil, nmap, dnsDomain, postureChecks, dnsCache, types.TwinAccountSettings(account.Settings), extraSetting, maps.Keys(peerGroups), dnsFwdPort)
-			c.metrics.CountToSyncResponseDuration(time.Since(start))
-
-			c.peersUpdateManager.SendUpdate(ctx, p.ID, &network_map.UpdateMessage{
-				Update:      update,
-				MessageType: network_map.MessageTypeNetworkMap,
-			})
-		}(peer)
-	}
-
-	wg.Wait()
-	if c.accountManagerMetrics != nil {
-		c.accountManagerMetrics.CountUpdateAccountPeersDuration(time.Since(globalStart))
-	}
-
-	return nil
-}
-
-// sendUpdateAccountPeersFromData is the account-free variant of
-// sendUpdateAccountPeers: everything is computed from the network-map DB
-// store's twin data; only extra settings and validated peers are resolved at
-// runtime. Proxy network maps and policy injection, private-service zones,
-// group-to-user SSH mappings and forced routing-peer DNS resolution have no
-// DB-backed source yet and are omitted.
-func (c *Controller) sendUpdateAccountPeersFromData(ctx context.Context, accountID string, reason types.UpdateReason, nmData *networkmap.NetworkMapData) error {
 	peersToUpdate := c.connectedPeersFromData(nmData, nil)
 	if len(peersToUpdate) == 0 {
 		return nil
 	}
-	return c.sendUpdatesFromData(ctx, accountID, nmData, peersToUpdate, reason)
-}
-
-// sendUpdateForAffectedPeersFromData is the account-free variant of
-// sendUpdateForAffectedPeers.
-func (c *Controller) sendUpdateForAffectedPeersFromData(ctx context.Context, accountID string, peerIDs []string, nmData *networkmap.NetworkMapData, reason types.UpdateReason) error {
-	if len(peerIDs) == 0 {
-		log.WithContext(ctx).Tracef("sendUpdateForAffectedPeersFromData: no affected peers")
-		return nil
-	}
-
-	peersToUpdate := c.connectedPeersFromData(nmData, peerIDs)
-	if len(peersToUpdate) == 0 {
-		log.WithContext(ctx).Tracef("sendUpdateForAffectedPeersFromData: no peers to update (affected peers not found in data or no channels)")
-		return nil
-	}
-
-	log.WithContext(ctx).Tracef("sendUpdateForAffectedPeersFromData: sending network map to %d connected peers", len(peersToUpdate))
-
 	return c.sendUpdatesFromData(ctx, accountID, nmData, peersToUpdate, reason)
 }
 
@@ -473,18 +311,15 @@ func (c *Controller) sendUpdatesFromData(ctx context.Context, accountID string, 
 	return nil
 }
 
-func (c *Controller) getNetworkMapData(ctx context.Context, accountID string) *networkmap.NetworkMapData {
-	if c.nmdataBuffer == nil {
-		return nil
-	}
-
+func (c *Controller) getNetworkMapData(ctx context.Context, accountID string) (*networkmap.NetworkMapData, error) {
 	nmData, err := c.nmdataBuffer.Get(ctx, accountID)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get network map data for account %s, falling back to account-based computation: %v", accountID, err)
-		return nil
+		// we swallow errors in several callsites, logging here must stay or now
+		log.WithContext(ctx).Errorf("failed to get network map data for account %s: %v", accountID, err)
+		return nil, fmt.Errorf("failed to get network map data for account %s: %w", accountID, err)
 	}
 
-	return nmData
+	return nmData, nil
 }
 
 // fetchNetworkMapData reads the twin once per buffer window. Its result is
@@ -624,144 +459,30 @@ func (c *Controller) UpdateAffectedPeers(ctx context.Context, accountID string, 
 func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID string, peerIDs []string, reason types.UpdateReason) error {
 	log.WithContext(ctx).Tracef("sendUpdateForAffectedPeers: account %s, %d affected peers: %v (caller: %s)", accountID, len(peerIDs), peerIDs, util.GetCallerName())
 
+	if len(peerIDs) == 0 {
+		log.WithContext(ctx).Tracef("sendUpdateForAffectedPeersFromData: no affected peers")
+		return nil
+	}
+
 	if !c.hasConnectedPeers(peerIDs) {
 		log.WithContext(ctx).Tracef("sendUpdateForAffectedPeers: no connected peers among %v, skipping", peerIDs)
 		return nil
 	}
 
-	if nmData := c.getNetworkMapData(ctx, accountID); nmData != nil {
-		return c.sendUpdateForAffectedPeersFromData(ctx, accountID, peerIDs, nmData, reason)
-	}
-
-	account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+	nmData, err := c.getNetworkMapData(ctx, accountID)
 	if err != nil {
-		return fmt.Errorf("failed to get account: %v", err)
+		return err
 	}
 
-	globalStart := time.Now()
-
-	peersToUpdate := c.filterConnectedAffectedPeers(account, peerIDs)
+	peersToUpdate := c.connectedPeersFromData(nmData, peerIDs)
 	if len(peersToUpdate) == 0 {
-		log.WithContext(ctx).Tracef("sendUpdateForAffectedPeers: no peers to update (affected peers not found in account or no channels)")
+		log.WithContext(ctx).Tracef("sendUpdateForAffectedPeersFromData: no peers to update (affected peers not found in data or no channels)")
 		return nil
 	}
 
-	log.WithContext(ctx).Tracef("sendUpdateForAffectedPeers: sending network map to %d connected peers", len(peersToUpdate))
+	log.WithContext(ctx).Tracef("sendUpdateForAffectedPeersFromData: sending network map to %d connected peers", len(peersToUpdate))
 
-	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, types.TwinGroups(maps.Values(account.Groups)), types.TwinPeers(maps.Values(account.Peers)), account.Settings.Extra)
-	if err != nil {
-		return fmt.Errorf("failed to get validate peers: %v", err)
-	}
-
-	var wg sync.WaitGroup
-	semaphore := make(chan struct{}, 10)
-
-	// The affected-peer path MUST mirror sendUpdateAccountPeers (line 171)
-	// here: injectAllProxyPolicies prepends the synthesised agent-network
-	// services BEFORE InjectProxyPolicies + private-service policies run.
-	// Previously this path called only account.InjectProxyPolicies, which
-	// skipped the synth-services prepend — so peer-level changes
-	// (proxy restart, embedded peer connect/disconnect) propagated a
-	// network map that omitted the synth DNS zone, and the client kept
-	// resolving against the stale or absent record.
-	c.injectAllProxyPolicies(ctx, account)
-	account.PrecomputePostureValidation(ctx)
-	dnsCache := &cache.DNSConfigCache{}
-	dnsDomain := c.GetDNSDomain(account.Settings)
-	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
-	resourcePolicies := account.GetResourcePoliciesMap()
-	routers := account.GetResourceRoutersMap()
-	groupIDToUserIDs := account.GetActiveGroupUsers()
-
-	extraSetting, err := c.settingsManager.GetExtraSettings(ctx, accountID)
-	if err != nil {
-		return fmt.Errorf("failed to get flow enabled status: %v", err)
-	}
-
-	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
-
-	accountZones, err := c.repo.GetAccountZones(ctx, account.Id)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get account zones: %v", err)
-		return fmt.Errorf("failed to get account zones: %v", err)
-	}
-
-	for _, peer := range peersToUpdate {
-		if c.accountManagerMetrics != nil {
-			c.accountManagerMetrics.CountNmapTriggered(string(reason.Resource), string(reason.Operation))
-		}
-
-		wg.Add(1)
-		semaphore <- struct{}{}
-		go func(p *nbpeer.Peer) {
-			defer wg.Done()
-			defer func() { <-semaphore }()
-
-			start := time.Now()
-
-			postureChecks, err := c.getPeerPostureChecks(account, p.ID)
-			if err != nil {
-				log.WithContext(ctx).Debugf("failed to get posture checks for peer %s: %v", p.ID, err)
-				return
-			}
-
-			c.metrics.CountCalcPostureChecksDuration(time.Since(start))
-			start = time.Now()
-
-			peerGroups := account.GetPeerGroups(p.ID)
-			var update *proto.SyncResponse
-
-			commonSyncMessageVersion := sharedgrpc.HighestCommonSyncMessageVersion(
-				c.perAccountOrGlobalSupportedSyncMessageVersions(accountID),
-				sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion))
-
-			log.WithContext(ctx).
-				WithFields(log.Fields{
-					"sync_message_version":        commonSyncMessageVersion,
-					"server_sync_message_version": c.perAccountOrGlobalSupportedSyncMessageVersions(peer.AccountID),
-					"peer_sync_message_version":   sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion),
-				}).Debug("common highest sync message version")
-
-			if commonSyncMessageVersion == sharedgrpc.ComponentNetworkMap {
-				components := account.GetPeerNetworkMapComponents(
-					ctx, p.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, groupIDToUserIDs)
-
-				c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
-
-				start = time.Now()
-				update = grpc.ToComponentSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, types.TwinPeer(p), nil, nil, components, dnsDomain, postureChecks, types.TwinAccountSettings(account.Settings), extraSetting, maps.Keys(peerGroups), dnsFwdPort)
-				c.metrics.CountToComponentSyncResponseDuration(time.Since(start))
-
-				c.peersUpdateManager.SendUpdate(ctx, p.ID, &network_map.UpdateMessage{
-					Update:      update,
-					MessageType: network_map.MessageTypeNetworkMap,
-				})
-
-				return
-			}
-
-			nmap := account.GetPeerNetworkMapFromComponents(
-				ctx, p.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
-
-			c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
-
-			start = time.Now()
-			update = grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, types.TwinPeer(p), nil, nil, nmap, dnsDomain, postureChecks, dnsCache, types.TwinAccountSettings(account.Settings), extraSetting, maps.Keys(peerGroups), dnsFwdPort)
-			c.metrics.CountToSyncResponseDuration(time.Since(start))
-
-			c.peersUpdateManager.SendUpdate(ctx, p.ID, &network_map.UpdateMessage{
-				Update:      update,
-				MessageType: network_map.MessageTypeNetworkMap,
-			})
-		}(peer)
-	}
-
-	wg.Wait()
-	if c.accountManagerMetrics != nil {
-		c.accountManagerMetrics.CountUpdateAccountPeersDuration(time.Since(globalStart))
-	}
-
-	return nil
+	return c.sendUpdatesFromData(ctx, accountID, nmData, peersToUpdate, reason)
 }
 
 func (c *Controller) hasConnectedPeers(peerIDs []string) bool {
@@ -773,107 +494,23 @@ func (c *Controller) hasConnectedPeers(peerIDs []string) bool {
 	return false
 }
 
-func (c *Controller) filterConnectedAffectedPeers(account *types.Account, peerIDs []string) []*nbpeer.Peer {
-	affected := make(map[string]struct{}, len(peerIDs))
-	for _, id := range peerIDs {
-		affected[id] = struct{}{}
-	}
-
-	var result []*nbpeer.Peer
-	for _, peer := range account.Peers {
-		if _, ok := affected[peer.ID]; ok && c.peersUpdateManager.HasChannel(peer.ID) {
-			result = append(result, peer)
-		}
-	}
-	return result
-}
-
 func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, peerId string) error {
 	if !c.peersUpdateManager.HasChannel(peerId) {
 		return fmt.Errorf("peer %s doesn't have a channel, skipping network map update", peerId)
 	}
 
-	account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountId)
+	nmData, err := c.getNetworkMapData(ctx, accountId)
 	if err != nil {
-		return fmt.Errorf("failed to send out updates to peer %s: %v", peerId, err)
-	}
-
-	peer := account.GetPeer(peerId)
-	if peer == nil {
-		return fmt.Errorf("peer %s doesn't exists in account %s", peerId, accountId)
-	}
-
-	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, types.TwinGroups(maps.Values(account.Groups)), types.TwinPeers(maps.Values(account.Peers)), account.Settings.Extra)
-	if err != nil {
-		return fmt.Errorf("failed to get validated peers: %v", err)
-	}
-
-	c.injectAllProxyPolicies(ctx, account)
-	dnsCache := &cache.DNSConfigCache{}
-	dnsDomain := c.GetDNSDomain(account.Settings)
-	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
-	resourcePolicies := account.GetResourcePoliciesMap()
-	routers := account.GetResourceRoutersMap()
-	groupIDToUserIDs := account.GetActiveGroupUsers()
-
-	postureChecks, err := c.getPeerPostureChecks(account, peerId)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to send update to peer %s, failed to get posture checks: %v", peerId, err)
-		return fmt.Errorf("failed to get posture checks for peer %s: %v", peerId, err)
-	}
-
-	accountZones, err := c.repo.GetAccountZones(ctx, account.Id)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get account zones: %v", err)
 		return err
 	}
 
-	extraSettings, err := c.settingsManager.GetExtraSettings(ctx, peer.AccountID)
-	if err != nil {
-		return fmt.Errorf("failed to get extra settings: %v", err)
+	peer, ok := nmData.Peers[peerId]
+	if !ok {
+		return fmt.Errorf("peer %s doesn't exists in account %s", peerId, accountId)
 	}
 
-	peerGroups := account.GetPeerGroups(peerId)
-	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
-
-	var update *proto.SyncResponse
-
-	commonSyncMessageVersion := sharedgrpc.HighestCommonSyncMessageVersion(
-		c.perAccountOrGlobalSupportedSyncMessageVersions(accountId),
-		sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion))
-
-	log.WithContext(ctx).
-		WithFields(log.Fields{
-			"sync_message_version":        commonSyncMessageVersion,
-			"server_sync_message_version": c.perAccountOrGlobalSupportedSyncMessageVersions(peer.AccountID),
-			"peer_sync_message_version":   sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion),
-		}).Debug("common highest sync message version")
-
-	if commonSyncMessageVersion == sharedgrpc.ComponentNetworkMap {
-		components := account.GetPeerNetworkMapComponents(
-			ctx, peer.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, groupIDToUserIDs)
-
-		update = grpc.ToComponentSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, types.TwinPeer(peer), nil, nil, components, dnsDomain, postureChecks, types.TwinAccountSettings(account.Settings), extraSettings, maps.Keys(peerGroups), dnsFwdPort)
-
-		c.peersUpdateManager.SendUpdate(ctx, peer.ID, &network_map.UpdateMessage{
-			Update:      update,
-			MessageType: network_map.MessageTypeNetworkMap,
-		})
-
-		return nil
-	}
-
-	nmap := account.GetPeerNetworkMapFromComponents(
-		ctx, peer.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
-
-	update = grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, types.TwinPeer(peer), nil, nil, nmap, dnsDomain, postureChecks, dnsCache, types.TwinAccountSettings(account.Settings), extraSettings, maps.Keys(peerGroups), dnsFwdPort)
-
-	c.peersUpdateManager.SendUpdate(ctx, peer.ID, &network_map.UpdateMessage{
-		Update:      update,
-		MessageType: network_map.MessageTypeNetworkMap,
-	})
-
-	return nil
+	return c.sendUpdatesFromData(ctx, accountId, nmData, []*nmdata.Peer{peer},
+		types.UpdateReason{Resource: types.UpdateResourcePeer, Operation: types.UpdateOperationUpdate})
 }
 
 func (c *Controller) BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) error {
@@ -928,52 +565,11 @@ func (c *Controller) GetValidatedPeerWithComponents(ctx context.Context, isRequi
 		return peer, &types.NetworkMapComponents{Network: types.TwinNetwork(network)}, nil, 0, nil
 	}
 
-	if nmData := c.getNetworkMapData(ctx, accountID); nmData != nil {
-		return c.getValidatedPeerWithComponentsFromData(ctx, accountID, peer, nmData)
-	}
-
-	account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+	nmData, err := c.getNetworkMapData(ctx, accountID)
 	if err != nil {
 		return nil, nil, nil, 0, err
 	}
 
-	// it's possible that the peer gets deleted between the call to "sendInitialSync()" and here, bail out in this case
-	if p, _ := account.Peers[peer.ID]; p == nil {
-		return nil, nil, nil, 0, fmt.Errorf("peer '%s' no longer exists", peer.ID)
-	}
-
-	c.injectAllProxyPolicies(ctx, account)
-
-	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, types.TwinGroups(maps.Values(account.Groups)), types.TwinPeers(maps.Values(account.Peers)), account.Settings.Extra)
-	if err != nil {
-		return nil, nil, nil, 0, err
-	}
-
-	postureChecks, err := c.getPeerPostureChecks(account, peer.ID)
-	if err != nil {
-		return nil, nil, nil, 0, err
-	}
-
-	accountZones, err := c.repo.GetAccountZones(ctx, account.Id)
-	if err != nil {
-		return nil, nil, nil, 0, err
-	}
-
-	dnsDomain := c.GetDNSDomain(account.Settings)
-	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
-
-	resourcePolicies := account.GetResourcePoliciesMap()
-	routers := account.GetResourceRoutersMap()
-	groupIDToUserIDs := account.GetActiveGroupUsers()
-	components := account.GetPeerNetworkMapComponents(ctx, peer.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, groupIDToUserIDs)
-	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
-
-	return peer, components, postureChecks, dnsFwdPort, nil
-}
-
-// getValidatedPeerWithComponentsFromData is the account-free variant of
-// GetValidatedPeerWithComponents.
-func (c *Controller) getValidatedPeerWithComponentsFromData(ctx context.Context, accountID string, peer *nbpeer.Peer, nmData *networkmap.NetworkMapData) (*nbpeer.Peer, *types.NetworkMapComponents, []*nmdata.PostureChecks, int64, error) {
 	postureChecks := peerPostureChecksFromData(nmData, peer.ID)
 
 	dnsDomain := c.getDNSDomainFromData(nmData.AccountSettings)
@@ -1096,50 +692,11 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 		return emptyMap, nil, 0, nil
 	}
 
-	if nmData := c.getNetworkMapData(ctx, accountID); nmData != nil {
-		return c.getValidatedPeerWithMapFromData(ctx, accountID, peerID, nmData)
-	}
-
-	account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+	nmData, err := c.getNetworkMapData(ctx, accountID)
 	if err != nil {
 		return nil, nil, 0, err
 	}
 
-	c.injectAllProxyPolicies(ctx, account)
-
-	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, types.TwinGroups(maps.Values(account.Groups)), types.TwinPeers(maps.Values(account.Peers)), account.Settings.Extra)
-	if err != nil {
-		return nil, nil, 0, err
-	}
-
-	postureChecks, err := c.getPeerPostureChecks(account, peerID)
-	if err != nil {
-		return nil, nil, 0, err
-	}
-
-	accountZones, err := c.repo.GetAccountZones(ctx, account.Id)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get account zones: %v", err)
-		return nil, nil, 0, err
-	}
-
-	dnsDomain := c.GetDNSDomain(account.Settings)
-	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
-
-	resourcePolicies := account.GetResourcePoliciesMap()
-	routers := account.GetResourceRoutersMap()
-	groupIDToUserIDs := account.GetActiveGroupUsers()
-	networkMap := account.GetPeerNetworkMapFromComponents(ctx, peerID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
-
-	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
-
-	return networkMap, postureChecks, dnsFwdPort, nil
-}
-
-// getValidatedPeerWithMapFromData is the account-free variant of
-// GetValidatedPeerWithMap. The proxy network map fragment is omitted like on
-// the other nmdata paths.
-func (c *Controller) getValidatedPeerWithMapFromData(ctx context.Context, accountID string, peerID string, nmData *networkmap.NetworkMapData) (*types.NetworkMap, []*nmdata.PostureChecks, int64, error) {
 	postureChecks := peerPostureChecksFromData(nmData, peerID)
 
 	dnsDomain := c.getDNSDomainFromData(nmData.AccountSettings)
@@ -1161,27 +718,6 @@ func (c *Controller) GetDNSDomain(settings *types.Settings) string {
 	}
 
 	return settings.DNSDomain
-}
-
-// getPeerPostureChecks returns the posture checks applied for a given peer.
-func (c *Controller) getPeerPostureChecks(account *types.Account, peerID string) ([]*nmdata.PostureChecks, error) {
-	peerPostureChecks := make(map[string]*posture.Checks)
-
-	if len(account.PostureChecks) == 0 {
-		return nil, nil
-	}
-
-	for _, policy := range account.Policies {
-		if !policy.Enabled || len(policy.SourcePostureChecks) == 0 {
-			continue
-		}
-
-		if err := addPolicyPostureChecks(account, peerID, policy, peerPostureChecks); err != nil {
-			return nil, err
-		}
-	}
-
-	return types.TwinPostureChecksList(maps.Values(peerPostureChecks)), nil
 }
 
 func (c *Controller) StartWarmup(ctx context.Context) {
@@ -1256,54 +792,6 @@ func computeForwarderPortFromVersions(wtVersions []string, requiredVersion strin
 
 	// All peers have the required version or newer
 	return int64(network_map.DnsForwarderPort)
-}
-
-// addPolicyPostureChecks adds posture checks from a policy to the peer posture checks map if the peer is in the policy's source groups.
-func addPolicyPostureChecks(account *types.Account, peerID string, policy *types.Policy, peerPostureChecks map[string]*posture.Checks) error {
-	isInGroup, err := isPeerInPolicySources(account, peerID, policy)
-	if err != nil {
-		return err
-	}
-
-	if !isInGroup {
-		return nil
-	}
-
-	for _, sourcePostureCheckID := range policy.SourcePostureChecks {
-		postureCheck := account.GetPostureChecks(sourcePostureCheckID)
-		if postureCheck == nil {
-			return errors.New("failed to add policy posture checks: posture checks not found")
-		}
-		peerPostureChecks[sourcePostureCheckID] = postureCheck
-	}
-
-	return nil
-}
-
-// isPeerInPolicySources checks if a peer is a source of the policy, directly or through a source group.
-func isPeerInPolicySources(account *types.Account, peerID string, policy *types.Policy) (bool, error) {
-	for _, rule := range policy.Rules {
-		if !rule.Enabled {
-			continue
-		}
-
-		if rule.SourceResource.Type == types.ResourceTypePeer && rule.SourceResource.ID == peerID {
-			return true, nil
-		}
-
-		for _, sourceGroup := range rule.Sources {
-			group := account.GetGroup(sourceGroup)
-			if group == nil {
-				return false, fmt.Errorf("failed to check peer in policy source group: group not found")
-			}
-
-			if slices.Contains(group.Peers, peerID) {
-				return true, nil
-			}
-		}
-	}
-
-	return false, nil
 }
 
 func (c *Controller) OnPeersUpdated(ctx context.Context, accountID string, peerIDs []string, affectedPeerIDs []string) error {

@@ -7,12 +7,14 @@ import (
 	"net"
 	"os"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -30,6 +32,8 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness/peerlivenesstest"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
+	networkmapdbfactory "github.com/netbirdio/netbird/management/internals/network_map_db/factory"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -39,7 +43,7 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
-	"github.com/netbirdio/netbird/management/server/store"
+	nbstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
@@ -275,9 +279,9 @@ func Test_SyncProtocol(t *testing.T) {
 	}
 
 	expiredPeerPubKey := "RlSy2vzoG2HyMBTUImXOiVhCBiiBa5qD5xzMxkiFDW4="
-	if networkMap.GetOfflinePeers()[0].WgPubKey != expiredPeerPubKey {
-		t.Fatalf("expecting SyncResponse to have NetworkMap with 1 offline peer with a key %s", expiredPeerPubKey)
-	}
+	assert.True(t, slices.ContainsFunc(networkMap.GetOfflinePeers(), func(p *mgmtProto.RemotePeerConfig) bool {
+		return p.WgPubKey == expiredPeerPubKey
+	}))
 
 	if networkMap.GetPeerConfig() == nil {
 		t.Fatal("expecting SyncResponse to have NetworkMap with a non-nil PeerConfig")
@@ -339,7 +343,8 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 
-	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), testFile, t.TempDir())
+	dataDir := t.TempDir()
+	store, cleanup, err := nbstore.NewTestStoreFromSQL(context.Background(), testFile, dataDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,7 +385,26 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 		return nil, nil, "", cleanup, err
 	}
 
-	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", ephemeralMgr, config, nil)
+	nmapStoreConfig, err := networkmapdb.NewNetworkMapDBStoreConfig().
+		WithKind(nbstore.GetStoreEngineFromEnv()).
+		WithSqliteDataDir(dataDir).
+		WithPostgresDSNFromSQLStore(store).
+		Finish()
+	require.NoError(t, err)
+
+	nmapDbStore, err := networkmapdbfactory.NewNetworkMapDBStore(
+		context.Background(),
+		nmapStoreConfig,
+		MockIntegratedValidator{},
+		settingsMockManager,
+		nil,
+		metrics.GetMeter(),
+	)
+	if err != nil {
+		t.Fatalf("Failed to create networkmap db store: %v", err)
+	}
+
+	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", ephemeralMgr, config, nmapDbStore)
 	accountManager, err := BuildManager(ctx, nil, store, networkMapController, jobManager, nil, "",
 		eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 
@@ -583,7 +607,7 @@ func testSyncStatusRace(t *testing.T) {
 	}
 
 	time.Sleep(10 * time.Millisecond)
-	peer, err := am.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, peerWithInvalidStatus.PublicKey().String())
+	peer, err := am.Store.GetPeerByPeerPubKey(context.Background(), nbstore.LockingStrengthNone, peerWithInvalidStatus.PublicKey().String())
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -838,7 +862,7 @@ func testLoginPerformance(t *testing.T, loginCalls []func() error) {
 
 type expireOnConnectController struct {
 	peerliveness.Controller
-	store store.Store
+	store nbstore.Store
 	once  sync.Once
 	err   error
 }
@@ -850,7 +874,7 @@ func (c *expireOnConnectController) Connect(ctx context.Context, accountID, peer
 	}
 
 	c.once.Do(func() {
-		peer, getErr := c.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
+		peer, getErr := c.store.GetPeerByID(ctx, nbstore.LockingStrengthNone, accountID, peerID)
 		if getErr != nil {
 			c.err = getErr
 			return
@@ -903,21 +927,21 @@ func Test_SyncRejectsPeerExpiredWhileConnecting(t *testing.T) {
 	require.Equal(t, codes.PermissionDenied, status.Code(err), "sync stream ended with: %v", err)
 	require.NoError(t, decorated.err)
 
-	peer, err := am.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, key.PublicKey().String())
+	peer, err := am.Store.GetPeerByPeerPubKey(context.Background(), nbstore.LockingStrengthNone, key.PublicKey().String())
 	require.NoError(t, err)
 	require.True(t, peer.Status.LoginExpired)
 	require.Eventually(t, func() bool {
-		peer, err = am.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, key.PublicKey().String())
+		peer, err = am.Store.GetPeerByPeerPubKey(context.Background(), nbstore.LockingStrengthNone, key.PublicKey().String())
 		return err == nil && !peer.Status.Connected
 	}, 5*time.Second, 50*time.Millisecond)
 }
 
 type settingsCountingStore struct {
-	store.Store
+	nbstore.Store
 	reads atomic.Int32
 }
 
-func (s *settingsCountingStore) GetAccountSettings(ctx context.Context, lockStrength store.LockingStrength, accountID string) (*types.Settings, error) {
+func (s *settingsCountingStore) GetAccountSettings(ctx context.Context, lockStrength nbstore.LockingStrength, accountID string) (*types.Settings, error) {
 	s.reads.Add(1)
 	return s.Store.GetAccountSettings(ctx, lockStrength, accountID)
 }
@@ -958,7 +982,7 @@ func Test_LoginAndSyncReuseRequestSettings(t *testing.T) {
 	require.NoError(t, sync.RecvMsg(&mgmtProto.EncryptedMessage{}))
 
 	require.Eventually(t, func() bool {
-		peer, err := counting.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, key.PublicKey().String())
+		peer, err := counting.GetPeerByPeerPubKey(context.Background(), nbstore.LockingStrengthNone, key.PublicKey().String())
 		return err == nil && peer.Status.Connected
 	}, 5*time.Second, 50*time.Millisecond)
 	require.Zero(t, counting.reads.Load(), "sync must not read settings through the account manager")

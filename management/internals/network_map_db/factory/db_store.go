@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -16,14 +15,11 @@ import (
 	"github.com/netbirdio/netbird/management/internals/shared/requestbuffer"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/settings"
-	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	log "github.com/sirupsen/logrus"
 )
 
 const (
-	storeSqliteFileName = "store.db"
-
 	// ReplicaDsnEnv names the Postgres DSN of a read replica serving network map data reads.
 	ReplicaDsnEnv = "NB_STORE_ENGINE_POSTGRES_REPLICA_DSN"
 	// replicaWaitEnv bounds how long a network map data read waits for the replica.
@@ -36,20 +32,15 @@ var ErrNotSupportedStoreEngine = errors.New("unsupported store engine")
 
 func NewNetworkMapDBStore(
 	ctx context.Context,
-	kind types.Engine,
-	dataDir string,
+	dbconfig *networkmapdb.NetworkMapDBStoreConfig,
 	integratedPeerValidator integrated_validator.IntegratedValidator,
 	extraSettingsManager settings.Manager,
 	replicaPool *pgxpool.Pool,
 	meter metric.Meter) (*networkmapdb.NetworkMapDBStoreImpl, error) {
-	switch kind {
+	switch dbconfig.Kind {
 	case types.SqliteStoreEngine:
 		log.WithContext(ctx).Info("networkmap store is using SQLite")
-		storeFile := storeSqliteFileName
-		if envFile, ok := os.LookupEnv("NB_STORE_ENGINE_SQLITE_FILE"); ok && envFile != "" {
-			storeFile = envFile
-		}
-		store, err := networkmap_sqlite.NewSqliteStore(storeFile, dataDir)
+		store, err := networkmap_sqlite.NewSqliteStore(dbconfig.SqliteDBFileName, dbconfig.SqliteDataDir)
 		if err != nil {
 			return nil, err
 		}
@@ -60,12 +51,7 @@ func NewNetworkMapDBStore(
 		}, nil
 	case types.PostgresStoreEngine:
 		log.WithContext(ctx).Info("using Postgres store engine")
-		dsn, err := mustLookupDsnEnv()
-		if err != nil {
-			return nil, err
-		}
-
-		store, err := networkmap_pgsql.NewPostgresqlStore(ctx, dsn)
+		store, err := networkmap_pgsql.NewPostgresqlStore(ctx, dbconfig.PostgresDSN)
 		if err != nil {
 			return nil, err
 		}
@@ -98,16 +84,5 @@ func NewNetworkMapDBStore(
 		return impl, nil
 	}
 
-	return nil, fmt.Errorf("networkmap store doesn't support engine %s, %w", kind, ErrNotSupportedStoreEngine)
-}
-
-func mustLookupDsnEnv() (string, error) {
-	if v, ok := os.LookupEnv(store.PostgresDsnEnv); ok {
-		return v, nil
-	}
-	if v, ok := os.LookupEnv(store.PostgresDsnEnvLegacy); ok {
-		return v, nil
-	}
-
-	return "", fmt.Errorf("%s env var must be set when using postgres networkmap store", store.PostgresDsnEnv)
+	return nil, fmt.Errorf("networkmap store doesn't support engine %s, %w", dbconfig.Kind, ErrNotSupportedStoreEngine)
 }
