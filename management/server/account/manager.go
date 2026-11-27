@@ -90,6 +90,8 @@ type Manager interface {
 	DeleteGroups(ctx context.Context, accountId, userId string, groupIDs []string) error
 	GroupAddPeer(ctx context.Context, accountId, groupID, peerID string) error
 	GroupDeletePeer(ctx context.Context, accountId, groupID, peerID string) error
+	AddPeersToGroup(ctx context.Context, accountID, userID, groupID string, peerIDs []string) (*types.Group, error)
+	RemovePeersFromGroup(ctx context.Context, accountID, userID, groupID string, peerIDs []string) (*types.Group, error)
 	GetPeerGroups(ctx context.Context, accountID, peerID string) ([]*types.Group, error)
 	GetPolicy(ctx context.Context, accountID, policyID, userID string) (*types.Policy, error)
 	SavePolicy(ctx context.Context, accountID, userID string, policy *types.Policy, create bool) (*types.Policy, error)

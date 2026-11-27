@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -52,6 +53,13 @@ type testHandler struct {
 	saved       *types.Group
 	savedCreate bool
 	deleted     string
+	batchCalls  []batchCall
+}
+
+type batchCall struct {
+	op      string
+	groupID string
+	peerIDs []string
 }
 
 func newTestHandler(t *testing.T, opts testOptions, stored ...*types.Group) *testHandler {
@@ -71,6 +79,37 @@ func newTestHandler(t *testing.T, opts testOptions, stored ...*types.Group) *tes
 		AnyTimes()
 
 	th := &testHandler{}
+	batch := func(op string) func(context.Context, string, string, string, []string) (*types.Group, error) {
+		return func(_ context.Context, _, _, groupID string, peerIDs []string) (*types.Group, error) {
+			th.batchCalls = append(th.batchCalls, batchCall{op: op, groupID: groupID, peerIDs: peerIDs})
+			group, ok := groups[groupID]
+			if !ok {
+				return nil, status.NewGroupNotFoundError(groupID)
+			}
+			if group.Name == types.GroupAllName {
+				return nil, status.Errorf(status.InvalidArgument, "updating group ALL is not allowed")
+			}
+			for _, id := range peerIDs {
+				if id == "unknown" {
+					return nil, status.Errorf(status.InvalidArgument, "peer with ID %s not found", id)
+				}
+			}
+			updated := group.Copy()
+			if op == "remove" {
+				updated.Peers = slices.DeleteFunc(updated.Peers, func(id string) bool {
+					return slices.Contains(peerIDs, id)
+				})
+				return updated, nil
+			}
+			for _, id := range peerIDs {
+				if !slices.Contains(updated.Peers, id) {
+					updated.Peers = append(updated.Peers, id)
+				}
+			}
+			return updated, nil
+		}
+	}
+
 	th.Handler = NewHandler(&mock_server.MockAccountManager{
 		GetGroupFunc: func(_ context.Context, _, groupID, _ string) (*types.Group, error) {
 			group, ok := groups[groupID]
@@ -124,6 +163,8 @@ func newTestHandler(t *testing.T, opts testOptions, stored ...*types.Group) *tes
 			th.deleted = groupID
 			return nil
 		},
+		AddPeersToGroupFunc:      batch("add"),
+		RemovePeersFromGroupFunc: batch("remove"),
 	}, permissionsManager)
 
 	return th
@@ -435,6 +476,87 @@ func TestDeleteGroup(t *testing.T) {
 	}
 }
 
+func TestBatchPeers(t *testing.T) {
+	endpoints := []struct {
+		method string
+		op     string
+		// members is the expected membership after requesting peer-b and peer-c on a group
+		// holding peer-a and peer-b.
+		members []string
+		// visibleMembers is the same for a caller who only sees peer-a and peer-c.
+		visibleMembers []string
+		// absent is a peer that must not be in the response.
+		absent string
+	}{
+		{http.MethodPost, "add", []string{"peer-a", "peer-b", "peer-c"}, []string{"peer-a", "peer-c"}, ""},
+		{http.MethodDelete, "remove", []string{"peer-a"}, []string{"peer-a"}, "peer-b"},
+	}
+
+	for _, ep := range endpoints {
+		t.Run(ep.op, func(t *testing.T) {
+			path := "/groups/g1/peers"
+
+			t.Run("returns the updated group", func(t *testing.T) {
+				th := newTestHandler(t, testOptions{readAllPeers: true}, apiGroup("g1", "devs", "peer-a", "peer-b"))
+				rec := th.do(t, ep.method, path, `{"peer_ids":["peer-b","peer-c"]}`)
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+				require.Len(t, th.batchCalls, 1)
+				assert.Equal(t, batchCall{op: ep.op, groupID: "g1", peerIDs: []string{"peer-b", "peer-c"}}, th.batchCalls[0])
+
+				group := decodeGroup(t, rec)
+				assert.Equal(t, "g1", group.Id)
+				assert.Equal(t, ep.members, group.Peers)
+				assert.Equal(t, len(ep.members), group.PeersCount)
+				if ep.absent != "" {
+					assert.NotContains(t, group.Peers, ep.absent, "a removed peer must not be returned")
+				}
+			})
+
+			t.Run("response honors peer visibility", func(t *testing.T) {
+				th := newTestHandler(t, testOptions{ownPeers: []string{"peer-a", "peer-c"}}, apiGroup("g1", "devs", "peer-a", "peer-b"))
+				rec := th.do(t, ep.method, path, `{"peer_ids":["peer-b","peer-c"]}`)
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+				group := decodeGroup(t, rec)
+				assert.Equal(t, ep.visibleMembers, group.Peers)
+				assert.Equal(t, len(ep.visibleMembers), group.PeersCount)
+			})
+
+			t.Run("visibility failure denies", func(t *testing.T) {
+				th := newTestHandler(t, testOptions{permissionErr: errors.New("boom")}, apiGroup("g1", "devs"))
+				rec := th.do(t, ep.method, path, `{"peer_ids":["peer-b"]}`)
+				assert.Equal(t, http.StatusForbidden, rec.Code)
+				assert.NotContains(t, rec.Body.String(), "peer-b")
+				assert.Empty(t, th.batchCalls, "membership must not change when visibility cannot be resolved")
+			})
+
+			errorCases := []struct {
+				name string
+				path string
+				body string
+				code int
+				call bool
+			}{
+				{"unknown peer id", path, `{"peer_ids":["peer-b","unknown"]}`, http.StatusUnprocessableEntity, true},
+				{"all group", "/groups/" + allGroupID + "/peers", `{"peer_ids":["peer-b"]}`, http.StatusUnprocessableEntity, true},
+				{"unknown group", "/groups/nope/peers", `{"peer_ids":["peer-b"]}`, http.StatusNotFound, true},
+				{"empty list is rejected by the spec", path, `{"peer_ids":[]}`, http.StatusUnprocessableEntity, false},
+				{"missing list is rejected by the spec", path, `{}`, http.StatusUnprocessableEntity, false},
+				{"non-string id is rejected by the spec", path, `{"peer_ids":[1]}`, http.StatusUnprocessableEntity, false},
+				{"malformed body", path, `{"peer_ids":`, http.StatusUnprocessableEntity, false},
+			}
+			for _, tc := range errorCases {
+				t.Run(tc.name, func(t *testing.T) {
+					th := newTestHandler(t, testOptions{readAllPeers: true}, apiGroup("g1", "devs"))
+					rec := th.do(t, ep.method, tc.path, tc.body)
+					assert.Equal(t, tc.code, rec.Code, rec.Body.String())
+					assert.Equal(t, tc.call, len(th.batchCalls) == 1, "manager call expectation")
+				})
+			}
+		})
+	}
+}
+
 // A caller whose peer visibility cannot be resolved is denied before anything is written, so the
 // client never gets an error for a change that was saved.
 func TestVisibilityFailureDeniesBeforeMutation(t *testing.T) {
@@ -446,6 +568,8 @@ func TestVisibilityFailureDeniesBeforeMutation(t *testing.T) {
 	}{
 		{"create", http.MethodPost, "/groups", `{"name":"devs"}`},
 		{"update", http.MethodPut, "/groups/g1", `{"name":"devs","peers":["peer-a"]}`},
+		{"add peers", http.MethodPost, "/groups/g1/peers", `{"peer_ids":["peer-b"]}`},
+		{"remove peers", http.MethodDelete, "/groups/g1/peers", `{"peer_ids":["peer-a"]}`},
 	}
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -453,6 +577,7 @@ func TestVisibilityFailureDeniesBeforeMutation(t *testing.T) {
 			rec := th.do(t, tc.method, tc.path, tc.body)
 			assert.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 			assert.Nil(t, th.saved, "group must not be saved")
+			assert.Empty(t, th.batchCalls, "membership must not change")
 		})
 	}
 }

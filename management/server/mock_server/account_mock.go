@@ -57,6 +57,8 @@ type MockAccountManager struct {
 	DeleteGroupsFunc                      func(ctx context.Context, accountId, userId string, groupIDs []string) error
 	GroupAddPeerFunc                      func(ctx context.Context, accountID, groupID, peerID string) error
 	GroupDeletePeerFunc                   func(ctx context.Context, accountID, groupID, peerID string) error
+	AddPeersToGroupFunc                   func(ctx context.Context, accountID, userID, groupID string, peerIDs []string) (*types.Group, error)
+	RemovePeersFromGroupFunc              func(ctx context.Context, accountID, userID, groupID string, peerIDs []string) (*types.Group, error)
 	GetPeerGroupsFunc                     func(ctx context.Context, accountID, peerID string) ([]*types.Group, error)
 	DeleteRuleFunc                        func(ctx context.Context, accountID, ruleID, userID string) error
 	GetPolicyFunc                         func(ctx context.Context, accountID, policyID, userID string) (*types.Policy, error)
@@ -497,6 +499,22 @@ func (am *MockAccountManager) GroupAddPeer(ctx context.Context, accountID, group
 		return am.GroupAddPeerFunc(ctx, accountID, groupID, peerID)
 	}
 	return status.Errorf(codes.Unimplemented, "method GroupAddPeer is not implemented")
+}
+
+// AddPeersToGroup mock implementation of AddPeersToGroup from server.AccountManager interface
+func (am *MockAccountManager) AddPeersToGroup(ctx context.Context, accountID, userID, groupID string, peerIDs []string) (*types.Group, error) {
+	if am.AddPeersToGroupFunc != nil {
+		return am.AddPeersToGroupFunc(ctx, accountID, userID, groupID, peerIDs)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method AddPeersToGroup is not implemented")
+}
+
+// RemovePeersFromGroup mock implementation of RemovePeersFromGroup from server.AccountManager interface
+func (am *MockAccountManager) RemovePeersFromGroup(ctx context.Context, accountID, userID, groupID string, peerIDs []string) (*types.Group, error) {
+	if am.RemovePeersFromGroupFunc != nil {
+		return am.RemovePeersFromGroupFunc(ctx, accountID, userID, groupID, peerIDs)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method RemovePeersFromGroup is not implemented")
 }
 
 // GroupDeletePeer mock implementation of GroupDeletePeer from server.AccountManager interface

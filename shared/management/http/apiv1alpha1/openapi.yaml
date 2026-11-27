@@ -252,3 +252,5 @@ paths:
     $ref: './group/groups.yaml'
   /groups/{groupId}:
     $ref: './group/group.yaml'
+  /groups/{groupId}/peers:
+    $ref: './group/group_peers.yaml'

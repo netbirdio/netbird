@@ -104,6 +104,21 @@ func (mr *MockManagerMockRecorder) AddPeer(ctx, accountID, setupKey, userID, p, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddPeer", reflect.TypeOf((*MockManager)(nil).AddPeer), ctx, accountID, setupKey, userID, p, temporary)
 }
 
+// AddPeersToGroup mocks base method.
+func (m *MockManager) AddPeersToGroup(ctx context.Context, accountID, userID, groupID string, peerIDs []string) (*types.Group, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AddPeersToGroup", ctx, accountID, userID, groupID, peerIDs)
+	ret0, _ := ret[0].(*types.Group)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AddPeersToGroup indicates an expected call of AddPeersToGroup.
+func (mr *MockManagerMockRecorder) AddPeersToGroup(ctx, accountID, userID, groupID, peerIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddPeersToGroup", reflect.TypeOf((*MockManager)(nil).AddPeersToGroup), ctx, accountID, userID, groupID, peerIDs)
+}
+
 // ApproveUser mocks base method.
 func (m *MockManager) ApproveUser(ctx context.Context, accountID, initiatorUserID, targetUserID string) (*types.UserInfo, error) {
 	m.ctrl.T.Helper()
@@ -1424,6 +1439,21 @@ func (m *MockManager) RejectUser(ctx context.Context, accountID, initiatorUserID
 func (mr *MockManagerMockRecorder) RejectUser(ctx, accountID, initiatorUserID, targetUserID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RejectUser", reflect.TypeOf((*MockManager)(nil).RejectUser), ctx, accountID, initiatorUserID, targetUserID)
+}
+
+// RemovePeersFromGroup mocks base method.
+func (m *MockManager) RemovePeersFromGroup(ctx context.Context, accountID, userID, groupID string, peerIDs []string) (*types.Group, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemovePeersFromGroup", ctx, accountID, userID, groupID, peerIDs)
+	ret0, _ := ret[0].(*types.Group)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RemovePeersFromGroup indicates an expected call of RemovePeersFromGroup.
+func (mr *MockManagerMockRecorder) RemovePeersFromGroup(ctx, accountID, userID, groupID, peerIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemovePeersFromGroup", reflect.TypeOf((*MockManager)(nil).RemovePeersFromGroup), ctx, accountID, userID, groupID, peerIDs)
 }
 
 // SaveDNSSettings mocks base method.

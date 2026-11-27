@@ -24,6 +24,7 @@ import (
 func TestGroupRoutesThroughValidatingMiddleware(t *testing.T) {
 	group := &types.Group{ID: "g1", Name: "devs", Issued: types.GroupIssuedAPI, Peers: []string{"peer-a"}}
 
+	var batchCalls []string
 	accountManager := &mock_server.MockAccountManager{
 		GetAllGroupsFunc: func(context.Context, string, string) ([]*types.Group, error) {
 			return []*types.Group{group}, nil
@@ -39,6 +40,14 @@ func TestGroupRoutesThroughValidatingMiddleware(t *testing.T) {
 		},
 		SaveGroupFunc:   func(context.Context, string, string, *types.Group, bool) error { return nil },
 		DeleteGroupFunc: func(context.Context, string, string, string) error { return nil },
+		AddPeersToGroupFunc: func(_ context.Context, _, _, _ string, peerIDs []string) (*types.Group, error) {
+			batchCalls = append(batchCalls, "add:"+strings.Join(peerIDs, ","))
+			return group, nil
+		},
+		RemovePeersFromGroupFunc: func(_ context.Context, _, _, _ string, peerIDs []string) (*types.Group, error) {
+			batchCalls = append(batchCalls, "remove:"+strings.Join(peerIDs, ","))
+			return group, nil
+		},
 	}
 
 	permissionsManager := permissions.NewMockManager(gomock.NewController(t))
@@ -57,6 +66,7 @@ func TestGroupRoutesThroughValidatingMiddleware(t *testing.T) {
 		path         string
 		body         string
 		expectedCode int
+		expectedCall string
 	}{
 		{name: "list", method: http.MethodGet, path: "/groups", expectedCode: http.StatusOK},
 		{name: "list filtered by name", method: http.MethodGet, path: "/groups?name=devs", expectedCode: http.StatusOK},
@@ -64,11 +74,17 @@ func TestGroupRoutesThroughValidatingMiddleware(t *testing.T) {
 		{name: "get", method: http.MethodGet, path: "/groups/g1", expectedCode: http.StatusOK},
 		{name: "update", method: http.MethodPut, path: "/groups/g1", body: `{"name":"devs","peers":["peer-a"]}`, expectedCode: http.StatusOK},
 		{name: "delete", method: http.MethodDelete, path: "/groups/g1", expectedCode: http.StatusOK},
+		{name: "add peers", method: http.MethodPost, path: "/groups/g1/peers", body: `{"peer_ids":["peer-b","peer-c"]}`, expectedCode: http.StatusOK, expectedCall: "add:peer-b,peer-c"},
+		{name: "remove peers with a delete body", method: http.MethodDelete, path: "/groups/g1/peers", body: `{"peer_ids":["peer-b"]}`, expectedCode: http.StatusOK, expectedCall: "remove:peer-b"},
+		{name: "add peers rejects empty list", method: http.MethodPost, path: "/groups/g1/peers", body: `{"peer_ids":[]}`, expectedCode: http.StatusUnprocessableEntity},
+		{name: "remove peers rejects missing body", method: http.MethodDelete, path: "/groups/g1/peers", expectedCode: http.StatusUnprocessableEntity},
 		{name: "create rejects missing name", method: http.MethodPost, path: "/groups", body: `{"peers":[]}`, expectedCode: http.StatusUnprocessableEntity},
 	}
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
+			batchCalls = nil
+
 			req := httptest.NewRequest(tc.method, "/api/v1alpha1"+tc.path, strings.NewReader(tc.body))
 			if tc.body != "" {
 				req.Header.Set("Content-Type", "application/json")
@@ -79,6 +95,11 @@ func TestGroupRoutesThroughValidatingMiddleware(t *testing.T) {
 			root.ServeHTTP(rec, req)
 
 			assert.Equal(t, tc.expectedCode, rec.Code, rec.Body.String())
+			if tc.expectedCall == "" {
+				assert.Empty(t, batchCalls)
+				return
+			}
+			assert.Equal(t, []string{tc.expectedCall}, batchCalls, "the body must reach the handler intact")
 		})
 	}
 }

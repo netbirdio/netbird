@@ -448,3 +448,8 @@ const (
 	ResourceTypeDomain ResourceType = "domain"
 	ResourceTypePeer   ResourceType = "peer"
 )
+
+type GroupPeersRequest struct {
+	// PeerIds List of peer IDs to add to or remove from the group.
+	PeerIds []string `json:"peer_ids"`
+}

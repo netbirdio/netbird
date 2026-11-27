@@ -66,6 +66,18 @@ components:
           required:
             - peers
             - resources
+    GroupPeersRequest:
+      type: object
+      properties:
+        peer_ids:
+          description: List of peer IDs to add to or remove from the group
+          type: array
+          minItems: 1
+          items:
+            type: string
+            example: "chacbco6lnnbn6cg5s90"
+      required:
+        - peer_ids
     Resource:
       type: object
       properties:
