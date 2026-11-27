@@ -32,6 +32,7 @@ import (
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/relay/healthcheck"
+	"github.com/netbirdio/netbird/relay/protocol"
 	relayServer "github.com/netbirdio/netbird/relay/server"
 	"github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
@@ -394,7 +395,7 @@ func localPeerAuthKeys(cfg *CombinedConfig) (peerauth.TokenKeys, error) {
 func (s *serverInstances) createHealthcheckServer(cfg *CombinedConfig) error {
 	hCfg := healthcheck.Config{
 		ListenAddress:  cfg.Server.HealthcheckAddress,
-		ServiceChecker: s.relaySrv,
+		ServiceChecker: multiplexedRelay{s.relaySrv},
 	}
 
 	var err error
@@ -497,6 +498,18 @@ func shutdownServers(ctx context.Context, srv *relayServer.Server, httpHealthche
 	}
 
 	return errs
+}
+
+// multiplexedRelay is the relay as the health check should see it. The combined
+// server never calls relaySrv.Listen: relay WebSocket connections arrive through
+// the management port handler, so the relay's own listener list stays empty and
+// the listener check could never pass.
+type multiplexedRelay struct {
+	*relayServer.Server
+}
+
+func (m multiplexedRelay) ListenerProtocols() []protocol.Protocol {
+	return []protocol.Protocol{ws.Proto}
 }
 
 func createHealthCheck(hCfg healthcheck.Config, stunListeners []*net.UDPConn) (*healthcheck.Server, error) {
