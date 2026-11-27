@@ -61,6 +61,7 @@ func (s *Server) createSftpCommand(logger *log.Entry, sess ssh.Session, targetUs
 
 	args := []string{
 		shellQuote(netbirdPath), "ssh", "sftp",
+		"--user", shellQuote(targetUser.Username),
 		"--uid", strconv.FormatUint(uint64(uid), 10),
 		"--gid", strconv.FormatUint(uint64(gid), 10),
 		"--working-dir", shellQuote(targetUser.HomeDir),

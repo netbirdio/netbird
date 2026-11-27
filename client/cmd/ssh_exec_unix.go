@@ -12,6 +12,7 @@ import (
 )
 
 var (
+	sshExecUser       string
 	sshExecUID        uint32
 	sshExecGID        uint32
 	sshExecGroups     []uint
@@ -31,6 +32,7 @@ var sshExecCmd = &cobra.Command{
 }
 
 func init() {
+	sshExecCmd.Flags().StringVar(&sshExecUser, "user", "", "Target user name")
 	sshExecCmd.Flags().Uint32Var(&sshExecUID, "uid", 0, "Target user ID")
 	sshExecCmd.Flags().Uint32Var(&sshExecGID, "gid", 0, "Target group ID")
 	sshExecCmd.Flags().UintSliceVar(&sshExecGroups, "groups", nil, "Supplementary group IDs (can be repeated)")
@@ -62,6 +64,7 @@ func runSSHExec(cmd *cobra.Command, _ []string) error {
 	}
 
 	config := sshserver.ExecutorConfig{
+		Username:   sshExecUser,
 		UID:        sshExecUID,
 		GID:        sshExecGID,
 		Groups:     groups,

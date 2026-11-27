@@ -4,16 +4,58 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestGroupsOrPrimary(t *testing.T) {
+	enumErr := errors.New("getent unavailable")
+
+	groups, err := groupsOrPrimary("alice", []uint32{1000, 27}, nil, 1000, true)
+	require.NoError(t, err)
+	assert.Equal(t, []uint32{1000, 27}, groups, "an enumerated list is kept")
+
+	groups, err = groupsOrPrimary("alice", nil, nil, 1000, true)
+	require.NoError(t, err)
+	assert.Equal(t, []uint32{1000}, groups, "an empty list falls back to the primary group")
+
+	groups, err = groupsOrPrimary("alice", nil, enumErr, 1000, false)
+	require.NoError(t, err, "a failed enumeration is tolerated when nothing depends on the list")
+	assert.Equal(t, []uint32{1000}, groups)
+
+	groups, err = groupsOrPrimary("alice", nil, enumErr, 1000, true)
+	require.ErrorIs(t, err, enumErr, "a failed enumeration must not be hidden behind the primary group when it decides the context")
+	assert.Nil(t, groups)
+}
+
+// chdir is process-wide, so this test must not run in parallel.
+func TestChdirOrRoot(t *testing.T) {
+	orig, err := os.Getwd()
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.Chdir(orig)) })
+
+	existing := t.TempDir()
+	chdirOrRoot(existing)
+	got, err := os.Getwd()
+	require.NoError(t, err)
+	want, err := filepath.EvalSymlinks(existing)
+	require.NoError(t, err)
+	assert.Equal(t, want, got, "an existing directory must be used as is")
+
+	chdirOrRoot(filepath.Join(existing, "missing"))
+	got, err = os.Getwd()
+	require.NoError(t, err)
+	assert.Equal(t, "/", got, "a missing directory must fall back to the root")
+}
 
 func TestPrivilegeDropper_ValidatePrivileges(t *testing.T) {
 	pd := NewPrivilegeDropper()
