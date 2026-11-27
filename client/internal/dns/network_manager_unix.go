@@ -60,6 +60,8 @@ var supportedNetworkManagerVersionConstraints = []string{
 	">= 1.44, < 1.45",
 }
 
+var _ originalNameserversRefresher = (*networkManagerDbusConfigurator)(nil)
+
 type networkManagerDbusConfigurator struct {
 	dbusLinkObject  dbus.ObjectPath
 	routingAll      bool
@@ -297,6 +299,10 @@ func readIPv6ConfigDNS(path dbus.ObjectPath) []netip.Addr {
 
 func (n *networkManagerDbusConfigurator) getOriginalNameservers() []netip.Addr {
 	return slices.Clone(n.origNameservers)
+}
+
+func (n *networkManagerDbusConfigurator) setOriginalNameservers(nameservers []netip.Addr) {
+	n.origNameservers = slices.Clone(nameservers)
 }
 
 func (n *networkManagerDbusConfigurator) supportCustomPort() bool {

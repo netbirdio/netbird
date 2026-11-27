@@ -111,6 +111,8 @@ const (
 	rpForce = 0x1
 )
 
+var _ originalNameserversRefresher = (*registryConfigurator)(nil)
+
 type registryConfigurator struct {
 	guid            string
 	routingAll      bool
@@ -237,6 +239,10 @@ func parseRegistryNameservers(raw string) []netip.Addr {
 
 func (r *registryConfigurator) getOriginalNameservers() []netip.Addr {
 	return slices.Clone(r.origNameservers)
+}
+
+func (r *registryConfigurator) setOriginalNameservers(nameservers []netip.Addr) {
+	r.origNameservers = slices.Clone(nameservers)
 }
 
 func (r *registryConfigurator) supportCustomPort() bool {

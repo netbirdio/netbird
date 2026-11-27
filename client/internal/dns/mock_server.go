@@ -22,6 +22,8 @@ type MockServer struct {
 	RegisterHandlerFunc    func(domain.List, dns.Handler, int)
 	DeregisterHandlerFunc  func(domain.List, int)
 	UpdateServerConfigFunc func(domains dnsconfig.ServerDomains) error
+
+	RefreshHostFallbackFunc func()
 }
 
 func (m *MockServer) RegisterHandler(domains domain.List, handler dns.Handler, priority int) {
@@ -58,6 +60,13 @@ func (m *MockServer) DnsIP() netip.Addr {
 func (m *MockServer) OnUpdatedHostDNSServer(addrs []netip.AddrPort) {
 	// TODO implement me
 	panic("implement me")
+}
+
+// RefreshHostFallback mock implementation of RefreshHostFallback from Server interface
+func (m *MockServer) RefreshHostFallback() {
+	if m.RefreshHostFallbackFunc != nil {
+		m.RefreshHostFallbackFunc()
+	}
 }
 
 // UpdateDNSServer mock implementation of UpdateDNSServer from Server interface

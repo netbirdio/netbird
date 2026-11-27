@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/iface/udpmux"
+	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
@@ -77,9 +78,28 @@ func TestRedialForgetsTheOldNetworksSTUNMapping(t *testing.T) {
 		peerStore: peerstore.NewConnStore(),
 		udpMux:    mux,
 	}
-	require.True(t, e.redialOnUnderlayChange(networkmonitor.Change{Kind: networkmonitor.ChangeAddress}), "an address change is handled in place")
+	require.True(t, e.redialOnUnderlayChange(networkmonitor.Change{Kind: networkmonitor.ChangeAddress}, nil), "an address change is handled in place")
 
 	mapped, err = mux.GetXORMappedAddr(server, 2*time.Second)
 	require.NoError(t, err)
 	assert.True(t, mapped.IP.Equal(newNAT.IP), "after the change the mapping is asked again, got %s", mapped.IP)
+}
+
+// Alice moves to another Wi-Fi whose DHCP hands out another resolver. The
+// engine stays up, so the DNS fallback captured on the old network must be
+// read again, or names forwarded to it time out.
+func TestRedialRefreshesTheHostDNSFallback(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	e := &Engine{
+		ctx:       ctx,
+		netMgr:    netevents.NewManager(peer.NewRecorder("")),
+		peerStore: peerstore.NewConnStore(),
+	}
+	var refreshed int
+	hostDNS := &dns.MockServer{RefreshHostFallbackFunc: func() { refreshed++ }}
+
+	require.True(t, e.redialOnUnderlayChange(networkmonitor.Change{Kind: networkmonitor.ChangeAddress}, hostDNS), "an address change is handled in place")
+
+	assert.Equal(t, 1, refreshed, "the redial must refresh the host DNS fallback once")
 }
