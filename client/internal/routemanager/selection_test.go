@@ -13,6 +13,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/client"
 	"github.com/netbirdio/netbird/client/internal/routemanager/notifier"
 	"github.com/netbirdio/netbird/client/internal/routeselector"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -184,6 +185,33 @@ func TestSelectRoutes_TotalFailureLeavesInstalledRoutesAlone(t *testing.T) {
 
 	assert.Error(t, err, "the unknown id must still be reported")
 	assert.ElementsMatch(t, installed, maps.Keys(m.activeRoutes), "a fully invalid request must not disturb the routing table")
+}
+
+// With client routes disabled, selecting or deselecting a network only changes the saved selection: no route
+// is installed, so no allowed IPs and no route status change either. The selection is still saved and announced.
+func TestSelectRoutes_ClientRoutesDisabledInstallsNothing(t *testing.T) {
+	m := newPartialFailureTestManager()
+	m.disableClientRoutes = true
+	m.stateManager = statemanager.NewInMemory()
+	m.stateManager.RegisterState((*SelectorState)(nil))
+	revision := m.statusRecorder.GetNetworksRevision()
+
+	require.NoError(t, m.SelectRoutes([]route.NetID{"lan"}, false))
+	assert.True(t, m.routeSelector.IsSelected("lan"), "the selection is kept")
+	assert.False(t, m.routeSelector.IsSelected("other"))
+	assert.Empty(t, m.activeRoutes, "no route may be installed while client routes are disabled")
+
+	saved, ok := m.stateManager.GetState((*SelectorState)(nil)).(*SelectorState)
+	require.True(t, ok, "the selection must be marked for the next state save")
+	assert.True(t, (*routeselector.RouteSelector)(saved).IsSelected("lan"))
+	assert.Greater(t, m.statusRecorder.GetNetworksRevision(), revision, "the UI must be told about the new selection")
+
+	require.NoError(t, m.DeselectRoutes([]route.NetID{"lan"}))
+	assert.False(t, m.routeSelector.IsSelected("lan"))
+	assert.Empty(t, m.activeRoutes)
+
+	m.SelectAllRoutes()
+	assert.Empty(t, m.activeRoutes)
 }
 
 func TestExitNodeSelectionHelpers(t *testing.T) {

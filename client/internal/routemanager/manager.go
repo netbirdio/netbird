@@ -576,6 +576,13 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 	m.mux.Lock()
 	defer m.mux.Unlock()
 
+	// With client routes disabled, UpdateRoutes installs none, so a selection must not install them either.
+	// The selector keeps the choice, and it applies once client routes are enabled again.
+	if m.disableClientRoutes {
+		m.saveSelection()
+		return
+	}
+
 	networks = m.routeSelector.FilterSelectedExitNodes(networks)
 
 	m.notifier.OnNewRoutes(networks)
@@ -617,6 +624,11 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 		clientNetworkWatcher.SendUpdate(client.RoutesUpdate{Routes: routes})
 	}
 
+	m.saveSelection()
+}
+
+// saveSelection marks the route selection for the next state save and tells the UI about it.
+func (m *DefaultManager) saveSelection() {
 	if err := m.stateManager.UpdateState((*SelectorState)(m.routeSelector)); err != nil {
 		log.Errorf("failed to update state: %v", err)
 	}
