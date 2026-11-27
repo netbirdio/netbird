@@ -7,17 +7,72 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/miekg/dns"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/proto"
 )
+
+func TestNewNetBirdResolverDialsConfiguredAddress(t *testing.T) {
+	t.Parallel()
+
+	packetConn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	require.NoError(t, err, "DNS test server should listen")
+
+	server := &dns.Server{
+		PacketConn: packetConn,
+		Handler: dns.HandlerFunc(func(w dns.ResponseWriter, req *dns.Msg) {
+			resp := new(dns.Msg)
+			resp.SetReply(req)
+			resp.Answer = append(resp.Answer, &dns.PTR{
+				Hdr: dns.RR_Header{
+					Name:   req.Question[0].Name,
+					Rrtype: dns.TypePTR,
+					Class:  dns.ClassINET,
+					Ttl:    60,
+				},
+				Ptr: "cluster.netbird-kubeapi-proxy.example.",
+			})
+			if err := w.WriteMsg(resp); err != nil {
+				t.Errorf("write DNS test response: %v", err)
+			}
+		}),
+	}
+	go func() {
+		if err := server.ActivateAndServe(); err != nil {
+			t.Errorf("serve DNS test requests: %v", err)
+		}
+	}()
+	t.Cleanup(func() {
+		require.NoError(t, server.Shutdown(), "DNS test server should stop")
+	})
+
+	resolverAddress := netip.MustParseAddrPort(packetConn.LocalAddr().String())
+	resolver := newNetBirdResolver(resolverAddress)
+	fqdns, err := resolver.LookupAddr(t.Context(), "100.96.72.123")
+	assert.NoError(t, err, "reverse lookup should use the configured NetBird resolver")
+	assert.Equal(t, []string{"cluster.netbird-kubeapi-proxy.example."}, fqdns,
+		"reverse lookup should return the NetBird resolver response")
+}
+
+func TestGetKubernetesClustersResolverAddressCompatibility(t *testing.T) {
+	t.Parallel()
+
+	kcs, err := getKubernetesClusters(t.Context(), nil, "", "")
+	assert.NoError(t, err, "missing resolver address from an older daemon should keep existing behavior")
+	assert.Empty(t, kcs, "no peers should produce no clusters")
+
+	_, err = getKubernetesClusters(t.Context(), nil, "", "not-an-address")
+	assert.Error(t, err, "malformed daemon resolver address should be rejected")
+}
 
 func TestFingerprintClusters(t *testing.T) {
 	t.Parallel()
@@ -51,7 +106,9 @@ func TestFindKubernetesClustersSkipsFailedLookup(t *testing.T) {
 	}}
 
 	// The first peer has no DNS record in NetBird, so its reverse lookup fails.
+	var lookups []string
 	lookupAddr := func(_ context.Context, addr string) ([]string, error) {
+		lookups = append(lookups, addr)
 		switch addr {
 		case "100.64.0.1":
 			return nil, &net.DNSError{Err: "no such host", Name: "1.0.64.100.in-addr.arpa.", IsNotFound: true}
@@ -60,14 +117,21 @@ func TestFindKubernetesClustersSkipsFailedLookup(t *testing.T) {
 		}
 		return nil, errors.New("unexpected address " + addr)
 	}
-	peers := []*proto.PeerState{{IP: "100.64.0.1"}, {IP: "100.64.0.2"}}
+	peers := []*proto.PeerState{
+		{IP: "not-an-ip"},
+		{IP: "100.64.0.1"},
+		{IP: "::ffff:100.64.0.2"},
+	}
 
 	for _, filter := range []string{"", "homelab"} {
+		lookups = nil
 		kcs, err := findKubernetesClusters(t.Context(), httpClient, lookupAddr, peers, filter)
 		require.NoError(t, err)
 		require.Len(t, kcs, 1, "cluster behind the failing peer must be found (filter %q)", filter)
 		require.Equal(t, "homelab", kcs[0].name)
 		require.Equal(t, "v1.30.0", kcs[0].version)
+		assert.Equal(t, []string{"100.64.0.1", "100.64.0.2"}, lookups,
+			"invalid peers should be skipped and mapped addresses normalized (filter %q)", filter)
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -81,7 +145,7 @@ func TestFindKubernetesClustersSkipsFailedLookup(t *testing.T) {
 		cancel()
 		return nil, ctx.Err()
 	}
-	_, err = findKubernetesClusters(ctx, httpClient, cancelOnLookup, peers[:1], "")
+	_, err = findKubernetesClusters(ctx, httpClient, cancelOnLookup, peers[1:2], "")
 	require.ErrorIs(t, err, context.Canceled)
 }
 

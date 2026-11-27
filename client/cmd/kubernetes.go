@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -63,7 +64,7 @@ func kubernetesList(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	kcs, err := getKubernetesClusters(cmd.Context(), statusResp.FullStatus.Peers, "")
+	kcs, err := getKubernetesClusters(cmd.Context(), statusResp.FullStatus.Peers, "", statusResp.GetDnsResolverAddress())
 	if err != nil {
 		return err
 	}
@@ -96,7 +97,7 @@ func kubernetesWriteKubeconfig(cmd *cobra.Command, args []string) error {
 	}
 
 	clusterName := args[0]
-	kcs, err := getKubernetesClusters(cmd.Context(), statusResp.FullStatus.Peers, clusterName)
+	kcs, err := getKubernetesClusters(cmd.Context(), statusResp.FullStatus.Peers, clusterName, statusResp.GetDnsResolverAddress())
 	if err != nil {
 		return err
 	}
@@ -119,7 +120,7 @@ type kubernetesCluster struct {
 	version string
 }
 
-func getKubernetesClusters(ctx context.Context, peers []*proto.PeerState, nameFilter string) ([]kubernetesCluster, error) {
+func getKubernetesClusters(ctx context.Context, peers []*proto.PeerState, nameFilter, resolverAddress string) ([]kubernetesCluster, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{
 		InsecureSkipVerify: true,
@@ -127,12 +128,29 @@ func getKubernetesClusters(ctx context.Context, peers []*proto.PeerState, nameFi
 	httpClient := &http.Client{
 		Transport: transport,
 	}
-	resolver := net.Resolver{
+	resolver := &net.Resolver{
 		// Required so both DNS records are returned.
 		// https://github.com/golang/go/issues/17093
 		PreferGo: true,
 	}
+	if resolverAddress != "" {
+		address, err := netip.ParseAddrPort(resolverAddress)
+		if err != nil {
+			return nil, fmt.Errorf("parse NetBird DNS resolver address: %w", err)
+		}
+		resolver = newNetBirdResolver(address)
+	}
 	return findKubernetesClusters(ctx, httpClient, resolver.LookupAddr, peers, nameFilter)
+}
+
+func newNetBirdResolver(address netip.AddrPort) *net.Resolver {
+	dialer := &net.Dialer{}
+	return &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return dialer.DialContext(ctx, network, address.String())
+		},
+	}
 }
 
 func findKubernetesClusters(
@@ -150,8 +168,13 @@ func findKubernetesClusters(
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		peerAddr, err := netip.ParseAddr(peer.IP)
+		if err != nil {
+			log.Debugf("could not parse peer IP %s: %v", peer.IP, err)
+			continue
+		}
 		// Peers without a DNS record have no PTR, which must not hide the remaining peers.
-		fqdns, err := lookupAddr(ctx, peer.IP)
+		fqdns, err := lookupAddr(ctx, peerAddr.Unmap().String())
 		if err != nil {
 			log.Debugf("reverse lookup of peer %s: %v", peer.IP, err)
 			// Before any success, a timeout or SERVFAIL means the resolver is down; waiting
