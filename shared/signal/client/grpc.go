@@ -52,6 +52,9 @@ const (
 	// before the stream is registered is dropped, and spaced so a stream that
 	// waits out defaultRegistrationTimeout sends at most three.
 	defaultRegistrationProbeInterval = 3 * time.Second
+	// watchdogTeardownBackoffWindow is how close two watchdog teardowns must be
+	// for the second to keep the reconnect backoff growing instead of resetting it.
+	watchdogTeardownBackoffWindow = 5 * time.Minute
 )
 
 // errReceiveStreamStalled is reported when the receive stream is transport-alive
@@ -136,6 +139,9 @@ type GrpcClient struct {
 	receiveHandoffBlocked atomic.Bool
 	watchdogWg            sync.WaitGroup
 	watchdog              watchdogTimings
+	// lastWatchdogTeardown is when the watchdog last tore a stream down. Only the
+	// Receive retry loop reads and writes it.
+	lastWatchdogTeardown time.Time
 
 	registrationTimeout       time.Duration
 	registrationProbeInterval time.Duration
@@ -355,8 +361,11 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 				return nil
 			}
 			// we need this reset because after a successful connection and a consequent error, backoff lib doesn't
-			// reset times and next try will start with a long delay
-			backOff.Reset()
+			// reset times and next try will start with a long delay. A stream that stalls again
+			// shortly after the last stall keeps backing off instead.
+			if !c.repeatedWatchdogTeardown(time.Now()) {
+				backOff.Reset()
+			}
 			c.notifyDisconnected(err)
 			log.Warnf("disconnected from the Signal service but will retry silently. Reason: %v", err)
 			return err
@@ -647,6 +656,17 @@ func (c *GrpcClient) send(parentCtx context.Context, msg *proto.Message) error {
 	}
 
 	return err
+}
+
+// repeatedWatchdogTeardown reports whether the stream just ended was torn down by
+// the watchdog shortly after a previous watchdog teardown, and records this one.
+func (c *GrpcClient) repeatedWatchdogTeardown(now time.Time) bool {
+	if !c.receiveStalled.Load() {
+		return false
+	}
+	repeated := !c.lastWatchdogTeardown.IsZero() && now.Sub(c.lastWatchdogTeardown) < watchdogTeardownBackoffWindow
+	c.lastWatchdogTeardown = now
+	return repeated
 }
 
 // markReceived records that a frame was just read from the receive stream and

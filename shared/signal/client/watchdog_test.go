@@ -298,3 +298,18 @@ func TestWatchdogIdleThresholdIsJittered(t *testing.T) {
 	}
 	assert.Greater(t, len(seen), 1, "clients must not share one threshold")
 }
+
+// TestRepeatedWatchdogTeardown decides when the reconnect backoff keeps growing:
+// only a watchdog stall that follows another one within the window.
+func TestRepeatedWatchdogTeardown(t *testing.T) {
+	c := &GrpcClient{}
+	now := time.Now()
+
+	assert.False(t, c.repeatedWatchdogTeardown(now), "a stream that ended for another reason resets the backoff")
+
+	c.receiveStalled.Store(true)
+	assert.False(t, c.repeatedWatchdogTeardown(now), "the first stall reconnects at once")
+	assert.True(t, c.repeatedWatchdogTeardown(now.Add(time.Minute)), "a second stall soon after must back off")
+	assert.False(t, c.repeatedWatchdogTeardown(now.Add(time.Minute+watchdogTeardownBackoffWindow)),
+		"a stall long after the previous one reconnects at once")
+}
