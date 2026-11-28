@@ -82,6 +82,7 @@ var (
 	supportsCustomPorts   bool
 	requireSubdomain      bool
 	private               bool
+	allowSelfTargetLoop   bool
 	geoDataDir            string
 	crowdsecAPIURL        string
 	crowdsecAPIKey        string
@@ -126,6 +127,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&supportsCustomPorts, "supports-custom-ports", envBoolOrDefault("NB_PROXY_SUPPORTS_CUSTOM_PORTS", true), "Whether the proxy can bind arbitrary ports for UDP/TCP passthrough")
 	rootCmd.Flags().BoolVar(&requireSubdomain, "require-subdomain", envBoolOrDefault("NB_PROXY_REQUIRE_SUBDOMAIN", false), "Require a subdomain label in front of the cluster domain")
 	rootCmd.Flags().BoolVar(&private, "private", envBoolOrDefault("NB_PROXY_PRIVATE", false), "Enable private services accessible with NetBird-Only authentication mode.")
+	rootCmd.Flags().BoolVar(&allowSelfTargetLoop, "allow-self-target-loop", envBoolOrDefault("NB_PROXY_ALLOW_SELF_TARGET_LOOP", false), "Allow a peer to reach a service whose backend is that same peer, instead of answering 421 Misdirected Request.")
 	_ = rootCmd.Flags().MarkHidden("private")
 	rootCmd.Flags().DurationVar(&maxDialTimeout, "max-dial-timeout", envDurationOrDefault("NB_PROXY_MAX_DIAL_TIMEOUT", 0), "Cap per-service backend dial timeout (0 = no cap)")
 	rootCmd.Flags().DurationVar(&maxSessionIdleTimeout, "max-session-idle-timeout", envDurationOrDefault("NB_PROXY_MAX_SESSION_IDLE_TIMEOUT", 0), "Cap per-service session idle timeout (0 = no cap)")
@@ -266,6 +268,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		SupportsCustomPorts:      supportsCustomPorts,
 		RequireSubdomain:         requireSubdomain,
 		Private:                  private,
+		AllowSelfTargetLoop:      allowSelfTargetLoop,
 		MaxDialTimeout:           maxDialTimeout,
 		MaxSessionIdleTimeout:    maxSessionIdleTimeout,
 		MappingBatchWatchdog:     envDurationOrDefault("NB_PROXY_MAPPING_BATCH_WATCHDOG", 0),
