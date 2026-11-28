@@ -8,7 +8,9 @@ import (
 	"sync/atomic"
 
 	log "github.com/sirupsen/logrus"
+	"gvisor.dev/gvisor/pkg/tcpip/header"
 
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
@@ -50,8 +52,11 @@ type FilteredDevice struct {
 	// panicHandler is invoked after a panic in the underlying device is
 	// recovered in Read or Write.
 	panicHandler atomic.Pointer[func()]
-	mutex        sync.RWMutex
-	closeOnce    sync.Once
+	// selfAddr is set on platforms whose kernel routes traffic for the own overlay
+	// address into the interface instead of looping it back (macOS).
+	selfAddr  atomic.Pointer[wgaddr.Address]
+	mutex     sync.RWMutex
+	closeOnce sync.Once
 }
 
 // newDeviceFilter constructor function
@@ -81,18 +86,21 @@ func (d *FilteredDevice) Read(bufs [][]byte, sizes []int, offset int) (n int, er
 		return 0, err
 	}
 
+	self := d.selfAddr.Load()
+
 	d.mutex.RLock()
 	filter := d.filter
 	d.mutex.RUnlock()
 
-	if filter != nil {
+	if filter != nil || self != nil {
 		// bufs belongs to the caller: wireguard-go reuses the same slice for every
 		// read and pairs each entry with its own outbound element, so the entries
 		// must never be moved. Compact the batch by copying the packet data of the
 		// kept packets forward instead.
 		kept := 0
 		for i := 0; i < n; i++ {
-			if filter.FilterOutbound(bufs[i][offset:offset+sizes[i]], sizes[i]) {
+			if d.loopBackToSelf(self, bufs[i][:offset+sizes[i]], offset) ||
+				(filter != nil && filter.FilterOutbound(bufs[i][offset:offset+sizes[i]], sizes[i])) {
 				continue
 			}
 			if kept != i {
@@ -146,6 +154,25 @@ func (d *FilteredDevice) Write(bufs [][]byte, offset int) (int, error) {
 	return n + dropped, nil
 }
 
+// loopBackToSelf writes a packet destined to the own overlay address back into the
+// device, and returns whether the packet was destined to self.
+func (d *FilteredDevice) loopBackToSelf(self *wgaddr.Address, buf []byte, offset int) bool {
+	if self == nil || !isToSelf(buf[offset:], *self) {
+		return false
+	}
+	if pc := d.capture.Load(); pc != nil {
+		// Capture the packet since it doesn't reach the main capture loop in
+		// [FilteredDevice.Read]. Captured as both in- and outbound because it's
+		// written back to the interface.
+		(*pc).Offer(buf[offset:], true)
+		(*pc).Offer(buf[offset:], false)
+	}
+	if _, err := d.deviceWrite([][]byte{buf}, offset); err != nil {
+		log.Debugf("failed to loop back packet to own address: %v", err)
+	}
+	return true
+}
+
 // deviceRead calls the underlying device Read, recovering from panics in the
 // wintun read path and converting them into errors.
 func (d *FilteredDevice) deviceRead(bufs [][]byte, sizes []int, offset int) (n int, err error) {
@@ -186,6 +213,11 @@ func (d *FilteredDevice) SetFilter(filter PacketFilter) {
 	d.mutex.Unlock()
 }
 
+// setSelfAddr enables looping back packets destined to addr's overlay addresses.
+func (d *FilteredDevice) setSelfAddr(addr wgaddr.Address) {
+	d.selfAddr.Store(&addr)
+}
+
 // SetPanicHandler registers a handler invoked after a recovered panic in Read
 // or Write. The device is unusable after such a panic; the handler should
 // trigger recreation of the interface. Pass nil to remove.
@@ -206,4 +238,16 @@ func (d *FilteredDevice) SetCapture(pc PacketCapture) {
 		return
 	}
 	d.capture.Store(&pc)
+}
+
+// isToSelf reports whether the IP packet is destined to one of the own overlay addresses.
+func isToSelf(pkt []byte, self wgaddr.Address) bool {
+	switch {
+	case header.IPv4(pkt).IsValid(len(pkt)):
+		return netip.AddrFrom4(header.IPv4(pkt).DestinationAddress().As4()) == self.IP
+	case header.IPv6(pkt).IsValid(len(pkt)):
+		return netip.AddrFrom16(header.IPv6(pkt).DestinationAddress().As16()) == self.IPv6
+	default:
+		return false
+	}
 }

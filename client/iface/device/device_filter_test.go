@@ -2,13 +2,17 @@ package device
 
 import (
 	"net"
+	"net/netip"
 	"testing"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
 	mocks "github.com/netbirdio/netbird/client/iface/mocks"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 func TestDeviceWrapperRead(t *testing.T) {
@@ -275,6 +279,122 @@ func TestDeviceWrapperReadKeepsCallerBuffers(t *testing.T) {
 		if &bufs[i][0] != before[i] {
 			t.Errorf("caller's buffer %d was moved", i)
 		}
+	}
+}
+
+// recordingCapture records every packet offered to it and its direction.
+type recordingCapture struct {
+	packets  [][]byte
+	outbound []bool
+}
+
+func (c *recordingCapture) Offer(data []byte, outbound bool) {
+	c.packets = append(c.packets, append([]byte(nil), data...))
+	c.outbound = append(c.outbound, outbound)
+}
+
+func TestDeviceWrapperReadLoopsBackToSelf(t *testing.T) {
+	self, err := wgaddr.ParseWGAddress("100.64.0.1/16")
+	require.NoError(t, err)
+	v4Only := self
+	self.IPv6 = netip.MustParseAddr("fd00::1")
+	self.IPv6Net = netip.MustParsePrefix("fd00::/64")
+
+	// Packets read from the device were sent by the local host, so a packet to self
+	// carries the own address as both source and destination.
+	packet := func(t *testing.T, addr net.IP) []byte {
+		var ipLayer gopacket.SerializableLayer = &layers.IPv4{
+			Version: 4, TTL: 64, Protocol: layers.IPProtocolUDP, SrcIP: addr, DstIP: addr,
+		}
+		if addr.To4() == nil {
+			ipLayer = &layers.IPv6{
+				Version: 6, HopLimit: 64, NextHeader: layers.IPProtocolUDP, SrcIP: addr, DstIP: addr,
+			}
+		}
+		buf := gopacket.NewSerializeBuffer()
+		err := gopacket.SerializeLayers(buf, gopacket.SerializeOptions{FixLengths: true},
+			ipLayer, &layers.UDP{SrcPort: 1234, DstPort: 5678})
+		require.NoError(t, err)
+		return buf.Bytes()
+	}
+
+	tests := []struct {
+		name     string
+		self     *wgaddr.Address
+		dst      string
+		loopBack bool
+	}{
+		{name: "v4 to self", self: &self, dst: "100.64.0.1", loopBack: true},
+		{name: "v6 to self", self: &self, dst: "fd00::1", loopBack: true},
+		{name: "v4 to peer", self: &self, dst: "100.64.0.2"},
+		{name: "v6 to peer", self: &self, dst: "fd00::2"},
+		{name: "v4 to self without self address", dst: "100.64.0.1"},
+		{name: "v6 to self without own v6", self: &v4Only, dst: "fd00::1"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			pkt := packet(t, net.ParseIP(tc.dst))
+
+			// The darwin TUN writes its 4-byte AF header in front of offset.
+			const offset = 4
+			tun := mocks.NewMockDevice(ctrl)
+			tun.EXPECT().Read(gomock.Any(), gomock.Any(), offset).
+				DoAndReturn(func(bufs [][]byte, sizes []int, offset int) (int, error) {
+					sizes[0] = copy(bufs[0][offset:], pkt)
+					return 1, nil
+				})
+
+			var written [][]byte
+			if tc.loopBack {
+				tun.EXPECT().Write(gomock.Any(), offset).
+					DoAndReturn(func(bufs [][]byte, offset int) (int, error) {
+						written = append(written, bufs[0][offset:])
+						return 1, nil
+					})
+			}
+
+			wrapped := newDeviceFilter(tun)
+			if tc.self != nil {
+				wrapped.setSelfAddr(*tc.self)
+			}
+			capture := &recordingCapture{}
+			wrapped.SetCapture(capture)
+
+			n, err := wrapped.Read([][]byte{make([]byte, 1500)}, []int{0}, offset)
+			require.NoError(t, err)
+
+			// A looped-back packet crosses the interface twice, out and back in. Any
+			// other packet is captured once, as outbound, by Read's capture loop.
+			wantOutbound := []bool{true}
+			if tc.loopBack {
+				wantOutbound = []bool{true, false}
+			}
+			assert.Equal(t, wantOutbound, capture.outbound, "packet should be captured in the expected directions")
+			for _, captured := range capture.packets {
+				assert.Equal(t, pkt, captured, "captured packet should match the packet read")
+			}
+
+			if !tc.loopBack {
+				assert.Equal(t, 1, n, "packet should be passed on to the overlay")
+				return
+			}
+			assert.Equal(t, 0, n, "packet to self should not be passed on to the overlay")
+			require.Len(t, written, 1, "packet to self should be written back to the device")
+			assert.Equal(t, pkt, written[0], "packet should be written back unchanged")
+		})
+	}
+}
+
+func TestIsToSelfMalformed(t *testing.T) {
+	self, err := wgaddr.ParseWGAddress("100.64.0.1/16")
+	require.NoError(t, err)
+
+	// Reading the destination of a too-short packet would panic outside the
+	// device's panic recovery and take down the daemon.
+	for _, pkt := range [][]byte{nil, {0x45}, {0x60, 0, 0, 0}} {
+		assert.False(t, isToSelf(pkt, self), "malformed packet %x must not match", pkt)
 	}
 }
 
