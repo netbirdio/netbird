@@ -65,20 +65,9 @@ func (m *WGIfaceMonitor) Start(ctx context.Context, ifaceName string) (shouldRes
 // getInterfaceIndex returns the index of a network interface by name.
 // Returns an error if the interface is not found.
 func getInterfaceIndex(name string) (int, error) {
-	if name == "" {
-		return 0, fmt.Errorf("empty interface name")
-	}
 	ifi, err := net.InterfaceByName(name)
 	if err != nil {
-		// Check if it's specifically a "not found" error
-		if errors.Is(err, &net.OpError{}) {
-			// On some systems, this might be a "not found" error
-			return 0, fmt.Errorf("interface not found: %w", err)
-		}
-		return 0, fmt.Errorf("failed to lookup interface: %w", err)
-	}
-	if ifi == nil {
-		return 0, fmt.Errorf("interface not found")
+		return 0, err
 	}
 	return ifi.Index, nil
 }
